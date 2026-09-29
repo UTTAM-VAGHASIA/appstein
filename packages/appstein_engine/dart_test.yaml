@@ -1,0 +1,5 @@
+tags:
+  integration:
+    # Uses the real machine (Flutter, PATH, JDK), so a plain `dart test`
+    # skips it. CI runs it separately.
+    skip: "Uses the real machine. Run with --run-skipped --tags integration."

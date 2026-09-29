@@ -59,3 +59,16 @@ fvm dart run tool/check_guide.dart
 ```
 
 Before you commit, run `fvm dart format .` and `fvm dart analyze --fatal-infos` from the repo root.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Job | What it proves |
+|---|---|
+| `analyze` | Formatting, analyzer (including `layer_imports`), dependency hygiene |
+| `test` | Unit tests on Windows, macOS and Linux, plus `doctor` against each real runner |
+| `build` | The AOT binary on all three OSes, under the 200 ms start-up budget |
+| `docs` | API docs build cleanly; this guide's links and paths are valid |
+| `min-sdk` | Everything still works on the oldest supported Flutter (3.44) |
+| `measure` | Cold-analysis timings for the fast-verify budget, in the job summary |

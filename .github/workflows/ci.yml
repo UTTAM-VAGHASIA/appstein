@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FLUTTER_STABLE: "3.47.5"   # keep in step with .fvmrc
+  FLUTTER_MIN: "3.44.x"      # spec §22 #14: proposed minimum
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart analyze --fatal-infos
+      - run: dart run dependency_validator
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - name: Unit tests
+        shell: bash
+        run: |
+          dart test test
+          for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
+      - name: Doctor against this real machine
+        shell: bash
+        working-directory: packages/appstein_engine
+        run: dart test --run-skipped --tags integration
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - name: Compile appstein
+        shell: bash
+        run: |
+          mkdir -p build
+          dart compile exe packages/appstein_cli/bin/appstein.dart -o build/appstein${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Start-up budget (spec §15)
+        shell: bash
+        run: dart run tool/startup_check.dart build/appstein${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Run doctor (report only)
+        shell: bash
+        run: ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} doctor || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appstein-${{ runner.os }}
+          path: build/appstein*
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - name: API docs build without warnings
+        shell: bash
+        run: for pkg in packages/*/; do (cd "$pkg" && dart doc --dry-run) || exit 1; done
+      - name: Developer guide check
+        run: dart run tool/check_guide.dart
+
+  min-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_MIN }}
+          channel: stable
+      - run: flutter --version
+      # No --enforce-lockfile: an older SDK may need older versions of some
+      # dependencies, and finding out is the point of this job.
+      - run: dart pub get
+      - name: Analyze, which also loads our analyzer plugin on the old SDK
+        run: dart analyze --fatal-infos
+      - name: Unit tests
+        shell: bash
+        run: for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
+
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - name: Measure cold analysis with the plugin (spec §9.1)
+        shell: bash
+        # The script resolves a bare `flutter` itself (flutter.bat on Windows).
+        run: dart run tool/measure_analyze.dart --flutter flutter >> "$GITHUB_STEP_SUMMARY"

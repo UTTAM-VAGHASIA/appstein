@@ -11,6 +11,7 @@ workspace:
   - packages/appstein_cli
   - packages/appstein_lints
 dev_dependencies:
+  dependency_validator: ^5.0.0
   lints: ^6.1.0
   path: ^1.9.1
   test: ^1.32.0

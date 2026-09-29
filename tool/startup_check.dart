@@ -6,7 +6,9 @@ import 'dart:io';
 /// Usage: fvm dart run tool/startup_check.dart [path to compiled appstein]
 Future<void> main(List<String> arguments) async {
   if (arguments.length != 1) {
-    stderr.writeln('Usage: dart run tool/startup_check.dart <path to appstein>');
+    stderr.writeln(
+      'Usage: dart run tool/startup_check.dart <path to appstein>',
+    );
     exitCode = 2;
     return;
   }
@@ -26,7 +28,9 @@ Future<void> main(List<String> arguments) async {
   }
   times.sort();
   final median = times[runs ~/ 2];
-  stdout.writeln('appstein --version start-up: median $median ms over $runs '
-      'runs (budget $budgetMs ms). All runs: $times');
+  stdout.writeln(
+    'appstein --version start-up: median $median ms over $runs '
+    'runs (budget $budgetMs ms). All runs: $times',
+  );
   if (median > budgetMs) exitCode = 1;
 }
