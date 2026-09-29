@@ -7099,13 +7099,18 @@ After their review, use superpowers:finishing-a-development-branch to decide how
 |---|---|---|
 | AOT `appstein --version` start-up, median of 7 | Windows development machine | **34 ms** (runs: 32, 33, 34, 34, 37, 47, 56 ms), 2026-09-30 |
 | AOT start-up, median of 7 | CI Linux / Windows / macOS | _Task 15_ |
-| Single-file `dart analyze`, no plugin | Windows development machine | _Task 13_ |
-| Single-file `dart analyze` with the plugin | Windows development machine | _Task 13_ |
+| Single-file `dart analyze`, no plugin | Windows development machine | **9 991 ms** (median of 3), 2026-09-30 |
+| Single-file `dart analyze` with the plugin | Windows development machine | **12 705 ms** (median of 3), 2026-09-30 |
+| Whole ~200-file app, first run with the plugin (includes the plugin build) | Windows development machine | **42 065 ms** |
 | Single-file `dart analyze` with the plugin | CI Linux / Windows | _Task 15_ |
-| Whole ~200-file app with the plugin | Windows development machine | _Task 13_ |
+| Whole ~200-file app with the plugin | Windows development machine | **15 955 ms** (median of 3) |
 | Oldest Flutter that passes `min-sdk` | CI | _Task 15_ |
 
-**Fast-verify decision (spec §9.1):** _written after Task 13, using the rule in Task 13._
+**Fast-verify decision (spec §9.1):** **warm analysis.** Slice 1d plans fast verify as warm analysis inside the long-running `appstein mcp` process (spec §9.1 fallback), with cold analysis only when that process isn't running.
+- Single-file cold analysis with the plugin took 12.7 s on the Windows development machine, far above the 3.0 s decision threshold.
+- Most of that is cold `dart analyze` itself: about 10 s without the plugin, because the analyzer loads the whole Flutter SDK. The plugin adds only about 2.7 s.
+- So no tuning of our plugin could bring a cold run under the 5 s budget.
+- CI Linux and Windows timings come from the `measure` job (Task 15).
 
 **Notes from execution:** _anything that differed from this plan, and why._
 
