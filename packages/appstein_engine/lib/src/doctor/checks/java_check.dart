@@ -2,10 +2,12 @@ import 'package:path/path.dart' as p;
 
 import '../../android/flutter_settings.dart';
 import '../../android/java_locator.dart';
+import '../../host/host_environment.dart';
 import '../check_helpers.dart';
 import '../doctor_check.dart';
 
-/// Checks the JDK Flutter actually uses for Android builds.
+/// Checks the JDK Flutter actually uses for Android builds, and whether
+/// JAVA_HOME names a JDK of another version.
 final class JavaCheck implements DoctorCheck {
   /// Creates the check.
   const JavaCheck();
@@ -22,9 +24,10 @@ final class JavaCheck implements DoctorCheck {
   @override
   Future<CheckResult> run(DoctorContext context) async {
     final environment = context.environment;
-    final java = locateFlutterJava(
+    final java = await locateFlutterJava(
       environment,
       readFlutterSettings(environment),
+      context.runner,
     );
     const pointFlutter =
         'Point Flutter at a working JDK $minimumMajor or '
@@ -38,23 +41,27 @@ final class JavaCheck implements DoctorCheck {
       );
     }
     final where = '${java.source.label} (${java.home ?? java.javaBinary})';
+    final found = ['Path: ${java.home ?? java.javaBinary}', ...java.skipped];
     final details = [
-      'Flutter checks, in order: `flutter config --jdk-dir`, '
-          "Android Studio's JDK, JAVA_HOME, then `java` on PATH.",
+      ...found,
+      'Flutter checks, in order: `flutter config --jdk-dir`, the newest '
+          'Android Studio whose JDK runs, JAVA_HOME, then `java` on PATH.',
     ];
-    final result = await context.runner.run(java.javaBinary, ['-version']);
-    if (!result.ok) {
-      final reason = firstLine(result.stderr);
-      return CheckResult.error(
-        'Flutter uses $where, but it does not run: '
-        '${reason.isEmpty ? 'exit code ${result.exitCode}' : reason}',
-        details: details,
-        fixHint: java.source == JavaSource.androidStudio
-            ? 'Repair or reinstall Android Studio, or: $pointFlutter'
-            : pointFlutter,
-      );
+    var versionOutput = java.versionOutput;
+    if (versionOutput == null) {
+      final result = await context.runner.run(java.javaBinary, ['-version']);
+      if (!result.ok) {
+        final reason = firstLine(result.stderr);
+        return CheckResult.error(
+          'Flutter uses $where, but it does not run: '
+          '${reason.isEmpty ? 'exit code ${result.exitCode}' : reason}',
+          details: details,
+          fixHint: pointFlutter,
+        );
+      }
+      versionOutput = '${result.stderr}\n${result.stdout}';
     }
-    final major = parseJavaMajor('${result.stderr}\n${result.stdout}');
+    final major = parseJavaMajor(versionOutput);
     if (major == null) {
       return CheckResult.warning(
         'Could not read the version of $where.',
@@ -75,9 +82,20 @@ final class JavaCheck implements DoctorCheck {
     if (java.source != JavaSource.javaHome &&
         javaHome != null &&
         (home == null || !p.equals(javaHome, home))) {
+      final javaHomeMajor = await _majorOf(javaHome, context);
+      if (javaHomeMajor == major) {
+        return CheckResult.info(
+          'JDK $major from ${java.source.label}; JAVA_HOME points to another '
+          'JDK $major ($javaHome).',
+          details: found,
+        );
+      }
+      final javaHomeJdk = javaHomeMajor == null
+          ? javaHome
+          : 'JDK $javaHomeMajor ($javaHome)';
       return CheckResult.warning(
         'Flutter uses JDK $major from $where, but JAVA_HOME points to '
-        '$javaHome.',
+        '$javaHomeJdk.',
         details: details,
         fixHint:
             'Gradle run outside Flutter (such as ./gradlew) uses '
@@ -87,7 +105,21 @@ final class JavaCheck implements DoctorCheck {
     }
     return CheckResult.ok(
       'JDK $major from ${java.source.label}',
-      details: ['Path: ${java.home ?? java.javaBinary}'],
+      details: found,
     );
+  }
+
+  /// The major version of the JDK in [jdkHome], or null when it doesn't run
+  /// or prints no version.
+  static Future<int?> _majorOf(String jdkHome, DoctorContext context) async {
+    final java = p.join(
+      jdkHome,
+      'bin',
+      context.environment.os == HostOs.windows ? 'java.exe' : 'java',
+    );
+    final result = await context.runner.run(java, ['-version']);
+    return result.ok
+        ? parseJavaMajor('${result.stderr}\n${result.stdout}')
+        : null;
   }
 }

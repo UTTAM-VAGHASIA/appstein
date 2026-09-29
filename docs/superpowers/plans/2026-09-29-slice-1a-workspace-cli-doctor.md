@@ -83,8 +83,8 @@ These facts come from throwaway spikes. Tasks rely on them, so they are recorded
   - Windows: `%APPDATA%\.flutter_settings`.
   - macOS/Linux: `~/.flutter_settings` if it exists, else `$XDG_CONFIG_HOME/settings`, else `~/.config/flutter/settings`.
   - Source: `flutter_tools/lib/src/base/config.dart`.
-- **Flutter's JDK order:** `jdk-dir` setting, then Android Studio's bundled JBR, then `JAVA_HOME`, then `java` on PATH. Source: `flutter_tools/lib/src/android/java.dart`.
-  - **On the development machine, Android Studio's JBR is broken** (`could not open jvm.cfg`) while `JAVA_HOME` is JDK 21. That is a real case for the Java check (Task 7).
+- **Flutter's JDK order:** `jdk-dir` setting, then Android Studio's bundled JBR (only a Studio whose Java runs, newest by version), then `JAVA_HOME`, then `java` on PATH. Source: `flutter_tools/lib/src/android/java.dart`.
+  - **The development machine has two Android Studio installs.** The older one's JBR is broken (`could not open jvm.cfg`); the newer one (`Android Studio1`, 2025.3) has a working JDK 21. Flutter skips the broken one and uses the working one. *(Corrected 2026-09-30, after the final review's C1. This plan originally assumed Flutter used the broken JBR, and Tasks 7 and 9 encoded that. Fix wave A replaced it with Flutter's real rule.)*
 - **Flutter's Android SDK lookup:**
   - The first **defined** of the `android-sdk` setting, `ANDROID_HOME`, `ANDROID_SDK_ROOT` and the default folder wins. The default folder is `%USERPROFILE%\AppData\Local\Android\sdk` on Windows, `~/Library/Android/sdk` on macOS and `~/Android/Sdk` on Linux.
   - A folder is a valid SDK when it has `licenses/` or `platform-tools/`. After that come `aapt`/`adb` on PATH.
@@ -3781,7 +3781,7 @@ git commit -m "feat(engine): add the doctor framework with Flutter, Dart, FVM an
 
 ### Task 7: JDK and Android SDK checks
 
-**Why this design:** most failed Android builds on a fresh machine come from Flutter quietly using a *different* JDK than the one `JAVA_HOME` names. The development machine shows this: Android Studio's JBR is broken while `JAVA_HOME` is a working JDK 21. So the check mirrors Flutter's own lookup order, and each lookup cites the `flutter_tools` source it copies. It then runs the JDK Flutter would pick.
+**Why this design:** most failed Android builds on a fresh machine come from Flutter quietly using a *different* JDK than the one `JAVA_HOME` names. So the check mirrors Flutter's own lookup order, and each lookup cites the `flutter_tools` source it copies. It then runs the JDK Flutter would pick.
 
 **Files:**
 - Create: `packages/appstein_engine/lib/src/android/{flutter_settings,java_locator,android_sdk_locator}.dart`
@@ -4573,7 +4573,7 @@ export 'src/doctor/checks/java_check.dart';
 Run: `cd packages/appstein_engine; fvm dart test; cd ../..; fvm dart analyze --fatal-infos`
 Expected: `All tests passed!` and no issues.
 
-The real-machine check happens in Task 9, once `appstein doctor` exists. On the development machine, its JDK line must report the broken Android Studio JBR as an **error**.
+The real-machine check happens in Task 9, once `appstein doctor` exists. On the development machine, its JDK line must report the broken Android Studio JBR as an **error**. *(Wrong expectation, corrected 2026-09-30: Flutter skips that JBR and uses the working `Android Studio1` JDK. See "Evidence Gathered".)*
 
 - [ ] **Step 9: Commit (after the owner approves)**
 
@@ -5647,7 +5647,7 @@ $LASTEXITCODE
 Expected, on the development machine (2026-09-29 state):
 - `[ok]    Flutter SDK: Flutter 3.47.5 (stable)`, found through FVM (the repo has `.fvmrc`).
 - `[info]  Dart SDK`, noting that PATH `dart` is a different SDK.
-- `[error] JDK used by Flutter:` with "Android Studio's bundled JDK … does not run: Error: could not open `…jvm.cfg'".
+- `[error] JDK used by Flutter:` with "Android Studio's bundled JDK … does not run: Error: could not open `…jvm.cfg'". *(Wrong expectation, corrected 2026-09-30: Flutter uses the working `Android Studio1\jbr` JDK 21, so the line is `[info]`. See the correction under "Evidence Gathered".)*
 - `[warn]  appstein on PATH: … not on PATH`.
 - `[info]  Project: No appstein.yaml …`.
 - The exit code is `1`, because of the JDK error.
@@ -7085,7 +7085,7 @@ When the evidence is in, propose these edits (don't make them without approval):
 - [ ] **Step 4: Owner review, then finish the branch**
 
 Show the owner:
-- the `doctor` output from their machine, including the real JDK problem it found;
+- the `doctor` output from their machine, compared line by line with `fvm flutter doctor -v` (corrected 2026-09-30: there was no real JDK problem; see "Evidence Gathered");
 - the measurements;
 - the CI run.
 
