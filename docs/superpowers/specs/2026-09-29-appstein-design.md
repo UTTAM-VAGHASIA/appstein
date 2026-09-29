@@ -153,7 +153,7 @@ appstein/                         ← one git repo, Dart pub workspace (Dart ≥
 - `protocol` depends on nothing internal.
 - `engine` depends only on `protocol`.
 - `cli` depends on `engine` and `protocol`.
-- `lints` depends only on `protocol`. It never imports packs. Stack packs export their layer rules into the project's `analysis_options.yaml` (plugin config, written by `create`/`integrate`/`sync`), and the lints read them from there (§9.6).
+- `lints` depends only on `protocol`. It never imports packs. Stack packs export their layer rules into the project's `analysis_options.yaml` (a top-level `appstein_lints:` section, written by `create`/`integrate`/`sync`), and the lints read them from there (§9.6).
 - Packs never import each other.
 - The engine core never imports a pack. Packs are registered through the pack interface (§10).
 
@@ -589,7 +589,9 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 
 **Where the lints get their rules:**
 
-- Layer rules come from the stack pack but are written into the project's `analysis_options.yaml` under the `appstein_lints` plugin config, by `create`, `integrate` and `sync` (which rewrites the section if the pack changes). They're committed, so the lints work in any IDE even before the first sync.
+- Layer rules come from the stack pack but are written into the project's `analysis_options.yaml` as a **top-level `appstein_lints:` section** (next to `plugins:`), by `create`, `integrate` and `sync` (which rewrites the section if the pack changes). They're committed, so the lints work in any IDE even before the first sync.
+  - **Why top-level:** the analyzer rejects custom keys inside a plugin's own `plugins:` entry (it accepts only `path`, `version`, `git`, `hosted` and `diagnostics`, and warns `unsupported_option` otherwise), and plugins get no configuration API. A top-level section raises no warning, and a rule reads it from the nearest `analysis_options.yaml` above the file it analyzes. Verified on Flutter 3.47.5 / Dart 3.13.4 with `analysis_server_plugin` 0.3.23 (2026-09-29).
+  - Plugin rules are off by default, so `create`/`integrate` also list every rule under `plugins: appstein_lints: diagnostics:`.
 - The `appstein_lints` version is pinned by `integrate` to match the installed `appstein` CLI, and `doctor` reports a mismatch.
 - The same rules, with a repo-specific config, enforce **Appstein's own** package boundaries.
 
