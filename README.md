@@ -4,7 +4,7 @@ A knowledge and verification layer for AI coding agents that build Flutter apps.
 
 **Guide before. Check after.** Appstein gives agents such as Claude Code and Codex current, project-specific knowledge before they write code (generated from the installed Flutter SDK and the analyzed project), and a deterministic verifier after (analyzer, lint rules, native Android/iOS config audit, package gate, real builds) that blocks "done" until the work is correct.
 
-> **Status:** pre-alpha. The design spec is written; implementation starts with Milestone 1, slice 1a. There is no code yet.
+> **Status:** pre-alpha. Milestone 1, slice 1a (workspace, CLI, SDK detection, `doctor`) is in progress. Start with the [developer guide](docs/guide/README.md).
 
 ## Read this first
 
