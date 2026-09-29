@@ -32,6 +32,21 @@ void main() {
     expect(result.stdout.trim(), 'hello world');
   });
 
+  test('on Windows, a bare name does not find a .bat file', () async {
+    final dir = tempDir();
+    fakeExecutable(dir, 'appstein-bare-name-tool');
+    // The process PATH can't be changed, so put the file in the working
+    // folder, the other place Windows looks for a bare name.
+    final previous = Directory.current;
+    Directory.current = dir;
+    try {
+      final result = await runner.run('appstein-bare-name-tool', []);
+      expect(result.started, isFalse);
+    } finally {
+      Directory.current = previous;
+    }
+  }, testOn: 'windows');
+
   test('reports a program that cannot start instead of throwing', () async {
     final result = await runner.run('appstein-no-such-tool-xyz', []);
     expect(result.started, isFalse);

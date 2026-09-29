@@ -46,6 +46,10 @@ final class RunResult {
 abstract interface class ProcessRunner {
   /// Runs [executable] with [arguments] and waits for it, killing it after
   /// [timeout]. Never throws for a missing or failing tool; see [RunResult].
+  ///
+  /// On Windows, pass a `.bat` or `.cmd` tool (such as `fvm`) as the full path
+  /// that `findExecutable` returns. A bare name only finds `.exe` files, so
+  /// `run('fvm', ...)` reports "not started" even when `fvm.bat` is on PATH.
   Future<RunResult> run(
     String executable,
     List<String> arguments, {
@@ -55,6 +59,9 @@ abstract interface class ProcessRunner {
 }
 
 /// Runs tools as real processes.
+///
+/// On Windows, a `.bat` or `.cmd` tool must be given as a full path (see
+/// [ProcessRunner.run]); a bare name only finds `.exe` files.
 final class SystemProcessRunner implements ProcessRunner {
   /// Creates a runner.
   const SystemProcessRunner();
@@ -94,8 +101,9 @@ final class SystemProcessRunner implements ProcessRunner {
         return -1;
       },
     );
-    // A killed shell can leave a child holding the pipes open, so don't wait
-    // for the output forever.
+    // Killing a .bat or .cmd file kills only the implicit cmd.exe, not the
+    // programs it started, and those can keep the pipes open. So the wait
+    // for output is bounded.
     const drain = Duration(seconds: 2);
     final out = await stdoutText.timeout(drain, onTimeout: () => '');
     final err = await stderrText.timeout(drain, onTimeout: () => '');
