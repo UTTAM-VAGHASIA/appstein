@@ -75,10 +75,12 @@ final class SdkDetector {
     String? languageVersion;
     if (projectRoot != null) {
       final pubspec = File(p.join(projectRoot, 'pubspec.yaml'));
-      if (pubspec.existsSync()) {
+      try {
         languageVersion = languageVersionFromPubspec(
           pubspec.readAsStringSync(),
         );
+      } on FileSystemException {
+        // A missing or unreadable pubspec means an unknown language version.
       }
     }
     return SdkDetection.found(

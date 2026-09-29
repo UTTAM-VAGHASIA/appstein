@@ -35,10 +35,18 @@ FvmPin? readFvmPin(String projectRoot) {
   return null;
 }
 
+/// Windows PowerShell 5.1 writes a byte order mark that `jsonDecode` rejects.
+String _stripBom(String text) =>
+    text.startsWith('﻿') ? text.substring(1) : text;
+
 String _read(File file, String key) {
   final Object? data;
   try {
-    data = jsonDecode(file.readAsStringSync());
+    data = jsonDecode(_stripBom(file.readAsStringSync()));
+  } on FileSystemException catch (error) {
+    throw FormatException(
+      'Could not read ${file.path}: ${error.osError?.message ?? error.message}',
+    );
   } on FormatException catch (error) {
     throw FormatException('${file.path} is not valid JSON: ${error.message}');
   }

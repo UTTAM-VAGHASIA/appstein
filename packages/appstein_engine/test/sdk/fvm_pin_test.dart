@@ -21,6 +21,14 @@ void main() {
     expect(readFvmPin(dir.path)!.version, '3.44.0');
   });
 
+  test('reads a .fvmrc that starts with a byte order mark', () {
+    final dir = tempDir();
+    File(
+      p.join(dir.path, '.fvmrc'),
+    ).writeAsStringSync('﻿{"flutter": "3.47.5"}');
+    expect(readFvmPin(dir.path)!.version, '3.47.5');
+  });
+
   test('returns null without FVM and throws on a broken file', () {
     final dir = tempDir();
     expect(readFvmPin(dir.path), isNull);

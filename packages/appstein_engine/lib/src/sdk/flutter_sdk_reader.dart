@@ -46,7 +46,13 @@ FlutterSdkVersions readSdkVersions(String sdkRoot) {
   if (!file.existsSync()) throw SdkNotSetUpException(sdkRoot);
   final Object? data;
   try {
-    data = jsonDecode(file.readAsStringSync());
+    final text = file.readAsStringSync();
+    // Strip a byte order mark, which `jsonDecode` rejects.
+    data = jsonDecode(text.startsWith('﻿') ? text.substring(1) : text);
+  } on FileSystemException catch (error) {
+    throw FormatException(
+      'Could not read ${file.path}: ${error.osError?.message ?? error.message}',
+    );
   } on FormatException catch (error) {
     throw FormatException('${file.path} is not valid JSON: ${error.message}');
   }

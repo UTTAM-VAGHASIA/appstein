@@ -32,6 +32,20 @@ void main() {
     expect(lookup.location!.fvmVersion, '3.47.5');
   });
 
+  test(
+    'without FVM_CACHE_PATH, the cache is fvm/versions in the home folder',
+    () {
+      pin('3.47.5');
+      final home = p.join(work.path, 'home');
+      createFakeSdk(p.join(home, 'fvm', 'versions', '3.47.5'));
+      final env = fakeEnvironment({
+        Platform.isWindows ? 'USERPROFILE' : 'HOME': home,
+      });
+      final lookup = FlutterSdkLocator(env).locate(projectRoot: project);
+      expect(lookup.location!.source, SdkSource.fvm);
+    },
+  );
+
   test('prefers the project .fvm/flutter_sdk link when it is valid', () {
     pin('3.47.5');
     final real = createFakeSdk(p.join(work.path, 'real sdk'));
