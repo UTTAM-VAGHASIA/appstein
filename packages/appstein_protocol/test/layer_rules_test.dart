@@ -40,7 +40,8 @@ void main() {
 
   test('rejects an unknown key', () {
     expect(
-      () => LayerRules.fromJson(<String, Object?>{'layer': <String, Object?>{}}),
+      () =>
+          LayerRules.fromJson(<String, Object?>{'layer': <String, Object?>{}}),
       throwsA(
         isA<FormatException>().having(
           (e) => e.message,
