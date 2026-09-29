@@ -17,9 +17,11 @@ String createFakeSdk(
 }) {
   Directory(p.join(root, 'packages', 'flutter')).createSync(recursive: true);
   final bin = Directory(p.join(root, 'bin'))..createSync(recursive: true);
-  File(
+  final launcher = File(
     p.join(bin.path, Platform.isWindows ? 'flutter.bat' : 'flutter'),
-  ).writeAsStringSync('');
+  )..writeAsStringSync('');
+  // Like the real SDK's launcher, so a PATH lookup on POSIX finds it.
+  if (!Platform.isWindows) Process.runSync('chmod', ['+x', launcher.path]);
   if (setUp) {
     final cache = Directory(p.join(bin.path, 'cache', 'dart-sdk'))
       ..createSync(recursive: true);
