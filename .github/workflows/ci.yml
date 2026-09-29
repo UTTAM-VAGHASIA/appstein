@@ -130,4 +130,6 @@ jobs:
       - name: Measure cold analysis with the plugin (spec §9.1)
         shell: bash
         # The script resolves a bare `flutter` itself (flutter.bat on Windows).
-        run: dart run tool/measure_analyze.dart --flutter flutter >> "$GITHUB_STEP_SUMMARY"
+        # `tee` also puts the table in the log, which `gh run view --log` can
+        # read; job summaries aren't available through the CLI or API.
+        run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
