@@ -7129,4 +7129,35 @@ Run 2 is the one to trust. Its script asserts that `layer_imports` fired on a ca
 - **POSIX-only test failure.** The fake SDK's `bin/flutter` lacked the executable bit, so the PATH-lookup test failed on Linux and macOS (and in `min-sdk`). The fix was in the test support only.
 - **Measure output.** Job summaries can't be read through `gh` or the API, so the measure step now also `tee`s its table into the log.
 - **Ruling R9, a missing FVM pin.** CI's `doctor` errored because `.fvmrc` pins 3.47.5 but CI installs Flutter without FVM. The locator now falls back to FLUTTER_ROOT and then PATH, and accepts the fallback only when its version equals the pin.
+- **The final review and its fix wave.**
+  - The final review found that `doctor` chose the JDK differently from Flutter. Flutter uses only an Android Studio JDK that runs, and prefers the newest install by version.
+  - It also found that a timed-out `.bat` kept `appstein` alive, that a BOM'd `appstein.yaml` was rejected, and that the FVM pin wasn't looked for in parent folders.
+  - All four were fixed and re-reviewed. `appstein doctor` on the development machine now matches `flutter doctor -v`. A CI step now rejects raw U+FEFF characters in Dart files, because editing tools that decode `\u` escapes had reintroduced them.
+
+## Carried to later slices
+
+From the final review, the re-review and per-task reviews. None blocks slice 1a.
+
+**Slice 1b (knowledge, SDK facts):**
+- **macOS Android Studio discovery is narrower than Flutter's `_allMacOS`.**
+  - It doesn't scan `/Applications` recursively for `Android Studio*.app`, doesn't use the Spotlight query, and doesn't exclude Toolbox wrappers.
+  - A Mac with only a Preview app, or with Studio in a subfolder, could get the wrong JDK line. **This is the most important item here.**
+- Build-tools: Appstein skips prerelease versions (36.1.0 on the development machine), while `flutter doctor -v` reports the newest, prerelease included (37.0.0-rc2). Align with `AndroidSdk.latestVersion`.
+- When no JDK is found, the notes about skipped broken Studios are dropped. Return them with the result.
+- Channel pins (`.fvmrc` = `stable`) fail cleanly but confusingly under R9. Handle them properly.
+- `ConfigException` and ProjectCheck messages should include the OS reason (`osError?.message`).
+- The `flutter doctor -v` cross-check runs `flutter` from PATH. Resolve it through `SdkDetector` for the repo root instead.
+- Earlier deferred minors:
+  - Task 5: the "No Flutter SDK" wording; an invalid FLUTTER_ROOT is silently skipped; FVM's `cachePath` config isn't read.
+  - Task 7: the `aapt` and all-`adb` PATH steps; an empty `jdk-dir`; non-semver build-tools.
+
+**Slice 1d (verify, hooks):**
+- `layer_imports` doesn't check conditional imports or exports (`if (dart.library.io) '…'`).
+- Plugin cost: profile the plugin, measure warm analysis, and measure a single-file *first* run after a plugin change.
+- The process runner under hooks:
+  - `taskkill /T` could kill a Gradle daemon or a pub process;
+  - on POSIX, `process.kill()` leaves grandchildren behind;
+  - cmd metacharacter escaping is needed once file paths reach `.bat` arguments.
+- The invalid-glob diagnostic should name the glob. The harness test's 8 s budget is tight on slow runners.
+- `reg query` output encoding for non-ASCII saved PATH entries (unverified).
 
