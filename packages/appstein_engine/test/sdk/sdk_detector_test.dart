@@ -30,6 +30,45 @@ void main() {
     });
   });
 
+  group('when the FVM pin is not installed', () {
+    late Directory work;
+    late String project;
+
+    setUp(() {
+      work = tempDir();
+      project = p.join(work.path, 'my app');
+      Directory(project).createSync();
+      File(p.join(project, 'pubspec.yaml')).writeAsStringSync('name: a\n');
+      File(
+        p.join(project, '.fvmrc'),
+      ).writeAsStringSync('{"flutter": "3.47.5"}');
+    });
+
+    SdkDetection detect(String sdk) => SdkDetector(
+      fakeEnvironment({
+        'FVM_CACHE_PATH': p.join(work.path, 'empty'),
+        'FLUTTER_ROOT': sdk,
+      }),
+    ).detect(projectRoot: project);
+
+    test('a FLUTTER_ROOT SDK at the pinned version is used', () {
+      final detection = detect(createFakeSdk(p.join(work.path, 'sdk')));
+      expect(detection.info!.flutterVersion, '3.47.5');
+      expect(detection.info!.fvmVersion, isNull);
+    });
+
+    test('a FLUTTER_ROOT SDK at another version fails', () {
+      final detection = detect(
+        createFakeSdk(p.join(work.path, 'sdk'), flutter: '3.46.0'),
+      );
+      expect(detection.info, isNull);
+      expect(detection.problem, contains('3.47.5'));
+      expect(detection.problem, contains('3.46.0'));
+      expect(detection.fixHint, contains('fvm install 3.47.5'));
+      expect(detection.location, isNotNull);
+    });
+  });
+
   test('an SDK that was never run explains how to set it up', () {
     final sdk = createFakeSdk(p.join(tempDir().path, 'sdk'), setUp: false);
     final detection = SdkDetector(

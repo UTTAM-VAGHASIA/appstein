@@ -30,6 +30,18 @@ void main() {
     expect(result.status, CheckStatus.warning);
   });
 
+  test('an SDK that meets an unmet FVM pin says why it is used', () async {
+    final result = await check(foundSdk(unmetFvmPin: '3.47.5'));
+    expect(result.status, CheckStatus.ok);
+    expect(
+      result.details,
+      contains(
+        'The project pins 3.47.5 with FVM; FVM does not have it, so this '
+        'matching Flutter is used.',
+      ),
+    );
+  });
+
   test('a failed detection passes its problem and fix through', () async {
     final result = await check(const SdkDetection.failed('No SDK', 'Install'));
     expect(result.status, CheckStatus.error);

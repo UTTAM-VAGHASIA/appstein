@@ -25,7 +25,8 @@ SdkDetection foundSdk({
   String channel = 'stable',
   String root = '/sdk',
   SdkSource source = SdkSource.path,
+  String? unmetFvmPin,
 }) => SdkDetection.found(
   SdkInfo(flutterVersion: flutter, dartVersion: '3.13.4', channel: channel),
-  SdkLocation(root: root, source: source),
+  SdkLocation(root: root, source: source, unmetFvmPin: unmetFvmPin),
 );

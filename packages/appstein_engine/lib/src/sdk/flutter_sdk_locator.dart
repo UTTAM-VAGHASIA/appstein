@@ -31,6 +31,7 @@ final class SdkLocation {
     required this.root,
     required this.source,
     this.fvmVersion,
+    this.unmetFvmPin,
   });
 
   /// The SDK folder (the one that contains `bin/flutter`).
@@ -41,6 +42,10 @@ final class SdkLocation {
 
   /// The FVM-pinned version, when [source] is [SdkSource.fvm].
   final String? fvmVersion;
+
+  /// The version the project pins with FVM when FVM doesn't have it
+  /// installed, so this SDK was found another way.
+  final String? unmetFvmPin;
 }
 
 /// The result of looking for a project's Flutter SDK: a location, or a
@@ -71,6 +76,13 @@ final class SdkLookup {
 ///    which is `FVM_CACHE_PATH` or `~/fvm`);
 /// 2. the FLUTTER_ROOT environment variable;
 /// 3. the `flutter` command on PATH.
+///
+/// A pin states which version the project needs, and FVM is only one way to
+/// install it. When the project pins a version that FVM doesn't have, steps 2
+/// and 3 still run, and an SDK they find records the unmet pin in
+/// [SdkLocation.unmetFvmPin] so the caller can check its version. Only when
+/// neither finds an SDK does the lookup fail, saying the pinned version is not
+/// installed.
 final class FlutterSdkLocator {
   /// Creates a locator for [environment].
   const FlutterSdkLocator(this.environment);
@@ -80,6 +92,7 @@ final class FlutterSdkLocator {
 
   /// Finds the SDK for [projectRoot], or for no project when it is null.
   SdkLookup locate({String? projectRoot}) {
+    FvmPin? unmetPin;
     if (projectRoot != null) {
       final FvmPin? pin;
       try {
@@ -90,20 +103,42 @@ final class FlutterSdkLocator {
           'Fix the file, or run `fvm use <version>` again.',
         );
       }
-      if (pin != null) return _locateFvm(projectRoot, pin);
+      if (pin != null) {
+        final fvm = _locateFvm(projectRoot, pin);
+        if (fvm != null) return SdkLookup.found(fvm);
+        unmetPin = pin;
+      }
     }
+    final unmetVersion = unmetPin?.version;
     final flutterRoot = environment.variable('FLUTTER_ROOT');
     if (flutterRoot != null && _isSdk(flutterRoot)) {
       return SdkLookup.found(
-        SdkLocation(root: flutterRoot, source: SdkSource.flutterRoot),
+        SdkLocation(
+          root: flutterRoot,
+          source: SdkSource.flutterRoot,
+          unmetFvmPin: unmetVersion,
+        ),
       );
     }
     final flutter = findExecutable('flutter', environment);
     if (flutter != null) {
       final root = p.dirname(p.dirname(resolveLinks(flutter)));
       if (_isSdk(root)) {
-        return SdkLookup.found(SdkLocation(root: root, source: SdkSource.path));
+        return SdkLookup.found(
+          SdkLocation(
+            root: root,
+            source: SdkSource.path,
+            unmetFvmPin: unmetVersion,
+          ),
+        );
       }
+    }
+    if (unmetPin != null) {
+      return SdkLookup.failed(
+        'The project pins Flutter ${unmetPin.version} with FVM '
+            '(${unmetPin.configPath}), but that version is not installed.',
+        'Run `fvm install ${unmetPin.version}` in the project folder.',
+      );
     }
     return const SdkLookup.failed(
       'No Flutter SDK found: the project has no FVM pin, FLUTTER_ROOT is not '
@@ -113,15 +148,14 @@ final class FlutterSdkLocator {
     );
   }
 
-  SdkLookup _locateFvm(String projectRoot, FvmPin pin) {
+  /// The SDK FVM provides for [pin], or null when FVM doesn't have it.
+  SdkLocation? _locateFvm(String projectRoot, FvmPin pin) {
     final link = p.join(projectRoot, '.fvm', 'flutter_sdk');
     if (_isSdk(link)) {
-      return SdkLookup.found(
-        SdkLocation(
-          root: resolveLinks(link),
-          source: SdkSource.fvm,
-          fvmVersion: pin.version,
-        ),
+      return SdkLocation(
+        root: resolveLinks(link),
+        source: SdkSource.fvm,
+        fvmVersion: pin.version,
       );
     }
     final home = environment.homeDir;
@@ -131,20 +165,14 @@ final class FlutterSdkLocator {
     if (cache != null) {
       final root = p.join(cache, 'versions', pin.version);
       if (_isSdk(root)) {
-        return SdkLookup.found(
-          SdkLocation(
-            root: root,
-            source: SdkSource.fvm,
-            fvmVersion: pin.version,
-          ),
+        return SdkLocation(
+          root: root,
+          source: SdkSource.fvm,
+          fvmVersion: pin.version,
         );
       }
     }
-    return SdkLookup.failed(
-      'The project pins Flutter ${pin.version} with FVM (${pin.configPath}), '
-          'but that version is not installed.',
-      'Run `fvm install ${pin.version}` in the project folder.',
-    );
+    return null;
   }
 
   bool _isSdk(String root) {

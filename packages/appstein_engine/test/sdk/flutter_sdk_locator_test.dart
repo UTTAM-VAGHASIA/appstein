@@ -83,6 +83,30 @@ void main() {
     expect(lookup.fixHint, contains('fvm install 3.46.0'));
   });
 
+  test('a pin that is not installed falls back to FLUTTER_ROOT', () {
+    pin('3.47.5');
+    final sdk = createFakeSdk(p.join(work.path, 'flutter root'));
+    final lookup = FlutterSdkLocator(
+      fakeEnvironment({
+        'FVM_CACHE_PATH': p.join(work.path, 'empty'),
+        'FLUTTER_ROOT': sdk,
+      }),
+    ).locate(projectRoot: project);
+    expect(lookup.location!.source, SdkSource.flutterRoot);
+    expect(lookup.location!.unmetFvmPin, '3.47.5');
+    expect(lookup.location!.fvmVersion, isNull);
+  });
+
+  test('a pin that FVM has installed leaves unmetFvmPin null', () {
+    pin('3.47.5');
+    final cache = p.join(work.path, 'fvm cache');
+    createFakeSdk(p.join(cache, 'versions', '3.47.5'));
+    final lookup = FlutterSdkLocator(
+      fakeEnvironment({'FVM_CACHE_PATH': cache}),
+    ).locate(projectRoot: project);
+    expect(lookup.location!.unmetFvmPin, isNull);
+  });
+
   test('without FVM, uses FLUTTER_ROOT', () {
     final sdk = createFakeSdk(p.join(work.path, 'flutter root'));
     final lookup = FlutterSdkLocator(

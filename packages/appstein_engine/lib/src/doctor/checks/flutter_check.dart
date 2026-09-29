@@ -24,6 +24,9 @@ final class FlutterCheck implements DoctorCheck {
     }
     final details = [
       'Found through ${location.source.label}: ${location.root}',
+      if (location.unmetFvmPin case final pin?)
+        'The project pins $pin with FVM; FVM does not have it, so this '
+            'matching Flutter is used.',
     ];
     final label = 'Flutter ${info.flutterVersion} (${info.channel})';
     final Version version;

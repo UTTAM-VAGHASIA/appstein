@@ -72,6 +72,16 @@ final class SdkDetector {
         location: location,
       );
     }
+    final unmetPin = location.unmetFvmPin;
+    if (unmetPin != null && versions.flutter != unmetPin) {
+      return SdkDetection.failed(
+        'The project pins Flutter $unmetPin with FVM, but FVM does not have '
+            'it installed, and the Flutter found through '
+            '${location.source.label} is ${versions.flutter}.',
+        'Run `fvm install $unmetPin` in the project folder.',
+        location: location,
+      );
+    }
     String? languageVersion;
     if (projectRoot != null) {
       final pubspec = File(p.join(projectRoot, 'pubspec.yaml'));

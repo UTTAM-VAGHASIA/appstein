@@ -23,7 +23,7 @@ appstein_lints ─────────────────────�
 
 1. `bin/appstein.dart` calls `runAppstein()`, in `packages/appstein_cli/lib/src/runner.dart`.
 2. The `doctor` command resolves the project: `--project`, or the nearest folder with a `pubspec.yaml`.
-3. `Doctor.run()` detects the Flutter SDK **once**. The order is the FVM pin, then FLUTTER_ROOT, then PATH. The code is in `packages/appstein_engine/lib/src/sdk/`.
+3. `Doctor.run()` detects the Flutter SDK **once**. The order is the FVM pin, then FLUTTER_ROOT, then PATH. If the project pins a version that FVM doesn't have installed, FLUTTER_ROOT and PATH are still tried, and the SDK they find is accepted only when its version equals the pin. The code is in `packages/appstein_engine/lib/src/sdk/`.
 4. Every check in `packages/appstein_engine/lib/src/doctor/checks/` runs in parallel with that shared context. Each returns a `CheckResult`: ok, info, warning, error or skipped, with a fix hint.
 5. The CLI prints the report and exits `1` if any check found an error, `0` otherwise, and `3` if Appstein itself failed (spec §9.5).
 
