@@ -1,11 +1,16 @@
 /// The Appstein engine: everything the CLI does, with no command-line code.
 library;
 
+export 'src/android/android_sdk_locator.dart';
+export 'src/android/flutter_settings.dart';
+export 'src/android/java_locator.dart';
 export 'src/config/config_loader.dart';
 export 'src/doctor/check_helpers.dart';
+export 'src/doctor/checks/android_sdk_check.dart';
 export 'src/doctor/checks/dart_check.dart';
 export 'src/doctor/checks/flutter_check.dart';
 export 'src/doctor/checks/fvm_check.dart';
+export 'src/doctor/checks/java_check.dart';
 export 'src/doctor/checks/project_check.dart';
 export 'src/doctor/doctor.dart';
 export 'src/doctor/doctor_check.dart';

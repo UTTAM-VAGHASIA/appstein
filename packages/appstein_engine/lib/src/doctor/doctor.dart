@@ -1,9 +1,11 @@
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../sdk/sdk_detector.dart';
+import 'checks/android_sdk_check.dart';
 import 'checks/dart_check.dart';
 import 'checks/flutter_check.dart';
 import 'checks/fvm_check.dart';
+import 'checks/java_check.dart';
 import 'checks/project_check.dart';
 import 'doctor_check.dart';
 
@@ -37,6 +39,8 @@ List<DoctorCheck> defaultDoctorChecks() => const [
   FlutterCheck(),
   DartCheck(),
   FvmCheck(),
+  JavaCheck(),
+  AndroidSdkCheck(),
   ProjectCheck(),
 ];
 
