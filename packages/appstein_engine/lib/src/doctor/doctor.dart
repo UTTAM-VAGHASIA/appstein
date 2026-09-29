@@ -1,12 +1,17 @@
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../sdk/sdk_detector.dart';
+import 'checks/agents_check.dart';
 import 'checks/android_sdk_check.dart';
+import 'checks/appstein_path_check.dart';
+import 'checks/cocoapods_check.dart';
 import 'checks/dart_check.dart';
 import 'checks/flutter_check.dart';
 import 'checks/fvm_check.dart';
 import 'checks/java_check.dart';
 import 'checks/project_check.dart';
+import 'checks/tool_check.dart';
+import 'checks/xcode_check.dart';
 import 'doctor_check.dart';
 
 /// One check and its result.
@@ -41,6 +46,12 @@ List<DoctorCheck> defaultDoctorChecks() => const [
   FvmCheck(),
   JavaCheck(),
   AndroidSdkCheck(),
+  XcodeCheck(),
+  CocoaPodsCheck(),
+  gitCheck,
+  ripgrepCheck,
+  AgentsCheck(),
+  AppsteinPathCheck(),
   ProjectCheck(),
 ];
 
