@@ -12,12 +12,24 @@ Future<void> main(List<String> arguments) async {
     exitCode = 2;
     return;
   }
+  // Windows can't start a relative path written with forward slashes
+  // (`build/appstein.exe`), so resolve it to an absolute path with the
+  // platform's own separators first.
+  final executable = File(arguments.single).absolute.uri.toFilePath();
+  if (!File(executable).existsSync()) {
+    stderr.writeln(
+      'No file at $executable. Build it first with '
+      '`dart compile exe packages/appstein_cli/bin/appstein.dart -o <path>`.',
+    );
+    exitCode = 1;
+    return;
+  }
   const runs = 7;
   const budgetMs = 200;
   final times = <int>[];
   for (var i = 0; i < runs; i++) {
     final watch = Stopwatch()..start();
-    final result = await Process.run(arguments.single, ['--version']);
+    final result = await Process.run(executable, ['--version']);
     watch.stop();
     if (result.exitCode != 0) {
       stderr.writeln('appstein --version failed: ${result.stderr}');
