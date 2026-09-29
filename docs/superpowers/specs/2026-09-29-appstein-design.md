@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft for owner review |
+| **Status** | Approved by the owner (2026-09-29) |
 | **Date** | 2026-09-29 |
 | **Owner** | UTTAM-VAGHASIA |
 | **Supersedes** | FlutterCraft v0.1.x (Python CLI/TUI). The old repo is archived once the new repo exists (§20) |
@@ -25,6 +25,8 @@ Appstein fixes this in two ways:
 
 1. **Guide before** the agent writes code. A generated, always-fresh knowledge layer (platform facts, a project map, decisions and memory) is served through files and an MCP server.
 2. **Check after** the agent writes code. A deterministic verifier (analyzer, custom lint rules, native-config audit, package gate, real builds) blocks "done" until the work is correct.
+
+The same knowledge is also rendered as **documentation for humans** (`docs/app/`, §6.9), so a developer can understand the app, or take over from the agent and code it themselves, without asking an agent first.
 
 The owner's core belief drives the design. Models are already smart enough; **guided properly, they produce fewer bugs and spend fewer tokens**, because they no longer have to rediscover where everything is.
 
@@ -56,6 +58,7 @@ M1 mostly serves professionals; `create` gives beginners a correct starting poin
 - An agent **finds code through the map and MCP instead of searching**, and uses measurably fewer tokens.
 - A project created by Appstein **builds for Android and iOS on the first try**, with correct native config and no toolchain conflicts.
 - Knowledge **never goes stale**, because it is generated from the SDK and the code, and hand-written knowledge is checked.
+- A developer who has never seen the project can **understand it from `docs/app/` alone**: what it does, where each part lives, how the parts connect and why it was built that way.
 - Every one of these claims is **measured by the benchmark** (§17) and published.
 
 ### 2.3 Non-goals and out of scope for M1
@@ -73,6 +76,8 @@ M1 mostly serves professionals; `create` gives beginners a correct starting poin
 | Gemini consumer subscriptions | Not viable: they no longer work in Gemini CLI since 2026-06-18 |
 | Visual (golden/screenshot) verification and runtime app driving | M2 (§21) |
 | Release builds, store upload, CI/CD pipelines for user apps | After M1. M1 does *static* release-readiness checks only |
+| A browsable HTML docs site (`appstein docs --serve`) | After M1. M1 renders Markdown only (§6.9) |
+| Hand-written or agent-written prose guides for user apps | Never as generated docs. Teams may keep their own notes next to them (§6.9) |
 
 ---
 
@@ -117,6 +122,7 @@ Sources and links are in the research report. These facts shaped the design:
 8. **Use our own product on our own repo.** Appstein's repo is checked by Appstein's own lint rules and boundary rules.
 9. **Local first, private by default.** No telemetry. The only network calls are to pub.dev and advisory data for package checks, and to optional integrations the user enables (§16).
 10. **Windows is first-class.** The owner develops on Windows; paths with spaces, drive letters and PowerShell or cmd shells must all work. Hooks call the `appstein` binary directly, with no bash dependency.
+11. **One source, two audiences.** Agents read `.appstein/` (compact, machine-shaped); humans read `docs/app/` (explained, diagrammed). Both are rendered from the same knowledge, so they can never disagree. The same holds for Appstein's own repo: the graph serves agents, the developer guide serves humans (§19.6).
 
 ---
 
@@ -136,6 +142,7 @@ appstein/                         ← one git repo, Dart pub workspace (Dart ≥
 ├── notes/                        curated per-Flutter-version notes (§6.4) — small, reviewed
 ├── benchmark/                    eval tasks, fixture apps, runner, results
 ├── docs/                         specs, plans, research (moved from the old repo)
+│   └── guide/                    developer guide for humans working on Appstein (§19.6)
 ├── .github/workflows/            CI (§19.3)
 ├── AGENTS.md  CLAUDE.md  .mcp.json
 └── graphify-out/                 graphify knowledge graph of this repo (dev tooling, §19.1)
@@ -161,6 +168,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 | `knowledge/` | Run generators (from packs), write `.appstein/`, hold freshness metadata, take the write lock (§15) |
 | `verify/` | Run checks (from packs + core), apply suppressions and severity overrides, produce findings |
 | `mcp/` | MCP server (using `package:dart_mcp`) exposing knowledge and verify tools |
+| `docs/` | Render human documentation (`docs/app/`) from the knowledge layer, using page contributions from packs (§6.9) |
 | `integrate/` | Install and configure agent integrations (Claude Code, Codex) |
 | `create/` | New-project flow |
 | `upgrade/` | Versioned migrations for user projects and for the `.appstein/` format |
@@ -174,6 +182,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 | `appstein sync [--changed <files> \| --detect]` | Regenerate knowledge; incremental when given changed files or when `--detect` finds them by content hash |
 | `appstein verify [--fast\|--full] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks; exit codes in §9.5 |
 | `appstein mcp` | Start the MCP server over stdio (launched by agents) |
+| `appstein docs [--check]` | Render the human docs into `docs/app/` (§6.9); `--check` writes nothing and exits 1 if the docs are stale |
 | `appstein upgrade [--dry-run]` | Apply versioned migrations after an SDK or Appstein upgrade (§13.2) |
 | `appstein integrate [claude\|codex\|all] [--remove]` | (Re)install or remove agent integration in the current project |
 | `appstein doctor` | Check the environment and explain fixes. Checks: Flutter, Dart, FVM, **the JDK Flutter actually uses** (`flutter config --jdk-dir`, `JAVA_HOME` vs Android Studio's bundled JBR), Android SDK + build-tools (incl. `zipalign`), Xcode ≥ 26 + CocoaPods on macOS, git, ripgrep (needed by the Dart MCP server's `rip_grep_packages`), agent CLIs, and that `appstein` is on the PATH that agent hook shells see (Windows) |
@@ -203,7 +212,8 @@ agent needs context
   └─ MCP: overview / where_is / feature / check_api / toolchain / package_check …
 
 agent says "done"
-  └─ Stop hook → `dart fix --apply` + `dart format` (safe now) → `appstein verify --full --hook <agent>`
+  └─ Stop hook → `dart fix --apply` + `dart format` (safe now) → `appstein docs` (human docs, §6.9)
+       → `appstein verify --full --hook <agent>`
        ├─ pass → task may end
        └─ errors → "done" is blocked; findings are fed back
           Loop guard: if Claude reports `stop_hook_active` and the same errors have blocked
@@ -257,6 +267,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 | `.appstein/INDEX.md`, `platform/`, `map/`, `state.json` | No (git-ignored) | Generated; no merge conflicts; can never be committed stale |
 | `.appstein/decisions/`, `.appstein/memory/` | Yes | Hand-written project knowledge |
 | `appstein.yaml`, `analysis_options.yaml` | Yes | Project configuration |
+| `docs/app/` (human docs, §6.9) | Yes | A **deliberate exception** to "generated = git-ignored": humans must be able to read the docs on GitHub or in a clone without Appstein. The output is byte-identical for the same inputs, so it only changes when the app does, and the `docs.stale` check catches docs that fall behind |
 | `.mcp.json`, `.claude/settings.json`, `.claude/skills/`, `.agents/skills/`, `.config/dart_skills`, the Appstein-managed blocks in `CLAUDE.md` / `AGENTS.md` | Yes | Every teammate and every clone gets the same agent setup; `integrate` regenerates them deterministically from `appstein.yaml`. package:skills requires `.config/dart_skills` to be committed together with the agent skill folders |
 
 `integrate` writes the `.gitignore` entries.
@@ -304,7 +315,7 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
   - `lib/utils/**` → `utils`
   - `test/**` → `test`
 - **Features:** each `lib/ui/<feature>/` folder, with its `view_models/` (classes extending `ChangeNotifier`) and `widgets/` (screens are the widgets referenced by routes), linked to the repositories and services those view models depend on through their constructors, and to their tests under `test/ui/<feature>/`.
-- **Symbols:** public top-level classes, enums, extensions and functions, with file, layer and feature.
+- **Symbols:** public top-level classes, enums, extensions and functions, with file, layer, feature and **summary** (the first sentence of the `///` doc comment, if any). The summary feeds the human docs (§6.9) and gives `where_is` results a one-line description.
 - **Routes:** `GoRoute(path:, builder:/pageBuilder:)` entries reachable from the router, including nested routes. Only paths and builders that are statically resolvable are recorded; anything else is marked `unresolved` and never guessed.
 - **Dependencies:** `pubspec.yaml`, `pubspec.lock` and import usages per package, plus the health snapshot from the last package check.
 - **Native config** (from the platform packs):
@@ -345,6 +356,53 @@ A mismatch is reported as a `decision.drift` warning.
 - **Finishing a task:** `memory_write` with `kind: complete` moves a one-paragraph summary of `current.md` into `lessons.md` and clears `current.md`.
 - **Size limits:** `lessons.md` over 200 lines produces an info finding suggesting consolidation. Nothing is deleted automatically.
 
+### 6.9 Human documentation (`docs/app/`)
+
+Everything above is shaped for agents: compact, machine-readable and git-ignored. People need the same knowledge in a different form, for the day a developer reads the code, reviews it, or takes over from the agent and codes it themselves. Appstein **renders** the knowledge layer into readable Markdown for them. Nothing is written just for the docs, so they follow principle 1 (generate, don't hand-write) and principle 11 (one source, two audiences).
+
+**Pages** (in `docs.path`, default `docs/app/`):
+
+| Page | Contents | Rendered by |
+|---|---|---|
+| `README.md` | What the app is: name, app/bundle IDs, target platforms, stack pack, Flutter/Dart/language version, how to run it, and an index of every page (including team notes, below) | engine |
+| `architecture.md` | The stack's layers in plain language (what a view model, repository and service each do), a Mermaid diagram of which layer may use which (from the pack's layer rules, §9.6), and a folder → layer table | stack pack |
+| `features/<feature>.md` | One page per feature: screens → view models → repositories → services as a Mermaid diagram and a table, the feature's routes and tests, and the doc-comment summary of each class | stack pack |
+| `routes.md` | The route tree, with dynamic routes marked "unresolved" (never guessed, §6.5) | stack pack |
+| `native.md` | Android and iOS setup: IDs, SDK levels, toolchain versions, and every permission with the plugin that needs it, each value with its file:line | platform packs |
+| `dependencies.md` | Each package: version, where it is used, and its last package-gate verdict (§9.4) | engine |
+| `decisions.md` | Every accepted decision with its "Why", linking to the record in `.appstein/decisions/`; superseded decisions listed separately | engine |
+
+GitHub renders Mermaid diagrams natively, so the pages need no extra tooling to read.
+
+**Where the prose comes from:**
+
+- **Concept explanations** ("what is a view model?", "why SDK levels use `flutter.*` variables") are written **once, by Appstein, inside each pack**, and are versioned with the pack. They are not per-project text.
+- **Project-specific explanations** come from two places that already exist:
+  - the "Why" in each decision record (§6.7);
+  - `///` doc comments on public classes. The `document_public_classes` lint (§9.6) requires them in the layers the docs render, and the map stores each one's first sentence as the symbol's summary (§6.5).
+
+**When the docs are rendered:**
+
+- `create` renders the first set (§13.1).
+- The Stop hook renders them once per task, after `dart fix` and `dart format` and before the full verify (§5.4). Rendering per task, not per edit, keeps the working tree quiet while the agent works.
+- `appstein docs` renders them on demand, e.g. after a human edits code without Appstein.
+- If `docs.enabled` is `false`, nothing is rendered and `docs.stale` doesn't run.
+
+**Staying correct:**
+
+- **Deterministic output.** Each page starts with an Appstein-managed marker holding the Appstein version, a hash of the page's inputs and a hash of the rendered body. There is **no timestamp in the body**, so re-rendering unchanged knowledge produces no git diff. An Appstein upgrade that changes the templates produces a single one-time diff.
+- **`docs.stale`** (in `verify --full`, §9.2) re-computes each page's input hash and reports pages that fell behind. It is a **warning** by default: blocking a human's CI over docs would punish exactly the people the docs are for. Teams that want it enforced raise it to an error with `verify.severity`.
+- **Merge conflicts** in generated pages are resolved by re-running `appstein docs` after the code conflict is resolved, because the output depends only on the code and knowledge.
+
+**Hand edits and team notes:**
+
+- Generated pages carry the marker and say "Generated by Appstein; edits are overwritten".
+- `docs.stale` also reports a generated page whose body no longer matches the body hash in its marker (it was hand-edited) as a warning, suggesting the text be moved into a team note.
+- **Any file in `docs/app/` without the marker is never touched.** Teams keep their own notes there (onboarding steps, runbooks), and `README.md` lists them under "Team notes".
+- The Appstein-managed block in `CLAUDE.md` / `AGENTS.md` tells agents never to edit generated docs (§11.1).
+
+**Not in M1:** a browsable HTML site with search (`appstein docs --serve`) can be layered on the same Markdown later (§2.3).
+
 ---
 
 ## 7. Project configuration: `appstein.yaml`
@@ -363,6 +421,9 @@ verify:
   build_on_full: true            # run real debug builds in --full
   severity:                      # per-check overrides
     ui.no_hardcoded_colors: warning
+docs:
+  enabled: true                  # render human docs (§6.9)
+  path: docs/app                 # relative to the project root
 packages:
   stale_after_months: 12
   allow: []                      # packages exempt from the maintenance warning
@@ -429,6 +490,7 @@ Fast checks **only report; they never modify files** (§5.4).
 - `flutter test`, including accessibility guideline tests (`meetsGuideline`: `androidTapTargetGuideline`, `iOSTapTargetGuideline`, `labeledTapTargetGuideline`, `textContrastGuideline`)
 - `verify.test_required` (warning): every feature folder has at least one test file
 - decisions ↔ code consistency (§6.7)
+- `docs.stale` (warning): the human docs match the current knowledge and haven't been hand-edited (§6.9). Skipped when `docs.enabled` is `false`
 
 **Android (platform pack)**
 - **Toolchain:** the Gradle wrapper, AGP, KGP (when used), JDK and NDK fall inside `toolchain.json`. A version newer than Flutter's "max known" (e.g. AGP 9.4 today) is an error.
@@ -523,6 +585,7 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 | `use_spacing_tokens` | No non-zero numeric `EdgeInsets`/`SizedBox`/`Gap` literals in `ui`; use the tokens from the `ThemeExtension` |
 | `no_platform_branching_in_layout` | No `Platform.isX` / `defaultTargetPlatform` checks inside `build` methods (Flutter's adaptive-design guidance) |
 | `no_orientation_lock` | No `SystemChrome.setPreferredOrientations` locks (adaptive-design guidance; Android 17 also ignores orientation restrictions on large screens) |
+| `document_public_classes` | A `///` doc comment on every public class in the layers the human docs render (for `official_mvvm`: view models, repositories, services, domain models and routed screens). Severity **warning**. Its first sentence becomes the class summary in `symbols.json` and in `docs/app/` (§6.9). Written for humans, so it says what the class is for, not how it is implemented |
 
 **Where the lints get their rules:**
 
@@ -554,6 +617,7 @@ abstract interface class Pack {
   List<SkillSource> get skills;           // pack-specific skills/references
   ProjectTemplate? get template;          // used by `create`
   List<Migration> get migrations;         // used by `upgrade`
+  List<DocPage> get docPages;             // human doc pages + concept text (§6.9)
 }
 ```
 
@@ -581,12 +645,12 @@ abstract interface class Pack {
 - **`.claude/settings.json` hooks:**
   - `SessionStart` → `appstein sync`.
   - `PostToolUse` on `Edit|Write|MultiEdit|Bash` → the fast path (§5.4). For Bash, changed files are detected by content hash, and a Bash command that changed nothing costs one hash scan.
-  - `Stop` → apply fix and format, then full verify, with the loop guard (§5.4).
+  - `Stop` → apply fix and format, render the human docs (§6.9), then full verify, with the loop guard (§5.4).
   - Hook commands call the `appstein` binary directly (no shell scripts), so they work on Windows.
 - **`.claude/skills/`:** Appstein skills (§11.3).
 - **`CLAUDE.md`:** created or updated with an Appstein-managed block containing:
   - a one-line pointer to `.appstein/INDEX.md`;
-  - the key workflow rules ("ask the Appstein MCP before searching; run verify before claiming done; never change native toolchain versions yourself");
+  - the key workflow rules ("ask the Appstein MCP before searching; run verify before claiming done; never change native toolchain versions yourself; never edit generated pages in `docs/app/`, write `///` doc comments instead");
   - the official plugin's `flutter-hot-reload` rule text, because Claude Code doesn't auto-load plugin rules.
 
 ### 11.2 Codex
@@ -595,7 +659,7 @@ abstract interface class Pack {
 - **Skills:** installed into `.agents/skills/`, the location `package:skills` and the official docs use for Codex.
 - **Official plugin:** `codex plugin marketplace add flutter/agent-plugins` / `codex plugin add dart-flutter@dart-flutter`, printed for the user if it can't be configured per project. The one-Dart-MCP-server rule from §11.1 applies.
 - **MCP config:** `appstein mcp` (and `dart mcp-server` in the fallback case) in Codex's MCP config. The exact file (project-level vs `~/.codex/config.toml`) is verified in 1e. If only user-level config exists, `integrate` prints the lines to add instead of editing user config.
-- **Hooks:** Codex hook support is verified in 1e. If hooks are unavailable, `AGENTS.md` instructs Codex to call the `verify` MCP tool before finishing, and the CI template (§13.1) enforces `appstein verify --full` on every push.
+- **Hooks:** Codex hook support is verified in 1e. If hooks are unavailable, `AGENTS.md` instructs Codex to run `appstein docs` and call the `verify` MCP tool before finishing, and the CI template (§13.1) enforces `appstein verify --full` on every push.
 
 ### 11.3 Appstein skills (in `skills/`, tested in CI)
 
@@ -603,7 +667,7 @@ Skills are organized by **lifecycle** (following Twenty's `twenty-agent-skills`)
 
 | Skill | Covers |
 |---|---|
-| `appstein-develop` | The core workflow: read INDEX → query MCP → follow the pack's structure → verify; how to read findings; how to record decisions and memory |
+| `appstein-develop` | The core workflow: read INDEX → query MCP → follow the pack's structure → verify; how to read findings; how to record decisions and memory; how to write doc comments that serve human readers (§6.9) |
 | `appstein-theming` | Design tokens with `ThemeExtension`, `ColorScheme.fromSeed`, typography scale, spacing, dark mode, text scaling. Material 3 Expressive and iOS 26 Liquid Glass have **no official Flutter implementation**; community packages are an opt-in dependency risk that must pass `package_check` |
 | `appstein-native-config` | How to change Gradle/iOS config safely within `toolchain()`; never "upgrade to latest"; AGP 9 built-in Kotlin, SwiftPM, UIScene, privacy manifest basics |
 | `appstein-dependencies` | The dependency policy (§14), `package_check`, and what to do with warn/block verdicts |
@@ -655,7 +719,7 @@ Skills are organized by **lifecycle** (following Twenty's `twenty-agent-skills`)
    - `builtInKotlin` / `newDsl` per the rule in §9.2;
    - deployment targets;
    - SwiftPM on, UIScene manifest, privacy manifest.
-5. **Sample feature.** One feature (screen + view model + repository interface + implementation + fake + unit, widget and accessibility guideline tests), so agents have a correct example to copy.
+5. **Sample feature.** One feature (screen + view model + repository interface + implementation + fake + unit, widget and accessibility guideline tests), with `///` doc comments written for human readers, so agents have a correct example to copy.
 6. **Project files.**
    - `appstein.yaml`;
    - `analysis_options.yaml` with `appstein_lints` enabled;
@@ -663,7 +727,7 @@ Skills are organized by **lifecycle** (following Twenty's `twenty-agent-skills`)
    - a project README section ("how this project is set up, how to run `appstein sync`");
    - a CI template: `.github/workflows/appstein.yml` running `appstein verify --full` on Linux (Android) and macOS (iOS).
 7. **Finish.**
-   - `appstein sync` → `appstein integrate` (agents from preflight) → `appstein verify --full`, which **must pass**, otherwise `create` reports the failure.
+   - `appstein sync` → `appstein docs` (the first human docs in `docs/app/`, §6.9) → `appstein integrate` (agents from preflight) → `appstein verify --full`, which **must pass**, otherwise `create` reports the failure.
    - Initialize git and propose the first commit. Nothing is committed without confirmation.
 
 **If any step fails,** `create` stops, prints what was done and what failed, and leaves the directory for inspection. It never deletes a directory it didn't create.
@@ -697,14 +761,14 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 
 | Area | Requirement |
 |---|---|
-| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s. Measured in CI on every change |
+| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change |
 | **Startup** | Hooks invoke a compiled executable (AOT), not `dart run`, so start-up stays under 200 ms |
 | **Platforms** | Appstein runs on Windows, macOS and Linux (x64 and arm64 where Dart supports AOT). Paths with spaces and non-ASCII characters are supported |
 | **Concurrency** | Writes to `.appstein/` take a lock file with a timeout, so two hooks or two agents never corrupt knowledge. Readers never block |
 | **Offline** | Everything except package existence and advisory checks works offline. Network failures degrade to warnings and never block |
 | **Privacy** | No telemetry, no analytics, no code leaves the machine. Network calls: pub.dev API and advisory data; optional integrations only if enabled |
 | **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings |
-| **Determinism** | The same inputs give byte-identical generated knowledge (sorted keys, stable ordering), so golden tests and caching work |
+| **Determinism** | The same inputs give byte-identical generated knowledge and human docs (sorted keys, stable ordering, no timestamps in committed docs), so golden tests and caching work and git diffs show only real changes |
 
 ---
 
@@ -766,11 +830,11 @@ The benchmark lives in `benchmark/`.
 
 | Slice | Delivers | Exit criteria |
 |---|---|---|
-| **1a** | Workspace with 4 packages; `appstein` CLI skeleton; `--version`; `config/` + `appstein.yaml`; `sdk/` detection (incl. FVM, language version); `doctor`; CI for our repo; boundary lint on our own repo; AOT build | `doctor` correct on Windows, macOS and Linux CI; CI green; minimum supported Flutter version confirmed |
-| **1b** | Knowledge layers 1–2 (sdk, delta + curated notes for 3.44–3.47, toolchain, map via `official_mvvm` + platform extractors), INDEX.md, `sync` (full + incremental), staleness metadata, lock file, package skills refresh | Golden tests pass on fixtures; INDEX ≤ 1,500 tokens; performance targets (§15) met for sync |
-| **1c** | MCP server with all §8 tools; layers 3–4 read/write with formats from §6.7–6.8 | Each tool tested; works from Claude Code on a fixture |
-| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules, suppressions, exit codes | Every check has a passing and a failing fixture; fast verify < 5 s |
-| **1e** | `create` (incl. CI template), `integrate` (Claude Code, Codex, `--remove`, one-Dart-MCP rule, hooks incl. SessionStart, Bash detection and the loop guard), verification of every "to verify in 1e" item | `create`→`verify --full` green on Linux + macOS CI; integration works end-to-end in both agents; every "to verify" item resolved and the spec updated |
+| **1a** | Workspace with 4 packages; `appstein` CLI skeleton; `--version`; `config/` + `appstein.yaml`; `sdk/` detection (incl. FVM, language version); `doctor`; CI for our repo; boundary lint on our own repo; AOT build; developer guide skeleton + `public_member_api_docs` + `dart doc` in CI (§19.6) | `doctor` correct on Windows, macOS and Linux CI; CI green; minimum supported Flutter version confirmed; guide "start here" page lets someone build and run the CLI from source |
+| **1b** | Knowledge layers 1–2 (sdk, delta + curated notes for 3.44–3.47, toolchain, map via `official_mvvm` + platform extractors, incl. doc-comment summaries in `symbols.json`), INDEX.md, `sync` (full + incremental), staleness metadata, lock file, package skills refresh | Golden tests pass on fixtures; INDEX ≤ 1,500 tokens; performance targets (§15) met for sync |
+| **1c** | MCP server with all §8 tools; layers 3–4 read/write with formats from §6.7–6.8; human docs renderer + `appstein docs` + pack doc pages (§6.9) | Each tool tested; works from Claude Code on a fixture; golden tests for every doc page; re-rendering unchanged knowledge changes no bytes |
+| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes | Every check has a passing and a failing fixture; fast verify < 5 s |
+| **1e** | `create` (incl. CI template and first human docs), `integrate` (Claude Code, Codex, `--remove`, one-Dart-MCP rule, hooks incl. SessionStart, Bash detection, the loop guard and docs rendering at Stop), verification of every "to verify in 1e" item | `create`→`verify --full` green on Linux + macOS CI; integration works end-to-end in both agents; every "to verify" item resolved and the spec updated |
 | **1f** | `upgrade` framework + 3.47 migration; all lifecycle skills + skills CI + smoke-test procedure; benchmark runner and first published run | Skills CI green on current stable and minimum SDK; the 3.47 migration tested on the legacy fixture; benchmark published |
 
 **M1 is done when:**
@@ -778,7 +842,8 @@ The benchmark lives in `benchmark/`.
 - all slice exit criteria pass;
 - with-Appstein benchmark runs produce **zero** deprecated-API findings in final code and a **higher** `verify` pass rate than the control;
 - token usage is reported honestly, whether it went up or down;
-- the owner has used Appstein on at least one real project and signed off.
+- the owner has used Appstein on at least one real project and signed off;
+- the owner can understand the fixture app from its `docs/app/` alone, without asking an agent.
 
 ### Later milestones (direction only; each gets its own spec)
 
@@ -804,7 +869,7 @@ The benchmark lives in `benchmark/`.
 ### 19.1 Tooling
 
 - **graphify from the first commit.** The graph covers code, this spec, the research report and docs, and is rebuilt by its git hook on each commit, so agent sessions start from the graph instead of rediscovering the repo.
-- **`CLAUDE.md` / `AGENTS.md`** are short: commands, architecture at a glance, rules and "critical gotchas" (Twenty's style). No duplicated architecture prose that can drift; they point to this spec and to graphify.
+- **`CLAUDE.md` / `AGENTS.md`** are short: commands, architecture at a glance, rules and "critical gotchas" (Twenty's style). No duplicated architecture prose that can drift; they point to this spec, to graphify and to the developer guide (§19.6).
 - **Dependency hygiene** in our own repo: `dependency_validator` in CI (the Dart equivalent of Twenty's `knip`).
 
 ### 19.2 Environment
@@ -816,9 +881,10 @@ The benchmark lives in `benchmark/`.
 
 | Job | Runs |
 |---|---|
-| `analyze` | `dart format --set-exit-if-changed`, `dart analyze` (incl. our boundary lints), `dependency_validator` |
+| `analyze` | `dart format --set-exit-if-changed`, `dart analyze` (incl. our boundary lints and `public_member_api_docs`), `dependency_validator` |
 | `test` | Unit + golden tests on Linux, Windows and macOS |
 | `skills` | Snippet analysis against current stable and minimum supported SDK; link check; size budget |
+| `docs` | `dart doc` for every package, failing on warnings; developer guide checks (§19.6): snippet analysis, link check, and every file path it mentions exists |
 | `integration-android` | `appstein create` → `verify --full` on Linux (real Android debug build) |
 | `integration-ios` | `appstein create` → `verify --full` on macOS (real iOS debug build) |
 | `integration-windows` | `appstein create` → `verify --full` on Windows (Android build) |
@@ -827,13 +893,47 @@ The benchmark lives in `benchmark/`.
 ### 19.4 Git and process
 
 - **Git:** agents may run read-only git. Commits happen only with owner approval, and nothing is pushed unless asked. Commits may include the Co-Authored-By trailer.
-- **Per slice:** spec → implementation plan → TDD implementation → verify → owner review → commit.
+- **Per slice:** spec → implementation plan → TDD implementation → verify → docs (API doc comments and the guide pages for what the slice built, §19.6) → owner review → commit.
 
 ### 19.5 Distribution and versioning
 
 - **Install:** `dart pub global activate appstein` (pub.dev), or a standalone binary from GitHub Releases. Hooks use the compiled executable, and `doctor` tells the user if only the pub snapshot is available.
 - **Versioning:** Appstein follows semver. `appstein_protocol` carries its own version, and `.appstein/` files record the format version so `upgrade` can migrate them.
 - **License:** an open-source license, chosen before the first public release (§22).
+
+### 19.6 Documentation for humans working on Appstein
+
+graphify and `AGENTS.md` serve agents working on this repo. People need their own way in: the owner (who is learning Dart CLI development), future contributors, and anyone reading the code when no agent is involved. Appstein's own repo gets three layers of human documentation, each with one job:
+
+| Layer | Answers | Where | Kept correct by |
+|---|---|---|---|
+| **Spec** | What we decided and why | `docs/superpowers/specs/` | Owner review (it is the source of truth) |
+| **Developer guide** | How the code works now, and how to change it | `docs/guide/` | CI checks (below) and the per-slice docs step |
+| **API reference** | What each public class and function does | `///` doc comments → `dart doc` (pub.dev hosts it for published packages) | `public_member_api_docs` lint + `dart doc` in CI |
+
+**API reference:**
+
+- Every public API in all 4 packages has a `///` doc comment. Dart's built-in `public_member_api_docs` lint enforces it; we reuse it instead of writing our own rule.
+- Each package has a `README.md`: what it is for, what it may depend on (the boundary rules, §5.1), its main entry points and how to test it.
+- `dart doc` runs in CI and fails on warnings (broken references, unresolved links).
+
+**Developer guide (`docs/guide/`)**, written for someone learning to build a large Dart CLI, so it explains *why* as well as *how*:
+
+| Page | Covers |
+|---|---|
+| `README.md` | Start here: set up on Windows, macOS or Linux; a tour of the repo; build and run the CLI from source; run the tests |
+| `architecture.md` | How one command flows CLI → engine → packs → protocol, and how hooks and the MCP server enter the same engine, with diagrams |
+| `how-to/` | One page per common change: add a check, an extractor, a lint rule, an MCP tool, a curated note, a migration, a doc page, a pack |
+| `testing.md` | Fixture apps, golden tests and how to update goldens safely |
+| `debugging.md` | Running hooks and the MCP server by hand, Windows path pitfalls, exit code 3 and `doctor` |
+
+**Keeping the guide correct:**
+
+- A guide page is written **in the slice that builds the thing it describes**, never ahead of the code (no pages about code that doesn't exist yet). The per-slice process has a docs step for this (§19.4).
+- CI (`docs` job, §19.3) analyzes every Dart snippet in the guide, checks every link, and checks that every repo path the guide mentions exists, reusing the skills CI tooling (§11.3).
+- The guide never restates the spec. It links to the spec section for the "what and why", and covers only how the code does it.
+
+**Not dogfooded:** Appstein's `docs/app/` renderer (§6.9) targets Flutter apps, and this repo is a Dart CLI workspace, so it doesn't run here.
 
 ---
 
@@ -881,6 +981,8 @@ The benchmark lives in `benchmark/`.
 | 20 | `appstein_lints` version drifting from the CLI version | Pinned by `integrate`; `doctor` reports a mismatch |
 | 21 | Fast verify misses the < 5 s target | Measured in 1a; fallback is warm analysis in the long-running MCP process (§9.1) |
 | 22 | A Stop hook that keeps failing loops the agent | Loop guard (§5.4): after 3 identical blocks, stop blocking and report to the user |
+| 23 | Committed human docs (`docs/app/`) add diff noise or merge conflicts | Deterministic output with no timestamps, rendered once per task (not per edit); conflicts are resolved by re-running `appstein docs` (§6.9) |
+| 24 | Doc comments written by agents are vague or restate the code | `appstein-develop` skill teaches what a useful doc comment says; the sample feature from `create` shows the style; the owner judges quality in the M1 sign-off (§18) |
 
 ---
 
@@ -897,4 +999,6 @@ The benchmark lives in `benchmark/`.
 - **Toolchain matrix:** the set of Gradle/AGP/Kotlin/JDK/SDK versions known to work together for a given Flutter version.
 - **Golden test:** a test that compares generated output against a saved, approved copy.
 - **AOT executable:** a compiled program that starts instantly, instead of being run through the Dart VM.
+- **Doc comment:** a `///` comment above a Dart declaration. `dart doc` turns them into API reference pages, and Appstein uses their first sentence as a summary in the human docs.
+- **Mermaid:** a text format for diagrams that GitHub renders as pictures inside Markdown files.
 - **Semver:** version numbers of the form MAJOR.MINOR.PATCH, where a MAJOR change means breaking changes.

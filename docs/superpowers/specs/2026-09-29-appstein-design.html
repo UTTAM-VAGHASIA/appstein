@@ -298,6 +298,19 @@ details.more summary:active{opacity:.6}
 .policy code{color:var(--ink)}
 @media (max-width:760px){.policy{grid-template-columns:1fr}}
 
+/* ---------- human docs (two audiences) ---------- */
+.two{margin-top:88px}
+.two .source{margin-top:20px;padding:18px 22px;border-radius:var(--r);background:var(--ink);color:var(--bg);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.two .source b{font-weight:600;letter-spacing:-.01em}
+.two .source span{font-size:.82rem;opacity:.7}
+.two .ondemand{margin:10px 0}
+.pages{margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.page{padding:16px 18px}
+.page code{font-size:.8rem;font-weight:500;color:var(--ink)}
+.page p{margin:6px 0 0;font-size:.82rem;color:var(--ink-2);line-height:1.4}
+@media (max-width:960px){.pages{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){.pages{grid-template-columns:1fr}}
+
 /* ---------- MCP ---------- */
 .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .tool{padding:18px 20px}
@@ -465,13 +478,14 @@ details.more summary:active{opacity:.6}
 @media (max-width:860px){.bench{grid-template-columns:1fr}}
 
 /* ---------- principles + risks ---------- */
-.principles{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.principles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.principles div:last-child{grid-column:span 2}
 .principles div{background:var(--surface);padding:22px 20px}
 .principles i{font:500 .74rem/1 var(--mono);font-style:normal;color:var(--ink-3)}
 .principles b{display:block;margin-top:10px;font-weight:600;font-size:.95rem;letter-spacing:-.01em}
 .principles span{display:block;margin-top:6px;font-size:.82rem;color:var(--ink-2);line-height:1.4}
 @media (max-width:960px){.principles{grid-template-columns:1fr 1fr}}
-@media (max-width:480px){.principles{grid-template-columns:1fr}}
+@media (max-width:480px){.principles{grid-template-columns:1fr}.principles div:last-child{grid-column:auto}}
 
 .verify-list{margin-top:56px;display:grid;grid-template-columns:.8fr 1.2fr;gap:40px}
 .checklist div{display:flex;gap:14px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--line);font-size:.9rem}
@@ -504,6 +518,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     <ul>
       <li><a href="#how">How it works</a></li>
       <li><a href="#knowledge">Knowledge</a></li>
+      <li><a href="#docs">Docs</a></li>
       <li><a href="#mcp">MCP</a></li>
       <li><a href="#verify">Verifier</a></li>
       <li><a href="#build">Architecture</a></li>
@@ -531,9 +546,10 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="formula">
         <div><b>Guide before</b><span>Knowledge generated from your SDK and code</span></div>
         <div><b>Check after</b><span>A deterministic verifier that blocks “done”</span></div>
+        <div><b>Explain to humans</b><span>Readable docs from the same knowledge</span></div>
       </div>
       <div class="meta">
-        <span class="pill"><span class="dot"></span>Draft for owner review</span>
+        <span class="pill"><span class="dot"></span>Approved by the owner</span>
         <span class="pill num">2026-09-29</span>
         <span class="pill">Claude Code · Codex</span>
         <span class="pill">Android · iOS first</span>
@@ -686,7 +702,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 10.5l3 3 7-7"/></svg></div>
           <div class="when">Agent says “done”</div>
           <h3>Full check</h3>
-          <div class="cmd"><code>dart fix --apply + format</code><code>verify --full</code></div>
+          <div class="cmd"><code>dart fix --apply + format</code><code>appstein docs</code><code>verify --full</code></div>
           <p>Errors block the finish. After the same errors block 3 times in a row, it stops blocking and shows them to you.</p>
         </div>
       </div>
@@ -749,6 +765,56 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <p><b>Never guessed:</b> routes or native values that can’t be resolved statically are marked <code>unresolved</code> or <code>unknown</code>.</p>
       </div>
     </details>
+
+    <div class="two" id="docs">
+      <h3 class="subhead">One source, two audiences</h3>
+      <p class="small" style="margin:6px 0 0">When a person reads the code, or takes over from the agent, they get docs made from the same knowledge, so the two never disagree.</p>
+      <div class="source"><b>Knowledge layer</b><span>project map · decisions · pack concept text · doc comments</span></div>
+      <div class="ondemand">rendered two ways</div>
+      <div class="halves">
+        <div class="card half">
+          <span class="k"><i style="background:var(--accent-soft);color:var(--accent)">A</i>For agents</span>
+          <h3><code>.appstein/</code></h3>
+          <p>Compact and machine-shaped. Fetched on demand.</p>
+          <ul>
+            <li>JSON, <code>delta.md</code> and <code>INDEX.md</code></li>
+            <li>Served through MCP</li>
+            <li>Map refreshed after every edit</li>
+            <li>Git-ignored</li>
+          </ul>
+        </div>
+        <div class="card half">
+          <span class="k"><i style="background:var(--ok-soft);color:var(--ok)">H</i>For humans</span>
+          <h3><code>docs/app/</code></h3>
+          <p>Explained in plain language, with diagrams.</p>
+          <ul>
+            <li>Markdown with Mermaid diagrams GitHub renders</li>
+            <li>Readable without Appstein installed</li>
+            <li>Rendered once per task, at Stop</li>
+            <li>Committed, as a deliberate exception</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pages">
+        <div class="card page"><code>README.md</code><p>What the app is, how to run it, every page.</p></div>
+        <div class="card page"><code>architecture.md</code><p>The layers in plain words, and which may use which.</p></div>
+        <div class="card page"><code>features/&lt;name&gt;.md</code><p>Screens → view models → repositories → services.</p></div>
+        <div class="card page"><code>routes.md</code><p>The route tree; dynamic routes marked unresolved.</p></div>
+        <div class="card page"><code>native.md</code><p>Android and iOS setup, each value with file:line.</p></div>
+        <div class="card page"><code>dependencies.md</code><p>Each package, where it’s used, its gate verdict.</p></div>
+        <div class="card page"><code>decisions.md</code><p>Every decision and the reason behind it.</p></div>
+      </div>
+      <details class="more">
+        <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
+        <div class="more-body">
+          <p><b>Nothing written just for the docs.</b> Concept text ships inside each pack; project text comes from decision reasons and <code>///</code> doc comments, required by <code>document_public_classes</code>.</p>
+          <p><b>Quiet in git:</b> no timestamps, so unchanged code gives unchanged docs. A conflict is fixed by re-running <code>appstein docs</code>.</p>
+          <p><b>Kept honest:</b> <code>docs.stale</code> warns when docs fall behind or a generated page was hand-edited. Teams can raise it to an error.</p>
+          <p><b>Team notes are safe:</b> any file in <code>docs/app/</code> without the Appstein marker is never touched and is listed in the README.</p>
+          <p><b>Appstein’s own repo too:</b> graphify serves agents; a developer guide in <code>docs/guide/</code> and <code>dart doc</code> API docs serve humans.</p>
+        </div>
+      </details>
+    </div>
   </div>
 </section>
 
@@ -799,7 +865,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     </div>
 
     <div class="vpanel" id="v-full" role="tabpanel" aria-labelledby="tab-full">
-      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>fix + format</b> first, then every fast check on the whole project</li><li><b>flutter test</b> with accessibility guideline tests</li><li>Every feature folder has a test</li><li>Decisions still match the code</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>fix + format</b> first, then every fast check on the whole project</li><li><b>flutter test</b> with accessibility guideline tests</li><li>Every feature folder has a test</li><li>Decisions still match the code</li><li>Human docs up to date (warning)</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="2.5" width="8" height="13" rx="2"/><path d="M8 13h2"/></svg>Android</h3><ul><li><b>Toolchain</b> inside Flutter’s matrix</li><li><b>AGP 9 built-in Kotlin</b> rule</li><li><b>flutter.*</b> SDK variables; compile/target SDK ≥ 36; minSdk covers every plugin</li><li><b>16 KB</b> page size: NDK r28+, <code>zipalign -c -P 16</code></li><li>No signing secrets in git · real debug build</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4.5" y="2" width="9" height="14" rx="2.5"/><path d="M8 4h2"/></svg>iOS</h3><ul><li><b>Deployment target</b> ≥ SDK minimum (15 on 3.47), consistent everywhere</li><li><b>SwiftPM</b> on; plugins without it flagged (CocoaPods read-only 2026-12-02)</li><li><b>UIScene</b> manifest</li><li><b>PrivacyInfo</b> + usage descriptions</li><li>Real build on macOS only</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 2.5l5.5 2v4.5c0 3.2-2.3 5.6-5.5 6.5-3.2-.9-5.5-3.3-5.5-6.5V4.5z"/></svg>Release-ready (static)</h3><ul><li>App / bundle ID not <code>com.example</code></li><li>App name and icon not the template default</li><li><code>version:</code> set in pubspec</li><li>Signing config present or marked TODO</li></ul></div>
@@ -845,6 +911,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <p><b><code>use_spacing_tokens</code></b> No non-zero numeric <code>EdgeInsets</code>, <code>SizedBox</code> or <code>Gap</code> literals in UI.</p>
         <p><b><code>no_platform_branching_in_layout</code></b> No <code>Platform.isX</code> checks inside <code>build</code>.</p>
         <p><b><code>no_orientation_lock</code></b> No <code>setPreferredOrientations</code> locks.</p>
+        <p><b><code>document_public_classes</code></b> A <code>///</code> comment on public classes in the documented layers; it feeds the human docs. Warning.</p>
       </div>
     </details>
   </div>
@@ -892,6 +959,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <span><code>sync</code>regenerate knowledge</span>
       <span><code>verify</code>--fast · --full</span>
       <span><code>mcp</code>stdio server</span>
+      <span><code>docs</code>human docs</span>
       <span><code>upgrade</code>versioned migrations</span>
       <span><code>integrate</code>claude · codex</span>
       <span><code>doctor</code>environment check</span>
@@ -908,7 +976,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <p><b>Packs:</b> <code>official_mvvm</code> (stack), <code>android</code> and <code>ios</code> (platform) in M1. They start as folders and become packages when community packs arrive (M3+).</p>
         <p><b>Runs everywhere:</b> Windows, macOS and Linux; paths with spaces and non-ASCII characters.</p>
         <p><b>Offline and private:</b> everything but package existence and advisory checks works offline. No telemetry.</p>
-        <p><b>Deterministic:</b> the same inputs give byte-identical knowledge. A lock file stops two hooks corrupting it.</p>
+        <p><b>Deterministic:</b> the same inputs give byte-identical knowledge and human docs. A lock file stops two hooks corrupting it.</p>
       </div>
     </details>
   </div>
@@ -928,7 +996,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <ul>
           <li><span>Official plugin</span><span>Google’s <code>flutter/agent-plugins</code> at a pinned version; broken official skills overridden</span></li>
           <li><span>MCP</span><span><code>appstein mcp</code>. The official plugin’s Dart MCP server is reused; Appstein adds one only as a fallback</span></li>
-          <li><span>Hooks</span><span>SessionStart → sync · PostToolUse → fast check · Stop → full check</span></li>
+          <li><span>Hooks</span><span>SessionStart → sync · PostToolUse → fast check · Stop → docs + full check</span></li>
           <li><span>CLAUDE.md</span><span>Pointer to INDEX.md and the key workflow rules</span></li>
         </ul>
       </div>
@@ -938,7 +1006,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <li><span>AGENTS.md</span><span>Same rules, plus “call <code>overview</code> first”</span></li>
           <li><span>Skills</span><span>Installed into <code>.agents/skills/</code></span></li>
           <li><span>MCP</span><span><code>appstein mcp</code>; the exact config file is verified in slice 1e</span></li>
-          <li><span>Hooks</span><span>Verified in 1e. Fallback: AGENTS.md asks for the <code>verify</code> MCP tool; CI runs <code>verify --full</code> on every push</span></li>
+          <li><span>Hooks</span><span>Verified in 1e. Fallback: AGENTS.md asks for <code>appstein docs</code> and the <code>verify</code> MCP tool; CI runs <code>verify --full</code> on every push</span></li>
         </ul>
       </div>
     </div>
@@ -972,9 +1040,9 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div><b>Base</b><span><code>flutter create</code> for Android and iOS</span></div>
       <div><b>Structure</b><span>Official MVVM, go_router, provider, light and dark themes, tokens, l10n</span></div>
       <div><b>Native</b><span><code>toolchain.json</code> values, <code>flutter.*</code> variables, SwiftPM, UIScene, privacy manifest</span></div>
-      <div><b>Sample</b><span>One feature with unit, widget and accessibility tests</span></div>
+      <div><b>Sample</b><span>One feature with unit, widget and accessibility tests, and doc comments</span></div>
       <div><b>Files</b><span><code>appstein.yaml</code>, lints, <code>.gitignore</code>, README, CI template</span></div>
-      <div><b>Verify</b><span>sync → integrate → verify --full must pass; commit only with your OK</span></div>
+      <div><b>Verify</b><span>sync → docs → integrate → verify --full must pass; commit only with your OK</span></div>
     </div>
     <div class="tree">
       <div class="card">
@@ -996,6 +1064,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
 ├── map/            features · routes · layers
 ├── decisions/      committed
 └── memory/         committed
+<b>docs/app/</b>           human docs · committed
 <b>appstein.yaml</b>       every key has a default</pre>
       </div>
     </div>
@@ -1061,6 +1130,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <span>Higher verify pass rate than control</span>
       <span>Token use reported honestly</span>
       <span>Used on a real project and signed off</span>
+      <span>The fixture app is understandable from its docs alone</span>
     </div>
 
     <div class="later">
@@ -1094,7 +1164,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   <div class="wrap">
     <div class="head">
       <p class="eyebrow">Principles</p>
-      <h2>Ten rules we build by.</h2>
+      <h2>Eleven rules we build by.</h2>
     </div>
     <div class="principles">
       <div><i>01</i><b>Generate, don’t hand-write</b><span>Knowledge from the SDK and the code.</span></div>
@@ -1107,6 +1177,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div><i>08</i><b>Use it on ourselves</b><span>Our repo, our lint rules.</span></div>
       <div><i>09</i><b>Local first, private</b><span>No telemetry.</span></div>
       <div><i>10</i><b>Windows is first-class</b><span>Spaces, drive letters, PowerShell.</span></div>
+      <div><i>11</i><b>One source, two audiences</b><span>Agents read <code>.appstein/</code>; humans read <code>docs/app/</code>.</span></div>
     </div>
 
     <div class="verify-list">
@@ -1137,6 +1208,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <div><i>08</i><p style="margin:0"><b>M1 is large for one developer</b><span>Strict slices, each with its own plan.</span></p></div>
         <div><i>09</i><p style="margin:0"><b>Name: trademark and domain</b><span>Checked before the first public release; pun-only branding.</span></p></div>
         <div><i>10</i><p style="margin:0"><b>Open-source license, possible Pro tier</b><span>License before the first public release; Pro after the M1 benchmark.</span></p></div>
+        <div><i>11</i><p style="margin:0"><b>Committed docs add git noise</b><span>No timestamps, rendered once per task; re-run <code>appstein docs</code> on conflict.</span></p></div>
+        <div><i>12</i><p style="margin:0"><b>Vague doc comments</b><span>A skill and the sample feature show the style; you judge it at sign-off.</span></p></div>
       </div>
     </details>
   </div>
@@ -1201,11 +1274,11 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
 
   /* Slices (§18) */
   var S=[
-    ['Pub workspace with 4 packages; the appstein CLI skeleton and --version; config and appstein.yaml; SDK detection (FVM, language version); doctor; CI for our repo; boundary lints on our own repo; AOT build.','doctor is correct on Windows, macOS and Linux CI. CI is green. The minimum supported Flutter version is confirmed.'],
-    ['Knowledge layers 1–2: sdk, delta with curated notes for 3.44–3.47, toolchain, the project map via official_mvvm and platform extractors; INDEX.md; full and incremental sync; staleness metadata; lock file; package skills refresh.','Golden tests pass on fixtures. INDEX.md ≤ 1,500 tokens. Sync meets its performance targets.'],
-    ['The MCP server with every tool; read and write for decisions and memory.','Each tool is tested and works from Claude Code on a fixture app.'],
-    ['Fast and full checks; Android and iOS checks including static release readiness; the package gate with advisories and offline behaviour; the M1 lint rules; suppressions; exit codes.','Every check has a passing and a failing fixture. Fast verify under 5 s.'],
-    ['create with its CI template; integrate for Claude Code and Codex (--remove, the one-Dart-MCP rule, SessionStart, Bash detection, the loop guard); every “to verify in 1e” item.','create → verify --full is green on Linux and macOS CI. Integration works end to end in both agents. Every open item is resolved and the spec updated.'],
+    ['Pub workspace with 4 packages; the appstein CLI skeleton and --version; config and appstein.yaml; SDK detection (FVM, language version); doctor; CI for our repo; boundary lints on our own repo; AOT build; the developer guide skeleton, API doc comments and dart doc in CI.','doctor is correct on Windows, macOS and Linux CI. CI is green. The minimum supported Flutter version is confirmed. The guide’s start page lets someone build and run the CLI from source.'],
+    ['Knowledge layers 1–2: sdk, delta with curated notes for 3.44–3.47, toolchain, the project map via official_mvvm and platform extractors, with doc-comment summaries; INDEX.md; full and incremental sync; staleness metadata; lock file; package skills refresh.','Golden tests pass on fixtures. INDEX.md ≤ 1,500 tokens. Sync meets its performance targets.'],
+    ['The MCP server with every tool; read and write for decisions and memory; the human docs renderer and appstein docs.','Each tool is tested and works from Claude Code on a fixture app. Every doc page has a golden test, and re-rendering unchanged knowledge changes no bytes.'],
+    ['Fast and full checks; Android and iOS checks including static release readiness; the package gate with advisories and offline behaviour; the M1 lint rules, including document_public_classes; docs.stale; suppressions; exit codes.','Every check has a passing and a failing fixture. Fast verify under 5 s.'],
+    ['create with its CI template and first human docs; integrate for Claude Code and Codex (--remove, the one-Dart-MCP rule, SessionStart, Bash detection, the loop guard, docs at Stop); every “to verify in 1e” item.','create → verify --full is green on Linux and macOS CI. Integration works end to end in both agents. Every open item is resolved and the spec updated.'],
     ['The upgrade framework and the 3.47 migration; all lifecycle skills with skills CI and the smoke-test procedure; the benchmark runner and its first published run.','Skills CI green on the current stable and minimum SDK. The 3.47 migration tested on the legacy fixture. Benchmark published.']
   ];
   var slices=document.querySelectorAll('.slice');
@@ -1221,7 +1294,13 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   var links=[].slice.call(document.querySelectorAll('.nav li a'));
   var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'));});
   if('IntersectionObserver' in window){
-    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var i=secs.indexOf(e.target);links.forEach(function(l,j){l.classList.toggle('on',i===j);});}});},{rootMargin:'-45% 0px -50% 0px'});
+    /* #docs sits inside #knowledge, so track every visible target and highlight the last one in nav order. */
+    var visible=secs.map(function(){return false;});
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){visible[secs.indexOf(e.target)]=e.isIntersecting;});
+      var on=visible.lastIndexOf(true);
+      if(on>=0)links.forEach(function(l,j){l.classList.toggle('on',on===j);});
+    },{rootMargin:'-45% 0px -50% 0px'});
     secs.forEach(function(s){if(s)io.observe(s);});
   }
 })();

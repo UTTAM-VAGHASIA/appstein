@@ -18,7 +18,7 @@ Appstein is a Dart toolkit: a knowledge and verification layer for AI agents tha
 ## Rules
 
 - **Git:** read-only git commands are fine. Commit only with the owner's approval, and never push unless asked. Commits may include a `Co-Authored-By` trailer.
-- **Per slice:** spec → implementation plan → TDD implementation → verify → owner review → commit.
+- **Per slice:** spec → implementation plan → TDD implementation → verify → docs → owner review → commit. The docs step means `///` comments on every public API, plus the `docs/guide/` pages for what the slice built (spec §19.6). Never write guide pages for code that doesn't exist yet.
 - **Windows is first-class** (the owner develops on Windows): paths with spaces, drive letters, PowerShell. Hooks call the `appstein` binary directly, with no bash scripts.
 - **Never touch agent credentials**, and never encode Play Store or App Store policies (spec §2.3, §4).
 - **Explain your reasoning.** The owner is learning to build large CLI tools.
