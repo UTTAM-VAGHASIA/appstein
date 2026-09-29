@@ -861,7 +861,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>dart analyze</b> on changed files and dependents; fails on errors and deprecated use</li><li><b>dart fix --dry-run</b> lists pending migrations</li><li><b>Format</b> check, applied later at Stop</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="12" height="12" rx="3"/><path d="M6 9h6"/></svg>Lints</h3><ul><li><b>appstein_lints</b> rules, run inside the analyzer</li><li>Layer rules from the stack pack</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h10M4 12h10"/><circle cx="7" cy="6" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>Packages</h3><ul><li>Package gate, if dependencies changed</li><li>Package skills refreshed</li></ul></div>
-      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b>, measured in slice 1a</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b> with warm analysis (1d)</li></ul></div>
     </div>
 
     <div class="vpanel" id="v-full" role="tabpanel" aria-labelledby="tab-full">
@@ -1184,10 +1184,10 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div>
         <h3 style="font-size:1.5rem;letter-spacing:-.02em">Still to prove</h3>
         <p class="muted" style="margin:10px 0 0;max-width:34ch">Open items, each resolved in a named slice, with a fallback where one is needed.</p>
+        <p class="muted small" style="margin:10px 0 0;max-width:34ch"><b>Settled in 1a:</b> Flutter 3.44+ is the minimum supported version. Cold analysis is too slow, so fast verify uses warm analysis.</p>
       </div>
       <div class="checklist">
-        <div>Fast verify stays under 5 s <span class="tag neutral">1a</span></div>
-        <div>Minimum supported Flutter: 3.44+ <span class="tag neutral">1a</span></div>
+        <div>Warm analysis keeps fast verify under 5 s <span class="tag neutral">1d</span></div>
         <div>Codex hooks, blocking and MCP config location <span class="tag neutral">1e</span></div>
         <div>Project-level enabling of the official Claude Code plugin <span class="tag neutral">1e</span></div>
         <div>No duplicate Dart MCP server <span class="tag neutral">1e</span></div>

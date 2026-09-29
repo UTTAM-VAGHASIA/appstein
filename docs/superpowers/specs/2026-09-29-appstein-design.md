@@ -481,7 +481,13 @@ Fast checks **only report; they never modify files** (§5.4).
 - if dependencies changed: the package gate (§9.4) and package skills refresh (§6.6)
 - incremental map refresh plus the staleness check
 
-**The < 5 s target is measured in slice 1a.** A cold `dart analyze` with an analyzer plugin may exceed it. If it does, the fallback is warm analysis inside the long-running `appstein mcp` process, which the hook contacts over a local socket, with cold analysis only when that process isn't running. The decision and its measurements are recorded in the 1a plan.
+**Fast checks use warm analysis (measured in slice 1a).**
+- **The measurement:** a cold single-file `dart analyze` with the plugin took 9–16 s, on CI Linux and Windows and on a developer's Windows machine. Even without the plugin it took 4–8 s, so analysis-server start-up alone misses the target.
+- **The design:** fast checks run warm analysis inside the long-running `appstein mcp` process, which the hook contacts over a local socket.
+- **When that process isn't running:** the hook falls back to cold analysis, which stays under the `fast_timeout_seconds` cap (20 s) but not the 5 s target.
+- **Still to prove:** that warm analysis meets 5 s. Slice 1d measures it.
+
+The measurements are recorded in the 1a plan.
 
 ### 9.2 Full checks (at "done", slower)
 
@@ -974,14 +980,14 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 | 11 | Open-source license; a possible Pro tier | Choose the license before the first public release; decide on Pro after the M1 benchmark |
 | 12 | Routes or native values that can't be resolved statically | Marked `unresolved` / `unknown`, never guessed; improve in later slices |
 | 13 | Real iOS builds impossible on Windows | Static checks locally; real builds on macOS CI |
-| 14 | Minimum supported Flutter version | Proposed **Flutter 3.44+** (Dart 3.12, required by the current Dart MCP server; SwiftPM default). Confirm in slice 1a |
+| 14 | Minimum supported Flutter version | **Flutter 3.44+** (Dart 3.12, required by the current Dart MCP server; SwiftPM default). Confirmed in slice 1a: CI's `min-sdk` job passes on the newest 3.44 patch (3.44.9 at the time) |
 | 15 | The iOS plugin→permission mapping is incomplete at first | Start with the most common plugins; unknown plugins produce an info finding asking the agent to check the plugin's docs |
 | 16 | Benchmark results may show no token savings | Report honestly; the correctness gains stand on their own; investigate INDEX/MCP design if tokens rise |
 | 17 | M1 is large for one developer who is still learning Dart CLI development | Strict slices (1a–1f) with their own plans; each slice is useful on its own; explain reasoning throughout |
 | 18 | `material_ui` breaks with dependencies that expose in-framework Material types | Switch only when every dependency is compatible (§13.1); `upgrade` re-checks each time |
 | 19 | Official skills and the plugin stay frozen or keep breaking (e.g. #239) | Pinned version; broken skills overridden; each Appstein release re-checks the pinned plugin against current stable in CI |
 | 20 | `appstein_lints` version drifting from the CLI version | Pinned by `integrate`; `doctor` reports a mismatch |
-| 21 | Fast verify misses the < 5 s target | Measured in 1a; fallback is warm analysis in the long-running MCP process (§9.1) |
+| 21 | Fast verify misses the < 5 s target | Confirmed in 1a: cold analysis misses it, so fast verify uses warm analysis in the long-running MCP process (§9.1). Whether warm analysis meets 5 s is proved in 1d |
 | 22 | A Stop hook that keeps failing loops the agent | Loop guard (§5.4): after 3 identical blocks, stop blocking and report to the user |
 | 23 | Committed human docs (`docs/app/`) add diff noise or merge conflicts | Deterministic output with no timestamps, rendered once per task (not per edit); conflicts are resolved by re-running `appstein docs` (§6.9) |
 | 24 | Doc comments written by agents are vague or restate the code | `appstein-develop` skill teaches what a useful doc comment says; the sample feature from `create` shows the style; the owner judges quality in the M1 sign-off (§18) |
