@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../support/doctor_support.dart';
+import '../../support/fake_process_runner.dart';
 import '../../support/temp.dart';
 
 void main() {
@@ -52,11 +53,49 @@ void main() {
     expect((await run()).status, CheckStatus.skipped);
   });
 
-  test('error when the pin file is broken', () async {
+  test('a broken pin file is not a second error', () async {
     File(p.join(project.path, '.fvmrc')).writeAsStringSync('{oops');
     final result = await const FvmCheck().run(
       testContext(projectRoot: project.path),
     );
-    expect(result.status, CheckStatus.error);
+    expect(result.status, CheckStatus.info);
+    expect(result.summary, contains('Flutter SDK'));
+    expect(result.details.join(' '), contains('.fvmrc'));
+  });
+
+  test('a broken pin file counts as one error in a doctor run', () async {
+    File(p.join(project.path, '.fvmrc')).writeAsStringSync('{oops');
+    final report = await Doctor(
+      environment: fakeEnvironment({}),
+      runner: FakeProcessRunner(),
+      checks: const [FlutterCheck(), FvmCheck()],
+    ).run(projectRoot: project.path);
+    final errors = report.entries.where(
+      (entry) => entry.result.status == CheckStatus.error,
+    );
+    expect(errors.map((entry) => entry.check.id), ['doctor.flutter']);
+  });
+
+  test('finds a pin in a parent folder and shows where it is', () async {
+    File(
+      p.join(project.path, '.fvmrc'),
+    ).writeAsStringSync('{"flutter": "3.47.5"}');
+    fakeExecutable(tools, 'fvm');
+    final member = Directory(p.join(project.path, 'packages', 'app'))
+      ..createSync(recursive: true);
+    final result = await const FvmCheck().run(
+      testContext(
+        projectRoot: member.path,
+        environment: fakeEnvironment({
+          'PATH': tools.path,
+          'PATHEXT': defaultPathExt,
+        }),
+      ),
+    );
+    expect(result.status, CheckStatus.ok);
+    expect(
+      result.details,
+      contains('pin file: ${p.join(project.path, '.fvmrc')}'),
+    );
   });
 }

@@ -24,9 +24,11 @@ final class FvmCheck implements DoctorCheck {
       try {
         pin = readFvmPin(root);
       } on FormatException catch (error) {
-        return CheckResult.error(
-          error.message,
-          fixHint: 'Run `fvm use <version>` to rewrite the pin.',
+        // The Flutter SDK check reports this as the error; a second error
+        // here would count one broken file twice.
+        return CheckResult.info(
+          'The FVM pin could not be read; see the Flutter SDK line.',
+          details: [error.message],
         );
       }
     }
@@ -42,6 +44,7 @@ final class FvmCheck implements DoctorCheck {
       return CheckResult.warning(
         'The project pins Flutter ${pin.version} with FVM, but `fvm` is not '
         'on PATH.',
+        details: ['pin file: ${pin.configPath}'],
         fixHint:
             'Install FVM (https://fvm.app) so `fvm flutter` and '
             '`fvm dart` work.',
@@ -49,7 +52,7 @@ final class FvmCheck implements DoctorCheck {
     }
     return CheckResult.ok(
       'Project pins Flutter ${pin.version} (${p.basename(pin.configPath)})',
-      details: ['fvm: $fvm'],
+      details: ['pin file: ${pin.configPath}', 'fvm: $fvm'],
     );
   }
 }

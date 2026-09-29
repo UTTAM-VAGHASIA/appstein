@@ -54,7 +54,8 @@ void main() {
     test('a FLUTTER_ROOT SDK at the pinned version is used', () {
       final detection = detect(createFakeSdk(p.join(work.path, 'sdk')));
       expect(detection.info!.flutterVersion, '3.47.5');
-      expect(detection.info!.fvmVersion, isNull);
+      // fvmVersion is the version the project pins, however it was met.
+      expect(detection.info!.fvmVersion, '3.47.5');
     });
 
     test('a FLUTTER_ROOT SDK at another version fails', () {

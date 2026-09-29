@@ -107,6 +107,111 @@ void main() {
     expect(lookup.location!.unmetFvmPin, isNull);
   });
 
+  group('a pin in a parent folder', () {
+    test('is found, and its link is resolved next to the pin', () {
+      // The pin and its link live in `work`; the project is `work/my app`.
+      File(
+        p.join(work.path, '.fvmrc'),
+      ).writeAsStringSync('{"flutter": "3.47.5"}');
+      final real = createFakeSdk(p.join(work.path, 'real sdk'));
+      Link(
+        p.join(work.path, '.fvm', 'flutter_sdk'),
+      ).createSync(real, recursive: true);
+      final lookup = FlutterSdkLocator(
+        fakeEnvironment({'FVM_CACHE_PATH': p.join(work.path, 'empty')}),
+      ).locate(projectRoot: project);
+      expect(lookup.location!.source, SdkSource.fvm);
+      expect(lookup.location!.fvmVersion, '3.47.5');
+      expect(p.equals(lookup.location!.root, resolveLinks(real)), isTrue);
+    });
+
+    test('the nearest pin wins over one further up', () {
+      File(
+        p.join(work.path, '.fvmrc'),
+      ).writeAsStringSync('{"flutter": "3.44.0"}');
+      pin('3.47.5');
+      final cache = p.join(work.path, 'fvm cache');
+      createFakeSdk(p.join(cache, 'versions', '3.47.5'));
+      createFakeSdk(p.join(cache, 'versions', '3.44.0'), flutter: '3.44.0');
+      final lookup = FlutterSdkLocator(
+        fakeEnvironment({'FVM_CACHE_PATH': cache}),
+      ).locate(projectRoot: project);
+      expect(lookup.location!.fvmVersion, '3.47.5');
+    });
+  });
+
+  group('a stale .fvm/flutter_sdk link', () {
+    late String cache;
+
+    setUp(() {
+      cache = p.join(work.path, 'fvm cache');
+      final old = createFakeSdk(p.join(work.path, 'old'), flutter: '3.46.0');
+      Link(
+        p.join(project, '.fvm', 'flutter_sdk'),
+      ).createSync(old, recursive: true);
+    });
+
+    SdkLookup locate({Map<String, String> extra = const {}}) =>
+        FlutterSdkLocator(
+          fakeEnvironment({'FVM_CACHE_PATH': cache, ...extra}),
+        ).locate(projectRoot: project);
+
+    test('is skipped for the cache SDK of the pinned version', () {
+      pin('3.47.5');
+      createFakeSdk(p.join(cache, 'versions', '3.47.5'));
+      final location = locate().location!;
+      expect(location.source, SdkSource.fvm);
+      expect(
+        p.equals(location.root, p.join(cache, 'versions', '3.47.5')),
+        isTrue,
+      );
+    });
+
+    test('with no cache SDK, the pin counts as not installed', () {
+      pin('3.47.5');
+      final lookup = locate();
+      expect(lookup.location, isNull);
+      expect(lookup.fixHint, contains('fvm install 3.47.5'));
+    });
+
+    test('with no cache SDK, FLUTTER_ROOT can still meet the pin', () {
+      pin('3.47.5');
+      final sdk = createFakeSdk(p.join(work.path, 'flutter root'));
+      final location = locate(extra: {'FLUTTER_ROOT': sdk}).location!;
+      expect(location.source, SdkSource.flutterRoot);
+      expect(location.unmetFvmPin, '3.47.5');
+    });
+
+    test('is still used when the pin is a channel name', () {
+      pin('stable');
+      final location = locate().location!;
+      expect(location.source, SdkSource.fvm);
+      expect(location.fvmVersion, 'stable');
+    });
+
+    test('is still used when its SDK was never set up', () {
+      Link(p.join(project, '.fvm', 'flutter_sdk')).deleteSync();
+      final fresh = createFakeSdk(p.join(work.path, 'fresh'), setUp: false);
+      Link(p.join(project, '.fvm', 'flutter_sdk')).createSync(fresh);
+      pin('3.47.5');
+      final location = locate().location!;
+      expect(location.source, SdkSource.fvm);
+      expect(p.equals(location.root, resolveLinks(fresh)), isTrue);
+    });
+  });
+
+  test('a flutter on PATH that is not inside an SDK says so', () {
+    final tools = Directory(p.join(work.path, 'shims'))..createSync();
+    final shim = fakeExecutable(tools, 'flutter');
+    final lookup = FlutterSdkLocator(
+      fakeEnvironment({'PATH': tools.path, 'PATHEXT': defaultPathExt}),
+    ).locate(projectRoot: project);
+    expect(lookup.location, isNull);
+    expect(lookup.problem, contains('is not inside a Flutter SDK folder'));
+    expect(lookup.problem, contains(shim));
+    expect(lookup.problem, isNot(contains('is not on PATH')));
+  });
+
   test('without FVM, uses FLUTTER_ROOT', () {
     final sdk = createFakeSdk(p.join(work.path, 'flutter root'));
     final lookup = FlutterSdkLocator(

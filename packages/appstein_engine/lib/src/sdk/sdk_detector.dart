@@ -99,7 +99,9 @@ final class SdkDetector {
         dartVersion: versions.dart,
         channel: versions.channel,
         languageVersion: languageVersion,
-        fvmVersion: location.fvmVersion,
+        // The pinned version, whether FVM provided the SDK or another SDK
+        // met the pin (the mismatch case returned above).
+        fvmVersion: location.fvmVersion ?? unmetPin,
       ),
       location,
     );

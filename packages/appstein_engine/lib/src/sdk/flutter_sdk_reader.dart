@@ -48,7 +48,7 @@ FlutterSdkVersions readSdkVersions(String sdkRoot) {
   try {
     final text = file.readAsStringSync();
     // Strip a byte order mark, which `jsonDecode` rejects.
-    data = jsonDecode(text.startsWith('﻿') ? text.substring(1) : text);
+    data = jsonDecode(text.startsWith('\uFEFF') ? text.substring(1) : text);
   } on FileSystemException catch (error) {
     throw FormatException(
       'Could not read ${file.path}: ${error.osError?.message ?? error.message}',

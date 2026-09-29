@@ -19,7 +19,7 @@ void main() {
   test('reads a version file that starts with a byte order mark', () {
     final sdk = createFakeSdk(p.join(tempDir().path, 'sdk'));
     final file = File(p.join(sdk, 'bin', 'cache', 'flutter.version.json'));
-    file.writeAsStringSync('﻿${file.readAsStringSync()}');
+    file.writeAsStringSync('\uFEFF${file.readAsStringSync()}');
     expect(readSdkVersions(sdk).flutter, '3.47.5');
   });
 
