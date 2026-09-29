@@ -9,7 +9,6 @@ import 'package:analyzer/file_system/file_system.dart';
 import 'package:path/path.dart' as p;
 
 import 'layer_config.dart';
-import 'layer_matcher.dart';
 
 /// Enforces the layer boundaries declared in `appstein_lints:`
 /// (spec §9.6). An import or export that crosses a forbidden boundary is
@@ -65,13 +64,11 @@ final class LayerImportsRule extends MultiAnalysisRule {
 
 final class _Visitor extends SimpleAstVisitor<void> {
   _Visitor(this.rule, this.config, this.file)
-    : _matcher = config.rules == null ? null : LayerMatcher(config.rules!),
-      _paths = file.provider.pathContext;
+    : _paths = file.provider.pathContext;
 
   final LayerImportsRule rule;
   final LayerConfig config;
   final File file;
-  final LayerMatcher? _matcher;
   final p.Context _paths;
 
   @override
@@ -96,7 +93,7 @@ final class _Visitor extends SimpleAstVisitor<void> {
       _check(node, node.libraryExport?.exportedLibrary);
 
   void _check(NamespaceDirective node, LibraryElement? target) {
-    final matcher = _matcher;
+    final matcher = config.matcher;
     final rules = config.rules;
     if (matcher == null || rules == null || target == null) return;
     final fromPath = _relative(file.path);

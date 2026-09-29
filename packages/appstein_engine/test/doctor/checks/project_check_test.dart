@@ -49,4 +49,18 @@ void main() {
     expect(result.summary, contains(':2:'));
     expect(result.summary, contains('Unknown key "bogus"'));
   });
+
+  test(
+    'an unreadable pubspec.yaml is a readable result, not a crash',
+    () async {
+      File(
+        p.join(project.path, 'pubspec.yaml'),
+      ).writeAsBytesSync([0x6e, 0xff, 0xfe, 0x0a]);
+      final result = await run();
+      expect(result.status, CheckStatus.error);
+      expect(result.summary, contains('pubspec.yaml'));
+      expect(result.summary, isNot(contains('bug in Appstein')));
+      expect(result.fixHint, isNot(contains('bug in Appstein')));
+    },
+  );
 }

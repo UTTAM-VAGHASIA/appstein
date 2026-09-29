@@ -6,15 +6,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
-  FLUTTER_STABLE: "3.47.5"   # keep in step with .fvmrc
-  FLUTTER_MIN: "3.44.x"      # spec §22 #14: proposed minimum
+  FLUTTER_STABLE: "3.47.5"   # keep in step with .fvmrc (the analyze job checks)
+  FLUTTER_MIN: "3.44.x"      # spec §22 #14: the confirmed minimum
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: FLUTTER_STABLE matches .fvmrc
+        shell: bash
+        run: |
+          pinned=$(grep -o '"flutter"[[:space:]]*:[[:space:]]*"[^"]*"' .fvmrc | sed 's/.*: *"\(.*\)"/\1/')
+          [ "$pinned" = "$FLUTTER_STABLE" ] || { echo "FLUTTER_STABLE ($FLUTTER_STABLE) differs from .fvmrc ($pinned)"; exit 1; }
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_STABLE }}
@@ -73,7 +81,12 @@ jobs:
         run: dart run tool/startup_check.dart build/appstein${{ runner.os == 'Windows' && '.exe' || '' }}
       - name: Run doctor (report only)
         shell: bash
-        run: ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} doctor || true
+        # Exit 0 or 1 is fine (the runner may have problems); 3 or 255 is a crash.
+        run: |
+          set +e
+          ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} doctor
+          c=$?
+          [ "$c" -le 1 ]
       - uses: actions/upload-artifact@v4
         with:
           name: appstein-${{ runner.os }}

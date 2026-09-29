@@ -68,6 +68,41 @@ void main() {
     expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
   });
 
+  test('a timed-out script whose child keeps the pipes does not keep the '
+      'process alive', () async {
+    final dir = tempDir();
+    final String script;
+    if (Platform.isWindows) {
+      script =
+          (File(p.join(dir.path, 'slow child.bat'))..writeAsStringSync(
+                '@echo off\r\necho started\r\nping -n 30 127.0.0.1\r\n',
+              ))
+              .path;
+    } else {
+      script = (File(
+        p.join(dir.path, 'slow child.sh'),
+      )..writeAsStringSync('#!/bin/sh\necho started\nsleep 30\n')).path;
+      Process.runSync('chmod', ['+x', script]);
+    }
+    final harness = p.join(
+      Directory.current.path,
+      'test',
+      'host',
+      'support',
+      'timeout_harness.dart',
+    );
+    final watch = Stopwatch()..start();
+    final result = await Process.run(Platform.resolvedExecutable, [
+      harness,
+      script,
+    ]);
+    watch.stop();
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    expect(result.stdout, contains('timedOut=true'));
+    expect(result.stdout, contains('stdout=started'));
+    expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
+  });
+
   test('decodes output that is not valid UTF-8 without throwing', () async {
     final script = File(p.join(tempDir().path, 'bytes.dart'))
       ..writeAsStringSync(

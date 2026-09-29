@@ -5,8 +5,8 @@ import '../../host/file_links.dart';
 import '../../sdk/flutter_sdk_locator.dart';
 import '../doctor_check.dart';
 
-/// Reports the Dart SDK bundled with Flutter, and warns when the `dart` on
-/// PATH belongs to a different SDK.
+/// Reports the Dart SDK bundled with Flutter, and notes (as information, not
+/// a warning) when the `dart` on PATH belongs to a different SDK.
 final class DartCheck implements DoctorCheck {
   /// Creates the check.
   const DartCheck();

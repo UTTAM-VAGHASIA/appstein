@@ -11,11 +11,11 @@ appstein_lints ─────────────────────�
 ```
 
 - **protocol** holds data only: `SdkInfo`, `AppsteinConfig`, `LayerRules` and `Severity`. It has no logic that touches the machine.
-- **engine** holds all behaviour. It reaches the machine only through two small types in `packages/appstein_engine/lib/src/host/`:
+- **engine** holds all behaviour. Environment variables and processes go through two small types in `packages/appstein_engine/lib/src/host/`:
   - `HostEnvironment` for environment variables, the PATH and the OS;
   - `ProcessRunner` for running tools.
 
-  Tests swap them for fakes, which is why engine tests never depend on what is installed.
+  Tests swap them for fakes. File checks are different: tests give them real temporary folders. A few checks (`xcodebuild`, `pod`, `reg`) start a tool by bare name against the real PATH, and some tests skip themselves when a tool isn't installed.
 - **cli** parses arguments, calls the engine and prints. `runAppstein()` returns an exit code instead of exiting, so tests run the whole CLI in-process.
 - **lints** runs inside the Dart analyzer, so its rules appear in every IDE and agent. It depends on protocol by a `path:` dependency, because the analysis server resolves a plugin's dependencies outside the workspace.
 

@@ -132,4 +132,15 @@ appstein_lints:
       lint(0, 0, messageContainsAll: ['invalid', '"nowhere"']),
     ]);
   }
+
+  Future<void> test_invalidGlobIsReportedNotThrown() async {
+    _options(
+      'appstein_lints:\n  layers:\n    ui: ["lib/[ui/**"]\n'
+      '  allow:\n    ui: []\n',
+    );
+    newFile(_ui, 'class A {}\n');
+    await assertDiagnosticsInFile(_ui, [
+      lint(0, 0, messageContainsAll: ['invalid']),
+    ]);
+  }
 }

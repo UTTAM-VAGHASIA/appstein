@@ -60,7 +60,17 @@ final class ConfigException implements Exception {
 AppsteinConfig? loadConfig(String projectRoot) {
   final file = File(p.join(projectRoot, configFileName));
   if (!file.existsSync()) return null;
-  return parseConfig(file.readAsStringSync(), sourcePath: file.path);
+  final String content;
+  try {
+    content = file.readAsStringSync();
+  } on FileSystemException catch (error) {
+    // For example a file that isn't UTF-8, or one that is locked.
+    throw ConfigException(
+      'Could not read $configFileName: ${error.message}',
+      sourcePath: file.path,
+    );
+  }
+  return parseConfig(content, sourcePath: file.path);
 }
 
 /// Parses and validates the text of an `appstein.yaml` file.
@@ -71,7 +81,8 @@ AppsteinConfig parseConfig(String content, {String? sourcePath}) {
   final YamlNode root;
   try {
     root = loadYamlNode(
-      content,
+      // Windows PowerShell 5.1 writes a UTF-8 byte order mark.
+      content.startsWith('﻿') ? content.substring(1) : content,
       sourceUrl: sourcePath == null ? null : p.toUri(sourcePath),
     );
   } on YamlException catch (error) {

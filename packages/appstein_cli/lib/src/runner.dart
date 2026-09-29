@@ -53,15 +53,22 @@ Future<int> runAppstein(
     errors.writeln('Invalid appstein.yaml: $error');
     return ExitCodes.appsteinFailed;
   } catch (error, stackTrace) {
-    errors
-      ..writeln('Appstein failed unexpectedly: $error')
-      ..writeln(
-        'Run `appstein doctor` to check your setup. If this keeps '
-        'happening, please report it with the details below.',
-      )
-      ..writeln(stackTrace);
+    reportCrash(errors, error, stackTrace);
     return ExitCodes.appsteinFailed;
   }
+}
+
+/// Prints the message for an unexpected failure of Appstein itself, with
+/// the details a bug report needs. The exit code for it is
+/// [ExitCodes.appsteinFailed].
+void reportCrash(StringSink errors, Object error, StackTrace stackTrace) {
+  errors
+    ..writeln('Appstein failed unexpectedly: $error')
+    ..writeln(
+      'Run `appstein doctor` to check your setup. If this keeps '
+      'happening, please report it with the details below.',
+    )
+    ..writeln(stackTrace);
 }
 
 final class _AppsteinCommandRunner extends CommandRunner<int> {

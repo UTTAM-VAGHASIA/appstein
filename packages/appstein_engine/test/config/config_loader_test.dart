@@ -131,6 +131,28 @@ integrations:
     },
   );
 
+  test('a leading BOM (Windows PowerShell writes one) is ignored', () {
+    final config = parseConfig(
+      '﻿appstein: 1\npacks:\n  stack: official_mvvm\n',
+    );
+    expect(config.packs.stack, 'official_mvvm');
+  });
+
+  test('a file that is not valid UTF-8 is a ConfigException naming it', () {
+    final dir = tempDir();
+    File(
+      p.join(dir.path, configFileName),
+    ).writeAsBytesSync([0x61, 0x3a, 0x20, 0xff, 0xfe, 0x0a]);
+    expect(
+      () => loadConfig(dir.path),
+      throwsA(
+        isA<ConfigException>()
+            .having((e) => e.message, 'message', contains('Could not read'))
+            .having((e) => e.toString(), 'toString', contains(configFileName)),
+      ),
+    );
+  });
+
   test('the error message includes the file path', () {
     final dir = tempDir();
     File(p.join(dir.path, configFileName)).writeAsStringSync('nope: 1\n');

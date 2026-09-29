@@ -10,7 +10,7 @@ This guide is for people working on Appstein's code without an agent. It explain
    fvm install
    fvm dart pub get
    ```
-3. Always use `fvm dart` and `fvm flutter`. A plain `dart` on your PATH may be a different, older SDK. `appstein doctor` warns you when that is the case.
+3. Always use `fvm dart` and `fvm flutter`. A plain `dart` on your PATH may be a different, older SDK. `appstein doctor` tells you when that is the case.
 
 On Windows, everything works in PowerShell, including paths with spaces.
 

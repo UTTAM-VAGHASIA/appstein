@@ -2,6 +2,8 @@ import 'package:analyzer/file_system/file_system.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:yaml/yaml.dart';
 
+import 'layer_matcher.dart';
+
 /// The layer rules that apply to a file, and where they came from.
 final class LayerConfig {
   /// Creates a config.
@@ -9,6 +11,7 @@ final class LayerConfig {
     required this.optionsPath,
     required this.rootPath,
     this.rules,
+    this.matcher,
     this.error,
   });
 
@@ -20,6 +23,10 @@ final class LayerConfig {
 
   /// The rules, or null when the section is invalid.
   final LayerRules? rules;
+
+  /// Gives files their layer tag. Built once with the config, not per file.
+  /// Null exactly when [rules] is.
+  final LayerMatcher? matcher;
 
   /// Why the section is invalid, when it is.
   final String? error;
@@ -69,10 +76,13 @@ final class LayerConfigFinder {
       final doc = loadYaml(text);
       if (doc is Map<Object?, Object?> && doc.containsKey('appstein_lints')) {
         try {
+          final rules = LayerRules.fromJson(doc['appstein_lints']);
           config = LayerConfig(
             optionsPath: options.path,
             rootPath: options.parent.path,
-            rules: LayerRules.fromJson(doc['appstein_lints']),
+            rules: rules,
+            // An invalid glob throws a FormatException here.
+            matcher: LayerMatcher(rules),
           );
         } on FormatException catch (error) {
           config = LayerConfig(

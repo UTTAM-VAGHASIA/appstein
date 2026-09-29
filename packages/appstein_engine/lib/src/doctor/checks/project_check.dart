@@ -25,9 +25,18 @@ final class ProjectCheck implements DoctorCheck {
       return const CheckResult.skipped('Not inside a Dart or Flutter project.');
     }
     final pubspec = File(p.join(root, 'pubspec.yaml'));
-    final language = pubspec.existsSync()
-        ? languageVersionFromPubspec(pubspec.readAsStringSync())
-        : null;
+    String? language;
+    if (pubspec.existsSync()) {
+      try {
+        language = languageVersionFromPubspec(pubspec.readAsStringSync());
+      } on FileSystemException catch (error) {
+        return CheckResult.error(
+          'Could not read pubspec.yaml: ${error.message}',
+          details: [pubspec.path],
+          fixHint: 'Make sure pubspec.yaml is a readable UTF-8 text file.',
+        );
+      }
+    }
     final languageLine = language == null
         ? 'Dart language version: unknown (pubspec.yaml has no SDK lower bound)'
         : 'Dart language version: $language (from the SDK constraint in '

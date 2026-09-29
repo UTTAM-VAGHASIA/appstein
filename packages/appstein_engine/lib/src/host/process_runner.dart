@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 /// The outcome of running a tool.
 final class RunResult {
@@ -87,26 +89,26 @@ final class SystemProcessRunner implements ProcessRunner {
     } on ProcessException catch (error) {
       return RunResult.notStarted(error.message);
     }
-    // Tools can print bytes that aren't valid UTF-8 (for example a JDK in
-    // another locale). Replace them instead of crashing.
-    const decoder = Utf8Decoder(allowMalformed: true);
-    final stdoutText = process.stdout.transform(decoder).join();
-    final stderrText = process.stderr.transform(decoder).join();
+    final stdoutReader = _PipeReader(process.stdout);
+    final stderrReader = _PipeReader(process.stderr);
     var timedOut = false;
     final exitCode = await process.exitCode.timeout(
       timeout,
-      onTimeout: () {
+      onTimeout: () async {
         timedOut = true;
-        process.kill();
+        await _killTree(process);
         return -1;
       },
     );
-    // Killing a .bat or .cmd file kills only the implicit cmd.exe, not the
-    // programs it started, and those can keep the pipes open. So the wait
-    // for output is bounded.
-    const drain = Duration(seconds: 2);
-    final out = await stdoutText.timeout(drain, onTimeout: () => '');
-    final err = await stderrText.timeout(drain, onTimeout: () => '');
+    // A .bat or .cmd file's child programs can keep the pipes open after the
+    // shell is gone. So the wait for output is bounded, and the readers are
+    // cancelled afterwards: an open pipe would keep appstein itself alive.
+    await Future.wait([
+      stdoutReader.done,
+      stderrReader.done,
+    ]).timeout(const Duration(seconds: 2), onTimeout: () => const []);
+    final out = await stdoutReader.finish();
+    final err = await stderrReader.finish();
     if (timedOut) {
       return RunResult.timedOut(
         stdout: out,
@@ -116,5 +118,66 @@ final class SystemProcessRunner implements ProcessRunner {
       );
     }
     return RunResult(exitCode: exitCode, stdout: out, stderr: err);
+  }
+}
+
+/// Kills [process] and, on Windows, everything it started.
+///
+/// `Process.kill` on Windows ends only the process itself. For a `.bat` or
+/// `.cmd` file that is the implicit cmd.exe, and the tool it started keeps
+/// running. `taskkill /T` ends the whole tree. It is started by its full path
+/// under SystemRoot, never by bare name.
+Future<void> _killTree(Process process) async {
+  if (Platform.isWindows) {
+    final root = _systemRoot(Platform.environment) ?? r'C:\Windows';
+    try {
+      await Process.run('$root\\System32\\taskkill.exe', [
+        '/PID',
+        '${process.pid}',
+        '/T',
+        '/F',
+      ]).timeout(const Duration(seconds: 5));
+    } on Object {
+      // Fall through to the plain kill below.
+    }
+  }
+  process.kill();
+}
+
+/// SystemRoot from [environment], which Windows names case-insensitively.
+String? _systemRoot(Map<String, String> environment) {
+  for (final entry in environment.entries) {
+    if (entry.key.toUpperCase() == 'SYSTEMROOT' && entry.value.isNotEmpty) {
+      return entry.value;
+    }
+  }
+  return null;
+}
+
+/// Collects a process's output bytes, so they can be decoded once at the end
+/// and the pipe released even when a child program never closes it.
+final class _PipeReader {
+  _PipeReader(Stream<List<int>> stream) {
+    _subscription = stream.listen(
+      _bytes.add,
+      onError: (Object _) => _finished.complete(),
+      onDone: _finished.complete,
+      cancelOnError: true,
+    );
+  }
+
+  final _bytes = BytesBuilder(copy: false);
+  final _finished = Completer<void>();
+  late final StreamSubscription<List<int>> _subscription;
+
+  /// Completes when the pipe closes.
+  Future<void> get done => _finished.future;
+
+  /// Stops reading and returns the text so far. Tools can print bytes that
+  /// aren't valid UTF-8 (for example a JDK in another locale); those are
+  /// replaced instead of crashing.
+  Future<String> finish() async {
+    await _subscription.cancel();
+    return const Utf8Decoder(allowMalformed: true).convert(_bytes.takeBytes());
   }
 }
