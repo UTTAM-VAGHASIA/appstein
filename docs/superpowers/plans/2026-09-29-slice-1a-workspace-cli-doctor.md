@@ -5650,9 +5650,9 @@ Expected, on the development machine (2026-09-29 state):
 - `[error] JDK used by Flutter:` with "Android Studio's bundled JDK … does not run: Error: could not open `…jvm.cfg'". *(Wrong expectation, corrected 2026-09-30: Flutter uses the working `Android Studio1\jbr` JDK 21, so the line is `[info]`. See the correction under "Evidence Gathered".)*
 - `[warn]  appstein on PATH: … not on PATH`.
 - `[info]  Project: No appstein.yaml …`.
-- The exit code is `1`, because of the JDK error.
+- The exit code is `1`, because of the JDK error. *(Corrected 2026-09-30: there is no JDK error, so the exit code is `0`.)*
 
-If anything differs, fix the code (or, if the expectation is wrong, tell the owner why), then show the owner the output. The JDK error is real, and the owner may want to fix it with `flutter config --jdk-dir "C:\Program Files\Java\jdk-21"`.
+If anything differs, fix the code (or, if the expectation is wrong, tell the owner why), then show the owner the output. *(Corrected 2026-09-30: this plan called the JDK error real and suggested `flutter config --jdk-dir`. It wasn't real: Flutter uses a working JDK, and no fix is needed.)*
 
 - [ ] **Step 8: Commit (after the owner approves)**
 

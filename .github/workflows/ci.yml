@@ -23,6 +23,16 @@ jobs:
         run: |
           pinned=$(grep -o '"flutter"[[:space:]]*:[[:space:]]*"[^"]*"' .fvmrc | sed 's/.*: *"\(.*\)"/\1/')
           [ "$pinned" = "$FLUTTER_STABLE" ] || { echo "FLUTTER_STABLE ($FLUTTER_STABLE) differs from .fvmrc ($pinned)"; exit 1; }
+      - name: No raw byte order marks in Dart files
+        shell: bash
+        # An invisible U+FEFF in a string literal is lost if a tool strips it,
+        # so Dart code must write it as an escape. Editing tools that decode
+        # escapes in their input are known to reintroduce the raw character.
+        run: |
+          if LC_ALL=C grep -rl $'\xEF\xBB\xBF' --include='*.dart' .; then
+            echo "Replace the raw byte order mark in the files above with its escape."
+            exit 1
+          fi
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_STABLE }}

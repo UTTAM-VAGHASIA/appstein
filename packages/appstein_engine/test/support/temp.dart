@@ -39,8 +39,10 @@ HostEnvironment fakeEnvironment(
   String? workingDirectory,
 }) => HostEnvironment(
   os: os ?? HostOs.current,
-  // Keep tests away from the real machine's Program Files folder, where a
-  // real Android Studio install would leak into the Java checks (Task 7).
+  // No lib code reads ProgramFiles any more (Flutter doesn't look in the
+  // default Windows Studio folder), but a fake value keeps any future lookup
+  // there from finding the real machine's Android Studio. Tests that expect
+  // "no FVM pin" also assume no `.fvmrc` exists above the system temp folder.
   variables: {
     'ProgramFiles': r'Z:\appstein-test-no-program-files',
     ...variables,

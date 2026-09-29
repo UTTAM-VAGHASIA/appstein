@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 
 import '../../android/flutter_settings.dart';
@@ -24,11 +26,23 @@ final class JavaCheck implements DoctorCheck {
   @override
   Future<CheckResult> run(DoctorContext context) async {
     final environment = context.environment;
-    final java = await locateFlutterJava(
-      environment,
-      readFlutterSettings(environment),
-      context.runner,
-    );
+    final settings = readFlutterSettings(environment);
+    // Flutter stops with a tool error when this setting names a missing
+    // folder (`AndroidStudio._configuredDir`), whatever JDK it would use.
+    final studioDir = settings['android-studio-dir'];
+    if (studioDir is String &&
+        studioDir.isNotEmpty &&
+        !Directory(studioDir).existsSync()) {
+      return CheckResult.error(
+        'Flutter stops: `android-studio-dir` points to $studioDir, which '
+        'does not exist.',
+        fixHint:
+            'Fix the path with `flutter config --android-studio-dir '
+            '"<path>"`, or clear it with '
+            '`flutter config --android-studio-dir ""`.',
+      );
+    }
+    final java = await locateFlutterJava(environment, settings, context.runner);
     const pointFlutter =
         'Point Flutter at a working JDK $minimumMajor or '
         'newer: `flutter config --jdk-dir "<path to the JDK>"`.';

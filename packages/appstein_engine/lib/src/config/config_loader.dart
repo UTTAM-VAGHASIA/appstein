@@ -82,7 +82,7 @@ AppsteinConfig parseConfig(String content, {String? sourcePath}) {
   try {
     root = loadYamlNode(
       // Windows PowerShell 5.1 writes a UTF-8 byte order mark.
-      content.startsWith('﻿') ? content.substring(1) : content,
+      content.startsWith('\uFEFF') ? content.substring(1) : content,
       sourceUrl: sourcePath == null ? null : p.toUri(sourcePath),
     );
   } on YamlException catch (error) {

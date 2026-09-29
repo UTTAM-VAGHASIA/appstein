@@ -133,7 +133,7 @@ integrations:
 
   test('a leading BOM (Windows PowerShell writes one) is ignored', () {
     final config = parseConfig(
-      '﻿appstein: 1\npacks:\n  stack: official_mvvm\n',
+      '\uFEFFappstein: 1\npacks:\n  stack: official_mvvm\n',
     );
     expect(config.packs.stack, 'official_mvvm');
   });

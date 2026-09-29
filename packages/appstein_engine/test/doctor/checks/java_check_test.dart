@@ -85,6 +85,19 @@ void main() {
     );
   });
 
+  // Flutter stops with an error when this setting names a missing folder,
+  // even though JAVA_HOME would work.
+  test('error when android-studio-dir points to a missing folder', () async {
+    final missing = p.join(tempDir().path, 'no studio here');
+    runner.when(javaIn('jdk 21'), ['-version'], javaVersion('21.0.2'));
+    final result = await run(
+      settings({'android-studio-dir': missing}, {'JAVA_HOME': 'jdk 21'}),
+    );
+    expect(result.status, CheckStatus.error);
+    expect(result.summary, contains(missing));
+    expect(result.fixHint, contains('flutter config --android-studio-dir'));
+  });
+
   test('error for a JDK older than 17', () async {
     runner.when(javaIn('old jdk'), ['-version'], javaVersion('11.0.20'));
     final result = await run(settings({}, {'JAVA_HOME': 'old jdk'}));
