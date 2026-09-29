@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Appstein Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #F4F6F7;
+  --surface: #FFFFFF;
+  --surface-2: #E9EEF0;
+  --ink: #16202A;
+  --ink-2: #4A5863;
+  --line: #CBD5DA;
+  --accent: #1F6F78;
+  --accent-soft: #D7ECEE;
+  --chalk: #B5701A;
+  --chalk-soft: #F6E7CF;
+  --good: #2E7D4F;
+  --good-soft: #DDF0E4;
+  --warn: #9A6A12;
+  --warn-soft: #F7EBCF;
+  --bad: #B03A3A;
+  --bad-soft: #F6DEDE;
+  --code-bg: #1C2830;
+  --code-ink: #DDE7EA;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --hand: "Caveat", "Segoe Print", "Comic Sans MS", cursive;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111A1E;
+    --surface: #17242A;
+    --surface-2: #1E2E35;
+    --ink: #E4ECEE;
+    --ink-2: #A3B3BA;
+    --line: #2E424A;
+    --accent: #62B9C2;
+    --accent-soft: #1C3B40;
+    --chalk: #E3AA55;
+    --chalk-soft: #3A2E1C;
+    --good: #6CC78F;
+    --good-soft: #1D3527;
+    --warn: #E0B454;
+    --warn-soft: #3A3120;
+    --bad: #EA7C7C;
+    --bad-soft: #3D2323;
+    --code-bg: #0C1316;
+    --code-ink: #DDE7EA;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111A1E;
+  --surface: #17242A;
+  --surface-2: #1E2E35;
+  --ink: #E4ECEE;
+  --ink-2: #A3B3BA;
+  --line: #2E424A;
+  --accent: #62B9C2;
+  --accent-soft: #1C3B40;
+  --chalk: #E3AA55;
+  --chalk-soft: #3A2E1C;
+  --good: #6CC78F;
+  --good-soft: #1D3527;
+  --warn: #E0B454;
+  --warn-soft: #3A3120;
+  --bad: #EA7C7C;
+  --bad-soft: #3D2323;
+  --code-bg: #0C1316;
+  --code-ink: #DDE7EA;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  padding-inline: 16px;
+  padding-block: 0 64px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.2; margin: 0; }
+h2 { font-size: 1.65rem; font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1.08rem; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+code { background: var(--surface-2); padding: 0.08em 0.35em; border-radius: 4px; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--chalk); outline-offset: 2px; border-radius: 4px; }
+.eyebrow { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.note { font-family: var(--hand); font-size: 1.35rem; line-height: 1.2; color: var(--chalk); }
+.muted { color: var(--ink-2); }
+
+/* nav */
+.nav {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  margin-inline: -16px; padding-inline: 16px;
+}
+.nav .wrap { display: flex; gap: 18px; align-items: center; overflow-x: auto; padding-block: 10px; scrollbar-width: thin; }
+.nav .brand { font-weight: 700; white-space: nowrap; color: var(--ink); text-decoration: none; }
+.nav .brand span { color: var(--accent); }
+.nav a.link { font-size: 0.86rem; color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+.nav a.link:hover { color: var(--accent); }
+
+/* hero */
+.hero { padding-block: 56px 40px; display: grid; gap: 28px; grid-template-columns: 1.3fr 1fr; align-items: center; }
+.hero h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 700; letter-spacing: -0.02em; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero .lede { font-size: 1.15rem; color: var(--ink-2); margin-top: 16px; }
+.hero .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.pill { font-family: var(--mono); font-size: 0.74rem; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+.board {
+  background: var(--code-bg); color: var(--code-ink); border-radius: 14px; padding: 26px 24px;
+  font-family: var(--hand); position: relative;
+}
+.board .eq { font-size: 2.6rem; line-height: 1; }
+.board .eq b { color: #E3AA55; font-weight: 700; }
+.board .lines { margin-top: 14px; font-size: 1.35rem; line-height: 1.35; color: #BFD3D8; }
+.board .lines span { color: #7FD0D8; }
+
+section { padding-block: 44px; border-top: 1px solid var(--line); }
+section > .wrap > header { display: grid; gap: 8px; margin-bottom: 24px; }
+
+/* two ideas */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 10px; align-content: start; }
+.panel ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.panel.before { border-top: 4px solid var(--accent); }
+.panel.after { border-top: 4px solid var(--chalk); }
+
+/* problem list */
+.problems { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.problem { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.problem .x { width: 26px; height: 26px; border-radius: 50%; background: var(--bad-soft); color: var(--bad); display: grid; place-items: center; font-weight: 700; font-family: var(--mono); font-size: 0.85rem; }
+
+/* architecture diagram */
+.diagram { overflow-x: auto; }
+.arch { min-width: 680px; display: grid; gap: 14px; }
+.arch-row { display: grid; gap: 12px; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.box h3 { font-family: var(--mono); font-size: 0.92rem; font-weight: 500; }
+.box p { font-size: 0.86rem; color: var(--ink-2); }
+.box.hl { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.box.ext { background: transparent; border-style: dashed; }
+.arrow-down { text-align: center; font-family: var(--mono); color: var(--ink-2); font-size: 0.8rem; }
+.engine { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+.engine > .label { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); font-weight: 500; }
+.engine-parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.part { background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; border: 1px solid var(--line); }
+.part b { font-family: var(--mono); font-weight: 500; display: block; }
+.packs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pack { background: var(--chalk-soft); border: 1px solid var(--chalk); border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; }
+.pack b { font-family: var(--mono); font-weight: 500; }
+.rules { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.rule { font-size: 0.84rem; padding: 6px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); }
+.rule b { font-family: var(--mono); font-weight: 500; }
+
+/* commands table */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+/* layers */
+.layers { display: grid; gap: 10px; }
+.layer { display: grid; grid-template-columns: 56px 1fr auto; gap: 16px; align-items: center; padding: 14px 16px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.layer .n { font-family: var(--mono); font-size: 1.5rem; color: var(--accent); font-weight: 500; text-align: center; }
+.layer .what p { font-size: 0.9rem; color: var(--ink-2); }
+.tag { font-family: var(--mono); font-size: 0.72rem; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.tag.gen { background: var(--good-soft); color: var(--good); }
+.tag.written { background: var(--warn-soft); color: var(--warn); }
+.tree { margin-top: 20px; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 16px 18px; font-family: var(--mono); font-size: 0.82rem; line-height: 1.6; overflow-x: auto; white-space: pre; }
+.tree .c { color: #8FA3AA; }
+.tree .k { color: #7FD0D8; }
+.tree .a { color: #E3AA55; }
+
+/* loop */
+.loop { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.step .when { font-family: var(--mono); font-size: 0.74rem; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
+.step .flow { font-family: var(--mono); font-size: 0.8rem; color: var(--ink-2); display: grid; gap: 4px; }
+.step .flow span::before { content: "→ "; color: var(--chalk); }
+.result { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.ok { background: var(--good-soft); color: var(--good); }
+.no { background: var(--bad-soft); color: var(--bad); }
+
+/* mcp tools */
+.tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tool { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
+.tool b { font-family: var(--mono); font-weight: 500; font-size: 0.88rem; color: var(--accent); }
+.tool span { font-size: 0.86rem; color: var(--ink-2); }
+
+/* checks */
+.checks { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; }
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.9rem; }
+.checklist li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; }
+.checklist li::before { content: "✓"; color: var(--good); font-weight: 700; }
+.subhead { font-family: var(--mono); font-size: 0.78rem; color: var(--ink-2); margin-top: 8px; }
+.finding { margin-top: 18px; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 0.8rem; overflow-x: auto; white-space: pre; line-height: 1.55; }
+.finding .s { color: #EA7C7C; }
+.finding .k { color: #7FD0D8; }
+.sev { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* policy */
+.policy { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.policy .panel h3 { font-size: 1rem; }
+.policy .verdict { font-family: var(--mono); font-size: 0.8rem; }
+
+/* create steps */
+.steps { list-style: none; counter-reset: s; margin: 0; padding: 0; display: grid; gap: 10px; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+.steps li::before { content: counter(s); width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; font-family: var(--mono); font-size: 0.85rem; font-weight: 500; }
+.steps li p { font-size: 0.93rem; }
+.steps li b { font-weight: 600; }
+
+/* milestones */
+.timeline { display: grid; gap: 14px; }
+.ms { display: grid; grid-template-columns: 90px 1fr; gap: 16px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.ms.now { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.ms .id { font-family: var(--mono); font-size: 1.6rem; color: var(--accent); font-weight: 500; }
+.ms .id small { display: block; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.slices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.slice { background: var(--surface-2); border-radius: 8px; padding: 10px; font-size: 0.82rem; display: grid; gap: 4px; align-content: start; }
+.slice b { font-family: var(--mono); color: var(--accent); font-weight: 500; }
+.done { margin-top: 12px; font-size: 0.9rem; padding: 10px 14px; border-radius: 8px; background: var(--good-soft); color: var(--ink); }
+.done b { color: var(--good); }
+
+/* risks */
+.risks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.risk { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
+.risk h3 { font-size: 0.95rem; }
+.risk p { font-size: 0.87rem; color: var(--ink-2); }
+
+/* glossary */
+dl.gloss { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 28px; margin: 0; }
+dl.gloss div { display: grid; gap: 2px; }
+dl.gloss dt { font-weight: 600; }
+dl.gloss dd { margin: 0; color: var(--ink-2); font-size: 0.92rem; }
+
+footer { padding-top: 32px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 0.86rem; }
+
+@media (max-width: 860px) {
+  .hero, .split, .checks { grid-template-columns: 1fr; }
+  .loop, .tools, .policy { grid-template-columns: 1fr 1fr; }
+  .slices { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  .problems, .loop, .tools, .policy, .risks, dl.gloss, .slices { grid-template-columns: 1fr; }
+  .layer { grid-template-columns: 40px 1fr; }
+  .layer .tag { grid-column: 2; justify-self: start; }
+  .ms { grid-template-columns: 1fr; gap: 6px; }
+  .hero { padding-block: 36px 28px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Sections">
+  <div class="wrap">
+    <a class="brand" href="#top">app<span>stein</span></a>
+    <a class="link" href="#idea">The idea</a>
+    <a class="link" href="#architecture">Architecture</a>
+    <a class="link" href="#knowledge">Knowledge</a>
+    <a class="link" href="#loop">The loop</a>
+    <a class="link" href="#verify">Verifier</a>
+    <a class="link" href="#create">Create</a>
+    <a class="link" href="#milestones">Milestones</a>
+    <a class="link" href="#risks">Risks</a>
+    <a class="link" href="#glossary">Glossary</a>
+  </div>
+</nav>
+
+<div class="wrap" id="top">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Design blueprint · 2026-09-29 · draft for review</div>
+      <h1>The Einstein of <em>app development</em>.</h1>
+      <p class="lede">Appstein gives AI coding agents what they lack when they build Flutter apps: accurate, current knowledge of the SDK and the project, and a strict check on everything they write.</p>
+      <div class="meta">
+        <span class="pill">Flutter 3.44+ · Dart</span>
+        <span class="pill">Claude Code · Codex</span>
+        <span class="pill">Android + iOS first</span>
+        <span class="pill">open source</span>
+      </div>
+    </div>
+    <div class="board" aria-label="Chalkboard equation">
+      <div class="eq">Apps = m·c<b>²</b></div>
+      <div class="lines">
+        <span>m</span> = a model that is already smart<br>
+        <span>c</span> = context, current and exact<br>
+        <span>c</span> again = checks that never skip
+      </div>
+    </div>
+  </div>
+</div>
+
+<section id="idea">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">The idea</div>
+      <h2>Guide the agent before it writes. Check it after.</h2>
+      <p class="muted">Agents don't need to be smarter. They need to stop guessing. Research found that telling a model about deprecated APIs is not enough, but fixing them automatically after generation works in over 85% of cases. So Appstein does both.</p>
+    </header>
+
+    <div class="problems" aria-label="What goes wrong today">
+      <div class="problem"><div class="x">1</div><p><b>Outdated code.</b> Models were trained 8 to 11 Flutter releases ago and keep writing <code>withOpacity</code>, <code>WillPopScope</code> and the old <code>material.dart</code> import.</p></div>
+      <div class="problem"><div class="x">2</div><p><b>Wasted tokens.</b> Every session starts with the agent searching the repo to rebuild a mental map it already built yesterday.</p></div>
+      <div class="problem"><div class="x">3</div><p><b>Broken native builds.</b> 2026 brings AGP 9 built-in Kotlin, SwiftPM by default, CocoaPods going read-only on Dec 2, and UIScene with Xcode 27.</p></div>
+      <div class="problem"><div class="x">4</div><p><b>Bad packages.</b> Models invent package names in 5 to 22% of samples and pick plugins that no longer build.</p></div>
+    </div>
+
+    <div class="split" style="margin-top:16px">
+      <div class="panel before">
+        <div class="eyebrow">Before writing · guide</div>
+        <h3>A knowledge layer that can't go stale</h3>
+        <ul>
+          <li>Generated from the installed SDK and the analyzed code</li>
+          <li>Served as plain files plus an MCP server agents can query</li>
+          <li>Only a small index is always loaded; details on demand</li>
+        </ul>
+      </div>
+      <div class="panel after">
+        <div class="eyebrow">After writing · check</div>
+        <h3>A verifier that blocks "done"</h3>
+        <ul>
+          <li>Analyzer, <code>dart fix</code>, and our own lint rules after every edit</li>
+          <li>Native Android and iOS config audit and real builds</li>
+          <li>A package gate before any dependency is added</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Architecture</div>
+      <h2>One Dart toolkit, four packages, strict boundaries</h2>
+      <p class="muted">Written in Dart because only Dart's own analyzer understands Dart code exactly. Your users already have it installed. The future desktop app will be Flutter too.</p>
+    </header>
+
+    <div class="diagram">
+      <div class="arch" role="img" aria-label="Architecture diagram: agents talk to the Appstein CLI and MCP server, which sit on the engine, which uses packs and the protocol">
+        <div class="arch-row" style="grid-template-columns: 1fr 1fr 1fr">
+          <div class="box ext"><h3>Claude Code</h3><p>User's own agent and login</p></div>
+          <div class="box ext"><h3>Codex</h3><p>User's own agent and login</p></div>
+          <div class="box ext"><h3>Google's official tools</h3><p>agent-plugins skills, <code>dart mcp-server</code> (installed and pinned by us)</p></div>
+        </div>
+        <div class="arrow-down">hooks after edits · MCP questions · verify at "done"</div>
+        <div class="arch-row" style="grid-template-columns: 1fr 1fr 1fr">
+          <div class="box hl"><h3>appstein_cli</h3><p>The <code>appstein</code> command. Thin layer.</p></div>
+          <div class="box hl"><h3>appstein mcp</h3><p>Knowledge and verify tools for agents</p></div>
+          <div class="box hl"><h3>appstein_lints</h3><p>Analyzer rules, one test per rule</p></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="engine">
+          <div class="label">appstein_engine · plumbing only, knows no Flutter rules</div>
+          <div class="engine-parts">
+            <div class="part"><b>sdk/</b>Finds versions, reads SDK data</div>
+            <div class="part"><b>knowledge/</b>Writes .appstein/</div>
+            <div class="part"><b>verify/</b>Runs checks</div>
+            <div class="part"><b>mcp/</b>Serves tools</div>
+            <div class="part"><b>integrate/</b>Sets up agents</div>
+            <div class="part"><b>create/</b>New projects</div>
+            <div class="part"><b>upgrade/</b>Versioned migrations</div>
+            <div class="part"><b>packs/</b>Registry</div>
+          </div>
+          <div class="label">packs · all Flutter knowledge lives here</div>
+          <div class="packs">
+            <div class="pack"><b>official_mvvm</b><br>stack: Flutter's own architecture guide</div>
+            <div class="pack"><b>android</b><br>platform: Gradle, AGP, Kotlin, SDK levels</div>
+            <div class="pack"><b>ios</b><br>platform: SwiftPM, UIScene, privacy</div>
+          </div>
+        </div>
+        <div class="arrow-down">↓ every part speaks one format</div>
+        <div class="box"><h3>appstein_protocol</h3><p>Shared models and JSON schemas: Finding, Feature, Route, Knowledge. The CLI, MCP, the future desktop app and web UI all use it.</p></div>
+      </div>
+    </div>
+
+    <div class="rules" aria-label="Boundary rules">
+      <span class="rule"><b>protocol</b> imports nothing internal</span>
+      <span class="rule"><b>engine</b> imports only protocol</span>
+      <span class="rule"><b>packs</b> never import each other</span>
+      <span class="rule">engine core never imports a pack</span>
+      <span class="rule">enforced on our own repo by <b>appstein_lints</b></span>
+    </div>
+
+    <div class="table-wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>appstein create my_app</code></td><td>New project with the right structure, design tokens and native config, plus knowledge and agent setup. Must pass verify.</td></tr>
+          <tr><td><code>appstein sync</code></td><td>Regenerates knowledge. Hooks run it after every agent edit.</td></tr>
+          <tr><td><code>appstein verify</code></td><td>Runs every check. The gate that decides if a task is done.</td></tr>
+          <tr><td><code>appstein mcp</code></td><td>Starts the MCP server. Agents launch it themselves.</td></tr>
+          <tr><td><code>appstein upgrade</code></td><td>Applies versioned migrations after a Flutter upgrade.</td></tr>
+          <tr><td><code>appstein integrate</code></td><td>Sets up Claude Code and Codex for the project.</td></tr>
+          <tr><td><code>appstein doctor</code></td><td>Checks Flutter, JDK, Android SDK, Xcode, FVM and agent CLIs, and explains fixes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="knowledge">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Knowledge layer</div>
+      <h2>Four layers. Two generated, two written and checked.</h2>
+      <p class="muted">Stale knowledge is worse than none, because agents trust it. So anything that can be generated is generated, and anything written by hand is checked against the code.</p>
+    </header>
+
+    <div class="layers">
+      <div class="layer">
+        <div class="n">1</div>
+        <div class="what"><h3>Flutter platform knowledge</h3><p>Installed SDK and language version, "use X, not Y" for this exact SDK, and the valid native toolchain set. Built from the SDK's own <code>fix_data</code>, releases list and <code>gradle_utils.dart</code>.</p></div>
+        <span class="tag gen">generated</span>
+      </div>
+      <div class="layer">
+        <div class="n">2</div>
+        <div class="what"><h3>Project map</h3><p>Features, screens, view models, repositories, routes, layer imports, packages and native config. Built by the Dart analyzer, so it's exact, and refreshed after every edit.</p></div>
+        <span class="tag gen">generated</span>
+      </div>
+      <div class="layer">
+        <div class="n">3</div>
+        <div class="what"><h3>Project decisions</h3><p>Why things are the way they are: architecture, state management, tokens, conventions. The verifier flags a decision that no longer matches the code.</p></div>
+        <span class="tag written">written · checked</span>
+      </div>
+      <div class="layer">
+        <div class="n">4</div>
+        <div class="what"><h3>Work memory</h3><p>The task in progress, what was tried, lessons learned. Tidied up when a task ends.</p></div>
+        <span class="tag written">written · checked</span>
+      </div>
+    </div>
+
+<div class="tree" aria-label="The .appstein folder"><span class="k">.appstein/</span>
+├── <span class="a">INDEX.md</span>            <span class="c"># always loaded, max 1,500 tokens, AGENTS.md / CLAUDE.md point here</span>
+├── platform/          <span class="c"># generated · git-ignored</span>
+│   ├── sdk.json
+│   ├── delta.md       <span class="c"># "use withValues, not withOpacity" for THIS SDK</span>
+│   └── toolchain.json <span class="c"># valid AGP / Gradle / Kotlin / JDK / SDK levels / iOS minimum</span>
+├── map/               <span class="c"># generated · git-ignored</span>
+│   ├── features.json  routes.json  layers.json  deps.json  native.json
+├── decisions/         <span class="c"># written · committed</span>
+└── memory/            <span class="c"># written · committed: current.md, lessons.md</span></div>
+
+    <header style="margin-top:32px">
+      <h3>MCP tools: agents ask instead of searching</h3>
+      <p class="muted">Google's Dart MCP server runs alongside for the analyzer, hot reload and pub.dev search. Exactly one copy runs, and we don't duplicate its tools.</p>
+    </header>
+    <div class="tools">
+      <div class="tool"><b>overview()</b><span>Project summary and freshness</span></div>
+      <div class="tool"><b>where_is("login screen")</b><span>Exact files and symbols</span></div>
+      <div class="tool"><b>feature("auth")</b><span>Screens, view models, repos, routes, tests</span></div>
+      <div class="tool"><b>check_api("withOpacity")</b><span>Deprecated here, use withValues</span></div>
+      <div class="tool"><b>what_changed(since)</b><span>Relevant version changes</span></div>
+      <div class="tool"><b>toolchain()</b><span>Valid native versions and mismatches</span></div>
+      <div class="tool"><b>package_check(name)</b><span>Exists, maintained, SwiftPM, Kotlin, verdict</span></div>
+      <div class="tool"><b>decisions() / memory()</b><span>Read and write layers 3 and 4</span></div>
+      <div class="tool"><b>verify(scope)</b><span>Run checks, get findings</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="loop">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">The loop</div>
+      <h2>What happens while an agent works</h2>
+      <p class="muted">In Milestone 1 the user runs their own Claude Code or Codex. Appstein only configures the project, so it never touches logins or credentials.</p>
+    </header>
+    <div class="loop">
+      <div class="step">
+        <div class="when">The agent needs context</div>
+        <div class="flow"><span>reads INDEX.md</span><span>asks MCP where_is / feature</span><span>gets exact files</span></div>
+        <p class="muted" style="font-size:.88rem">No repo-wide searching, so fewer tokens.</p>
+      </div>
+      <div class="step">
+        <div class="when">After every change · seconds</div>
+        <div class="flow"><span>detects changed files (edits and Bash)</span><span>analyze + our lint rules</span><span>reports only, never rewrites</span></div>
+        <div class="result"><span class="tag ok">pass → continue</span><span class="tag no">fail → findings to agent</span></div>
+      </div>
+      <div class="step">
+        <div class="when">When it says "done" · slower</div>
+        <div class="flow"><span>dart fix + format (safe now)</span><span>all tests + Android/iOS audit</span><span>real debug build</span></div>
+        <div class="result"><span class="tag ok">pass → done</span><span class="tag no">errors → "done" blocked</span></div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:14px;font-size:.92rem">A session-start hook builds the knowledge first. Fast checks never touch files mid-session, because rewriting a file the agent just read makes its next edit fail. If the same errors block "done" three times in a row, Appstein stops blocking and hands the list to you, so the agent can't loop and burn tokens.</p>
+    <p class="note" style="margin-top:14px">The agent can't mark a task done while errors remain. That's the whole trick.</p>
+  </div>
+</section>
+
+<section id="verify">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Verifier</div>
+      <h2>Checks that run by themselves</h2>
+    </header>
+    <div class="checks">
+      <div class="panel">
+        <h3>Fast · after every change · report only</h3>
+        <ul class="checklist">
+          <li><span><code>dart analyze</code> fails on any deprecated API</span></li>
+          <li><span>Pending <code>dart fix</code> and format changes listed</span></li>
+          <li><span>No UI code importing the data layer</span></li>
+          <li><span>Colors and spacing only from theme tokens</span></li>
+          <li><span>No <code>Platform.isX</code> layouts, no orientation locks</span></li>
+          <li><span>Knowledge is fresh (hash check)</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Full · when the agent says done</h3>
+        <div class="subhead">code</div>
+        <ul class="checklist">
+          <li><span><code>flutter test</code>, including tap-target, label and contrast checks</span></li>
+        </ul>
+        <div class="subhead">android</div>
+        <ul class="checklist">
+          <li><span>Gradle, AGP, Kotlin, JDK inside the valid set; SDK levels via Flutter's variables, targetSdk ≥ 36</span></li>
+          <li><span>No plugin breaking AGP 9 built-in Kotlin; minSdk fits every plugin</span></li>
+          <li><span>16 KB page-size alignment for native libraries</span></li>
+          <li><span>No signing or store secrets in git; quick config-only build, then a real <code>flutter build apk --debug</code></span></li>
+        </ul>
+        <div class="subhead">ios (static on Windows, real build on Mac CI)</div>
+        <ul class="checklist">
+          <li><span>iOS 15+ everywhere; SwiftPM on; UIScene and privacy manifests present</span></li>
+          <li><span>Usage descriptions for every permission a plugin needs</span></li>
+        </ul>
+        <div class="subhead">packages</div>
+        <ul class="checklist">
+          <li><span>Package exists, isn't discontinued, is maintained, builds on 2026 toolchains</span></li>
+        </ul>
+      </div>
+    </div>
+
+<div class="finding" aria-label="Example finding">{
+  <span class="k">"id"</span>: "android.kgp_applied_by_plugin",
+  <span class="k">"severity"</span>: <span class="s">"error"</span>,
+  <span class="k">"file"</span>: "android/app/build.gradle.kts", <span class="k">"line"</span>: 3,
+  <span class="k">"message"</span>: "Plugin 'foo_plugin 1.2.0' applies the Kotlin Gradle Plugin; AGP 9 built-in Kotlin will fail.",
+  <span class="k">"fixHint"</span>: "Upgrade foo_plugin to >= 1.3.0 or replace it; see package_check.",
+  <span class="k">"knowledgeRef"</span>: ".appstein/platform/toolchain.json#kotlin"
+}</div>
+    <div class="sev">
+      <span class="tag no">error · blocks done</span>
+      <span class="tag written">warning · reported</span>
+      <span class="tag gen">info · advice</span>
+    </div>
+
+    <header style="margin-top:36px">
+      <h3>Dependency policy: taught by a skill, enforced by the package gate</h3>
+    </header>
+    <div class="policy">
+      <div class="panel"><h3>Small helper</h3><p class="muted">Formatting, validation, simple state, HTTP wrapper.</p><p class="verdict">→ write it in pure Dart</p></div>
+      <div class="panel"><h3>Complex platform feature</h3><p class="muted">Camera, permissions, notifications, payments, maps, auth.</p><p class="verdict">→ well-maintained package</p></div>
+      <div class="panel"><h3>Small native feature, no good package</h3><p class="muted">Rare, and only when needed.</p><p class="verdict">→ Pigeon + platform channels</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="create">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">appstein create</div>
+      <h2>A new project that builds on the first try</h2>
+    </header>
+    <ol class="steps">
+      <li><p><b>Preflight.</b> Doctor checks the machine. You confirm the organization and app ID, since these are permanent after the first store upload.</p></li>
+      <li><p><b>Base.</b> Runs <code>flutter create</code> for Android and iOS.</p></li>
+      <li><p><b>Structure.</b> Flutter's official architecture: <code>ui/&lt;feature&gt;</code>, <code>data/</code>, <code>domain/</code>, <code>routing/</code>, with go_router, provider, light and dark themes and design tokens. On Flutter 3.47+ it uses the new <code>material_ui</code> package.</p></li>
+      <li><p><b>Native config.</b> Sets Android and iOS to the valid toolchain for your SDK: SwiftPM, UIScene and privacy manifests included.</p></li>
+      <li><p><b>Sample feature.</b> One screen with view model, repository, fake and tests, including accessibility tests.</p></li>
+      <li><p><b>Finish.</b> Sync, set up agents, run the full verify. It must pass. Git is initialized, and nothing is committed without you.</p></li>
+    </ol>
+    <p class="muted" style="margin-top:16px"><code>appstein upgrade</code> keeps projects current later: one migration folder per Flutter version, previewed with <code>--dry-run</code>, using Flutter's own migrators wherever possible.</p>
+  </div>
+</section>
+
+<section id="milestones">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Milestones</div>
+      <h2>Foundation first, harness on top, desktop app last</h2>
+    </header>
+    <div class="timeline">
+      <div class="ms now">
+        <div class="id">M1<small>this spec</small></div>
+        <div>
+          <h3>Knowledge + verification foundation</h3>
+          <div class="slices">
+            <div class="slice"><b>1a</b>Workspace, CLI skeleton, SDK detection, doctor, CI</div>
+            <div class="slice"><b>1b</b>Platform knowledge, project map, INDEX, sync</div>
+            <div class="slice"><b>1c</b>MCP server, decisions and memory</div>
+            <div class="slice"><b>1d</b>Verifier, Android + iOS checks, package gate, lint rules</div>
+            <div class="slice"><b>1e</b>create, agent setup for Claude Code and Codex, hooks</div>
+            <div class="slice"><b>1f</b>upgrade, lifecycle skills + CI, benchmark</div>
+          </div>
+          <p class="done"><b>Done when:</b> create → verify passes on Linux and macOS CI, and the benchmark shows zero deprecated APIs and a higher verify pass rate with Appstein than without. Token use is reported honestly either way.</p>
+        </div>
+      </div>
+      <div class="ms">
+        <div class="id">M2<small>next</small></div>
+        <div><h3>Single-agent pipeline harness</h3><p class="muted">Appstein drives the official CLIs through their structured output: plan → build → review → verify, with hard gates. You always log in through the vendor's own flow.</p></div>
+      </div>
+      <div class="ms">
+        <div class="id">M3<small>then</small></div>
+        <div><h3>Existing projects + more stacks</h3><p class="muted">Adopt apps that already exist. Riverpod and Bloc packs. Community packs.</p></div>
+      </div>
+      <div class="ms">
+        <div class="id">M4<small>later</small></div>
+        <div><h3>Flutter desktop app + agent team + every platform</h3><p class="muted">A native UI for agent activity, parallel agents for independent work, web and desktop platform packs, then a web UI.</p></div>
+      </div>
+    </div>
+
+    <header style="margin-top:32px">
+      <h3>How we'll prove it works</h3>
+      <p class="muted">10 to 20 realistic tasks run by Claude Code with and without Appstein, on a fresh app and on a legacy app full of old APIs. We measure tokens, turns, deprecated APIs left, verify pass rate, build success and time, and publish the numbers.</p>
+    </header>
+  </div>
+</section>
+
+<section id="risks">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Risks and open questions</div>
+      <h2>What we're watching</h2>
+    </header>
+    <div class="risks">
+      <div class="risk"><h3>Vendor policy changes</h3><p>Anthropic changed its rules four times in 2026. M1 runs no agents, so no exposure. Re-check before M2.</p></div>
+      <div class="risk"><h3>Codex hook support</h3><p>Unverified. If missing, Codex calls verify through MCP and CI enforces it.</p></div>
+      <div class="risk"><h3>Material moving packages</h3><p>The old import is deprecated in the November stable. The version delta and an upgrade migration handle it.</p></div>
+      <div class="risk"><h3>Competitor: Vide</h3><p>Flutter multi-agent tool, Claude only, small. Our edge is exact knowledge, verification and support for more agents.</p></div>
+      <div class="risk"><h3>Name and brand</h3><p>Trademark and domain check before the first public release. Einstein pun only, never his likeness.</p></div>
+      <div class="risk"><h3>Firm product or not</h3><p>Decide after the M1 benchmark. It sets the license and where the repo lives.</p></div>
+      <div class="risk"><h3>iOS on Windows</h3><p>Static checks locally, real iOS builds on macOS CI.</p></div>
+      <div class="risk"><h3>Minimum Flutter version</h3><p>Proposed 3.44+, because the Dart MCP server needs Dart 3.12. Confirm in slice 1a.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="glossary">
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Glossary</div>
+      <h2>Terms used in this plan</h2>
+    </header>
+    <dl class="gloss">
+      <div><dt>Agent CLI</dt><dd>A command-line AI coding tool, such as Claude Code or Codex.</dd></div>
+      <div><dt>MCP</dt><dd>A standard way for agents to call outside tools. Our server lets agents ask Appstein questions.</dd></div>
+      <div><dt>Skill</dt><dd>A short instruction file an agent loads when a task needs it.</dd></div>
+      <div><dt>Hook</dt><dd>A command the agent tool runs automatically, for example after an edit or before stopping.</dd></div>
+      <div><dt>Analyzer</dt><dd>Dart's own engine for understanding code exactly, which makes our project map precise.</dd></div>
+      <div><dt>fix_data</dt><dd>Files in the Flutter SDK that map deprecated APIs to their replacements. <code>dart fix</code> uses them.</dd></div>
+      <div><dt>Pack</dt><dd>A plug-in bundle of knowledge, checks, rules and templates for one stack or one platform.</dd></div>
+      <div><dt>Toolchain matrix</dt><dd>The Gradle, AGP, Kotlin, JDK and SDK versions known to work together for a Flutter version.</dd></div>
+      <div><dt>Pub workspace</dt><dd>A Dart feature that lets one repo hold several related packages.</dd></div>
+      <div><dt>Golden test</dt><dd>A test that compares generated output with a saved, approved copy.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>
+    <p>Appstein design blueprint · visual companion to <code>docs/superpowers/specs/2026-09-29-appstein-design.md</code>, which is the source of truth. Research basis: <code>reports/Flutter agentic harness landscape.md</code>.</p>
+  </footer>
+</div>
+
+</body>
+</html>

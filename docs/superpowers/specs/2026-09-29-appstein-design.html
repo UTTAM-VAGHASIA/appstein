@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Appstein Blueprint</title>
+<script>
+  /* Apply a saved theme before first paint so the page never flashes. */
+  try { var t = localStorage.getItem("appstein-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#fbfbfd;
+  --bg-alt:#f3f4f7;
+  --surface:#ffffff;
+  --surface-2:#f6f7f9;
+  --ink:#1b1c1f;
+  --ink-2:#5f636b;
+  --ink-3:#666b74;
+  --on-fill:#ffffff;
+  --line:rgba(20,24,34,.09);
+  --line-2:rgba(20,24,34,.16);
+  --accent:#1f6feb;
+  --accent-soft:rgba(31,111,235,.09);
+  --ok:#176f43;
+  --ok-soft:rgba(31,143,85,.10);
+  --warn:#9a5b00;
+  --warn-soft:rgba(178,106,0,.10);
+  --err:#b23329;
+  --err-soft:rgba(201,58,46,.09);
+  --glass:rgba(251,251,253,.72);
+  --shadow:0 1px 2px rgba(16,20,30,.04),0 8px 28px rgba(16,20,30,.07);
+  --shadow-lg:0 2px 4px rgba(16,20,30,.05),0 24px 60px rgba(16,20,30,.12);
+  --device:#1b1c1f;
+  --r:18px;
+  --r-sm:12px;
+  --sans:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SFMono-Regular","Cascadia Code",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#0c0d0f;
+    --bg-alt:#121316;
+    --surface:#17181b;
+    --surface-2:#1d1f23;
+    --ink:#f2f3f5;
+    --ink-2:#a3a8b0;
+    --ink-3:#80858e;--on-fill:#0c0d0f;
+    --line:rgba(255,255,255,.08);
+    --line-2:rgba(255,255,255,.15);
+    --accent:#5b9bff;
+    --accent-soft:rgba(91,155,255,.13);
+    --ok:#4cc486;
+    --ok-soft:rgba(76,196,134,.13);
+    --warn:#e3a33c;
+    --warn-soft:rgba(227,163,60,.13);
+    --err:#ff7b6e;
+    --err-soft:rgba(255,123,110,.12);
+    --glass:rgba(12,13,15,.7);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 28px rgba(0,0,0,.35);
+    --shadow-lg:0 2px 4px rgba(0,0,0,.3),0 24px 60px rgba(0,0,0,.5);
+    --device:#2a2c31;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0c0d0f;
+  --bg-alt:#121316;
+  --surface:#17181b;
+  --surface-2:#1d1f23;
+  --ink:#f2f3f5;
+  --ink-2:#a3a8b0;
+  --ink-3:#80858e;--on-fill:#0c0d0f;
+  --line:rgba(255,255,255,.08);
+  --line-2:rgba(255,255,255,.15);
+  --accent:#5b9bff;
+  --accent-soft:rgba(91,155,255,.13);
+  --ok:#4cc486;
+  --ok-soft:rgba(76,196,134,.13);
+  --warn:#e3a33c;
+  --warn-soft:rgba(227,163,60,.13);
+  --err:#ff7b6e;
+  --err-soft:rgba(255,123,110,.12);
+  --glass:rgba(12,13,15,.7);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 28px rgba(0,0,0,.35);
+  --shadow-lg:0 2px 4px rgba(0,0,0,.3),0 24px 60px rgba(0,0,0,.5);
+  --device:#2a2c31;
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 1rem/1.55 var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background-color .3s ease,color .3s ease}
+img,svg{max-width:100%}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code,.mono{font-family:var(--mono);font-size:.86em}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+[id]{scroll-margin-top:60px}
+
+.wrap{max-width:1120px;margin:0 auto;padding-inline:24px}
+@media (max-width:600px){.wrap{padding-inline:16px}}
+
+/* ---------- nav ---------- */
+.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--glass);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:16px;height:52px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
+.brand:hover{text-decoration:none}
+.mark{width:22px;height:22px;border-radius:7px;background:var(--ink);color:var(--bg);display:grid;place-items:center;font:600 11px/1 var(--sans);letter-spacing:-.02em}
+.nav ul{display:flex;gap:2px;list-style:none;margin:0 0 0 auto;padding:0;overflow-x:auto;scrollbar-width:none}
+.nav ul::-webkit-scrollbar{display:none}
+.nav li a{display:block;padding:6px 10px;border-radius:999px;color:var(--ink-2);font-size:.84rem;white-space:nowrap;transition:color .15s,background .15s}
+.nav li a:hover,.nav li a.on{color:var(--ink);background:var(--line);text-decoration:none}
+.theme{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);cursor:pointer;transition:transform .1s ease-out,background .2s}
+.theme:hover{background:var(--surface-2)}
+.theme:active{transform:scale(.92)}
+.theme svg{width:16px;height:16px}
+.theme .moon{display:none}
+:root[data-theme="dark"] .theme .sun{display:none}
+:root[data-theme="dark"] .theme .moon{display:block}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .theme .sun{display:none}
+  :root:not([data-theme="light"]) .theme .moon{display:block}
+}
+@media (max-width:980px){.nav ul{display:none}.theme{margin-left:auto}}
+@media (prefers-reduced-transparency:reduce){.nav{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}}
+
+/* ---------- type ---------- */
+.eyebrow{font:500 .78rem/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
+h1,h2,h3{margin:0;text-wrap:balance;font-weight:600}
+h1{font-size:clamp(2.6rem,6vw,4.4rem);line-height:1.02;letter-spacing:-.035em}
+h2{font-size:clamp(1.8rem,3.6vw,2.7rem);line-height:1.08;letter-spacing:-.028em}
+h3{font-size:1.06rem;line-height:1.3;letter-spacing:-.01em}
+.lead{font-size:clamp(1.05rem,1.6vw,1.22rem);line-height:1.5;color:var(--ink-2);max-width:42ch;margin:18px 0 0;text-wrap:pretty}
+.muted{color:var(--ink-2)}
+.small{font-size:.84rem;color:var(--ink-2)}
+.num{font-variant-numeric:tabular-nums}
+.subhead{font-size:1.25rem;letter-spacing:-.015em}
+
+/* ---------- sections ---------- */
+section{padding-block:112px}
+section.alt{background:var(--bg-alt)}
+.head{margin-bottom:48px}
+@media (max-width:600px){section{padding-block:72px}.head{margin-bottom:32px}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+
+/* ---------- hero ---------- */
+.hero{padding-block:88px 104px;overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:28px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:1px solid var(--line-2);border-radius:999px;font-size:.8rem;color:var(--ink-2);background:var(--surface)}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.hero .formula{margin-top:36px;display:flex;gap:28px;flex-wrap:wrap}
+.hero .formula b{display:block;font-weight:600;font-size:1rem;letter-spacing:-.01em}
+.hero .formula span{font-size:.88rem;color:var(--ink-2)}
+@media (max-width:900px){.hero .wrap{grid-template-columns:1fr;gap:48px}.hero{padding-block:56px 72px}}
+
+.stage{position:relative;display:flex;justify-content:center;align-items:center;min-height:540px}
+.phone{position:relative;width:258px;height:530px;border-radius:44px;background:var(--device);padding:10px;box-shadow:var(--shadow-lg)}
+.screen{position:relative;height:100%;border-radius:35px;background:var(--surface);overflow:hidden;display:flex;flex-direction:column}
+.island{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:78px;height:22px;border-radius:12px;background:#0a0a0b;z-index:2}
+.sbar{display:flex;justify-content:space-between;padding:13px 22px 0;font:600 11px/1 var(--sans);color:var(--ink)}
+.appbar{padding:26px 18px 10px}
+.appbar small{font-size:11px;color:var(--ink-3)}
+.appbar div{font-size:21px;font-weight:600;letter-spacing:-.02em}
+.chips{display:flex;gap:6px;padding:0 18px 12px}
+.chips span{font-size:10.5px;padding:4px 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
+.chips span.on{background:var(--ink);color:var(--surface)}
+.list{padding:0 12px;display:grid;gap:8px}
+.row{display:flex;align-items:center;gap:10px;padding:10px;border-radius:14px;background:var(--surface-2)}
+.row i{width:34px;height:34px;border-radius:10px;flex:none}
+.row b{display:block;font-size:12px;font-weight:600}
+.row small{display:block;font-size:10.5px;color:var(--ink-3)}
+.row em{margin-left:auto;font-style:normal;font-size:11px;font-weight:600;color:var(--ink-2)}
+.fab{margin:auto 14px 14px;height:44px;border-radius:14px;background:var(--accent);color:var(--on-fill);display:grid;place-items:center;font-size:12.5px;font-weight:600}
+.home{width:92px;height:4px;border-radius:2px;background:var(--ink);opacity:.25;margin:0 auto 8px}
+
+.float{position:absolute;z-index:3;width:250px;padding:14px 16px;font-size:.8rem}
+.float.a{bottom:44px;left:-48px}
+.float.b{top:44px;right:-48px}
+.float .t{display:flex;align-items:center;gap:8px;font:500 .72rem/1 var(--mono);color:var(--ink-3);margin-bottom:10px}
+.float .t i{width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
+.float .q{font-family:var(--mono);font-size:.76rem;color:var(--ink)}
+.float .ans{margin-top:8px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.checks{display:grid;gap:7px;margin-top:2px}
+.checks div{display:flex;justify-content:space-between;gap:10px;font-size:.78rem}
+.checks div span:first-child{color:var(--ink-2)}
+@media (max-width:1060px){.float.a{left:-16px}.float.b{right:-16px}}
+@media (max-width:900px){.float.a{left:0}.float.b{right:0}}
+@media (max-width:560px){.stage{min-height:0;flex-direction:column;gap:14px}.float{position:static;width:100%;max-width:340px}.float.a{order:-1}}
+
+.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font:500 .7rem/1.5 var(--sans);white-space:nowrap}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.err{background:var(--err-soft);color:var(--err)}
+.tag.info{background:var(--accent-soft);color:var(--accent)}
+.tag.neutral{background:var(--line);color:var(--ink-2)}
+
+/* ---------- why ---------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.stat{background:var(--surface);padding:28px 24px 26px}
+.stat b{display:block;font-size:clamp(1.9rem,3vw,2.5rem);font-weight:600;letter-spacing:-.035em;line-height:1}
+.stat p{margin:12px 0 0;font-size:.92rem;color:var(--ink-2);line-height:1.45}
+.stat small{display:block;margin-top:14px;font-size:.74rem;color:var(--ink-3)}
+@media (max-width:860px){.stats{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){.stats{grid-template-columns:1fr}}
+
+.scope{margin-top:56px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.scope .card{padding:26px}
+.scope h3{font-size:1.1rem}
+.scope ul{list-style:none;margin:14px 0 0;padding:0;display:grid}
+.scope li{display:flex;justify-content:space-between;gap:16px;align-items:baseline;padding:12px 0;border-top:1px solid var(--line);font-size:.9rem}
+.scope li span:first-child b{display:block;font-weight:500}
+.scope li span:first-child small{display:block;margin-top:2px;font-size:.82rem;color:var(--ink-2)}
+.scope ul.notm1{grid-template-columns:1fr 1fr;column-gap:40px}
+@media (max-width:760px){.scope{grid-template-columns:1fr}.scope ul.notm1{grid-template-columns:1fr}}
+
+/* ---------- two halves ---------- */
+.halves{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.half{padding:32px}
+.half .k{display:inline-flex;align-items:center;gap:8px;font-size:.8rem;font-weight:500;color:var(--ink-2)}
+.half .k i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-style:normal;font-size:.75rem;font-weight:600}
+.half h3{font-size:1.5rem;letter-spacing:-.02em;margin-top:14px}
+.half p{margin:10px 0 0;color:var(--ink-2);max-width:42ch}
+.half ul{list-style:none;margin:22px 0 0;padding:0;display:grid;gap:10px}
+.half li{display:flex;gap:10px;align-items:center;font-size:.92rem}
+.half li::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.35;flex:none}
+@media (max-width:760px){.halves{grid-template-columns:1fr}.half{padding:24px}}
+
+/* ---------- session timeline ---------- */
+.timeline{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:20px}
+.timeline::before{content:"";position:absolute;left:24px;right:24px;top:23px;height:1px;background:var(--line-2)}
+.step{position:relative}
+.step .node{position:relative;width:46px;height:46px;border-radius:50%;background:var(--surface);border:1px solid var(--line-2);display:grid;place-items:center;color:var(--ink-2)}
+.step .node svg{width:20px;height:20px}
+.step.end .node{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.step .when{margin-top:18px;font-size:.78rem;color:var(--ink-3);font-weight:500}
+.step h3{margin-top:4px}
+.step .cmd{margin-top:10px;display:grid;gap:6px}
+.step .cmd code{display:block;padding:7px 10px;border-radius:9px;background:var(--surface);border:1px solid var(--line);color:var(--ink);font-size:.74rem;overflow-wrap:anywhere}
+.step p{margin:10px 0 0;font-size:.86rem;color:var(--ink-2)}
+@media (max-width:860px){
+  .timeline{grid-template-columns:1fr;gap:28px}
+  .timeline::before{left:23px;right:auto;top:24px;bottom:24px;width:1px;height:auto}
+  .step{display:grid;grid-template-columns:46px 1fr;column-gap:18px}
+  .step .node{grid-row:span 4}
+  .step .when{margin-top:2px}
+}
+
+/* ---------- details ---------- */
+details.more{margin-top:28px;border-top:1px solid var(--line)}
+details.more summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:16px 0 0;font-size:.88rem;font-weight:500;color:var(--accent);width:max-content}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary svg{width:14px;height:14px;transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+details.more[open] summary svg{transform:rotate(90deg)}
+details.more summary:active{opacity:.6}
+.more-body{padding-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 32px;font-size:.88rem;color:var(--ink-2)}
+.more-body p{margin:0}
+.more-body b{color:var(--ink);font-weight:500}
+
+/* ---------- knowledge stack ---------- */
+.knowledge{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start}
+.stack{display:grid;gap:10px}
+.index{padding:18px 22px;border-radius:var(--r);background:var(--ink);color:var(--bg);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.index b{font-weight:600;letter-spacing:-.01em}
+.index span{font-size:.82rem;opacity:.7}
+.layer{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:16px;padding:18px 22px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);transition:border-color .2s,box-shadow .2s,transform .1s ease-out}
+.layer:hover{border-color:var(--line-2)}
+.layer:active{transform:scale(.99)}
+.layer[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.layer .n{width:34px;height:34px;border-radius:10px;background:var(--surface-2);display:grid;place-items:center;font-weight:600;font-size:.9rem;color:var(--ink-2)}
+.layer[aria-pressed="true"] .n{background:var(--accent);color:var(--on-fill)}
+.layer b{display:block;font-weight:600;letter-spacing:-.01em}
+.layer small{display:block;font-size:.84rem;color:var(--ink-2)}
+.layer .src{font-size:.74rem}
+.ondemand{display:flex;align-items:center;gap:10px;font-size:.82rem;color:var(--ink-3);padding:4px 4px 0}
+.ondemand::before,.ondemand::after{content:"";flex:1;height:1px;background:var(--line-2)}
+.layer-info{padding:28px;position:sticky;top:84px}
+.layer-info .eyebrow{margin-bottom:10px}
+.layer-info h3{font-size:1.35rem;letter-spacing:-.02em}
+.layer-info dl{margin:22px 0 0;display:grid;grid-template-columns:auto 1fr;gap:12px 20px;font-size:.9rem}
+.layer-info dt{color:var(--ink-3)}
+.layer-info dd{margin:0}
+.files{margin-top:22px;padding-top:18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
+.files code{padding:4px 8px;border-radius:7px;background:var(--surface-2);font-size:.74rem;color:var(--ink-2)}
+@media (max-width:860px){.knowledge{grid-template-columns:1fr}.layer-info{position:static}}
+@media (max-width:480px){.layer{grid-template-columns:34px 1fr;padding:16px}.layer .src{display:none}}
+
+.policy{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:40px}
+.policy div{padding:18px 20px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface)}
+.policy b{display:block;font-size:.9rem;font-weight:600}
+.policy p{margin:6px 0 0;font-size:.82rem;color:var(--ink-2)}
+.policy code{color:var(--ink)}
+@media (max-width:760px){.policy{grid-template-columns:1fr}}
+
+/* ---------- MCP ---------- */
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.tool{padding:18px 20px}
+.tool code{font-size:.84rem;font-weight:500;color:var(--ink)}
+.tool p{margin:6px 0 0;font-size:.85rem;color:var(--ink-2);line-height:1.45}
+.tool.hl{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tool .ex{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface-2);font:400 .74rem/1.55 var(--mono);color:var(--ink-2)}
+.tool .ex b{color:var(--ink);font-weight:500}
+@media (max-width:860px){.tools{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.tools{grid-template-columns:1fr}}
+
+/* ---------- verifier ---------- */
+.seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--line);gap:2px;margin-bottom:28px}
+.seg button{font:500 .86rem/1 var(--sans);color:var(--ink-2);background:none;border:0;padding:9px 18px;border-radius:999px;cursor:pointer;transition:color .2s,background .2s,transform .1s}
+.seg button:active{transform:scale(.97)}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.vpanel{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.vcol{padding:22px}
+.vcol h3{display:flex;align-items:center;gap:8px;font-size:.98rem}
+.vcol h3 svg{width:18px;height:18px;color:var(--ink-3)}
+.vcol ul{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:9px}
+.vcol li{font-size:.86rem;color:var(--ink-2);line-height:1.4;padding-left:16px;position:relative}
+.vcol li::before{content:"";position:absolute;left:0;top:.55em;width:6px;height:6px;border-radius:2px;border:1.5px solid var(--ink-3)}
+.vcol li b{color:var(--ink);font-weight:500}
+.vnote{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px 24px;font-size:.86rem;color:var(--ink-2);align-items:center}
+@media (max-width:960px){.vpanel{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.vpanel{grid-template-columns:1fr}}
+
+.gate{margin-top:56px;display:grid;grid-template-columns:.8fr 1.2fr;gap:40px;align-items:start}
+.gate-list{display:grid}
+.gate-list div{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:13px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.gate-list div:first-child{border-top:1px solid var(--line)}
+@media (max-width:860px){.gate{grid-template-columns:1fr;gap:20px}}
+
+.codes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:56px}
+.codes div{padding:18px 20px;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--line)}
+.codes b{font:500 1.5rem/1 var(--mono);letter-spacing:-.02em}
+.codes p{margin:8px 0 0;font-size:.84rem;color:var(--ink-2)}
+@media (max-width:760px){.codes{grid-template-columns:1fr 1fr}}
+
+/* ---------- architecture ---------- */
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+.diagram{padding:28px}
+.diagram svg{display:block;width:100%;height:auto}
+.diagram .box{fill:var(--surface);stroke:var(--ink-3)}
+.diagram .pk{fill:var(--accent-soft);stroke:var(--accent)}
+.diagram text{fill:var(--ink);font-family:var(--sans)}
+.diagram .t1{font-size:14px;font-weight:600}
+.diagram .t2{font-size:11px;fill:var(--ink-2)}
+.diagram .t3{font-size:10.5px;fill:var(--accent);font-family:var(--mono)}
+.diagram .edge{stroke:var(--ink-3);stroke-width:1.3;fill:none}
+.diagram .ah{fill:var(--ink-3)}
+.rules{display:grid;gap:22px}
+.rules > div{display:flex;gap:14px;align-items:flex-start}
+.rules i{flex:none;width:28px;height:28px;border-radius:9px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-style:normal;font-size:.8rem;color:var(--ink-2)}
+.rules b{display:block;font-weight:600;font-size:.95rem}
+.rules span{font-size:.86rem;color:var(--ink-2)}
+@media (max-width:860px){.arch{grid-template-columns:1fr}}
+
+.cmds{margin-top:48px;display:flex;flex-wrap:wrap;gap:8px}
+.cmds span{display:inline-flex;gap:8px;align-items:baseline;padding:8px 14px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:.84rem;color:var(--ink-2)}
+.cmds code{color:var(--ink);font-weight:500}
+
+.perf{margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.perf div{background:var(--surface);padding:20px 22px}
+.perf b{display:block;font-size:1.5rem;font-weight:600;letter-spacing:-.03em}
+.perf span{display:block;margin-top:6px;font-size:.84rem;color:var(--ink-2)}
+@media (max-width:760px){.perf{grid-template-columns:1fr 1fr}}
+
+/* ---------- agents ---------- */
+.agents{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.agent{padding:28px}
+.agent .t{font-size:.8rem;color:var(--ink-3);font-weight:500}
+.agent h3{margin-top:6px;font-size:1.3rem;letter-spacing:-.02em}
+.agent ul{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:0}
+.agent li{display:grid;grid-template-columns:110px 1fr;gap:14px;padding:11px 0;border-top:1px solid var(--line);font-size:.88rem}
+.agent li span:first-child{color:var(--ink-3)}
+@media (max-width:760px){.agents{grid-template-columns:1fr}.agent{padding:22px}.agent li{grid-template-columns:1fr;gap:2px}}
+.skills{margin-top:40px}
+.skill-grid{margin-top:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.skill{padding:16px 18px}
+.skill code{font-size:.8rem;font-weight:500;color:var(--ink)}
+.skill p{margin:6px 0 0;font-size:.82rem;color:var(--ink-2);line-height:1.4}
+@media (max-width:960px){.skill-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){.skill-grid{grid-template-columns:1fr}}
+
+/* ---------- create ---------- */
+.pipe{display:grid;grid-template-columns:repeat(7,1fr);counter-reset:s}
+.pipe div{position:relative;padding:0 12px 0 0}
+.pipe div::before{counter-increment:s;content:counter(s);display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--surface);border:1px solid var(--line-2);font-size:.8rem;font-weight:600;color:var(--ink-2);position:relative;z-index:1}
+.pipe div::after{content:"";position:absolute;top:15px;left:30px;right:0;height:1px;background:var(--line-2)}
+.pipe div:last-child::after{display:none}
+.pipe div:last-child::before{background:var(--ok);border-color:var(--ok);color:var(--on-fill)}
+.pipe b{display:block;margin-top:14px;font-size:.92rem;font-weight:600}
+.pipe span{display:block;margin-top:4px;font-size:.8rem;color:var(--ink-2);line-height:1.4}
+@media (max-width:900px){
+  .pipe{grid-template-columns:1fr;gap:18px}
+  .pipe div{display:grid;grid-template-columns:30px 1fr;column-gap:16px;padding:0}
+  .pipe div::before{grid-row:span 2}
+  .pipe div::after{top:30px;bottom:-18px;left:15px;right:auto;width:1px;height:auto}
+  .pipe b{margin-top:4px}
+}
+
+.tree{margin-top:48px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tree .card{padding:22px;min-width:0}
+.tree pre{margin:12px 0 0;font:400 .78rem/1.75 var(--mono);color:var(--ink-2);white-space:pre;overflow-x:auto}
+.tree pre b{color:var(--ink);font-weight:500}
+@media (max-width:760px){.tree{grid-template-columns:1fr}}
+
+.upgrade{margin-top:12px;padding:26px;display:grid;grid-template-columns:.8fr 1.2fr;gap:28px;align-items:start}
+.upgrade h3{font-size:1.2rem;letter-spacing:-.015em}
+.upgrade p{margin:8px 0 0;font-size:.9rem;color:var(--ink-2)}
+.upgrade ul{list-style:none;margin:0;padding:0;display:grid}
+.upgrade li{padding:11px 0;border-top:1px solid var(--line);font-size:.88rem}
+.upgrade li:first-child{border-top:0;padding-top:0}
+@media (max-width:760px){.upgrade{grid-template-columns:1fr;gap:16px}}
+
+/* ---------- dependency policy ---------- */
+.policy3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.pol{padding:26px}
+.pol .q{font-size:.8rem;color:var(--ink-3);font-weight:500}
+.pol h3{margin-top:8px;font-size:1.25rem;letter-spacing:-.02em}
+.pol p{margin:8px 0 0;font-size:.88rem;color:var(--ink-2)}
+.pol .eg{margin-top:16px;display:flex;flex-wrap:wrap;gap:6px}
+.pol .eg span{font-size:.74rem;padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
+.funnel{margin-top:12px;padding:18px 24px;border-radius:var(--r);border:1px dashed var(--line-2);display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;justify-content:space-between}
+.funnel b{font-weight:600}
+.funnel .tags{display:flex;flex-wrap:wrap;gap:6px}
+@media (max-width:860px){.policy3{grid-template-columns:1fr}}
+
+/* ---------- roadmap ---------- */
+.slices{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.slice{font:inherit;color:inherit;text-align:left;cursor:pointer;display:flex;flex-direction:column;justify-content:flex-start;padding:16px;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--line);transition:border-color .2s,box-shadow .2s,transform .1s ease-out}
+.slice:hover{border-color:var(--line-2)}
+.slice:active{transform:scale(.98)}
+.slice[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.slice b{display:block;font:500 1.1rem/1 var(--mono);letter-spacing:-.02em}
+.slice span{display:block;margin-top:8px;font-size:.8rem;color:var(--ink-2);line-height:1.35}
+.slice-detail{margin-top:12px;padding:24px 26px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.slice-detail h3{font-size:.8rem;font-weight:500;color:var(--ink-3);letter-spacing:.02em}
+.slice-detail p{margin:8px 0 0;font-size:.92rem}
+@media (max-width:860px){.slices{grid-template-columns:repeat(3,1fr)}.slice-detail{grid-template-columns:1fr}}
+
+.done{margin-top:12px;padding:22px 26px;display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center}
+.done h3{font-size:.95rem;margin-right:8px}
+.done span{display:inline-flex;gap:8px;align-items:center;font-size:.86rem;color:var(--ink-2)}
+.done span::before{content:"";width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ok);flex:none}
+
+.later{margin-top:56px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.later .card{padding:24px}
+.later .m{font:500 .78rem/1 var(--mono);color:var(--ink-3)}
+.later h3{margin-top:10px;font-size:1.1rem}
+.later p{margin:8px 0 0;font-size:.86rem;color:var(--ink-2)}
+@media (max-width:860px){.later{grid-template-columns:1fr}}
+
+/* ---------- benchmark ---------- */
+.bench{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+.arms{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.arm{padding:22px}
+.arm .t{font-size:.8rem;color:var(--ink-3);font-weight:500}
+.arm h3{margin-top:6px}
+.arm.with{border-color:var(--accent)}
+.metrics{grid-column:1/-1;padding:20px 22px;display:flex;flex-wrap:wrap;gap:8px}
+.metrics span{font-size:.8rem;padding:5px 11px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
+@media (max-width:860px){.bench{grid-template-columns:1fr}}
+
+/* ---------- principles + risks ---------- */
+.principles{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.principles div{background:var(--surface);padding:22px 20px}
+.principles i{font:500 .74rem/1 var(--mono);font-style:normal;color:var(--ink-3)}
+.principles b{display:block;margin-top:10px;font-weight:600;font-size:.95rem;letter-spacing:-.01em}
+.principles span{display:block;margin-top:6px;font-size:.82rem;color:var(--ink-2);line-height:1.4}
+@media (max-width:960px){.principles{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){.principles{grid-template-columns:1fr}}
+
+.verify-list{margin-top:56px;display:grid;grid-template-columns:.8fr 1.2fr;gap:40px}
+.checklist div{display:flex;gap:14px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.checklist div:first-child{border-top:1px solid var(--line)}
+.checklist div::before{content:"";flex:none;margin-top:3px;width:14px;height:14px;border-radius:4px;border:1.5px solid var(--ink-3)}
+.checklist .tag{margin-left:auto}
+@media (max-width:860px){.verify-list{grid-template-columns:1fr;gap:20px}}
+
+.risks{margin-top:12px;display:grid;grid-template-columns:repeat(2,1fr);gap:0 40px}
+.risks div{display:grid;grid-template-columns:28px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:.86rem}
+.risks i{font:500 .74rem/1.6 var(--mono);font-style:normal;color:var(--ink-3)}
+.risks b{font-weight:500;color:var(--ink)}
+.risks span{display:block;color:var(--ink-2);margin-top:2px}
+@media (max-width:760px){.risks{grid-template-columns:1fr}}
+
+/* ---------- footer ---------- */
+footer{padding-block:48px 64px;border-top:1px solid var(--line)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 32px;justify-content:space-between;font-size:.82rem;color:var(--ink-3)}
+footer code{color:var(--ink-2);overflow-wrap:anywhere}
+
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition-duration:0s!important}}
+@media (prefers-contrast:more){:root{--line:rgba(20,24,34,.3);--line-2:rgba(20,24,34,.5)}}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Sections">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="mark" aria-hidden="true">A</span>Appstein</a>
+    <ul>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#knowledge">Knowledge</a></li>
+      <li><a href="#mcp">MCP</a></li>
+      <li><a href="#verify">Verifier</a></li>
+      <li><a href="#build">Architecture</a></li>
+      <li><a href="#agents">Agents</a></li>
+      <li><a href="#create">Create</a></li>
+      <li><a href="#roadmap">Roadmap</a></li>
+      <li><a href="#risks">Risks</a></li>
+    </ul>
+    <button class="theme" id="themeBtn" type="button" aria-label="Switch to dark theme">
+      <svg class="sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>
+      <svg class="moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 9.8A5.8 5.8 0 0 1 6.2 2.5a5.8 5.8 0 1 0 7.3 7.3z"/></svg>
+    </button>
+  </div>
+</nav>
+
+<main id="top">
+
+<!-- ================= HERO (§1) ================= -->
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">Design spec · Milestone 1</p>
+      <h1>Guide before. Check after.</h1>
+      <p class="lead">Appstein is a knowledge and verification layer for AI coding agents that build Flutter apps.</p>
+      <div class="formula">
+        <div><b>Guide before</b><span>Knowledge generated from your SDK and code</span></div>
+        <div><b>Check after</b><span>A deterministic verifier that blocks “done”</span></div>
+      </div>
+      <div class="meta">
+        <span class="pill"><span class="dot"></span>Draft for owner review</span>
+        <span class="pill num">2026-09-29</span>
+        <span class="pill">Claude Code · Codex</span>
+        <span class="pill">Android · iOS first</span>
+      </div>
+    </div>
+
+    <div class="stage" aria-label="Illustration: an agent asks Appstein about an API while building an app, and the full verifier passes">
+      <div class="card float a">
+        <div class="t"><i></i>agent → appstein mcp</div>
+        <div class="q">check_api("WillPopScope")</div>
+        <div class="ans"><span class="tag warn">deprecated</span><span class="small">use <code>PopScope</code></span></div>
+      </div>
+
+      <div class="phone" aria-hidden="true">
+        <div class="screen">
+          <div class="island"></div>
+          <div class="sbar"><span class="num">9:41</span><span>●●●</span></div>
+          <div class="appbar"><small>Good morning</small><div>Your orders</div></div>
+          <div class="chips"><span class="on">All</span><span>Active</span><span>Done</span></div>
+          <div class="list">
+            <div class="row"><i style="background:linear-gradient(135deg,#8fb6ff,#1f6feb)"></i><div><b>Ceramic mug</b><small>Arrives Thursday</small></div><em>₹640</em></div>
+            <div class="row"><i style="background:linear-gradient(135deg,#9be3bd,#1f8f55)"></i><div><b>Plant stand</b><small>Packed</small></div><em>₹1,290</em></div>
+            <div class="row"><i style="background:linear-gradient(135deg,#ffd69b,#d98a17)"></i><div><b>Desk lamp</b><small>Delivered</small></div><em>₹2,450</em></div>
+            <div class="row"><i style="background:linear-gradient(135deg,#d6c3ff,#7a5ae0)"></i><div><b>Notebook set</b><small>Delivered</small></div><em>₹380</em></div>
+          </div>
+          <div class="fab">New order</div>
+          <div class="home"></div>
+        </div>
+      </div>
+
+      <div class="card float b">
+        <div class="t"><i style="background:var(--ok)"></i>appstein verify --full</div>
+        <div class="checks">
+          <div><span>Analyzer + lints</span><span class="tag ok">pass</span></div>
+          <div><span>Android config</span><span class="tag ok">pass</span></div>
+          <div><span>iOS config</span><span class="tag ok">pass</span></div>
+          <div><span>Package gate</span><span class="tag ok">pass</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= WHY (§1, §2, §3) ================= -->
+<section class="alt" id="why">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Why</p>
+      <h2>Models are smart enough. What they lack is context and a check.</h2>
+      <p class="lead">Without accurate, current, project-specific context and a reliable check on their output, agents fall into four traps.</p>
+    </div>
+    <div class="stats">
+      <div class="stat"><b class="num">8–11</b><p>releases old: the Flutter and Dart versions agents write code for.</p><small>Top models solve 48–51% of version-specific tasks · GitChameleon 2.0</small></div>
+      <div class="stat"><b>Every</b><p>session, tokens burned rediscovering the codebase.</p><small>Guided agents find code through a map instead</small></div>
+      <div class="stat"><b>Native</b><p>Android and iOS builds misconfigured.</p><small>No tool checks toolchain compatibility across a whole project</small></div>
+      <div class="stat"><b class="num">5.2–21.7%</b><p>of samples invent a package name. Others add abandoned ones.</p><small>USENIX Security 2025</small></div>
+    </div>
+
+    <div class="scope">
+      <div class="card">
+        <h3>Who it’s for</h3>
+        <ul>
+          <li><span><b>Professional Flutter developers</b><small>Faster agents, fewer errors. They still review the code.</small></span><span class="tag info">M1</span></li>
+          <li><span><b>Beginners and vibe coders</b><small>A real app they own that builds for the stores. <code>create</code> gives a correct start in M1; the guided harness serves them fully.</small></span><span class="tag neutral">M2+</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What it never does</h3>
+        <ul>
+          <li><span><b>Encode Play Store or App Store policies</b><small>Correct build and config only.</small></span><span class="tag err">never</span></li>
+          <li><span><b>Replace Google’s official tooling</b><small>It installs, pins and patches <code>flutter/agent-plugins</code> and the Dart MCP server, and fills the gaps.</small></span><span class="tag err">never</span></li>
+          <li><span><b>Touch agent credentials</b><small>No reading, storing or relaying of login tokens.</small></span><span class="tag err">never</span></li>
+        </ul>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>Not in M1</h3>
+        <ul class="notm1">
+          <li><span><b>Launching or driving agents</b><small>M1 runs no agents; the pipeline harness comes later.</small></span><span class="tag neutral">M2</span></li>
+          <li><span><b>Visual (golden) checks</b><small>Screenshot verification and driving the running app.</small></span><span class="tag neutral">M2</span></li>
+          <li><span><b>Existing projects</b><small><code>appstein adopt</code>, plus Riverpod and Bloc packs.</small></span><span class="tag neutral">M3</span></li>
+          <li><span><b>Web and desktop targets</b><small>Web, Windows, macOS and Linux as platform packs.</small></span><span class="tag neutral">M4+</span></li>
+          <li><span><b>Multi-package projects</b><small>M1 supports one Flutter app package per project.</small></span><span class="tag neutral">after M1</span></li>
+          <li><span><b>Release builds and store upload</b><small>M1 does static release-readiness checks only.</small></span><span class="tag neutral">after M1</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOW (§1, §5.4) ================= -->
+<section id="how">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">How it works</p>
+      <h2>Two halves, one loop.</h2>
+      <p class="lead">Guided properly, agents produce fewer bugs and spend fewer tokens, because they no longer rediscover where everything is.</p>
+    </div>
+
+    <div class="halves">
+      <div class="card half">
+        <span class="k"><i style="background:var(--accent-soft);color:var(--accent)">1</i>Before the agent writes</span>
+        <h3>A knowledge layer that never goes stale.</h3>
+        <p>Generated from the installed SDK and the analyzed code; the small hand-written part is checked. Served through files and an MCP server.</p>
+        <ul>
+          <li>Version delta: “use X, not Y” for this SDK</li>
+          <li>Project map: features, routes, layers, native config</li>
+          <li>The valid native toolchain for this Flutter</li>
+          <li>Decisions and memory that outlive a session</li>
+        </ul>
+      </div>
+      <div class="card half">
+        <span class="k"><i style="background:var(--ok-soft);color:var(--ok)">2</i>After the agent writes</span>
+        <h3>A verifier that blocks “done” until the work is correct.</h3>
+        <p>Deterministic checks, not prompts. Findings go straight back to the agent.</p>
+        <ul>
+          <li>Analyzer, deprecated APIs and custom lint rules</li>
+          <li>Android and iOS native-config audit</li>
+          <li>Package gate against invented or unsafe packages</li>
+          <li>Real debug builds</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="margin-top:88px">
+      <h3 class="subhead">One agent session, start to finish</h3>
+      <p class="small" style="margin:6px 0 0">Hooks call the <code>appstein</code> binary directly, with no shell scripts, so they work on Windows too.</p>
+      <div class="timeline">
+        <div class="step">
+          <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7"/><path d="M8.5 7l4 3-4 3z" fill="currentColor"/></svg></div>
+          <div class="when">Session starts</div>
+          <h3>Refresh knowledge</h3>
+          <div class="cmd"><code>appstein sync</code></div>
+          <p>Creates or refreshes <code>.appstein/</code>, including <code>INDEX.md</code>.</p>
+        </div>
+        <div class="step">
+          <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 16l1-4 8-8 3 3-8 8z"/><path d="M11 6l3 3"/></svg></div>
+          <div class="when">After every change</div>
+          <h3>Fast check</h3>
+          <div class="cmd"><code>sync --detect</code><code>verify --fast</code></div>
+          <p>Only reports. Never rewrites a file mid-session. Target under 5 s.</p>
+        </div>
+        <div class="step">
+          <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="5"/><path d="M13 13l4 4"/></svg></div>
+          <div class="when">Needs context</div>
+          <h3>Ask, don’t search</h3>
+          <div class="cmd"><code>overview · where_is</code><code>check_api · toolchain</code></div>
+          <p>MCP answers from fresh knowledge in under a second.</p>
+        </div>
+        <div class="step end">
+          <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 10.5l3 3 7-7"/></svg></div>
+          <div class="when">Agent says “done”</div>
+          <h3>Full check</h3>
+          <div class="cmd"><code>dart fix --apply + format</code><code>verify --full</code></div>
+          <p>Errors block the finish. After the same errors block 3 times in a row, it stops blocking and shows them to you.</p>
+        </div>
+      </div>
+      <details class="more">
+        <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
+        <div class="more-body">
+          <p><b>Bash changes are caught too.</b> <code>--detect</code> compares content hashes with <code>state.json</code>, so <code>flutter pub add</code> is checked like an edit.</p>
+          <p><b>Dependencies changed?</b> The same hook runs the package gate and re-runs <code>dart run skills@ get</code> for package skills.</p>
+          <p><b>Why fixes wait for Stop:</b> rewriting a file the agent just read makes its next edit fail.</p>
+          <p><b>No SessionStart hook (Codex):</b> <code>AGENTS.md</code> says to call <code>overview</code> first, which syncs if knowledge is missing or stale.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ================= KNOWLEDGE (§6) ================= -->
+<section class="alt" id="knowledge">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Knowledge</p>
+      <h2>Four layers. One small page always in view.</h2>
+      <p class="lead">Only <code>INDEX.md</code> is always loaded, at most 1,500 tokens. Everything else is fetched on demand.</p>
+    </div>
+
+    <div class="knowledge">
+      <div class="stack" role="group" aria-label="Knowledge layers">
+        <div class="index"><b>INDEX.md</b><span>always loaded · ≤ 1,500 tokens · generated</span></div>
+        <div class="ondemand">on demand, through files and MCP</div>
+        <button class="layer" data-layer="0" aria-pressed="true"><span class="n">1</span><span><b>Platform</b><small>What’s true for this SDK</small></span><span class="tag neutral src">generated</span></button>
+        <button class="layer" data-layer="1" aria-pressed="false"><span class="n">2</span><span><b>Project map</b><small>Where everything lives</small></span><span class="tag neutral src">generated</span></button>
+        <button class="layer" data-layer="2" aria-pressed="false"><span class="n">3</span><span><b>Decisions</b><small>What was chosen, and why</small></span><span class="tag info src">written · checked</span></button>
+        <button class="layer" data-layer="3" aria-pressed="false"><span class="n">4</span><span><b>Memory</b><small>Current task and lessons learned</small></span><span class="tag info src">written</span></button>
+      </div>
+
+      <div class="card layer-info" aria-live="polite">
+        <p class="eyebrow" id="li-k">Layer 1</p>
+        <h3 id="li-h">Platform</h3>
+        <dl>
+          <dt>Holds</dt><dd id="li-c"></dd>
+          <dt>Source</dt><dd id="li-s"></dd>
+          <dt>Fresh</dt><dd id="li-f"></dd>
+        </dl>
+        <div class="files" id="li-files"></div>
+      </div>
+    </div>
+
+    <div class="policy">
+      <div><b>Generated → git-ignored</b><p><code>INDEX.md</code>, <code>platform/</code>, <code>map/</code>, <code>state.json</code>. No merge conflicts, never committed stale.</p></div>
+      <div><b>Written → committed</b><p><code>decisions/</code> and <code>memory/</code>: hand-written project knowledge.</p></div>
+      <div><b>Agent setup → committed</b><p><code>.mcp.json</code>, hooks, skills and managed blocks, so every clone gets the same setup.</p></div>
+    </div>
+
+    <details class="more">
+      <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
+      <div class="more-body">
+        <p><b>Delta baseline:</b> changes since Flutter 3.16 by default, so <code>WillPopScope → PopScope</code> and <code>textScaleFactor → TextScaler</code> are covered.</p>
+        <p><b>Filtered and ranked:</b> only APIs the project imports, plus every priority-1 note. The project’s language version gates new syntax.</p>
+        <p><b>Staleness is detectable:</b> every generated file carries a hash of its inputs, and <code>verify</code> fails with <code>knowledge.stale</code> on a mismatch.</p>
+        <p><b>Never guessed:</b> routes or native values that can’t be resolved statically are marked <code>unresolved</code> or <code>unknown</code>.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= MCP (§8) ================= -->
+<section id="mcp">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">MCP server</p>
+      <h2>Ask Appstein instead of searching.</h2>
+      <p class="lead">Structured JSON answers, in under a second from fresh knowledge. It runs next to Google’s Dart MCP server and doesn’t duplicate it.</p>
+    </div>
+    <div class="tools">
+      <div class="card tool hl"><code>where_is</code><p>Ranked files and symbols for free text, with the reason for each match. No embeddings.</p><div class="ex">"login screen" →<br><b>lib/ui/login/widgets/login_screen.dart</b></div></div>
+      <div class="card tool hl"><code>check_api</code><p>Is this symbol ok, deprecated or removed in this SDK?</p><div class="ex"><b>withOpacity</b> → deprecated<br>replacement + since-version + source</div></div>
+      <div class="card tool hl"><code>package_check</code><p>Exists? Discontinued? Advisories? SwiftPM and built-in-Kotlin ready?</p><div class="ex">verdict <b>ok</b> · <b>warn</b> · <b>block</b><br>with reasons</div></div>
+      <div class="card tool"><code>overview</code><p>INDEX.md plus live freshness status.</p></div>
+      <div class="card tool"><code>feature</code><p>Screens, view models, repositories, services, models, routes and tests of one feature.</p></div>
+      <div class="card tool"><code>route</code><p>Screen, feature, nested routes and redirects for a path.</p></div>
+      <div class="card tool"><code>what_changed</code><p>Relevant delta entries, optionally since a version.</p></div>
+      <div class="card tool"><code>toolchain</code><p>Valid native versions for this SDK, current values, mismatches.</p></div>
+      <div class="card tool"><code>verify</code><p>Findings for fast, full, or a list of files.</p></div>
+      <div class="card tool"><code>decisions · record_decision</code><p>Read or write layer 3.</p></div>
+      <div class="card tool"><code>memory_read · memory_write</code><p>Read or write layer 4.</p></div>
+      <div class="card tool" style="border-style:dashed;box-shadow:none;background:transparent"><code style="color:var(--ink-2)">dart mcp-server</code><p>Google’s server: analyzer, symbols, hot reload, pub.dev search. Exactly one runs.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= VERIFIER (§9) ================= -->
+<section class="alt" id="verify">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Verifier</p>
+      <h2>Check, don’t hope.</h2>
+      <p class="lead">Every rule an agent is told is also enforced by a deterministic check wherever possible. Errors block; warnings inform.</p>
+    </div>
+
+    <div class="seg" role="tablist" aria-label="Verify mode">
+      <button role="tab" aria-selected="false" id="tab-fast" aria-controls="v-fast">Fast · every change</button>
+      <button role="tab" aria-selected="true" id="tab-full" aria-controls="v-full">Full · at “done”</button>
+    </div>
+
+    <div class="vpanel" id="v-fast" role="tabpanel" aria-labelledby="tab-fast" hidden>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>dart analyze</b> on changed files and dependents; fails on errors and deprecated use</li><li><b>dart fix --dry-run</b> lists pending migrations</li><li><b>Format</b> check, applied later at Stop</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="12" height="12" rx="3"/><path d="M6 9h6"/></svg>Lints</h3><ul><li><b>appstein_lints</b> rules, run inside the analyzer</li><li>Layer rules from the stack pack</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h10M4 12h10"/><circle cx="7" cy="6" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>Packages</h3><ul><li>Package gate, if dependencies changed</li><li>Package skills refreshed</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b>, measured in slice 1a</li></ul></div>
+    </div>
+
+    <div class="vpanel" id="v-full" role="tabpanel" aria-labelledby="tab-full">
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>fix + format</b> first, then every fast check on the whole project</li><li><b>flutter test</b> with accessibility guideline tests</li><li>Every feature folder has a test</li><li>Decisions still match the code</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="2.5" width="8" height="13" rx="2"/><path d="M8 13h2"/></svg>Android</h3><ul><li><b>Toolchain</b> inside Flutter’s matrix</li><li><b>AGP 9 built-in Kotlin</b> rule</li><li><b>flutter.*</b> SDK variables; compile/target SDK ≥ 36; minSdk covers every plugin</li><li><b>16 KB</b> page size: NDK r28+, <code>zipalign -c -P 16</code></li><li>No signing secrets in git · real debug build</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4.5" y="2" width="9" height="14" rx="2.5"/><path d="M8 4h2"/></svg>iOS</h3><ul><li><b>Deployment target</b> ≥ SDK minimum (15 on 3.47), consistent everywhere</li><li><b>SwiftPM</b> on; plugins without it flagged (CocoaPods read-only 2026-12-02)</li><li><b>UIScene</b> manifest</li><li><b>PrivacyInfo</b> + usage descriptions</li><li>Real build on macOS only</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 2.5l5.5 2v4.5c0 3.2-2.3 5.6-5.5 6.5-3.2-.9-5.5-3.3-5.5-6.5V4.5z"/></svg>Release-ready (static)</h3><ul><li>App / bundle ID not <code>com.example</code></li><li>App name and icon not the template default</li><li><code>version:</code> set in pubspec</li><li>Signing config present or marked TODO</li></ul></div>
+    </div>
+
+    <div class="vnote">
+      <span class="tag err">error</span><span>blocks “done”</span>
+      <span class="tag warn">warning</span><span>reported</span>
+      <span class="tag info">info</span><span>advisory</span>
+      <span class="muted">· Every suppression needs a written reason, and each run prints how many are active.</span>
+    </div>
+
+    <div class="gate">
+      <div>
+        <h3 style="font-size:1.5rem;letter-spacing:-.02em">The package gate</h3>
+        <p class="muted" style="margin:10px 0 0;max-width:36ch">Runs on every dependency change and on request through <code>package_check</code>. An agent can’t silence an advisory on its own.</p>
+      </div>
+      <div class="gate-list">
+        <div><span>Doesn’t exist on pub.dev (likely invented)</span><span class="tag err">error</span></div>
+        <div><span>Discontinued</span><span class="tag err">error</span></div>
+        <div><span>Known security advisory</span><span class="tag err">error</span></div>
+        <div><span>On the project’s deny list</span><span class="tag err">error</span></div>
+        <div><span>Applies the Kotlin plugin under AGP 9 built-in Kotlin</span><span class="tag err">error</span></div>
+        <div><span>No SwiftPM support</span><span class="tag warn">warning*</span></div>
+        <div><span>No release in 12 months (configurable)</span><span class="tag warn">warning</span></div>
+        <div><span>Verified publisher · Flutter Favorite · dart.dev / flutter.dev</span><span class="tag info">info</span></div>
+        <p class="small" style="margin:12px 0 0">* An error once CocoaPods is removed from the project. Offline, the gate warns and never blocks on its own network failure.</p>
+      </div>
+    </div>
+
+    <div class="codes">
+      <div><b>0</b><p>No errors</p></div>
+      <div><b>1</b><p>Errors found (CLI and CI)</p></div>
+      <div><b>2</b><p>Errors in Claude hook mode: block and feed back</p></div>
+      <div><b>3</b><p>Appstein itself failed: doesn’t block; says to run <code>doctor</code></p></div>
+    </div>
+
+    <details class="more">
+      <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Lint rules in M1</summary>
+      <div class="more-body">
+        <p><b><code>layer_imports</code></b> Tag-based layer rules from the stack pack. <code>ui</code> reaches data only through abstract interfaces.</p>
+        <p><b><code>no_hardcoded_colors</code></b> No <code>Color(0x…)</code> or <code>Colors.*</code> in UI; use <code>ColorScheme</code> or tokens.</p>
+        <p><b><code>use_spacing_tokens</code></b> No non-zero numeric <code>EdgeInsets</code>, <code>SizedBox</code> or <code>Gap</code> literals in UI.</p>
+        <p><b><code>no_platform_branching_in_layout</code></b> No <code>Platform.isX</code> checks inside <code>build</code>.</p>
+        <p><b><code>no_orientation_lock</code></b> No <code>setPreferredOrientations</code> locks.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= ARCHITECTURE (§4, §5, §10, §15) ================= -->
+<section id="build">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Architecture</p>
+      <h2>A Dart toolkit. Four packages.</h2>
+      <p class="lead">The engine knows no Flutter rules. Everything Flutter-specific lives in packs.</p>
+    </div>
+    <div class="arch">
+      <div class="card diagram">
+        <svg viewBox="0 0 440 330" role="img" aria-label="Package dependencies: cli depends on engine and protocol; engine depends on protocol; lints depends on protocol. The packs official_mvvm, android and ios live inside the engine.">
+          <defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L8 4L0 8z"/></marker></defs>
+          <rect class="box" x="20" y="16" width="190" height="62" rx="14"/>
+          <text class="t1" x="40" y="44">appstein_cli</text><text class="t2" x="40" y="63">the appstein command</text>
+          <rect class="box" x="230" y="16" width="190" height="62" rx="14"/>
+          <text class="t1" x="250" y="44">appstein_lints</text><text class="t2" x="250" y="63">analyzer plugin · our lint rules</text>
+          <rect class="box" x="20" y="116" width="190" height="130" rx="14"/>
+          <text class="t1" x="40" y="144">appstein_engine</text><text class="t2" x="40" y="162">sdk · knowledge · verify · mcp</text>
+          <rect class="pk" x="34" y="176" width="162" height="22" rx="7"/><text class="t3" x="44" y="191">packs/official_mvvm</text>
+          <rect class="pk" x="34" y="204" width="76" height="22" rx="7"/><text class="t3" x="44" y="219">android</text>
+          <rect class="pk" x="118" y="204" width="78" height="22" rx="7"/><text class="t3" x="128" y="219">ios</text>
+          <rect class="box" x="125" y="274" width="190" height="46" rx="14"/>
+          <text class="t1" x="145" y="302">appstein_protocol</text>
+          <path class="edge" d="M115 78 V114" marker-end="url(#ah)"/>
+          <path class="edge" d="M195 78 C 250 140, 250 200, 240 272" marker-end="url(#ah)"/>
+          <path class="edge" d="M325 78 V 200 C 325 240, 300 250, 290 272" marker-end="url(#ah)"/>
+          <path class="edge" d="M115 246 C 115 262, 140 268, 160 272" marker-end="url(#ah)"/>
+          <text class="t2" x="330" y="296">models + JSON</text><text class="t2" x="330" y="310">schemas</text>
+        </svg>
+      </div>
+      <div class="rules">
+        <div><i>1</i><div><b>protocol depends on no other Appstein package</b><span>One data format for the CLI, MCP, and future desktop and web UIs.</span></div></div>
+        <div><i>2</i><div><b>The engine never imports a pack</b><span>Packs register through the pack interface and never import each other.</span></div></div>
+        <div><i>3</i><div><b>lints never imports packs</b><span>Layer rules are written into <code>analysis_options.yaml</code> and read from there.</span></div></div>
+        <div><i>4</i><div><b>We use it on ourselves</b><span>Our own lint rules enforce these boundaries in the Appstein repo.</span></div></div>
+      </div>
+    </div>
+    <div class="cmds">
+      <span><code>create</code>new project</span>
+      <span><code>sync</code>regenerate knowledge</span>
+      <span><code>verify</code>--fast · --full</span>
+      <span><code>mcp</code>stdio server</span>
+      <span><code>upgrade</code>versioned migrations</span>
+      <span><code>integrate</code>claude · codex</span>
+      <span><code>doctor</code>environment check</span>
+    </div>
+    <div class="perf">
+      <div><b>&lt; 5 s</b><span>fast verify</span></div>
+      <div><b>&lt; 2 s</b><span>incremental sync</span></div>
+      <div><b>&lt; 1 s</b><span>MCP answers</span></div>
+      <div><b>&lt; 200 ms</b><span>hook start-up (AOT)</span></div>
+    </div>
+    <details class="more">
+      <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
+      <div class="more-body">
+        <p><b>Packs:</b> <code>official_mvvm</code> (stack), <code>android</code> and <code>ios</code> (platform) in M1. They start as folders and become packages when community packs arrive (M3+).</p>
+        <p><b>Runs everywhere:</b> Windows, macOS and Linux; paths with spaces and non-ASCII characters.</p>
+        <p><b>Offline and private:</b> everything but package existence and advisory checks works offline. No telemetry.</p>
+        <p><b>Deterministic:</b> the same inputs give byte-identical knowledge. A lock file stops two hooks corrupting it.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= AGENTS (§11) ================= -->
+<section class="alt" id="agents">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Agent integration</p>
+      <h2>Set up inside your agent, per project.</h2>
+      <p class="lead"><code>appstein integrate</code> writes project-level config only, never user-global config, and <code>--remove</code> undoes it cleanly.</p>
+    </div>
+    <div class="agents">
+      <div class="card agent">
+        <span class="t">M1</span><h3>Claude Code</h3>
+        <ul>
+          <li><span>Official plugin</span><span>Google’s <code>flutter/agent-plugins</code> at a pinned version; broken official skills overridden</span></li>
+          <li><span>MCP</span><span><code>appstein mcp</code>. The official plugin’s Dart MCP server is reused; Appstein adds one only as a fallback</span></li>
+          <li><span>Hooks</span><span>SessionStart → sync · PostToolUse → fast check · Stop → full check</span></li>
+          <li><span>CLAUDE.md</span><span>Pointer to INDEX.md and the key workflow rules</span></li>
+        </ul>
+      </div>
+      <div class="card agent">
+        <span class="t">M1</span><h3>Codex</h3>
+        <ul>
+          <li><span>AGENTS.md</span><span>Same rules, plus “call <code>overview</code> first”</span></li>
+          <li><span>Skills</span><span>Installed into <code>.agents/skills/</code></span></li>
+          <li><span>MCP</span><span><code>appstein mcp</code>; the exact config file is verified in slice 1e</span></li>
+          <li><span>Hooks</span><span>Verified in 1e. Fallback: AGENTS.md asks for the <code>verify</code> MCP tool; CI runs <code>verify --full</code> on every push</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="skills">
+      <h3 class="subhead">Appstein skills</h3>
+      <p class="small" style="margin:6px 0 0">Short, organized by lifecycle, and tested in CI: every Dart snippet is analyzed on the current and minimum SDK, and each skill stays under 2,000 tokens.</p>
+      <div class="skill-grid">
+        <div class="card skill"><code>appstein-develop</code><p>The core workflow: INDEX → MCP → structure → verify.</p></div>
+        <div class="card skill"><code>appstein-use-mcp</code><p>Which MCP tool to use instead of searching.</p></div>
+        <div class="card skill"><code>appstein-theming</code><p>Tokens, <code>ColorScheme.fromSeed</code>, dark mode, text scaling.</p></div>
+        <div class="card skill"><code>appstein-ui-states</code><p>Loading, empty, error and success on every screen.</p></div>
+        <div class="card skill"><code>appstein-accessibility</code><p>Semantics, tap targets, contrast, text scaling to 2.0.</p></div>
+        <div class="card skill"><code>appstein-native-config</code><p>Safe Gradle and iOS changes within <code>toolchain()</code>.</p></div>
+        <div class="card skill"><code>appstein-dependencies</code><p>The dependency policy and package-gate verdicts.</p></div>
+        <div class="card skill"><code>appstein-ship</code><p>IDs, signing, icons, splash, flavors, obfuscation.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CREATE + UPGRADE (§13) ================= -->
+<section id="create">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">appstein create</p>
+      <h2>A new app that builds on the first try.</h2>
+      <p class="lead">Seven steps. It isn’t finished until the full verifier passes.</p>
+    </div>
+    <div class="pipe">
+      <div><b>Preflight</b><span>Doctor checks; you confirm the app / bundle ID, permanent after the first store upload</span></div>
+      <div><b>Base</b><span><code>flutter create</code> for Android and iOS</span></div>
+      <div><b>Structure</b><span>Official MVVM, go_router, provider, light and dark themes, tokens, l10n</span></div>
+      <div><b>Native</b><span><code>toolchain.json</code> values, <code>flutter.*</code> variables, SwiftPM, UIScene, privacy manifest</span></div>
+      <div><b>Sample</b><span>One feature with unit, widget and accessibility tests</span></div>
+      <div><b>Files</b><span><code>appstein.yaml</code>, lints, <code>.gitignore</code>, README, CI template</span></div>
+      <div><b>Verify</b><span>sync → integrate → verify --full must pass; commit only with your OK</span></div>
+    </div>
+    <div class="tree">
+      <div class="card">
+        <h3>Your app <span class="muted" style="font-weight:500">· official MVVM</span></h3>
+<pre>lib/
+├── <b>ui/</b>&lt;feature&gt;/view_models · widgets
+├── <b>ui/core/</b>        shared widgets, themes
+├── <b>data/</b>repositories · services
+├── <b>domain/</b>models
+├── <b>routing/</b>        go_router
+├── <b>config/</b>dependencies.dart
+└── <b>utils/</b>          Result, Command</pre>
+      </div>
+      <div class="card">
+        <h3>What Appstein adds</h3>
+<pre><b>.appstein/</b>
+├── INDEX.md        always loaded
+├── platform/       sdk · delta · toolchain
+├── map/            features · routes · layers
+├── decisions/      committed
+└── memory/         committed
+<b>appstein.yaml</b>       every key has a default</pre>
+      </div>
+    </div>
+    <div class="card upgrade">
+      <div>
+        <h3><code>appstein upgrade</code></h3>
+        <p>Keeps a project current after a Flutter or Appstein upgrade.</p>
+      </div>
+      <ul>
+        <li>Versioned migrations: one folder per Flutter minor version</li>
+        <li>Flutter’s own migrators (<code>dart fix</code>) run first</li>
+        <li><code>--dry-run</code> previews the diff; git is the undo, so a dirty tree is refused</li>
+        <li>Example: <code>3.47/</code> moves to <code>material_ui</code>, only when every dependency is compatible</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DEPENDENCIES (§14) ================= -->
+<section class="alt" id="deps">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Dependency policy</p>
+      <h2>The right tool for each job.</h2>
+      <p class="lead">Taught by a skill, enforced by the package gate.</p>
+    </div>
+    <div class="policy3">
+      <div class="card pol"><span class="q">Small helper</span><h3>Write it in pure Dart</h3><p>No native config impact.</p><div class="eg"><span>formatting</span><span>validation</span><span>simple state</span><span>HTTP wrapper</span></div></div>
+      <div class="card pol"><span class="q">Complex platform feature</span><h3>Use a well-maintained package</h3><p>One that passes <code>package_check</code>.</p><div class="eg"><span>camera</span><span>permissions</span><span>notifications</span><span>payments</span><span>maps</span><span>auth</span></div></div>
+      <div class="card pol"><span class="q">Small native feature, no good package</span><h3>Pigeon + platform channels</h3><p>Not jnigen or swiftgen, which are unstable and error-prone for agents.</p></div>
+    </div>
+    <div class="funnel">
+      <b>Every new dependency passes the gate</b>
+      <div class="tags"><span class="tag neutral">exists</span><span class="tag neutral">not discontinued</span><span class="tag neutral">no advisories</span><span class="tag neutral">maintained</span><span class="tag neutral">SwiftPM ready</span><span class="tag neutral">built-in Kotlin ready</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ROADMAP (§18) ================= -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Roadmap</p>
+      <h2>Foundation first. Harness on top.</h2>
+      <p class="lead">Milestone 1 ships in six slices, each useful on its own. Choose one.</p>
+    </div>
+    <div class="slices" role="tablist" aria-label="M1 slices">
+      <button class="slice" role="tab" aria-selected="true"><b>1a</b><span>Workspace, CLI, doctor</span></button>
+      <button class="slice" role="tab" aria-selected="false"><b>1b</b><span>Knowledge layers 1–2</span></button>
+      <button class="slice" role="tab" aria-selected="false"><b>1c</b><span>MCP server</span></button>
+      <button class="slice" role="tab" aria-selected="false"><b>1d</b><span>Verifier</span></button>
+      <button class="slice" role="tab" aria-selected="false"><b>1e</b><span>create + integrate</span></button>
+      <button class="slice" role="tab" aria-selected="false"><b>1f</b><span>upgrade, skills, benchmark</span></button>
+    </div>
+    <div class="card slice-detail" role="tabpanel" aria-live="polite">
+      <div><h3>DELIVERS</h3><p id="sl-d"></p></div>
+      <div><h3>DONE WHEN</h3><p id="sl-e"></p></div>
+    </div>
+    <div class="card done">
+      <h3>M1 is done when</h3>
+      <span>Every slice’s exit criteria pass</span>
+      <span>Zero deprecated APIs in with-Appstein benchmark runs</span>
+      <span>Higher verify pass rate than control</span>
+      <span>Token use reported honestly</span>
+      <span>Used on a real project and signed off</span>
+    </div>
+
+    <div class="later">
+      <div class="card"><span class="m">M2</span><h3>Single-agent pipeline</h3><p>Plan → implement → review → verify, with hard gates, driving the official CLIs. Visual verification. A guided mode for beginners.</p></div>
+      <div class="card"><span class="m">M3</span><h3>Existing apps, more stacks</h3><p><code>appstein adopt</code> for existing projects. Riverpod and Bloc packs, community packs and a pack scaffold.</p></div>
+      <div class="card"><span class="m">M4</span><h3>Desktop app, every platform</h3><p>A Flutter desktop app with a team of agents. Web, Windows, macOS and Linux packs. Then a web UI.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BENCHMARK (§17) ================= -->
+<section class="alt" id="proof">
+  <div class="wrap">
+    <div class="bench">
+      <div>
+        <p class="eyebrow">Benchmark</p>
+        <h2>Measured, not promised.</h2>
+        <p class="lead">10–20 tasks on fresh and legacy fixture apps, with and without Appstein, at least three runs each. The first run sets the baseline. No invented targets.</p>
+      </div>
+      <div class="arms">
+        <div class="card arm"><span class="t">Control</span><h3>Claude Code alone</h3><p class="small" style="margin:6px 0 0">Same apps, same pinned permissions.</p></div>
+        <div class="card arm with"><span class="t" style="color:var(--accent)">With Appstein</span><h3>Claude Code + Appstein</h3><p class="small" style="margin:6px 0 0">Knowledge, MCP and verifier installed.</p></div>
+        <div class="card metrics"><span>tokens + cost</span><span>turns + tool calls</span><span>deprecated APIs left</span><span>verify pass rate</span><span>Android build success</span><span>wall time</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PRINCIPLES + RISKS (§4, §22) ================= -->
+<section id="risks">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Principles</p>
+      <h2>Ten rules we build by.</h2>
+    </div>
+    <div class="principles">
+      <div><i>01</i><b>Generate, don’t hand-write</b><span>Knowledge from the SDK and the code.</span></div>
+      <div><i>02</i><b>Check, don’t hope</b><span>Every rule has a check where possible.</span></div>
+      <div><i>03</i><b>Engine knows no Flutter</b><span>Rules live in packs.</span></div>
+      <div><i>04</i><b>One data format</b><span>A single protocol package.</span></div>
+      <div><i>05</i><b>Small, always-loaded context</b><span>INDEX.md only.</span></div>
+      <div><i>06</i><b>Never touch credentials</b><span>No agent login tokens, ever.</span></div>
+      <div><i>07</i><b>Humans own the irreversible</b><span>App ID, bundle ID, signing keys.</span></div>
+      <div><i>08</i><b>Use it on ourselves</b><span>Our repo, our lint rules.</span></div>
+      <div><i>09</i><b>Local first, private</b><span>No telemetry.</span></div>
+      <div><i>10</i><b>Windows is first-class</b><span>Spaces, drive letters, PowerShell.</span></div>
+    </div>
+
+    <div class="verify-list">
+      <div>
+        <h3 style="font-size:1.5rem;letter-spacing:-.02em">Still to prove</h3>
+        <p class="muted" style="margin:10px 0 0;max-width:34ch">Open items, each resolved in a named slice, with a fallback where one is needed.</p>
+      </div>
+      <div class="checklist">
+        <div>Fast verify stays under 5 s <span class="tag neutral">1a</span></div>
+        <div>Minimum supported Flutter: 3.44+ <span class="tag neutral">1a</span></div>
+        <div>Codex hooks, blocking and MCP config location <span class="tag neutral">1e</span></div>
+        <div>Project-level enabling of the official Claude Code plugin <span class="tag neutral">1e</span></div>
+        <div>No duplicate Dart MCP server <span class="tag neutral">1e</span></div>
+        <div><code>material_ui</code> works with go_router and provider <span class="tag neutral">1e</span></div>
+      </div>
+    </div>
+
+    <details class="more">
+      <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Top risks</summary>
+      <div class="risks">
+        <div><i>01</i><p style="margin:0"><b>Vendor policy changes</b><span>M1 runs no agents. Re-check before M2.</span></p></div>
+        <div><i>02</i><p style="margin:0"><b>Benchmark shows no token savings</b><span>Report honestly; the correctness gains stand on their own.</span></p></div>
+        <div><i>03</i><p style="margin:0"><b><code>gradle_utils.dart</code> format changes</b><span>Parser tested per version; fallback to curated notes.</span></p></div>
+        <div><i>04</i><p style="margin:0"><b>Open Flutter bugs (#192167, #192111)</b><span>Recorded as notes that steer create and toolchain.</span></p></div>
+        <div><i>05</i><p style="margin:0"><b>No iOS builds on Windows</b><span>Static checks locally; real builds on macOS CI.</span></p></div>
+        <div><i>06</i><p style="margin:0"><b>A Stop hook loops the agent</b><span>Loop guard: after 3 identical blocks, stop blocking and report to you.</span></p></div>
+        <div><i>07</i><p style="margin:0"><b>Official skills stay frozen or broken</b><span>Pinned; broken skills overridden; CI re-checks.</span></p></div>
+        <div><i>08</i><p style="margin:0"><b>M1 is large for one developer</b><span>Strict slices, each with its own plan.</span></p></div>
+        <div><i>09</i><p style="margin:0"><b>Name: trademark and domain</b><span>Checked before the first public release; pun-only branding.</span></p></div>
+        <div><i>10</i><p style="margin:0"><b>Open-source license, possible Pro tier</b><span>License before the first public release; Pro after the M1 benchmark.</span></p></div>
+      </div>
+    </details>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Appstein · the Einstein of app development · Apps = mc²</span>
+    <span>Visual companion to <code>2026-09-29-appstein-design.md</code>, the source of truth.</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var root = document.documentElement;
+
+  /* Theme switch: follows the system until the viewer picks one. */
+  var btn = document.getElementById('themeBtn');
+  function isDark(){
+    var t = root.getAttribute('data-theme');
+    if (t) return t === 'dark';
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function label(){ btn.setAttribute('aria-label', isDark() ? 'Switch to light theme' : 'Switch to dark theme'); }
+  btn.addEventListener('click', function(){
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('appstein-theme', next); } catch (e) {}
+    label();
+  });
+  label();
+
+  /* Knowledge layers (§6.1, §6.2) */
+  var L=[
+    {k:'Layer 1',h:'Platform',c:'SDK facts, the version delta (“use X, not Y”), and the native toolchain matrix.',s:'The installed SDK (fix_data, releases manifest, deprecations, gradle_utils.dart, iOS templates) plus Appstein’s curated notes.',f:'Rebuilt when the SDK version changes.',files:['platform/sdk.json','platform/delta.md','platform/toolchain.json']},
+    {k:'Layer 2',h:'Project map',c:'Features, files, routes, layers, dependencies and native config.',s:'The resolved Dart AST from package:analyzer, plus pack extractors.',f:'Rebuilt incrementally after every edit.',files:['map/features.json','map/symbols.json','map/routes.json','map/layers.json','map/deps.json','map/native.json']},
+    {k:'Layer 3',h:'Decisions',c:'Architecture choice, state management, design tokens and conventions, each with its reason.',s:'Written by the user or by agents through record_decision.',f:'Checked against the code by the verifier; a mismatch is a decision.drift warning.',files:['decisions/NNNN-<slug>.md']},
+    {k:'Layer 4',h:'Memory',c:'The current task, what was tried, and lessons learned.',s:'Written by agents through memory_write.',f:'When a task finishes, current.md is summarized into lessons.md. A long lessons.md gets a hint to consolidate; nothing is deleted automatically.',files:['memory/current.md','memory/lessons.md']}
+  ];
+  var layers=document.querySelectorAll('.layer');
+  function setLayer(i){
+    layers.forEach(function(b,j){b.setAttribute('aria-pressed',String(i===j));});
+    var d=L[i];
+    document.getElementById('li-k').textContent=d.k;
+    document.getElementById('li-h').textContent=d.h;
+    document.getElementById('li-c').textContent=d.c;
+    document.getElementById('li-s').textContent=d.s;
+    document.getElementById('li-f').textContent=d.f;
+    var box=document.getElementById('li-files');box.innerHTML='';
+    d.files.forEach(function(f){var c=document.createElement('code');c.textContent=f;box.appendChild(c);});
+  }
+  layers.forEach(function(b,i){b.addEventListener('pointerdown',function(){setLayer(i);});b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();setLayer(i);}});});
+  setLayer(0);
+
+  /* Verifier tabs */
+  var tabs=[document.getElementById('tab-fast'),document.getElementById('tab-full')];
+  var panels=[document.getElementById('v-fast'),document.getElementById('v-full')];
+  function setTab(i){tabs.forEach(function(t,j){t.setAttribute('aria-selected',String(i===j));panels[j].hidden=i!==j;});}
+  tabs.forEach(function(t,i){t.addEventListener('pointerdown',function(){setTab(i);});t.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();setTab(i);}if(e.key==='ArrowRight'||e.key==='ArrowLeft'){var n=1-i;setTab(n);tabs[n].focus();}});});
+
+  /* Slices (§18) */
+  var S=[
+    ['Pub workspace with 4 packages; the appstein CLI skeleton and --version; config and appstein.yaml; SDK detection (FVM, language version); doctor; CI for our repo; boundary lints on our own repo; AOT build.','doctor is correct on Windows, macOS and Linux CI. CI is green. The minimum supported Flutter version is confirmed.'],
+    ['Knowledge layers 1–2: sdk, delta with curated notes for 3.44–3.47, toolchain, the project map via official_mvvm and platform extractors; INDEX.md; full and incremental sync; staleness metadata; lock file; package skills refresh.','Golden tests pass on fixtures. INDEX.md ≤ 1,500 tokens. Sync meets its performance targets.'],
+    ['The MCP server with every tool; read and write for decisions and memory.','Each tool is tested and works from Claude Code on a fixture app.'],
+    ['Fast and full checks; Android and iOS checks including static release readiness; the package gate with advisories and offline behaviour; the M1 lint rules; suppressions; exit codes.','Every check has a passing and a failing fixture. Fast verify under 5 s.'],
+    ['create with its CI template; integrate for Claude Code and Codex (--remove, the one-Dart-MCP rule, SessionStart, Bash detection, the loop guard); every “to verify in 1e” item.','create → verify --full is green on Linux and macOS CI. Integration works end to end in both agents. Every open item is resolved and the spec updated.'],
+    ['The upgrade framework and the 3.47 migration; all lifecycle skills with skills CI and the smoke-test procedure; the benchmark runner and its first published run.','Skills CI green on the current stable and minimum SDK. The 3.47 migration tested on the legacy fixture. Benchmark published.']
+  ];
+  var slices=document.querySelectorAll('.slice');
+  function setSlice(i){
+    slices.forEach(function(b,j){b.setAttribute('aria-selected',String(i===j));});
+    document.getElementById('sl-d').textContent=S[i][0];
+    document.getElementById('sl-e').textContent=S[i][1];
+  }
+  slices.forEach(function(b,i){b.addEventListener('pointerdown',function(){setSlice(i);});b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();setSlice(i);}});});
+  setSlice(0);
+
+  /* Active nav link */
+  var links=[].slice.call(document.querySelectorAll('.nav li a'));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'));});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var i=secs.indexOf(e.target);links.forEach(function(l,j){l.classList.toggle('on',i===j);});}});},{rootMargin:'-45% 0px -50% 0px'});
+    secs.forEach(function(s){if(s)io.observe(s);});
+  }
+})();
+</script>
+</body>
+</html>

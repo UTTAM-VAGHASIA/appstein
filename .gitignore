@@ -1,0 +1,26 @@
+# Dart / Flutter
+.dart_tool/
+build/
+.packages
+*.aot
+*.exe
+coverage/
+
+# graphify (machine-local; graph.json and GRAPH_REPORT.md can be force-added to share)
+graphify-out/
+.graphify_root
+.graphify_python
+
+# Impeccable local state and screenshots
+.impeccable/config.local.json
+.impeccable/review/
+.impeccable/build/
+.impeccable/questions/
+
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

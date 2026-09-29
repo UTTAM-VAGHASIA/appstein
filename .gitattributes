@@ -1,0 +1,8 @@
+# Store text with LF endings so Windows, macOS and Linux CI see identical files
+# (generated knowledge must be byte-identical across platforms, spec §15).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+graphify-out/graph.json merge=graphify

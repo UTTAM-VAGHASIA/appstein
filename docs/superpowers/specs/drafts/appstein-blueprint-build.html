@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Appstein Build Instructions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800;900&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* One committed world: an instruction booklet on sky-blue pages. Single theme by choice. */
+:root {
+  color-scheme: light;
+  --page: #BFE2F6;
+  --page-2: #A9D6F0;
+  --paper: #F7FBFD;
+  --ink: #111111;
+  --ink-2: #2B3A45;
+  --new: #D01012;
+  --inv: #FFD500;
+  --c-core: #6C6E68;
+  --c-cmd: #237841;
+  --c-pack: #D9BB7B;
+  --c-int: #8E7CC3;
+  --c-ver: #0055BF;
+  --c-kno: #FE8A18;
+  --stud: 24px;
+  --sans: "Rubik", "Trebuchet MS", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.45;
+  padding-inline: 16px;
+  padding-block: 0 80px;
+  font-variant-numeric: tabular-nums;
+}
+::selection { background: var(--inv); color: var(--ink); }
+:focus-visible { outline: 3px solid var(--new); outline-offset: 3px; }
+code { font-family: var(--mono); font-size: .85em; }
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { text-wrap: balance; }
+.book { max-width: 1120px; margin: 0 auto; display: grid; gap: 28px; }
+.spread {
+  background: var(--page);
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  padding: 28px;
+  position: relative;
+}
+.pg { position: absolute; right: 14px; bottom: 10px; font-weight: 800; font-size: .9rem; }
+.title { font-weight: 900; font-size: clamp(1.6rem, 3.4vw, 2.4rem); letter-spacing: -0.01em; line-height: 1; }
+.sub { color: var(--ink-2); margin-top: 8px; max-width: 60ch; }
+
+/* ---------- bricks ---------- */
+.brick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  width: calc(var(--n, 2) * var(--stud));
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--c, var(--c-core));
+  color: var(--tc, #fff);
+  border: 2.5px solid var(--ink);
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: .82rem;
+  white-space: nowrap;
+  margin-top: 8px;
+}
+.brick { overflow: visible; }
+.brick .studs { position: absolute; left: 0; right: 0; top: -9px; height: 8px; display: flex; }
+.brick .studs i { width: 14px; margin: 0 5px; height: 8px; background: var(--c, var(--c-core)); border: 2.5px solid var(--ink); border-bottom: 0; border-radius: 2px 2px 0 0; }
+.k-core { --c: var(--c-core); }
+.k-cmd { --c: var(--c-cmd); }
+.k-pack { --c: var(--c-pack); --tc: var(--ink); }
+.fit.mute .brick { color: transparent; }
+.fit.mute .k-ghost { --c: #DCE9F1; }
+.k-int { --c: var(--c-int); }
+.k-ver { --c: var(--c-ver); }
+.k-kno { --c: var(--c-kno); --tc: var(--ink); }
+.k-new { --c: var(--new); --tc: #fff; }
+.k-ghost { --c: #E7F1F7; --tc: #6F8494; border-color: #6F8494; }
+.k-ghost .studs i { border-color: #6F8494; }
+
+/* ---------- cover ---------- */
+.cover { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 28px; align-items: center; background-color: var(--inv); background-image: none; }
+.cover .brand { font-weight: 900; font-size: clamp(3rem, 8vw, 5.6rem); line-height: .9; letter-spacing: -0.03em; }
+.cover .tag { font-weight: 700; font-size: 1.25rem; margin-top: 10px; }
+.lozenge { display: inline-flex; align-items: center; gap: 14px; margin-top: 22px; border: 3px solid var(--ink); background: var(--paper); border-radius: 999px; padding: 8px 22px; }
+.lozenge b { font-weight: 900; font-size: 1.9rem; line-height: 1; }
+.lozenge span { font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.lozenge i { width: 2px; height: 28px; background: var(--ink); }
+.fine { margin-top: 12px; font-size: .86rem; font-weight: 500; }
+.model { display: grid; gap: 0; justify-items: center; padding: 16px; background: var(--paper); border: 3px solid var(--ink); border-radius: 6px; }
+.row { display: flex; flex-wrap: nowrap; justify-content: center; gap: 0; position: relative; }
+.row + .row { margin-top: -8px; }
+.fit.fit { width: 100%; min-width: 0; max-width: 100%; overflow: hidden; display: block; position: relative; padding: 14px 8px 8px; }
+.stage.fit { padding-top: 48px; }
+.cover > *, .step > * { min-width: 0; }
+.fit-inner { position: absolute; left: 0; top: 0; width: max-content; transform-origin: top left; display: grid; justify-items: center; }
+.model .row .brick { height: 34px; font-size: .7rem; }
+.model .base { width: 104%; height: 14px; background: #7FB5D5; border: 2.5px solid var(--ink); border-radius: 3px; margin-top: 2px; }
+
+/* ---------- inventory ---------- */
+.inventory { background-color: var(--paper); background-image: none; }
+.inv-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.inv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.bag { border: 2.5px solid var(--ink); border-radius: 6px; padding: 12px 14px 16px; background: var(--inv); }
+.bag h3 em { color: var(--inv); }
+.bag h3 { font-size: .95rem; font-weight: 800; display: flex; justify-content: space-between; }
+.bag h3 em { font-style: normal; font-weight: 700; background: var(--ink); color: var(--inv); border-radius: 999px; padding: 0 9px; font-size: .8rem; }
+.bag .parts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; }
+.part { display: grid; justify-items: center; gap: 2px; }
+.part small { font-weight: 800; font-size: .72rem; }
+
+/* ---------- steps ---------- */
+.steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+.step { display: grid; grid-template-rows: auto 1fr auto; gap: 14px; min-height: 420px; }
+.step-top { display: flex; gap: 16px; align-items: flex-start; }
+.num { font-weight: 900; font-size: 5rem; line-height: .8; letter-spacing: -0.04em; }
+.step-top p { font-weight: 600; font-size: 1.02rem; padding-top: 6px; max-width: 32ch; }
+.stage { position: relative; display: grid; justify-items: center; align-content: end; padding: 10px 0 0; }
+.stage .row .brick { height: 32px; font-size: .68rem; }
+.stage .newrow { position: relative; }
+.drop { position: absolute; left: 50%; top: -38px; transform: translateX(-50%); width: 26px; height: 34px; }
+.stage .base { width: 92%; height: 12px; background: #7FB5D5; border: 2.5px solid var(--ink); border-radius: 3px; margin-top: 2px; }
+.callout {
+  position: relative;
+  background: var(--paper);
+  border: 2.5px solid var(--ink);
+  border-radius: 6px;
+  padding: 10px 12px 12px;
+  display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: end;
+}
+.callout::before { content: "NEW"; position: absolute; top: -12px; left: 10px; background: var(--new); color: #fff; font-weight: 800; font-size: .7rem; letter-spacing: .08em; padding: 1px 8px; border: 2px solid var(--ink); border-radius: 3px; }
+.callout .part small::before { content: "1x "; }
+.callout .brick { height: 30px; font-size: .68rem; }
+
+.step.anim .newrow { animation: land .7s cubic-bezier(.16, 1, .3, 1) both; }
+@keyframes land { from { transform: translateY(-26px); } to { transform: none; } }
+
+/* ---------- play (loop) ---------- */
+.play { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.panel { background: var(--paper); border: 2.5px solid var(--ink); border-radius: 6px; padding: 14px 16px 16px; display: grid; gap: 12px; align-content: start; }
+.panel h3 { font-size: 1.05rem; font-weight: 800; }
+.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; }
+.chain .brick { height: 32px; font-size: .7rem; }
+.chain svg { width: 34px; height: 16px; flex: none; }
+.chip { border: 2.5px solid var(--ink); border-radius: 999px; padding: 4px 12px; font-weight: 800; font-size: .8rem; background: var(--paper); }
+.chip.bad { background: var(--new); color: #fff; }
+.chip.ok { background: #4CAF50; color: #fff; }
+.panel .note { font-size: .88rem; color: var(--ink-2); }
+
+/* ---------- checks ---------- */
+.qc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.qc ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.qc li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; font-size: .95rem; }
+.qc li svg { width: 22px; height: 22px; }
+
+/* ---------- policy ---------- */
+.policy { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.policy .panel b { font-weight: 900; font-size: 1.15rem; }
+
+/* ---------- next booklets ---------- */
+.next { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.booklet { border: 3px dashed var(--ink); border-radius: 6px; background: rgba(247, 251, 253, .55); padding: 16px; display: grid; gap: 10px; align-content: start; }
+.booklet .m { font-weight: 900; font-size: 2.6rem; line-height: .9; }
+.booklet h3 { font-size: 1.05rem; font-weight: 800; }
+.booklet ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: .92rem; }
+
+/* ---------- rules + missing ---------- */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 18px; }
+.rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.rules li { display: grid; grid-template-columns: 40px 1fr; gap: 10px; align-items: center; font-weight: 600; }
+.rules li svg { width: 36px; height: 36px; }
+.missing li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: baseline; }
+.missing li code { background: var(--inv); border: 2px solid var(--ink); border-radius: 4px; padding: 0 6px; font-weight: 500; white-space: nowrap; }
+
+footer { max-width: 1120px; margin: 28px auto 0; font-size: .86rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+
+@media (max-width: 900px) {
+  .cover, .steps, .play, .qc, .two { grid-template-columns: 1fr; }
+  .inv-grid, .policy, .next { grid-template-columns: 1fr 1fr; }
+  .step { min-height: 0; }
+}
+@media (max-width: 560px) {
+  .spread { padding: 18px 16px 30px; }
+  .inv-grid, .policy, .next { grid-template-columns: 1fr; }
+  .num { font-size: 3.8rem; }
+}
+@media (prefers-reduced-motion: reduce) { .step.anim .newrow { animation: none; } }
+</style>
+</head>
+<body>
+<div class="book">
+
+  <section class="spread cover" aria-label="Cover">
+    <div>
+      <h1 class="brand">Appstein</h1>
+      <p class="tag">Apps = m·c². A model, plus context, plus checks.</p>
+      <div class="lozenge"><b id="partCount">32</b><span>parts</span><i></i><b>6</b><span>steps</span></div>
+      <p class="fine">Milestone 1 · for Flutter 3.44+ · works with Claude Code and Codex</p>
+    </div>
+    <div class="model fit" id="coverModel" aria-label="The finished Milestone 1 model, stacked by build step"></div>
+  </section>
+
+  <section class="spread inventory" aria-labelledby="inv-t">
+    <div class="inv-head">
+      <div>
+        <h2 class="title" id="inv-t">Parts inventory</h2>
+        <p class="sub">Everything Milestone 1 builds, sorted into six bags by family.</p>
+      </div>
+    </div>
+    <div class="inv-grid" id="inventory"></div>
+    <span class="pg">2</span>
+  </section>
+
+  <section class="steps" id="steps" aria-label="Build steps 1a to 1f"></section>
+
+  <section class="spread" aria-labelledby="play-t">
+    <h2 class="title" id="play-t">How the finished model plays</h2>
+    <p class="sub">What happens while an agent works.</p>
+    <div class="play" id="play"></div>
+    <span class="pg">9</span>
+  </section>
+
+  <section class="spread" aria-labelledby="qc-t">
+    <h2 class="title" id="qc-t">Quality check</h2>
+    <p class="sub">Fast checks only report. Full checks block "done".</p>
+    <div class="qc">
+      <div class="panel">
+        <h3>Fast · after every change · under 5 s</h3>
+        <ul id="qcFast"></ul>
+      </div>
+      <div class="panel">
+        <h3>Full · when the agent says done</h3>
+        <ul id="qcFull"></ul>
+      </div>
+    </div>
+    <span class="pg">10</span>
+  </section>
+
+  <section class="spread" aria-labelledby="pol-t">
+    <h2 class="title" id="pol-t">Which piece to use</h2>
+    <p class="sub">The dependency policy. The package gate checks every new one.</p>
+    <div class="policy">
+      <div class="panel"><p>Small helper: formatting, validation, simple state</p><b>Pure Dart</b></div>
+      <div class="panel"><p>Complex platform feature: camera, payments, maps, auth</p><b>Well-maintained package</b></div>
+      <div class="panel"><p>Small native feature, no good package</p><b>Pigeon + platform channels</b></div>
+    </div>
+    <span class="pg">11</span>
+  </section>
+
+  <section class="spread" aria-labelledby="next-t">
+    <h2 class="title" id="next-t">Next booklets</h2>
+    <p class="sub">Each later milestone gets its own spec and its own instructions.</p>
+    <div class="next">
+      <div class="booklet"><span class="m">M2</span><h3>Pipeline harness</h3><ul><li>Plan → implement → review → verify</li><li>Visual verification with goldens</li><li>Guided mode for beginners</li></ul></div>
+      <div class="booklet"><span class="m">M3</span><h3>More projects, more stacks</h3><ul><li>Adopt existing apps</li><li>Riverpod and Bloc packs</li><li>Community packs</li></ul></div>
+      <div class="booklet"><span class="m">M4</span><h3>Desktop app and every platform</h3><ul><li>Flutter desktop app, agent team</li><li>Web, Windows, macOS, Linux packs</li><li>Then a web UI</li></ul></div>
+    </div>
+    <span class="pg">12</span>
+  </section>
+
+  <section class="spread" aria-labelledby="rules-t">
+    <h2 class="title" id="rules-t">Rules and missing pieces</h2>
+    <p class="sub">How every piece must behave, and what still gets checked during the build.</p>
+    <div class="two">
+      <div class="panel">
+        <h3>Building rules</h3>
+        <ul class="rules" id="rules"></ul>
+      </div>
+      <div class="panel missing">
+        <h3>Missing a piece?</h3>
+        <ul class="rules">
+          <li><code>1e</code><span>Codex hooks and config paths. Fallback: verify through MCP, enforced in CI.</span></li>
+          <li><code>1e</code><span>Official plugin per project. Fallback: print the install commands.</span></li>
+          <li><code>1e</code><span>material_ui with dependencies. Switch only when all are compatible.</span></li>
+          <li><code>1a</code><span>Fast checks under 5 s. Fallback: warm analysis in the MCP process.</span></li>
+          <li><code>M2</code><span>Vendor policy changes. M1 launches no agents.</span></li>
+          <li><code>launch</code><span>Trademark, domain, license, firm decision.</span></li>
+        </ul>
+      </div>
+    </div>
+    <span class="pg">13</span>
+  </section>
+</div>
+<footer>
+  <span>Source of truth: <code>docs/superpowers/specs/2026-09-29-appstein-design.md</code></span>
+  <span>Research: <code>reports/Flutter agentic harness landscape.md</code></span>
+</footer>
+
+<script>
+(function () {
+  var FAM = { core: "Core packages", cmd: "Commands", pack: "Packs", int: "Integration", ver: "Verification", kno: "Knowledge" };
+  var P = [
+    ["protocol", "core", "1a"], ["engine", "core", "1a"], ["cli", "core", "1a"], ["lints", "core", "1a"], ["doctor", "cmd", "1a"],
+    ["platform", "kno", "1b"], ["map", "kno", "1b"], ["INDEX", "kno", "1b"], ["sync", "cmd", "1b"], ["official_mvvm", "pack", "1b"], ["android", "pack", "1b"], ["ios", "pack", "1b"],
+    ["mcp", "cmd", "1c"], ["MCP tools", "kno", "1c"], ["decisions", "kno", "1c"], ["memory", "kno", "1c"],
+    ["verify", "cmd", "1d"], ["fast checks", "ver", "1d"], ["full checks", "ver", "1d"], ["native audit", "ver", "1d"], ["package gate", "ver", "1d"], ["lint rules", "ver", "1d"], ["suppressions", "ver", "1d"],
+    ["create", "cmd", "1e"], ["integrate", "cmd", "1e"], ["Claude Code", "int", "1e"], ["Codex", "int", "1e"], ["hooks", "int", "1e"], ["official tools", "int", "1e"],
+    ["upgrade", "cmd", "1f"], ["skills", "int", "1f"], ["benchmark", "ver", "1f"]
+  ];
+  var STEPS = [
+    ["1a", "Lay the base: four packages, SDK detection, doctor, CI."],
+    ["1b", "Add knowledge: what changed in this SDK, the exact project map, INDEX."],
+    ["1c", "Add the MCP server, so agents ask instead of search."],
+    ["1d", "Add the checks: fast, full, native audit, package gate, lint rules."],
+    ["1e", "Add create and hook it into Claude Code and Codex."],
+    ["1f", "Top it off: upgrade, tested skills, the published benchmark."]
+  ];
+
+  // whole stud counts only: 2, 3, 4 or 6, chosen by label length
+  function studsFor(label) { var w = label.length * 6.6 + 14; var n = Math.ceil(w / 24); return n <= 2 ? 2 : n <= 3 ? 3 : n <= 4 ? 4 : 6; }
+  function brick(label, kind) {
+    var n = studsFor(label);
+    var s = '<span class="studs">' + new Array(n + 1).join("<i></i>") + "</span>";
+    return '<span class="brick k-' + kind + '" style="--n:' + n + '" title="' + label + '">' + s + label + "</span>";
+  }
+  function stackRows(rows) {
+    return rows.map(function (r, i) { return '<div class="row" style="z-index:' + (rows.length - i) + '">' + r + "</div>"; }).join("");
+  }
+  function bySlice(sl) { return P.filter(function (p) { return p[2] === sl; }); }
+  document.getElementById("partCount").textContent = String(P.length);
+
+  // cover model: family colours, stacked bottom (1a) to top (1f)
+  var cover = document.getElementById("coverModel");
+  var rows = STEPS.slice().reverse().map(function (st) { return bySlice(st[0]).map(function (p) { return brick(p[0], p[1]); }).join(""); });
+  cover.innerHTML = '<div class="fit-inner">' + stackRows(rows) + '<div class="base"></div></div>';
+
+  // inventory bags
+  var inv = document.getElementById("inventory");
+  Object.keys(FAM).forEach(function (k) {
+    var parts = P.filter(function (p) { return p[1] === k; });
+    var d = document.createElement("div");
+    d.className = "bag";
+    d.innerHTML = "<h3>" + FAM[k] + "<em>" + parts.length + "</em></h3><div class=\"parts\">" +
+      parts.map(function (p) { return '<span class="part">' + brick(p[0], k) + "<small>1x · " + p[2] + "</small></span>"; }).join("") + "</div>";
+    inv.appendChild(d);
+  });
+
+  // steps: prior assembly ghosted, new layer in red with a drop arrow
+  var stepsEl = document.getElementById("steps");
+  var arrowSvg = '<svg class="drop" viewBox="0 0 26 34" aria-hidden="true"><path d="M13 2v24" stroke="#111" stroke-width="3" stroke-dasharray="5 4"/><path d="M4 20l9 11 9-11" fill="#D01012" stroke="#111" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+  STEPS.forEach(function (st, i) {
+    var sec = document.createElement("section");
+    sec.className = "spread step";
+    var rs = [bySlice(st[0]).map(function (p) { return brick(p[0], "new"); }).join("")];
+    for (var j = i - 1; j >= 0; j--) {
+      rs.push(bySlice(STEPS[j][0]).map(function (p) { return brick(p[0], "ghost"); }).join(""));
+    }
+    var stack = stackRows(rs).replace('<div class="row"', '<div class="row newrow"').replace('">', '">' + arrowSvg);
+    sec.innerHTML =
+      '<div class="step-top"><span class="num">' + st[0] + "</span><p>" + st[1] + "</p></div>" +
+      '<div class="stage fit"><div class="fit-inner">' + stack + '<div class="base"></div></div></div>' +
+      '<div class="callout" aria-label="New parts in this step">' + bySlice(st[0]).map(function (p) { return '<span class="part">' + brick(p[0], p[1]) + "<small>" + FAM[p[1]].toLowerCase() + "</small></span>"; }).join("") + "</div>" +
+      '<span class="pg">' + (i + 3) + "</span>";
+    stepsEl.appendChild(sec);
+  });
+
+  // play panels
+  function arr() { return '<svg viewBox="0 0 34 16" aria-hidden="true"><path d="M2 8h24" stroke="#111" stroke-width="3"/><path d="M22 2l9 6-9 6" fill="none" stroke="#111" stroke-width="3" stroke-linejoin="round"/></svg>'; }
+  var PLAY = [
+    ["Session starts", [brick("sync", "cmd"), arr(), brick("INDEX", "kno")], "Knowledge exists before the agent needs it."],
+    ["Agent changes a file", ['<span class="chip">edit or Bash</span>', arr(), brick("sync", "cmd"), arr(), brick("fast checks", "ver"), arr(), '<span class="chip">findings</span>'], "Report only. Files are never rewritten mid-session."],
+    ["Dependencies change", ['<span class="chip">pubspec</span>', arr(), brick("package gate", "ver"), arr(), brick("skills", "int")], "Package skills refresh to the installed versions."],
+    ["Agent says done", ['<span class="chip">fix + format</span>', arr(), brick("full checks", "ver"), arr(), '<span class="chip ok">done</span>', '<span class="chip bad">blocked</span>'], "After three identical blocks, the errors go to you."]
+  ];
+  var play = document.getElementById("play");
+  PLAY.forEach(function (p) {
+    var d = document.createElement("div");
+    d.className = "panel";
+    d.innerHTML = "<h3>" + p[0] + '</h3><div class="chain">' + p[1].join("") + '</div><p class="note">' + p[2] + "</p>";
+    play.appendChild(d);
+  });
+
+  // quality check lists
+  var tick = '<svg viewBox="0 0 22 22" aria-hidden="true"><rect x="1.5" y="1.5" width="19" height="19" rx="3" fill="#4CAF50" stroke="#111" stroke-width="2.5"/><path d="M6 11.5l3.5 3.5L16 7.5" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function fill(id, items) { document.getElementById(id).innerHTML = items.map(function (t) { return "<li>" + tick + "<span>" + t + "</span></li>"; }).join(""); }
+  fill("qcFast", ["dart analyze fails on any deprecated API", "Pending dart fix and format changes listed", "Lint rules: layers, tokens, no platform branching", "Package gate when dependencies change", "Knowledge freshness"]);
+  fill("qcFull", ["Tests, including accessibility guidelines", "Android: toolchain, built-in Kotlin, targetSdk 36, 16 KB pages", "iOS: SDK-minimum target (15 on 3.47), SwiftPM, UIScene, privacy manifest", "No signing or store secrets in git", "A real debug build"]);
+
+  // building rules with drawn marks
+  var RULES = [
+    "Generate knowledge; never hand-write what the SDK or code can tell.",
+    "Check, don't hope. Every rule has a deterministic gate.",
+    "The engine knows no Flutter rules. Packs do.",
+    "One data format for CLI, MCP, desktop and web.",
+    "Never touch credentials. Irreversible steps need a human.",
+    "Local first, no telemetry, Windows first-class."
+  ];
+  document.getElementById("rules").innerHTML = RULES.map(function (r, i) {
+    return '<li><svg viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="8" width="32" height="26" rx="3" fill="#FFD500" stroke="#111" stroke-width="2.5"/><rect x="7" y="3" width="8" height="6" rx="1.5" fill="#FFD500" stroke="#111" stroke-width="2.5"/><rect x="21" y="3" width="8" height="6" rx="1.5" fill="#FFD500" stroke="#111" stroke-width="2.5"/><text x="18" y="27" text-anchor="middle" font-family="Rubik, Arial" font-weight="800" font-size="13" fill="#111">' + (i + 1) + "</text></svg><span>" + r + "</span></li>";
+  }).join("");
+
+  // scale each assembled model to its box so rows never wrap apart
+  function fitAll() {
+    document.querySelectorAll(".fit").forEach(function (box) {
+      var inner = box.querySelector(".fit-inner");
+      if (!inner) return;
+      inner.style.transform = "none";
+      var cs = getComputedStyle(box);
+      var padL = parseFloat(cs.paddingLeft), padR = parseFloat(cs.paddingRight);
+      var padT = parseFloat(cs.paddingTop), padB = parseFloat(cs.paddingBottom);
+      var avail = box.clientWidth - padL - padR;
+      var need = inner.offsetWidth;
+      var k = Math.min(1, avail / need);
+      // labels are ~11px; below a 0.82 scale they'd drop under 9px, so show the model as a silhouette
+      box.classList.toggle("mute", k < 0.82);
+      var dx = (avail - need * k) / 2;
+      inner.style.left = padL + "px";
+      inner.style.top = padT + "px";
+      inner.style.transform = "translateX(" + dx + "px) scale(" + k + ")";
+      box.style.height = Math.ceil(inner.offsetHeight * k + padT + padB) + "px";
+    });
+  }
+  fitAll();
+  window.addEventListener("resize", fitAll);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
+
+  // drop the new layer when a step scrolls into view (content is visible without it)
+  if ("IntersectionObserver" in window && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("anim"); io.unobserve(e.target); } });
+    }, { threshold: 0.4 });
+    document.querySelectorAll(".step").forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

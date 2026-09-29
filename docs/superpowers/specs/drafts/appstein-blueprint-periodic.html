@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Periodic Table of Appstein</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --ground: #EEF1F3;
+  --sheet: #FFFFFF;
+  --ink: #101820;
+  --ink-2: #44525E;
+  --rule: #101820;
+  --hair: #C3CCD3;
+  --f-cmd: #3FB67A;
+  --f-core: #AEB9C3;
+  --f-pack: #F2A516;
+  --f-int: #9B7FE0;
+  --f-ver: #3E8EDC;
+  --f-kno: #F0663F;
+  --tile-ink: #101820;
+  --ghost: #101820;
+  --sel: #101820;
+  --shadow: 0 10px 24px -12px rgba(16, 24, 32, .45);
+  --sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0E151B;
+  --sheet: #151F27;
+  --ink: #E9EEF2;
+  --ink-2: #A8B6C1;
+  --rule: #E9EEF2;
+  --hair: #2C3A45;
+  --f-cmd: #1E6B48;
+  --f-core: #3B4854;
+  --f-pack: #8C6512;
+  --f-int: #53428F;
+  --f-ver: #255D90;
+  --f-kno: #9C3C23;
+  --tile-ink: #F3F6F8;
+  --ghost: #E9EEF2;
+  --sel: #F3F6F8;
+  --shadow: 0 12px 28px -12px rgba(0, 0, 0, .8);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-inline: 16px;
+  padding-block: 0 72px;
+  font-variant-numeric: tabular-nums;
+}
+::selection { background: var(--f-pack); color: var(--tile-ink); }
+:focus-visible { outline: 3px solid var(--sel); outline-offset: 3px; }
+a { color: inherit; text-underline-offset: 3px; }
+code { font-family: var(--mono); font-size: .88em; }
+.page { max-width: 1240px; margin: 0 auto; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; }
+
+/* ---------- header / equation ---------- */
+.mast {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: end;
+  padding-block: 16px 12px;
+  border-bottom: 3px solid var(--rule);
+}
+.eq {
+  font-weight: 900;
+  font-stretch: 112%;
+  font-size: clamp(2.8rem, 6.5vw, 4.4rem);
+  line-height: .9;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+.eq sup { font-size: .45em; vertical-align: .9em; }
+.eq .dot { font-weight: 400; }
+.mast .name {
+  margin-top: 14px;
+  font-stretch: 75%;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.key { display: grid; gap: 10px; }
+.key { gap: 4px; }
+.key div { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: baseline; }
+.key b { font-size: 2rem; font-weight: 900; font-stretch: 112%; line-height: 1; }
+.key span { color: var(--ink-2); font-size: 1rem; }
+.key strong { color: var(--ink); font-weight: 600; }
+
+.theme { appearance: none; font: inherit; font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); background: transparent; border: 2px solid var(--rule); padding: 4px 10px; cursor: pointer; margin-top: 12px; }
+.theme:hover { background: var(--ink); color: var(--ground); }
+
+/* ---------- hazards ---------- */
+.hazards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  padding-block: 8px 0;
+}
+.hz { display: grid; grid-template-columns: 58px 1fr; gap: 14px; align-items: center; }
+.hz .diamond {
+  width: 44px; height: 44px; margin: 7px;
+  transform: rotate(45deg);
+  border: 3px solid #D5281B;
+  background: var(--sheet);
+  display: grid; place-items: center;
+}
+.hz .diamond svg { transform: rotate(-45deg); width: 22px; height: 22px; }
+.hz p { font-size: .94rem; line-height: 1.35; }
+.hz p b { display: block; font-weight: 800; font-size: 1rem; }
+.hz-label { font-stretch: 75%; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; font-size: .78rem; color: var(--ink-2); padding-top: 22px; }
+
+/* ---------- section heads ---------- */
+.sec { padding-block: 44px 0; }
+.sec.first { padding-block: 12px 0; }
+.sec.first .sec-head { margin-bottom: 10px; }
+.sec-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 32px; margin-bottom: 20px; }
+.sec-head h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 900; font-stretch: 100%; letter-spacing: -0.02em; line-height: 1.05; }
+.sec-head p { color: var(--ink-2); max-width: 52ch; }
+
+/* ---------- legend ---------- */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; font-weight: 600; }
+.legend i { width: 18px; height: 18px; border: 2px solid var(--rule); display: inline-block; }
+.legend i.ghost { background: transparent; border-style: dashed; }
+
+/* ---------- the table ---------- */
+.table {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-rows: auto repeat(7, auto);
+  gap: 6px;
+}
+.group-h {
+  grid-row: 1;
+  align-self: end;
+  font-stretch: 75%;
+  font-weight: 800;
+  font-size: .78rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--rule);
+  display: flex; justify-content: space-between;
+}
+.group-h em { font-style: normal; color: var(--ink-2); font-weight: 600; }
+.el {
+  appearance: none;
+  font: inherit;
+  color: var(--tile-ink);
+  text-align: left;
+  border: 2px solid var(--rule);
+  background: var(--fill);
+  padding: 5px 10px 6px;
+  min-height: 58px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  cursor: pointer;
+  position: relative;
+  transition: transform .25s cubic-bezier(.16, 1, .3, 1), box-shadow .25s cubic-bezier(.16, 1, .3, 1), opacity .3s ease, filter .3s ease;
+}
+.el:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.el[aria-pressed="true"] { outline: 4px solid var(--sel); outline-offset: 2px; z-index: 2; box-shadow: var(--shadow); }
+.el .n { font-size: .78rem; font-weight: 600; display: flex; justify-content: space-between; }
+.el .sym { font-weight: 900; font-stretch: 112%; font-size: 1.45rem; line-height: 1; letter-spacing: -0.02em; margin-top: 1px; }
+.el .nm { font-stretch: 80%; font-weight: 700; font-size: .86rem; line-height: 1.15; }
+.el .mark { width: 14px; height: 14px; }
+.table.dim .el:not(.lit) { opacity: .22; filter: saturate(.3); }
+.table.dim .el.lit { box-shadow: var(--shadow); }
+
+.f-cmd { --fill: var(--f-cmd); }
+.f-core { --fill: var(--f-core); }
+.f-pack { --fill: var(--f-pack); }
+.f-int { --fill: var(--f-int); }
+.f-ver { --fill: var(--f-ver); }
+.f-kno { --fill: var(--f-kno); }
+
+.el.marker { background: transparent; color: var(--ink); border-style: dashed; cursor: default; }
+.el.marker:hover { transform: none; box-shadow: none; }
+.el.marker .sym { font-size: 1.3rem; }
+
+/* ghost rows hanging below */
+.hang { margin-top: 26px; display: grid; gap: 10px; }
+.hang-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.hang-label { border-top: 2px solid var(--rule); padding-top: 6px; font-stretch: 75%; font-weight: 800; font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; }
+.hang-label em { display: block; font-style: normal; font-weight: 600; letter-spacing: .04em; text-transform: none; color: var(--ink-2); font-size: .82rem; margin-top: 2px; }
+.hang-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.el.ghost { background: transparent; color: var(--ghost); border-style: dashed; min-height: 86px; }
+.el.ghost .sym { font-size: 1.9rem; opacity: .75; }
+.el.ghost .nm { opacity: .8; }
+
+/* ---------- unfolded sheet ---------- */
+.sheet {
+  margin-top: 22px;
+  background: var(--sheet);
+  border: 2px solid var(--rule);
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: 190px;
+  overflow: hidden;
+}
+.sheet .big {
+  background: var(--fill, var(--f-core));
+  color: var(--tile-ink);
+  border-right: 2px solid var(--rule);
+  padding: 16px 18px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.sheet .big .n { font-weight: 600; font-size: .9rem; }
+.sheet .big .sym { font-weight: 900; font-stretch: 118%; font-size: 4.6rem; line-height: 1; align-self: center; letter-spacing: -0.03em; }
+.sheet .big .fam { font-stretch: 75%; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: .76rem; }
+.sheet .body { padding: 18px 22px 20px; display: grid; gap: 12px; align-content: start; }
+.sheet h3 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; }
+.sheet h3 code { font-size: .8em; font-weight: 600; }
+.sheet ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; max-width: 70ch; }
+.sheet li { display: grid; grid-template-columns: 14px 1fr; gap: 10px; align-items: baseline; }
+.sheet li::before { content: ""; width: 8px; height: 8px; background: var(--ink); transform: translateY(-1px); }
+.sheet .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: .82rem; color: var(--ink-2); }
+.sheet .meta span { border: 1px solid var(--hair); padding: 2px 8px; }
+.sheet.unfold { animation: unfold .45s cubic-bezier(.16, 1, .3, 1); transform-origin: top center; }
+@keyframes unfold { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+
+/* ---------- slices ---------- */
+.slices { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.slice {
+  appearance: none; font: inherit; color: var(--ink); text-align: left;
+  background: var(--sheet);
+  border: 2px solid var(--rule);
+  padding: 10px 12px 12px;
+  cursor: pointer;
+  display: grid; gap: 6px; align-content: start;
+  transition: background .2s ease, color .2s ease;
+}
+.slice b { font-weight: 900; font-stretch: 112%; font-size: 1.6rem; line-height: 1; }
+.slice span { font-size: .84rem; line-height: 1.3; color: var(--ink-2); }
+.slice .syms { font-family: var(--mono); font-size: .74rem; color: var(--ink); letter-spacing: .02em; }
+.slice[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+.slice[aria-pressed="true"] span, .slice[aria-pressed="true"] .syms { color: var(--ground); }
+.slice:hover:not([aria-pressed="true"]) { background: var(--ground); }
+.done-line { margin-top: 14px; display: flex; gap: 12px; align-items: baseline; font-size: .95rem; }
+.done-line b { font-stretch: 75%; letter-spacing: .12em; text-transform: uppercase; font-size: .78rem; white-space: nowrap; }
+
+/* ---------- reactions ---------- */
+.reactions { display: grid; gap: 8px; }
+.rx {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--sheet);
+  border: 2px solid var(--rule);
+}
+.rx .when { font-stretch: 75%; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; font-size: .8rem; }
+.rx .when em { display: block; font-style: normal; letter-spacing: 0; text-transform: none; font-weight: 500; color: var(--ink-2); font-size: .82rem; margin-top: 2px; }
+.eqn { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.mini {
+  display: inline-grid; place-items: center;
+  min-width: 46px; height: 46px; padding: 0 6px;
+  border: 2px solid var(--rule);
+  background: var(--fill);
+  color: var(--tile-ink);
+  font-weight: 900; font-stretch: 112%; font-size: 1.2rem;
+}
+.mini.out { background: transparent; color: var(--ink); border-style: solid; font-stretch: 90%; font-size: .9rem; font-weight: 800; padding: 0 10px; }
+.mini.stop { background: #D5281B; color: #fff; border-color: #D5281B; }
+.op { font-weight: 800; font-size: 1.3rem; }
+.term { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.arrow { display: inline-grid; justify-items: center; gap: 1px; min-width: 96px; }
+.arrow small { font-family: var(--mono); font-size: .68rem; color: var(--ink-2); white-space: nowrap; }
+.arrow svg { width: 96px; height: 14px; }
+.rx .note { grid-column: 2; font-size: .86rem; color: var(--ink-2); }
+
+/* ---------- laws + isotopes ---------- */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 36px; }
+.laws { margin: 0; padding: 0; list-style: none; display: grid; gap: 0; border-top: 2px solid var(--rule); }
+.laws li { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--hair); align-items: baseline; }
+.laws li b { font-stretch: 75%; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: .78rem; }
+.laws li span { font-weight: 600; }
+.iso { display: grid; gap: 8px; }
+.iso div { display: grid; grid-template-columns: 58px 1fr; gap: 12px; align-items: center; padding: 10px 12px; border: 2px dashed var(--rule); background: var(--sheet); }
+.iso .half { font-family: var(--mono); font-size: .74rem; text-align: center; line-height: 1.2; }
+.iso p { font-size: .92rem; line-height: 1.35; }
+.iso p b { font-weight: 800; }
+
+/* ---------- policy ---------- */
+.policy { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.pol { border: 2px solid var(--rule); background: var(--sheet); padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
+.pol .when { font-size: .9rem; color: var(--ink-2); }
+.pol .then { font-weight: 800; font-size: 1.1rem; }
+
+footer { margin-top: 56px; padding-top: 16px; border-top: 3px solid var(--rule); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; font-size: .86rem; color: var(--ink-2); }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1000px) {
+  .slices { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hazards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .mast { grid-template-columns: 1fr; gap: 24px; }
+  .table { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: none; }
+  .table .el, .table .group-h { grid-column: auto !important; grid-row: auto !important; }
+  .table .group-h { grid-column: 1 / -1 !important; margin-top: 10px; }
+  .table .el.marker { display: none; }
+  .two { grid-template-columns: 1fr; }
+  .policy { grid-template-columns: 1fr; }
+  .rx { grid-template-columns: 1fr; gap: 10px; }
+  .rx .note { grid-column: 1; }
+}
+@media (max-width: 560px) {
+  .hazards { grid-template-columns: 1fr; }
+  .slices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sheet { grid-template-columns: 1fr; }
+  .sheet .big { border-right: 0; border-bottom: 2px solid var(--rule); grid-template-rows: auto; grid-template-columns: auto 1fr; align-items: center; gap: 14px; }
+  .sheet .big .sym { font-size: 3.2rem; }
+  .hang-row { grid-template-columns: 1fr; }
+  .el { min-height: 92px; }
+  .el .sym { font-size: 1.9rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="mast">
+    <div>
+      <div class="eq" aria-label="Apps equals m times c squared">Apps = m<span class="dot">·</span>c<sup>2</sup></div>
+      <p class="name">Appstein · design blueprint · 2026-09-29</p>
+      <button class="theme" type="button" id="themeBtn" aria-pressed="false">Dark chart</button>
+    </div>
+    <div class="key">
+      <div><b>m</b><span><strong>the model.</strong> Already smart enough to build apps.</span></div>
+      <div><b>c</b><span><strong>context.</strong> Exact, current, generated knowledge before it writes.</span></div>
+      <div><b>c</b><span><strong>checks.</strong> Deterministic gates that block "done" after it writes.</span></div>
+    </div>
+  </header>
+
+  <section class="sec first" aria-labelledby="t-table">
+    <div class="sec-head">
+      <h2 id="t-table">The elements</h2>
+      <p>Every part of Appstein on one chart. Pick an element to unfold it.</p>
+    </div>
+    <div class="table" id="table" role="group" aria-label="Periodic table of Appstein elements"></div>
+    <div class="legend" id="legend"></div>
+    <div class="hang" id="hang"></div>
+    <article class="sheet" id="sheet" aria-live="polite"></article>
+  </section>
+
+  <section class="sec" aria-labelledby="t-hz">
+    <div class="sec-head">
+      <h2 id="t-hz">Hazards it neutralises</h2>
+      <p>What goes wrong when agents work without it.</p>
+    </div>
+  <div class="hazards">
+    <div class="hz">
+      <div class="diamond" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 7v6M12 17v.5"/></svg></div>
+      <p><b>Stale code</b>Writes APIs from 8–11 Flutter releases ago.</p>
+    </div>
+    <div class="hz">
+      <div class="diamond" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l5 5"/></svg></div>
+      <p><b>Wasted tokens</b>Re-searches the repo every session.</p>
+    </div>
+    <div class="hz">
+      <div class="diamond" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14l5-5 3 3 4-4M14 8h4v4"/><path d="M4 20h16"/></svg></div>
+      <p><b>Broken native builds</b>AGP 9, SwiftPM, UIScene, targetSdk 36.</p>
+    </div>
+    <div class="hz">
+      <div class="diamond" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M9 12h6"/></svg></div>
+      <p><b>Bad packages</b>Invented in 5.2–21.7% of samples.</p>
+    </div>
+  </div>
+
+  </section>
+
+  <section class="sec" aria-labelledby="t-slices">
+    <div class="sec-head">
+      <h2 id="t-slices">Build order for Milestone 1</h2>
+      <p>Six slices. Pick one to light the elements it builds.</p>
+    </div>
+    <div class="slices" id="slices"></div>
+    <p class="done-line"><b>M1 is done when</b><span>create → verify passes on Linux and macOS CI, and the benchmark shows zero deprecated APIs and a higher pass rate than without Appstein.</span></p>
+  </section>
+
+  <section class="sec" aria-labelledby="t-rx">
+    <div class="sec-head">
+      <h2 id="t-rx">Reactions</h2>
+      <p>What happens while an agent works. Conditions sit above each arrow.</p>
+    </div>
+    <div class="reactions" id="reactions"></div>
+  </section>
+
+  <section class="sec" aria-labelledby="t-pol">
+    <div class="sec-head">
+      <h2 id="t-pol">Dependency policy</h2>
+      <p>Taught by a skill, enforced by the package gate.</p>
+    </div>
+    <div class="policy">
+      <div class="pol"><p class="when">Small helper: formatting, validation, simple state</p><p class="then">Pure Dart</p></div>
+      <div class="pol"><p class="when">Complex platform feature: camera, payments, maps, auth</p><p class="then">Well-maintained package</p></div>
+      <div class="pol"><p class="when">Small native feature with no good package</p><p class="then">Pigeon + platform channels</p></div>
+    </div>
+  </section>
+
+  <section class="sec two" aria-label="Laws and open questions">
+    <div>
+      <div class="sec-head"><h2>Laws</h2></div>
+      <ol class="laws">
+        <li><b>First</b><span>Generate knowledge; never hand-write what the SDK or code can tell.</span></li>
+        <li><b>Second</b><span>Check, don't hope. Every rule has a deterministic gate.</span></li>
+        <li><b>Third</b><span>The engine knows no Flutter rules. Packs do.</span></li>
+        <li><b>Fourth</b><span>One data format for CLI, MCP, desktop and web.</span></li>
+        <li><b>Fifth</b><span>Never touch credentials. Irreversible steps need a human.</span></li>
+        <li><b>Sixth</b><span>Local first, no telemetry, Windows first-class.</span></li>
+      </ol>
+    </div>
+    <div>
+      <div class="sec-head"><h2>Unstable isotopes</h2></div>
+      <div class="iso">
+        <div><span class="half">resolves<br>1e</span><p><b>Codex hooks and config paths.</b> Fallback: verify through MCP, enforced in CI.</p></div>
+        <div><span class="half">resolves<br>1e</span><p><b>Official plugin per project.</b> Fallback: print the install commands.</p></div>
+        <div><span class="half">resolves<br>1e</span><p><b>material_ui with dependencies.</b> Switch only when all are compatible.</p></div>
+        <div><span class="half">measured<br>1a</span><p><b>Fast checks under 5 s.</b> Fallback: warm analysis in the MCP process.</p></div>
+        <div><span class="half">before<br>M2</span><p><b>Vendor policy changes.</b> M1 launches no agents, so no exposure.</p></div>
+        <div><span class="half">before<br>launch</span><p><b>Name checks and firm decision.</b> Trademark, domain, license.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Source of truth: <code>docs/superpowers/specs/2026-09-29-appstein-design.md</code></span>
+    <span>Research: <code>reports/Flutter agentic harness landscape.md</code></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var FAM = {
+    cmd:  { name: "Commands",  cls: "f-cmd" },
+    core: { name: "Core packages", cls: "f-core" },
+    pack: { name: "Packs", cls: "f-pack" },
+    int:  { name: "Integration", cls: "f-int" },
+    ver:  { name: "Verification", cls: "f-ver" },
+    kno:  { name: "Knowledge", cls: "f-kno" }
+  };
+  // column order and bottom alignment give the chart its silhouette
+  var COLS = [
+    { fam: "cmd",  rows: 7 },
+    { fam: "core", rows: 4 },
+    { fam: "pack", rows: 3 },
+    { fam: "int",  rows: 5 },
+    { fam: "ver",  rows: 7 },
+    { fam: "kno",  rows: 6 }
+  ];
+  var EL = {
+    cmd: [
+      ["Cr", "create", "1e", "appstein create", ["New project: Flutter's official architecture, design tokens, correct native config.", "Asks you to confirm the app ID, which is permanent after the first store upload.", "Must pass the full verify before it reports success."], "§13.1"],
+      ["Sy", "sync", "1b", "appstein sync", ["Regenerates knowledge. Incremental after every change.", "--detect finds changed files by content hash, so Bash edits count too.", "Re-runs package skills when dependencies change."], "§5.3"],
+      ["Vf", "verify", "1d", "appstein verify", ["Runs every check. The gate that decides whether a task is done.", "--fast after each change, --full when the agent says done.", "Exit 2 blocks the agent; exit 3 means Appstein itself failed and never blocks silently."], "§9"],
+      ["Mc", "mcp", "1c", "appstein mcp", ["Starts the MCP server over stdio.", "Agents launch it themselves and ask it questions instead of searching."], "§8"],
+      ["Up", "upgrade", "1f", "appstein upgrade", ["Versioned migrations, one folder per Flutter version.", "--dry-run previews; refuses a dirty git tree; git is the undo.", "First migration: 3.47 → material_ui when every dependency is compatible."], "§13.2"],
+      ["In", "integrate", "1e", "appstein integrate", ["Sets up Claude Code and Codex for the project only.", "Never writes user config, never touches credentials.", "--remove undoes it cleanly."], "§11"],
+      ["Dr", "doctor", "1a", "appstein doctor", ["Checks Flutter, Dart, FVM, the JDK Flutter really uses, Android SDK, Xcode 26+ on Mac, git, ripgrep, agent CLIs.", "Explains every fix in plain words."], "§5.3"]
+    ],
+    core: [
+      ["Pt", "protocol", "1a", "appstein_protocol", ["Shared models and JSON schemas: Finding, Feature, Route, Knowledge.", "The CLI, MCP, and the future desktop and web apps all speak it.", "Imports nothing internal."], "§5.1"],
+      ["En", "engine", "1a", "appstein_engine", ["Plumbing only: SDK detection, knowledge store, check runner, MCP, create, upgrade.", "Knows no Flutter rules. Those live in packs.", "Imports only protocol."], "§5.2"],
+      ["Ci", "cli", "1a", "appstein_cli", ["The appstein command. A thin layer over the engine.", "Ships as a compiled executable so hooks start in under 200 ms."], "§5.1"],
+      ["Ls", "lints", "1a", "appstein_lints", ["Analyzer plugin with our lint rules, one test file per rule.", "Works in every agent and IDE because it runs inside dart analyze.", "Also enforces Appstein's own package boundaries."], "§9.6"]
+    ],
+    pack: [
+      ["Mv", "official_mvvm", "1b", "Stack pack: official MVVM", ["Flutter's own architecture guide: ui, data, domain, routing, config layers.", "Supplies map extractors, layer rules and the create template.", "Riverpod and Bloc come later as their own packs."], "§10"],
+      ["An", "android", "1b", "Platform pack: Android", ["Toolchain matrix from the SDK's gradle_utils.dart.", "Checks AGP 9 built-in Kotlin, targetSdk 36, 16 KB pages, secrets, a real debug build."], "§9.2"],
+      ["Io", "ios", "1b", "Platform pack: iOS", ["Deployment target at the SDK minimum (15 on Flutter 3.47), SwiftPM on, UIScene and privacy manifests, usage descriptions.", "Static on Windows; real builds on a Mac or in CI."], "§9.2"]
+    ],
+    int: [
+      ["Cc", "Claude Code", "1e", "Claude Code", ["Hooks at session start, after every change, and at Stop.", "Skills, .mcp.json, and a managed CLAUDE.md block."], "§11.1"],
+      ["Cx", "Codex", "1e", "Codex", ["AGENTS.md block, skills in .agents/skills, MCP config.", "Hook support verified in 1e; fallback is verify through MCP plus CI."], "§11.2"],
+      ["Hk", "hooks", "1e", "Hooks", ["Call the appstein binary directly, so they work on Windows.", "Fast checks only report; fix and format run at Stop.", "Loop guard: after three identical blocks, the errors go to you."], "§5.4"],
+      ["Op", "official", "1e", "Google's official tools", ["flutter/agent-plugins at a pinned version, broken skills overridden.", "Exactly one Dart MCP server runs."], "§11.1"],
+      ["Sk", "skills", "1f", "Appstein skills", ["develop, theming, native-config, dependencies, accessibility, ui-states, ship, use-mcp.", "Every Dart snippet is analyzed in CI against current and minimum SDK."], "§11.3"]
+    ],
+    ver: [
+      ["Fa", "fast", "1d", "Fast checks", ["After every change. Changed files only. Target under 5 seconds.", "analyze, pending fixes, format, lint rules, staleness.", "Report only. Never rewrites files mid-session."], "§9.1"],
+      ["Fu", "full", "1d", "Full checks", ["When the agent says done. Applies fix and format first.", "Tests including accessibility guidelines, native audits, a real debug build."], "§9.2"],
+      ["Na", "native", "1d", "Native audit", ["Android: toolchain, built-in Kotlin, SDK variables, 16 KB, secrets, release readiness.", "iOS: SDK-minimum deployment target, SwiftPM, UIScene, privacy manifest, usage descriptions."], "§9.2"],
+      ["Pg", "packages", "1d", "Package gate", ["Blocks packages that don't exist, are discontinued, or have advisories.", "Checks SwiftPM and built-in Kotlin readiness in the pub cache.", "An agent can't silence an advisory on its own."], "§9.4"],
+      ["Lr", "lint rules", "1d", "Lint rules", ["layer_imports, no_hardcoded_colors, use_spacing_tokens, no_platform_branching_in_layout, no_orientation_lock."], "§9.6"],
+      ["Sp", "suppress", "1d", "Suppressions", ["An escape hatch for professionals that stays visible.", "A reason is mandatory; verify prints the count."], "§9.7"],
+      ["Bm", "benchmark", "1f", "Benchmark", ["10–20 tasks, with and without Appstein, at least 3 runs each.", "Tokens, deprecated APIs left, pass rate, build success. Published honestly."], "§17"]
+    ],
+    kno: [
+      ["Ix", "INDEX", "1b", "INDEX.md", ["The only file always loaded. 1,500 tokens at most.", "Generated; AGENTS.md and CLAUDE.md point to it."], "§6.3"],
+      ["Pl", "platform", "1b", "Layer 1: Platform", ["What changed in this exact SDK, and the valid native toolchain.", "Generated from fix_data, the releases list and gradle_utils.dart."], "§6.4"],
+      ["Mp", "map", "1b", "Layer 2: Project map", ["Features, symbols, routes, layers, dependencies, native config.", "Built by the Dart analyzer, so it's exact. Unknowns are marked, never guessed."], "§6.5"],
+      ["Dc", "decisions", "1c", "Layer 3: Decisions", ["Why things are the way they are, linked to code paths.", "Written by people or agents; the verifier flags drift."], "§6.7"],
+      ["Me", "memory", "1c", "Layer 4: Memory", ["The task in progress and lessons learned.", "A finished task moves its summary into lessons."], "§6.8"],
+      ["Tl", "MCP tools", "1c", "MCP tools", ["overview, where_is, feature, route, check_api, what_changed, toolchain, package_check, decisions, memory, verify.", "Agents ask instead of searching."], "§8"]
+    ]
+  };
+  var HANG = [
+    { label: "Later milestones", note: "hang below until their milestone", items: [
+      ["Ph", "pipeline", "M2", "Pipeline harness", ["Appstein drives the official CLIs: plan → implement → review → verify.", "Trust prompt before launching agents; you log in through the vendor's own flow."], "§18"],
+      ["Vv", "visual", "M2", "Visual verification", ["Golden matrix from Widget Previews: light/dark, text scale, RTL.", "Agents drive and screenshot the running app."], "§21"],
+      ["Gd", "guided", "M2", "Guided mode", ["Beginners get a guided path through the harness."], "§18"],
+      ["Ad", "adopt", "M3", "Adopt existing projects", ["Maps an existing app, reports gaps, proposes a migration path."], "§18"],
+      ["Rp", "riverpod", "M3", "Riverpod pack", ["A stack pack, added without touching the engine."], "§10"],
+      ["Bl", "bloc", "M3", "Bloc pack", ["A stack pack, added without touching the engine."], "§10"],
+      ["Cm", "community", "M3", "Community packs", ["Packs defined in code, plus a scaffold."], "§10"],
+      ["Da", "desktop", "M4", "Flutter desktop app", ["Renders agent activity as native widgets. Utilitarian, not a themed office."], "§18"],
+      ["At", "agent team", "M4", "Agent team", ["Parallel agents in git worktrees, only for independent work."], "§18"],
+      ["Wd", "platforms", "M4", "All platform packs", ["Web, Windows, macOS and Linux. The goal is every Flutter platform."], "§10"],
+      ["Wu", "web UI", "M4", "Web UI", ["The same engine and protocol, in the browser."], "§18"]
+    ]},
+    { label: "Optional", note: "off by default", items: [
+      ["Gx", "graphify", "opt", "graphify export", ["Writes Appstein's Flutter facts in a form graphify can merge.", "Optional because graphify needs Python."], "§16"],
+      ["Dk", "dev docs", "opt", "Developer Knowledge MCP", ["Live search of Flutter and Dart docs.", "Needs a Google Cloud API key."], "§16"]
+    ]}
+  ];
+
+  var table = document.getElementById("table");
+  var hang = document.getElementById("hang");
+  var sheet = document.getElementById("sheet");
+  var legend = document.getElementById("legend");
+  var registry = {};
+  var n = 0;
+
+  Object.keys(FAM).forEach(function (k) {
+    var s = document.createElement("span");
+    s.innerHTML = '<i class="' + FAM[k].cls + '" style="background:var(--fill)"></i>' + FAM[k].name;
+    legend.appendChild(s);
+  });
+  var g = document.createElement("span");
+  g.innerHTML = '<i class="ghost"></i>Later or optional';
+  legend.appendChild(g);
+
+  function tile(d, famKey, ghost) {
+    n += 1;
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "el " + (ghost ? "ghost" : FAM[famKey].cls);
+    b.setAttribute("aria-pressed", "false");
+    b.dataset.sym = d[0];
+    b.dataset.slice = d[2];
+    b.innerHTML = '<span class="n"><span>' + n + '</span><span>' + d[2] + '</span></span><span class="sym">' + d[0] + '</span><span class="nm">' + d[1] + '</span>';
+    b.setAttribute("aria-label", d[3] + ", element " + n);
+    registry[d[0]] = { d: d, fam: famKey, ghost: !!ghost, num: n, el: b };
+    b.addEventListener("click", function () { open(d[0], true); });
+    return b;
+  }
+
+  COLS.forEach(function (c, i) {
+    var h = document.createElement("div");
+    h.className = "group-h";
+    h.style.gridColumn = String(i + 1);
+    h.innerHTML = FAM[c.fam].name + " <em>" + EL[c.fam].length + "</em>";
+    table.appendChild(h);
+    var start = 8 - c.rows + 1; // bottom-aligned within rows 2..8
+    EL[c.fam].forEach(function (d, r) {
+      var b = tile(d, c.fam, false);
+      b.style.gridColumn = String(i + 1);
+      b.style.gridRow = String(start + r);
+      table.appendChild(b);
+    });
+  });
+
+  // placeholder in the empty centre of the chart, pointing at the rows hung below
+  var mk = document.createElement("div");
+  mk.className = "el marker";
+  mk.style.gridColumn = "2 / span 2";
+  mk.style.gridRow = "3";
+  mk.setAttribute("aria-hidden", "true");
+  mk.innerHTML = '<span class="n"><span>33–45</span><span>below</span></span><span class="sym">Later + optional</span><span class="nm">hung beneath the table</span>';
+  table.appendChild(mk);
+
+  HANG.forEach(function (row) {
+    var wrap = document.createElement("div");
+    wrap.className = "hang-row";
+    wrap.innerHTML = '<div class="hang-label">' + row.label + '<em>' + row.note + '</em></div>';
+    var tiles = document.createElement("div");
+    tiles.className = "hang-tiles";
+    row.items.forEach(function (d) { tiles.appendChild(tile(d, "core", true)); });
+    wrap.appendChild(tiles);
+    hang.appendChild(wrap);
+  });
+
+  var current = null;
+  function open(sym, animate) {
+    var r = registry[sym];
+    if (!r) return;
+    if (current) registry[current].el.setAttribute("aria-pressed", "false");
+    current = sym;
+    r.el.setAttribute("aria-pressed", "true");
+    var famName = r.ghost ? (r.d[2] === "opt" ? "Optional" : "Later · " + r.d[2]) : FAM[r.fam].name;
+    var fill = r.ghost ? "transparent" : "var(--f-" + r.fam + ")";
+    var when = r.ghost ? (r.d[2] === "opt" ? "Off by default" : "Milestone " + r.d[2]) : "Built in slice " + r.d[2];
+    sheet.style.setProperty("--fill", fill);
+    sheet.innerHTML =
+      '<div class="big"' + (r.ghost ? ' style="color:var(--ink)"' : "") + '><span class="n">' + r.num + '</span><span class="sym">' + r.d[0] + '</span><span class="fam">' + famName + '</span></div>' +
+      '<div class="body"><h3>' + r.d[3] + '</h3><ul>' + r.d[4].map(function (x) { return "<li><span>" + x + "</span></li>"; }).join("") + '</ul>' +
+      '<div class="meta"><span>' + when + '</span><span>Spec ' + r.d[5] + '</span></div></div>';
+    if (animate) {
+      sheet.classList.remove("unfold");
+      void sheet.offsetWidth;
+      sheet.classList.add("unfold");
+    }
+  }
+  open("Vf", false);
+
+  var tb = document.getElementById("themeBtn");
+  tb.addEventListener("click", function () {
+    var dark = document.documentElement.getAttribute("data-theme") === "dark";
+    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+    tb.setAttribute("aria-pressed", dark ? "false" : "true");
+    tb.textContent = dark ? "Dark chart" : "Paper chart";
+  });
+
+  // slices
+  var SL = [
+    ["all", "All", "Every M1 element"],
+    ["1a", "1a", "Workspace, CLI, SDK detection, doctor, CI"],
+    ["1b", "1b", "Knowledge layers 1–2, INDEX, sync"],
+    ["1c", "1c", "MCP server, decisions, memory"],
+    ["1d", "1d", "Verifier, native checks, package gate, lints"],
+    ["1e", "1e", "create, integrate, every open item verified"],
+    ["1f", "1f", "upgrade, skills + CI, benchmark"]
+  ];
+  var slicesEl = document.getElementById("slices");
+  SL.forEach(function (s) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "slice";
+    b.setAttribute("aria-pressed", s[0] === "all" ? "true" : "false");
+    var syms = s[0] === "all" ? "" : Object.keys(registry).filter(function (k) { return registry[k].d[2] === s[0]; }).join(" ");
+    b.innerHTML = "<b>" + s[1] + "</b><span>" + s[2] + "</span>" + (syms ? '<span class="syms">' + syms + "</span>" : "");
+    b.addEventListener("click", function () {
+      slicesEl.querySelectorAll(".slice").forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", "true");
+      if (s[0] === "all") { table.classList.remove("dim"); }
+      else { table.classList.add("dim"); }
+      Object.keys(registry).forEach(function (k) {
+        var r = registry[k];
+        if (r.ghost) return;
+        r.el.classList.toggle("lit", s[0] !== "all" && r.d[2] === s[0]);
+      });
+    });
+    slicesEl.appendChild(b);
+  });
+
+  // reactions
+  function mini(sym) {
+    var r = registry[sym];
+    return '<span class="mini ' + (r ? FAM[r.fam].cls : "") + '" title="' + (r ? r.d[3] : sym) + '">' + sym + "</span>";
+  }
+  function out(t, cls) { return '<span class="mini out ' + (cls || "") + '">' + t + "</span>"; }
+  function plus(x) { return '<span class="term"><span class="op">+</span>' + x + "</span>"; }
+  function arrow(cond) {
+    return '<span class="arrow"><small>' + cond + '</small><svg viewBox="0 0 96 14" aria-hidden="true"><path d="M2 7h86" stroke="currentColor" stroke-width="2.5"/><path d="M84 2l8 5-8 5" fill="none" stroke="currentColor" stroke-width="2.5"/></svg></span>';
+  }
+  var RX = [
+    ["Session starts", "every new session", mini("Sy") + arrow("SessionStart") + mini("Ix") + plus(mini("Pl")) + plus(mini("Mp")), "Knowledge exists before the agent needs it. Codex calls overview instead."],
+    ["Agent changes files", "edit, write, or a Bash command", out("change") + plus(mini("Sy")) + plus(mini("Fa")) + arrow("PostToolUse") + out("findings"), "Report only. Files are never rewritten mid-session."],
+    ["Dependencies change", "pubspec.yaml or pubspec.lock", out("pubspec") + plus(mini("Pg")) + arrow("same hook") + out("verdict") + plus(mini("Sk")), "Package skills refresh, so agents get the installed version's API."],
+    ["Agent says done", "the Stop hook", out("fix + format") + plus(mini("Fu")) + plus(mini("Na")) + arrow("Stop") + out("done") + '<span class="term"><span class="op">|</span>' + out("blocked", "stop") + "</span>", "After three identical blocks, Appstein stops blocking and hands the errors to you."]
+  ];
+  var rxEl = document.getElementById("reactions");
+  RX.forEach(function (x) {
+    var d = document.createElement("div");
+    d.className = "rx";
+    d.innerHTML = '<p class="when">' + x[0] + "<em>" + x[1] + '</em></p><div class="eqn">' + x[2] + '</div><p class="note">' + x[3] + "</p>";
+    rxEl.appendChild(d);
+  });
+})();
+</script>
+</body>
+</html>

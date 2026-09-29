@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Appstein Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;800&family=Fira+Sans+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* One committed world: an airport sign system. Yellow is reserved for signs and directions only. Single theme by choice. */
+:root {
+  color-scheme: light;
+  --hall: #E2E4E6;
+  --sign: #FFD200;
+  --black: #121314;
+  --white: #FFFFFF;
+  --grey: #4A4F55;
+  --grey-2: #C9CDD1;
+  --board: #0C0E10;
+  --amber: #FFB300;
+  --green: #3DDC84;
+  --red: #E0301E;
+  --sans: "Fira Sans", "Segoe UI", Arial, sans-serif;
+  --cond: "Fira Sans Condensed", "Fira Sans", "Arial Narrow", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+body {
+  margin: 0;
+  background: var(--hall);
+  color: var(--black);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.45;
+  padding-inline: 16px;
+  padding-block: 0 80px;
+  font-variant-numeric: tabular-nums;
+}
+::selection { background: var(--black); color: var(--sign); }
+:focus-visible { outline: 3px solid var(--black); outline-offset: 3px; }
+a { color: inherit; }
+code { font-family: var(--mono); font-size: .85em; }
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { text-wrap: balance; }
+.hall { max-width: 1160px; margin: 0 auto; }
+
+/* ---------- pictograms ---------- */
+.pict { width: 56px; height: 56px; flex: none; background: var(--black); display: grid; place-items: center; }
+.pict svg { width: 36px; height: 36px; }
+.pict.sm { width: 36px; height: 36px; }
+.pict.sm svg { width: 24px; height: 24px; }
+
+/* ---------- arrival: gates signed left and right of the name ---------- */
+.arrival { background: var(--sign); margin-inline: -16px; padding: 32px 16px 30px; border-bottom: 10px solid var(--black); }
+.arrival .in { max-width: 1160px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; align-items: center; }
+.arrival .name { text-align: center; }
+.arrival h1 { font-weight: 800; font-size: clamp(3rem, 7vw, 5.2rem); line-height: .92; letter-spacing: -0.025em; }
+.arrival .tag { margin-top: 12px; font-size: 1.2rem; font-weight: 600; }
+.arrival .tag span { font-weight: 400; display: block; font-size: 1rem; margin-top: 2px; }
+.directory { display: grid; gap: 4px; }
+.dir { display: grid; grid-template-columns: 56px 1fr 30px; gap: 12px; align-items: center; background: var(--black); color: var(--white); padding: 6px 10px 6px 6px; text-decoration: none; }
+.dir.left { grid-template-columns: 30px 1fr 56px; padding: 6px 6px 6px 10px; text-align: right; }
+.dir b { background: var(--sign); color: var(--black); height: 44px; display: grid; place-items: center; font-weight: 800; font-size: 1.9rem; line-height: 1; }
+.dir span { font-weight: 600; font-size: 1.02rem; line-height: 1.15; }
+.dir span small { display: block; color: var(--grey-2); font-size: .8rem; font-weight: 500; }
+.dir svg { width: 26px; height: 26px; }
+.dir:hover { background: #26292C; }
+
+/* ---------- sticky gate strip ---------- */
+.strip { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; margin-inline: -16px; padding-inline: 16px; background: var(--black); }
+.strip nav { max-width: 1160px; margin: 0 auto; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.strip a { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--white); text-decoration: none; font-weight: 600; font-size: .9rem; white-space: nowrap; }
+.strip a b { background: var(--sign); color: var(--black); width: 24px; height: 24px; display: grid; place-items: center; font-weight: 800; }
+.strip a:hover, .strip a[aria-current="true"] { background: #2A2D30; }
+
+/* ---------- gate band with a monumental letter and an onward arrow ---------- */
+.band { margin-top: 64px; background: var(--sign); display: grid; grid-template-columns: auto auto 1fr auto; gap: 16px; align-items: center; padding: 0 16px 0 0; border-top: 4px solid var(--black); }
+.band .gate { background: var(--black); color: var(--sign); width: 112px; height: 112px; display: grid; place-items: center; font-weight: 800; font-size: 5.2rem; line-height: 1; }
+.band h2 { font-weight: 800; font-size: clamp(1.4rem, 3vw, 2.2rem); letter-spacing: -0.01em; line-height: 1.05; }
+.band h2 small { display: block; font-weight: 500; font-size: 1rem; letter-spacing: 0; margin-top: 4px; }
+.onward { display: flex; align-items: center; gap: 8px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.onward b { background: var(--black); color: var(--sign); width: 34px; height: 34px; display: grid; place-items: center; font-weight: 800; font-size: 1.2rem; }
+.onward svg { width: 30px; height: 30px; }
+.concourse { padding-top: 14px; display: grid; gap: 8px; }
+
+/* ---------- message lines: one message per line ---------- */
+.msg { background: var(--black); color: var(--white); display: grid; grid-template-columns: 56px auto 1fr; gap: 16px; align-items: center; padding: 10px 16px 10px 10px; }
+.msg h3 { font-weight: 700; font-size: 1.3rem; white-space: nowrap; }
+.msg p { color: var(--grey-2); font-size: 1rem; }
+.msg p b { color: var(--white); font-weight: 600; }
+.line { background: var(--white); display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: center; padding: 12px 16px; }
+.line .k { font-family: var(--cond); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: .84rem; }
+.hazline { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.hazline > span { display: inline-flex; align-items: flex-start; gap: 8px; font-weight: 600; }
+.hazline > span > span { display: inline; }
+.hazline svg { width: 26px; height: 23px; flex: none; }
+.hazline em { font-style: normal; font-weight: 400; color: var(--grey); }
+
+/* ---------- B: terminal map ---------- */
+.map { display: grid; grid-template-columns: 1fr 40px 1fr 40px 1.5fr 40px 1fr; align-items: stretch; }
+.zone { background: var(--white); padding: 14px; display: grid; gap: 8px; align-content: start; }
+.zone h3 { font-family: var(--cond); font-weight: 700; font-size: .82rem; letter-spacing: .1em; text-transform: uppercase; color: var(--grey); }
+.zone .item { background: var(--hall); padding: 8px 10px; font-weight: 600; font-size: .95rem; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.zone .item small { font-family: var(--cond); font-weight: 600; color: var(--grey); font-size: .8rem; letter-spacing: .04em; }
+.zone.hl { outline: 4px solid var(--black); outline-offset: -4px; }
+.walk { display: grid; place-items: center; }
+.walk svg { width: 30px; height: 30px; }
+.baggage { background: var(--black); color: var(--white); padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+.baggage b { font-family: var(--cond); letter-spacing: .1em; text-transform: uppercase; font-size: .84rem; color: var(--grey-2); }
+.board-list { background: var(--black); color: var(--white); display: grid; }
+.board-list .h { font-family: var(--cond); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: .84rem; color: var(--grey-2); padding: 10px 16px 6px; }
+.svc { display: grid; grid-template-columns: 36px 190px 1fr; gap: 14px; align-items: center; padding: 8px 16px 8px 12px; border-top: 1px solid #2A2D30; }
+.svc b { font-family: var(--mono); font-weight: 500; font-size: .92rem; }
+.svc span { color: var(--grey-2); font-size: .95rem; }
+.svc .pict.sm { background: #2A2D30; }
+
+/* ---------- C: levels ---------- */
+.lvl { display: grid; grid-template-columns: 64px 1fr auto; gap: 14px; align-items: center; background: var(--white); padding: 8px 14px 8px 8px; }
+.lvl .no { background: var(--black); color: var(--white); height: 52px; display: grid; place-items: center; font-weight: 800; font-size: 1.6rem; }
+.lvl h3 { font-weight: 700; font-size: 1.15rem; }
+.lvl p { color: var(--grey); font-size: .92rem; }
+.tagk { font-family: var(--cond); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; font-size: .76rem; padding: 4px 10px; white-space: nowrap; border: 2px solid var(--black); }
+.tagk.gen { background: var(--black); color: var(--white); }
+.lvl.index { background: var(--black); color: var(--white); }
+.lvl.index .no { background: var(--white); color: var(--black); }
+.lvl.index p { color: var(--grey-2); }
+.lvl.index .tagk { border-color: var(--white); background: var(--white); color: var(--black); }
+.help { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--white); padding: 10px 16px; }
+.help b { font-family: var(--cond); letter-spacing: .1em; text-transform: uppercase; font-size: .84rem; margin-right: 8px; }
+.help code { background: var(--hall); padding: 4px 8px; font-size: .82rem; }
+
+/* ---------- D: checks ---------- */
+.lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lane { background: var(--white); display: grid; grid-template-rows: auto 1fr; }
+.lane-h { background: var(--black); color: var(--white); padding: 12px 16px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.lane-h b { font-size: 1.2rem; }
+.lane-h span { font-family: var(--cond); letter-spacing: .06em; font-size: .9rem; color: var(--grey-2); }
+.lane ul { margin: 0; padding: 12px 16px 14px; list-style: none; display: grid; gap: 8px; }
+.lane li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+.lane li svg { width: 20px; height: 20px; margin-top: 2px; }
+.prohib { background: var(--white); padding: 14px 16px; }
+.prohib h3 { font-family: var(--cond); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: .86rem; margin-bottom: 10px; }
+.prohib-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.pro { display: grid; justify-items: center; text-align: center; gap: 6px; font-size: .88rem; font-weight: 600; }
+.pro svg { width: 58px; height: 58px; }
+
+/* ---------- E: route lines ---------- */
+.route { display: grid; grid-template-columns: 210px 1fr; gap: 14px; align-items: center; background: var(--white); padding: 10px 16px; }
+.route .when { font-weight: 700; }
+.route .when small { display: block; font-weight: 500; color: var(--grey); font-size: .84rem; }
+.path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.stop { border: 2px solid var(--black); background: var(--white); padding: 5px 12px; font-weight: 700; font-size: .92rem; white-space: nowrap; }
+.stop.b { background: var(--black); color: var(--white); }
+.stop.r { background: var(--red); border-color: var(--red); color: var(--white); }
+.stop.g { background: var(--green); border-color: var(--green); color: var(--black); }
+.path svg { width: 22px; height: 22px; flex: none; }
+.route .note { grid-column: 2; font-size: .88rem; color: var(--grey); }
+
+/* ---------- F: boarding sequence along one band ---------- */
+.seq { background: var(--white); padding: 22px 16px 18px; }
+.seq ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); position: relative; }
+.seq ol::before { content: ""; position: absolute; left: 28px; right: 28px; top: 27px; height: 4px; background: var(--black); }
+.seq li { position: relative; display: grid; gap: 8px; justify-items: start; padding-right: 10px; }
+.seq li b { background: var(--black); color: var(--white); width: 58px; height: 58px; display: grid; place-items: center; font-weight: 800; font-size: 1.3rem; }
+.seq li strong { font-size: 1.02rem; }
+.seq li span { font-size: .88rem; color: var(--grey); line-height: 1.3; }
+
+/* ---------- G: departures board ---------- */
+.board { background: var(--board); color: var(--white); padding: 14px; }
+.board table { width: 100%; border-collapse: separate; border-spacing: 0 4px; font-family: var(--cond); }
+.board th { text-align: left; color: var(--amber); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; font-size: .78rem; padding: 4px 10px; }
+.board td { background: #17191C; padding: 9px 10px; font-weight: 600; font-size: 1rem; vertical-align: top; }
+.board td.fl { color: var(--amber); font-weight: 700; font-size: 1.15rem; width: 64px; }
+.board td.sec { font-family: var(--mono); font-weight: 500; color: #9AA1A8; font-size: .84rem; width: 70px; }
+.st { font-weight: 700; letter-spacing: .06em; text-transform: uppercase; font-size: .86rem; white-space: nowrap; }
+.st.boarding { color: var(--green); }
+.st.sched { color: var(--white); }
+.st.later { color: #8C939A; }
+.board tr.next td { background: #22262A; }
+.board .blink { animation: blink 1.6s steps(1) infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+
+/* ---------- H: information desk ---------- */
+.desk { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.desk .col { background: var(--white); padding: 14px 16px; }
+.desk h3 { font-family: var(--cond); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: .86rem; margin-bottom: 10px; }
+.desk ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.desk li { display: grid; grid-template-columns: 58px 1fr; gap: 10px; align-items: baseline; font-size: .95rem; }
+.desk li code { background: var(--hall); border: 1px solid var(--grey-2); padding: 1px 6px; font-weight: 500; text-align: center; }
+.desk li i { font-style: normal; font-weight: 800; background: var(--black); color: var(--white); width: 24px; height: 24px; display: grid; place-items: center; font-size: .82rem; }
+
+footer { margin-top: 48px; padding-top: 14px; border-top: 4px solid var(--black); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; font-size: .86rem; color: var(--grey); }
+
+@media (max-width: 1000px) {
+  .arrival .in { grid-template-columns: 1fr; }
+  .arrival .name { order: -1; text-align: left; }
+  .dir.left { grid-template-columns: 56px 1fr 30px; padding: 6px 10px 6px 6px; text-align: left; }
+  .dir.left b { order: -1; }
+  .dir.left svg { order: 2; }
+  .lanes, .desk { grid-template-columns: 1fr; }
+  .map { grid-template-columns: 1fr; }
+  .walk { height: 34px; }
+  .walk svg { transform: rotate(90deg); }
+  .prohib-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .seq ol { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 22px; }
+  .seq ol::before { display: none; }
+  .route, .line { grid-template-columns: 1fr; gap: 8px; }
+  .route .note { grid-column: 1; }
+  .msg { grid-template-columns: 56px 1fr; }
+  .msg p { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .band { grid-template-columns: auto 1fr; padding: 0 12px 0 0; gap: 12px; }
+  .band .gate { width: 84px; height: 84px; font-size: 3.8rem; }
+  .band .pict { display: none; }
+  .band .onward { grid-column: 1 / -1; padding: 0 0 10px 12px; }
+  .prohib-grid { grid-template-columns: 1fr 1fr; }
+  .seq ol { grid-template-columns: 1fr 1fr; }
+  .svc { grid-template-columns: 36px 1fr; }
+  .svc > span:last-child { grid-column: 2; }
+  .board td.sec, .board th.sec { display: none; }
+  .board td { font-size: .95rem; }
+  .lvl { grid-template-columns: 52px 1fr; }
+  .lvl .tagk { grid-column: 2; justify-self: start; }
+  .msg h3 { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .board .blink { animation: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-info" viewBox="0 0 34 34"><circle cx="17" cy="17" r="14" fill="none" stroke="#fff" stroke-width="3"/><path d="M17 15v10" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/><circle cx="17" cy="10" r="2.2" fill="#fff"/></symbol>
+    <symbol id="i-parts" viewBox="0 0 34 34"><path d="M5 11l12-6 12 6v12l-12 6-12-6z" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><path d="M5 11l12 6 12-6M17 17v12" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 34 34"><path d="M17 5l13 7-13 7-13-7z" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><path d="M4 18l13 7 13-7M4 24l13 7 13-7" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 34 34"><path d="M17 3l12 5v9c0 7-5 12-12 14C10 29 5 24 5 17V8z" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><path d="M11.5 17l4 4 7-8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 34 34"><rect x="4" y="4" width="26" height="26" rx="3" fill="none" stroke="#fff" stroke-width="3"/><path d="M17 10v14M10 17h14" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-plane" viewBox="0 0 34 34"><path d="M3 26h28" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M5 19l4-1 5 3 13-9c2-1 4 0 3 2l-14 10-9-2z" fill="#fff"/><path d="M13 13l4 1-3 3" fill="#fff"/></symbol>
+    <symbol id="i-route" viewBox="0 0 34 34"><circle cx="8" cy="8" r="4" fill="none" stroke="#fff" stroke-width="3"/><circle cx="26" cy="26" r="4" fill="none" stroke="#fff" stroke-width="3"/><path d="M12 8h10a5 5 0 0 1 0 10H12a5 5 0 0 0 0 10h10" fill="none" stroke="#fff" stroke-width="3"/></symbol>
+    <symbol id="i-desk" viewBox="0 0 34 34"><path d="M4 28h26M7 28V17h20v11" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><circle cx="17" cy="9" r="4" fill="none" stroke="#fff" stroke-width="3"/></symbol>
+    <symbol id="i-gen" viewBox="0 0 34 34"><circle cx="17" cy="17" r="5" fill="none" stroke="#fff" stroke-width="3"/><path d="M17 3v5M17 26v5M3 17h5M26 17h5M7 7l3.5 3.5M23.5 23.5L27 27M7 27l3.5-3.5M23.5 10.5L27 7" stroke="#fff" stroke-width="3" stroke-linecap="round"/></symbol>
+    <symbol id="arrow-r" viewBox="0 0 30 30"><path d="M4 15h19" stroke="#fff" stroke-width="4"/><path d="M16 7l9 8-9 8" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></symbol>
+    <symbol id="arrow-l" viewBox="0 0 30 30"><path d="M26 15H7" stroke="#fff" stroke-width="4"/><path d="M14 7l-9 8 9 8" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></symbol>
+    <symbol id="arrow-rk" viewBox="0 0 30 30"><path d="M4 15h19" stroke="#121314" stroke-width="4"/><path d="M16 7l9 8-9 8" fill="none" stroke="#121314" stroke-width="4" stroke-linejoin="round"/></symbol>
+    <symbol id="arrow-dk" viewBox="0 0 30 30"><path d="M15 4v19" stroke="#121314" stroke-width="4"/><path d="M7 16l8 9 8-9" fill="none" stroke="#121314" stroke-width="4" stroke-linejoin="round"/></symbol>
+    <symbol id="tick" viewBox="0 0 20 20"><rect width="20" height="20" fill="#121314"/><path d="M5 10.5l3.2 3.2L15 6.8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="block" viewBox="0 0 20 20"><rect width="20" height="20" fill="#E0301E"/><path d="M6 6l8 8M14 6l-8 8" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></symbol>
+    <symbol id="haz" viewBox="0 0 26 23"><path d="M13 1.5l11.5 20H1.5z" fill="#fff" stroke="#121314" stroke-width="2.2" stroke-linejoin="round"/><path d="M13 8v6.5" stroke="#121314" stroke-width="2.6" stroke-linecap="round"/><circle cx="13" cy="18" r="1.5" fill="#121314"/></symbol>
+  </defs>
+</svg>
+
+<header class="arrival" id="top">
+  <div class="in">
+    <nav class="directory" aria-label="Gates A to D">
+      <a class="dir left" href="#gate-a"><svg><use href="#arrow-l"/></svg><span>What it is<small>2 messages · 4 hazards</small></span><b>A</b></a>
+      <a class="dir left" href="#gate-b"><svg><use href="#arrow-l"/></svg><span>Parts and commands<small>4 zones · 7 commands</small></span><b>B</b></a>
+      <a class="dir left" href="#gate-c"><svg><use href="#arrow-l"/></svg><span>Knowledge levels<small>4 levels · 11 help points</small></span><b>C</b></a>
+      <a class="dir left" href="#gate-d"><svg><use href="#arrow-l"/></svg><span>Checks<small>2 lanes · 5 prohibited items</small></span><b>D</b></a>
+    </nav>
+    <div class="name">
+      <h1>Appstein</h1>
+      <p class="tag">Guide before. Check after.<span>Apps = m·c²</span></p>
+    </div>
+    <nav class="directory" aria-label="Gates E to H">
+      <a class="dir" href="#gate-e"><b>E</b><span>Your route while working<small>4 routes</small></span><svg><use href="#arrow-r"/></svg></a>
+      <a class="dir" href="#gate-f"><b>F</b><span>Create a new app<small>6 steps</small></span><svg><use href="#arrow-r"/></svg></a>
+      <a class="dir" href="#gate-g"><b>G</b><span>Departures: milestones<small>9 flights</small></span><svg><use href="#arrow-r"/></svg></a>
+      <a class="dir" href="#gate-h"><b>H</b><span>Information desk<small>6 rules · 6 open items</small></span><svg><use href="#arrow-r"/></svg></a>
+    </nav>
+  </div>
+</header>
+
+<div class="strip">
+  <nav aria-label="Gates" id="strip">
+    <a href="#gate-a"><b>A</b>What it is</a>
+    <a href="#gate-b"><b>B</b>Parts</a>
+    <a href="#gate-c"><b>C</b>Knowledge</a>
+    <a href="#gate-d"><b>D</b>Checks</a>
+    <a href="#gate-e"><b>E</b>Your route</a>
+    <a href="#gate-f"><b>F</b>Create</a>
+    <a href="#gate-g"><b>G</b>Departures</a>
+    <a href="#gate-h"><b>H</b>Info</a>
+  </nav>
+</div>
+
+<main class="hall">
+
+  <section id="gate-a" aria-labelledby="h-a">
+    <div class="band"><span class="gate">A</span><span class="pict"><svg><use href="#i-info"/></svg></span><h2 id="h-a">What Appstein is<small>Knowledge and checks for AI coding agents that build Flutter apps</small></h2><a class="onward" href="#gate-b"><b>B</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse">
+      <div class="msg"><span class="pict"><svg><use href="#i-layers"/></svg></span><h3>Before the agent writes</h3><p><b>Exact knowledge</b> for the installed Flutter SDK and a project map built by the Dart analyzer, asked through MCP instead of searching.</p></div>
+      <div class="msg"><span class="pict"><svg><use href="#i-shield"/></svg></span><h3>After the agent writes</h3><p><b>Deterministic checks</b> and a native Android and iOS audit. "Done" is blocked until errors are fixed.</p></div>
+      <div class="line"><span class="k">Without it</span>
+        <div class="hazline">
+          <span><svg><use href="#haz"/></svg><span>Stale code <em>8–11 releases old</em></span></span>
+          <span><svg><use href="#haz"/></svg><span>Wasted tokens <em>repo searched every session</em></span></span>
+          <span><svg><use href="#haz"/></svg><span>Broken builds <em>AGP 9, SwiftPM, UIScene</em></span></span>
+          <span><svg><use href="#haz"/></svg><span>Bad packages <em>invented in 5.2–21.7% of samples</em></span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gate-b" aria-labelledby="h-b">
+    <div class="band"><span class="gate">B</span><span class="pict"><svg><use href="#i-parts"/></svg></span><h2 id="h-b">Parts and commands<small>One Dart toolkit, four packages. Walk it left to right.</small></h2><a class="onward" href="#gate-c"><b>C</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse">
+      <div class="map" aria-label="Terminal map of the architecture">
+        <div class="zone"><h3>Landside · your agent</h3><div class="item">Claude Code</div><div class="item">Codex</div><div class="item">Google's official tools<small>pinned</small></div></div>
+        <div class="walk" aria-hidden="true"><svg><use href="#arrow-rk"/></svg></div>
+        <div class="zone"><h3>Checkpoint</h3><div class="item">cli<small>command</small></div><div class="item">mcp<small>questions</small></div><div class="item">lints<small>analyzer</small></div></div>
+        <div class="walk" aria-hidden="true"><svg><use href="#arrow-rk"/></svg></div>
+        <div class="zone hl"><h3>Concourse · engine · no Flutter rules</h3><div class="item">sdk<small>versions</small></div><div class="item">knowledge<small>.appstein/</small></div><div class="item">verify<small>checks</small></div><div class="item">integrate · create · upgrade</div></div>
+        <div class="walk" aria-hidden="true"><svg><use href="#arrow-rk"/></svg></div>
+        <div class="zone"><h3>Gates · packs</h3><div class="item">official_mvvm<small>stack</small></div><div class="item">android<small>platform</small></div><div class="item">ios<small>platform</small></div></div>
+      </div>
+      <div class="baggage"><b>Under every floor</b><span>protocol: one data format for CLI, MCP, and the future desktop and web apps</span></div>
+      <div class="board-list" id="services"><p class="h">Services · commands</p></div>
+    </div>
+  </section>
+
+  <section id="gate-c" aria-labelledby="h-c">
+    <div class="band"><span class="gate">C</span><span class="pict"><svg><use href="#i-layers"/></svg></span><h2 id="h-c">Knowledge levels<small>Two generated, two written and checked</small></h2><a class="onward" href="#gate-d"><b>D</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse">
+      <div class="lvl index"><span class="no">i</span><div><h3>INDEX.md · always open</h3><p>The only thing always loaded. 1,500 tokens at most.</p></div><span class="tagk">generated</span></div>
+      <div class="lvl"><span class="no">4</span><div><h3>Memory</h3><p>The task in progress and lessons learned.</p></div><span class="tagk">written · checked</span></div>
+      <div class="lvl"><span class="no">3</span><div><h3>Decisions</h3><p>Why things are the way they are. Drift is flagged.</p></div><span class="tagk">written · checked</span></div>
+      <div class="lvl"><span class="no">2</span><div><h3>Project map</h3><p>Features, routes, layers, packages, native config. Built by the analyzer.</p></div><span class="tagk gen">generated</span></div>
+      <div class="lvl"><span class="no">1</span><div><h3>Platform</h3><p>What changed in this exact SDK, and the valid native toolchain.</p></div><span class="tagk gen">generated</span></div>
+      <div class="help"><b>Help points · MCP</b><code>overview</code><code>where_is</code><code>feature</code><code>route</code><code>check_api</code><code>what_changed</code><code>toolchain</code><code>package_check</code><code>decisions</code><code>memory</code><code>verify</code></div>
+    </div>
+  </section>
+
+  <section id="gate-d" aria-labelledby="h-d">
+    <div class="band"><span class="gate">D</span><span class="pict"><svg><use href="#i-shield"/></svg></span><h2 id="h-d">Checks<small>The fast lane reports. The full check blocks "done".</small></h2><a class="onward" href="#gate-e"><b>E</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse">
+      <div class="lanes">
+        <div class="lane"><div class="lane-h"><b>Fast lane</b><span>after every change · under 5 s</span></div><ul id="fast"></ul></div>
+        <div class="lane"><div class="lane-h"><b>Full check</b><span>when the agent says done</span></div><ul id="full"></ul></div>
+      </div>
+      <div class="prohib"><h3>Prohibited items · lint rules</h3><div class="prohib-grid" id="prohib"></div></div>
+      <div class="line"><span class="k">Declare every dependency</span>
+        <div class="hazline">
+          <span><span>Small helper <em>→ pure Dart</em></span></span>
+          <span><span>Camera, payments, maps, auth <em>→ well-maintained package</em></span></span>
+          <span><span>Small native feature <em>→ Pigeon + platform channels</em></span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gate-e" aria-labelledby="h-e">
+    <div class="band"><span class="gate">E</span><span class="pict"><svg><use href="#i-route"/></svg></span><h2 id="h-e">Your route while working<small>What happens at each moment of an agent session</small></h2><a class="onward" href="#gate-f"><b>F</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse" id="routes"></div>
+  </section>
+
+  <section id="gate-f" aria-labelledby="h-f">
+    <div class="band"><span class="gate">F</span><span class="pict"><svg><use href="#i-plus"/></svg></span><h2 id="h-f">Create a new app<small><code>appstein create my_app</code></small></h2><a class="onward" href="#gate-g"><b>G</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse">
+      <div class="seq">
+        <ol>
+          <li><b>F1</b><strong>Preflight</strong><span>Doctor checks your machine. You confirm the app ID.</span></li>
+          <li><b>F2</b><strong>Base</strong><span>flutter create for Android and iOS.</span></li>
+          <li><b>F3</b><strong>Structure</strong><span>Official architecture, themes, design tokens.</span></li>
+          <li><b>F4</b><strong>Native config</strong><span>The valid toolchain for your SDK.</span></li>
+          <li><b>F5</b><strong>Sample feature</strong><span>With tests, including accessibility.</span></li>
+          <li><b>F6</b><strong>Verify</strong><span>Must pass. Nothing is committed without you.</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="gate-g" aria-labelledby="h-g">
+    <div class="band"><span class="gate">G</span><span class="pict"><svg><use href="#i-plane"/></svg></span><h2 id="h-g">Departures: milestones<small>Foundation first, desktop app last</small></h2><a class="onward" href="#gate-h"><b>H</b><svg><use href="#arrow-rk"/></svg></a></div>
+    <div class="concourse">
+      <div class="board">
+        <table>
+          <thead><tr><th>Flight</th><th>Destination</th><th class="sec">Spec</th><th>Status</th></tr></thead>
+          <tbody id="departures"></tbody>
+        </table>
+      </div>
+      <div class="line"><span class="k">M1 lands when</span><span>create → verify passes on Linux and macOS CI, and the benchmark shows zero deprecated APIs and a higher pass rate than without Appstein.</span></div>
+    </div>
+  </section>
+
+  <section id="gate-h" aria-labelledby="h-h">
+    <div class="band"><span class="gate">H</span><span class="pict"><svg><use href="#i-desk"/></svg></span><h2 id="h-h">Information desk<small>Rules and open questions</small></h2><a class="onward" href="#top">Back to <b>A</b></a></div>
+    <div class="concourse desk">
+      <div class="col">
+        <h3>Terminal regulations</h3>
+        <ul>
+          <li><i>1</i><span>Generate knowledge; never hand-write what the SDK or code can tell.</span></li>
+          <li><i>2</i><span>Check, don't hope. Every rule has a deterministic gate.</span></li>
+          <li><i>3</i><span>The engine knows no Flutter rules. Packs do.</span></li>
+          <li><i>4</i><span>One data format for CLI, MCP, desktop and web.</span></li>
+          <li><i>5</i><span>Never touch credentials. Irreversible steps need a human.</span></li>
+          <li><i>6</i><span>Local first, no telemetry, Windows first-class.</span></li>
+        </ul>
+      </div>
+      <div class="col">
+        <h3>Check before you fly</h3>
+        <ul>
+          <li><code>1e</code><span>Codex hooks and config paths. Fallback: verify through MCP, enforced in CI.</span></li>
+          <li><code>1e</code><span>Official plugin per project. Fallback: print the install commands.</span></li>
+          <li><code>1e</code><span>material_ui with dependencies. Switch only when all are compatible.</span></li>
+          <li><code>1a</code><span>Fast checks under 5 s. Fallback: warm analysis in the MCP process.</span></li>
+          <li><code>M2</code><span>Vendor policy changes. M1 launches no agents.</span></li>
+          <li><code>launch</code><span>Trademark, domain, license, firm decision.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Source of truth: <code>docs/superpowers/specs/2026-09-29-appstein-design.md</code></span>
+    <span>Research: <code>reports/Flutter agentic harness landscape.md</code></span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  function pict(id) { return '<span class="pict sm"><svg><use href="#' + id + '"/></svg></span>'; }
+  var SVC = [
+    ["i-plus", "create", "New project, correct from the first commit"],
+    ["i-gen", "sync", "Refresh knowledge after every change"],
+    ["i-shield", "verify", "Run the checks; decides whether work is done"],
+    ["i-info", "mcp", "Agents ask Appstein questions"],
+    ["i-route", "upgrade", "Versioned migrations after a Flutter upgrade"],
+    ["i-parts", "integrate", "Set up Claude Code and Codex"],
+    ["i-desk", "doctor", "Check your machine and explain fixes"]
+  ];
+  document.getElementById("services").insertAdjacentHTML("beforeend", SVC.map(function (s) {
+    return '<div class="svc">' + pict(s[0]) + "<b>appstein " + s[1] + "</b><span>" + s[2] + "</span></div>";
+  }).join(""));
+
+  function list(id, items) {
+    document.getElementById(id).innerHTML = items.map(function (t) {
+      return '<li><svg><use href="#' + (t[1] || "tick") + '"/></svg><span>' + t[0] + "</span></li>";
+    }).join("");
+  }
+  list("fast", [["dart analyze fails on any deprecated API"], ["Pending dart fix and format changes listed"], ["Lint rules: layers, tokens, no platform branching"], ["Package gate when dependencies change"], ["Report only. Nothing is rewritten mid-session."]]);
+  list("full", [["dart fix and format applied first"], ["Tests, including accessibility guidelines"], ["Android: toolchain, built-in Kotlin, targetSdk 36, 16 KB pages"], ["iOS: SDK-minimum target (15 on 3.47), SwiftPM, UIScene, privacy manifest"], ["No signing or store secrets in git; a real debug build"], ["Errors block \"done\"; after 3 identical blocks they go to you", "block"]]);
+
+  function noSign(inner) {
+    return '<svg viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="25" fill="#fff" stroke="#E0301E" stroke-width="5"/>' + inner + '<path d="M11 11l34 34" stroke="#E0301E" stroke-width="5"/></svg>';
+  }
+  var PRO = [
+    ['<rect x="19" y="19" width="18" height="18" fill="#6C4FA3"/>', "Hard-coded colours"],
+    ['<path d="M16 28h24M16 22v12M40 22v12" stroke="#121314" stroke-width="3"/>', "Raw spacing numbers"],
+    ['<rect x="20" y="15" width="16" height="26" rx="3" fill="none" stroke="#121314" stroke-width="3"/><path d="M24 36h8" stroke="#121314" stroke-width="3"/>', "Platform branching in layouts"],
+    ['<path d="M22 20h12v16H22z" fill="none" stroke="#121314" stroke-width="3"/><path d="M36 16a10 10 0 0 1 4 8" fill="none" stroke="#121314" stroke-width="3"/>', "Orientation locks"],
+    ['<path d="M17 24h10v12H17zM31 20h8v8h-8z" fill="none" stroke="#121314" stroke-width="3"/><path d="M27 30l4-6" stroke="#121314" stroke-width="3"/>', "UI importing the data layer"]
+  ];
+  document.getElementById("prohib").innerHTML = PRO.map(function (p) { return '<div class="pro">' + noSign(p[0]) + "<span>" + p[1] + "</span></div>"; }).join("");
+
+  var arrow = '<svg aria-hidden="true"><use href="#arrow-rk"/></svg>';
+  function stops(arr) { return arr.map(function (s) { return '<span class="stop ' + (s[1] || "") + '">' + s[0] + "</span>"; }).join(arrow); }
+  var ROUTES = [
+    ["Session starts", "every new session", stops([["SessionStart", "b"], ["sync"], ["INDEX ready"]]), "Codex calls overview instead."],
+    ["Agent changes files", "edit, write, or Bash", stops([["change", "b"], ["sync --detect"], ["fast lane"], ["findings to agent"]]), "Report only; files are never rewritten mid-session."],
+    ["Dependencies change", "pubspec.yaml or .lock", stops([["pubspec", "b"], ["package gate"], ["package skills refreshed"]]), "Agents get the installed version's API."],
+    ["Agent says done", "the Stop hook", stops([["Stop", "b"], ["fix + format"], ["full check"]]) + arrow + '<span class="stop g">done</span><span class="stop r">blocked</span>', "After three identical blocks, the errors go to you."]
+  ];
+  document.getElementById("routes").innerHTML = ROUTES.map(function (r) {
+    return '<div class="route"><p class="when">' + r[0] + "<small>" + r[1] + '</small></p><div class="path">' + r[2] + '</div><p class="note">' + r[3] + "</p></div>";
+  }).join("");
+
+  var DEP = [
+    ["1a", "Workspace, CLI, SDK detection, doctor, CI", "§18", "boarding", "Next"],
+    ["1b", "Knowledge layers 1–2, INDEX, sync", "§6", "sched", "Scheduled"],
+    ["1c", "MCP server, decisions, memory", "§8", "sched", "Scheduled"],
+    ["1d", "Verifier, native checks, package gate, lints", "§9", "sched", "Scheduled"],
+    ["1e", "create, integrate, open items verified", "§11", "sched", "Scheduled"],
+    ["1f", "upgrade, skills + CI, benchmark", "§17", "sched", "Scheduled"],
+    ["M2", "Pipeline harness, visual checks, guided mode", "§18", "later", "Later"],
+    ["M3", "Existing projects, Riverpod, Bloc, community packs", "§18", "later", "Later"],
+    ["M4", "Desktop app, agent team, every platform, web UI", "§18", "later", "Later"]
+  ];
+  document.getElementById("departures").innerHTML = DEP.map(function (d) {
+    return '<tr class="' + (d[3] === "boarding" ? "next" : "") + '"><td class="fl">' + d[0] + "</td><td>" + d[1] + '</td><td class="sec">' + d[2] + '</td><td><span class="st ' + d[3] + (d[3] === "boarding" ? " blink" : "") + '">' + d[4] + "</span></td></tr>";
+  }).join("");
+
+  var links = Array.prototype.slice.call(document.querySelectorAll("#strip a"));
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (a) { a.setAttribute("aria-current", a.getAttribute("href") === "#" + e.target.id ? "true" : "false"); });
+      });
+    }, { rootMargin: "-40% 0px -55% 0px" });
+    document.querySelectorAll("main section[id]").forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

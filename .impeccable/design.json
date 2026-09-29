@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-29T00:00:00Z",
+  "title": "Design System: Appstein",
+  "extensions": {
+    "colorMeta": {
+      "accent": { "role": "primary", "displayName": "Signal Blue", "canonical": "#1f6feb", "tonalRamp": ["#0b2350", "#103478", "#1548a3", "#1f6feb", "#4a8cf2", "#7eaef7", "#b3cffb", "#e3edfe"] },
+      "accent-dark": { "role": "primary", "displayName": "Signal Blue (dark theme)", "canonical": "#5b9bff", "tonalRamp": ["#0e2a57", "#173f80", "#2459ad", "#3a78e0", "#5b9bff", "#86b6ff", "#b5d2ff", "#e2eeff"] },
+      "on-fill": { "role": "neutral", "displayName": "On-Fill", "canonical": "#ffffff" },
+      "on-fill-dark": { "role": "neutral", "displayName": "On-Fill (dark theme)", "canonical": "#0c0d0f" },
+      "bg": { "role": "neutral", "displayName": "Porcelain", "canonical": "#fbfbfd" },
+      "bg-alt": { "role": "neutral", "displayName": "Mist", "canonical": "#f3f4f7" },
+      "surface": { "role": "neutral", "displayName": "Card White", "canonical": "#ffffff" },
+      "surface-2": { "role": "neutral", "displayName": "Soft Well", "canonical": "#f6f7f9" },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1b1c1f", "tonalRamp": ["#0c0d0f", "#1b1c1f", "#2a2c31", "#5f636b", "#666b74", "#80858e", "#a3a8b0", "#f2f3f5"] },
+      "ink-2": { "role": "neutral", "displayName": "Slate", "canonical": "#5f636b" },
+      "ink-3": { "role": "neutral", "displayName": "Fog", "canonical": "#666b74" },
+      "ink-3-dark": { "role": "neutral", "displayName": "Fog (dark theme)", "canonical": "#80858e" },
+      "line": { "role": "neutral", "displayName": "Hairline", "canonical": "rgba(20,24,34,.09)" },
+      "line-2": { "role": "neutral", "displayName": "Hairline Strong", "canonical": "rgba(20,24,34,.16)" },
+      "glass": { "role": "neutral", "displayName": "Frost", "canonical": "rgba(251,251,253,.72)" },
+      "bg-dark": { "role": "neutral", "displayName": "Graphite Night", "canonical": "#0c0d0f" },
+      "ok": { "role": "semantic", "displayName": "Pass Green", "canonical": "#176f43", "tonalRamp": ["#08261a", "#0e3f27", "#135a36", "#176f43", "#1f8f55", "#4cc486", "#a8e3c3", "#e4f7ec"] },
+      "ok-dark": { "role": "semantic", "displayName": "Pass Green (dark theme)", "canonical": "#4cc486" },
+      "warn": { "role": "semantic", "displayName": "Caution Amber", "canonical": "#9a5b00", "tonalRamp": ["#301c00", "#4c2d00", "#724300", "#9a5b00", "#c47a0a", "#e3a33c", "#f3d29c", "#fcf2e0"] },
+      "warn-dark": { "role": "semantic", "displayName": "Caution Amber (dark theme)", "canonical": "#e3a33c" },
+      "err": { "role": "semantic", "displayName": "Fault Red", "canonical": "#b23329", "tonalRamp": ["#3a0d09", "#5c1611", "#86241d", "#b23329", "#d9574b", "#ff7b6e", "#ffbdb6", "#ffecea"] },
+      "err-dark": { "role": "semantic", "displayName": "Fault Red (dark theme)", "canonical": "#ff7b6e" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The single hero claim per page." },
+      "headline": { "displayName": "Headline", "purpose": "Section claim, written as a full sentence." },
+      "figure": { "displayName": "Figure", "purpose": "Stat values inside hairline grids; tabular numerals." },
+      "title": { "displayName": "Title", "purpose": "Card, step and list-group titles." },
+      "lead": { "displayName": "Lead", "purpose": "One sentence under a headline, ink-2, max 42ch." },
+      "body": { "displayName": "Body", "purpose": "Running text; 0.86-0.92rem ink-2 inside cards." },
+      "small": { "displayName": "Small", "purpose": "Captions and supporting notes." },
+      "label": { "displayName": "Label", "purpose": "Status tag text only." },
+      "mono": { "displayName": "Mono", "purpose": "Commands, paths, tool names, exit codes, indexes; never prose." },
+      "mono-figure": { "displayName": "Mono Figure", "purpose": "Exit codes and milestone ids as figures." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 2px rgba(16,20,30,.04), 0 8px 28px rgba(16,20,30,.07)", "purpose": "Every card surface at rest (light)." },
+      { "name": "card-dark", "value": "0 1px 2px rgba(0,0,0,.3), 0 8px 28px rgba(0,0,0,.35)", "purpose": "Every card surface at rest (dark)." },
+      { "name": "lifted", "value": "0 2px 4px rgba(16,20,30,.05), 0 24px 60px rgba(16,20,30,.12)", "purpose": "The phone mockup only (light)." },
+      { "name": "lifted-dark", "value": "0 2px 4px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5)", "purpose": "The phone mockup only (dark)." },
+      { "name": "selection-halo", "value": "0 0 0 3px var(--accent-soft)", "purpose": "Selected layer, slice or highlighted tool card, paired with an accent border." },
+      { "name": "segment-thumb", "value": "0 1px 3px rgba(0,0,0,.12)", "purpose": "Selected option in a segmented control." }
+    ],
+    "motion": [
+      { "name": "press", "value": "transform .1s ease-out; scale(.92-.99)", "purpose": "Press feedback on toggles, segments and selectable cards." },
+      { "name": "state", "value": ".15s-.2s (color, background, border-color, box-shadow)", "purpose": "Hover and selection color changes." },
+      { "name": "disclosure", "value": ".25s cubic-bezier(.2,.8,.2,1)", "purpose": "Details chevron rotation." },
+      { "name": "theme", "value": "background-color .3s ease, color .3s ease", "purpose": "Body cross-fade when switching theme." },
+      { "name": "reduced-motion", "value": "transition-duration: 0s; scroll-behavior: auto", "purpose": "All transitions removed under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "xs", "value": "480px" },
+      { "name": "sm", "value": "600px" },
+      { "name": "md", "value": "760px" },
+      { "name": "lg", "value": "860px" },
+      { "name": "hero", "value": "900px" },
+      { "name": "nav", "value": "980px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Sticky Nav",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Frosted 52px bar with monogram, pill section links and the theme toggle.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-brand\" href=\"#\"><span class=\"ds-mark\">A</span>Appstein</a><ul><li><a href=\"#\" class=\"on\">How it works</a></li><li><a href=\"#\">Knowledge</a></li><li><a href=\"#\">Verifier</a></li></ul><button class=\"ds-theme\" type=\"button\" aria-label=\"Switch to dark theme\"><svg viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"><circle cx=\"8\" cy=\"8\" r=\"3\"/><path d=\"M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1\"/></svg></button></nav>",
+      "css": ".ds-nav{display:flex;align-items:center;gap:16px;height:52px;padding:0 24px;background:var(--glass,rgba(251,251,253,.72));backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line,rgba(20,24,34,.09));font-family:Geist,system-ui,sans-serif}.ds-brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em;color:var(--ink,#1b1c1f);text-decoration:none}.ds-mark{width:22px;height:22px;border-radius:7px;background:var(--ink,#1b1c1f);color:var(--bg,#fbfbfd);display:grid;place-items:center;font:600 11px/1 Geist,system-ui,sans-serif}.ds-nav ul{display:flex;gap:2px;list-style:none;margin:0 0 0 auto;padding:0}.ds-nav li a{display:block;padding:6px 10px;border-radius:999px;color:var(--ink-2,#5f636b);font-size:.84rem;text-decoration:none;transition:color .15s,background .15s}.ds-nav li a:hover,.ds-nav li a.on{color:var(--ink,#1b1c1f);background:var(--line,rgba(20,24,34,.09))}.ds-nav a:focus-visible,.ds-theme:focus-visible{outline:2px solid var(--accent,#1f6feb);outline-offset:3px;border-radius:6px}.ds-theme{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;border:1px solid var(--line-2,rgba(20,24,34,.16));background:var(--surface,#fff);color:var(--ink,#1b1c1f);cursor:pointer;transition:transform .1s ease-out,background .2s}.ds-theme:hover{background:var(--surface-2,#f6f7f9)}.ds-theme:active{transform:scale(.92)}.ds-theme svg{width:16px;height:16px}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "White surface, 18px corners, hairline border, two-layer ambient shadow.",
+      "html": "<div class=\"ds-card\"><h3>A verifier that blocks “done”.</h3><p>Deterministic checks, not prompts. Findings go straight back to the agent.</p></div>",
+      "css": ".ds-card{background:var(--surface,#fff);border:1px solid var(--line,rgba(20,24,34,.09));border-radius:18px;box-shadow:0 1px 2px rgba(16,20,30,.04),0 8px 28px rgba(16,20,30,.07);padding:28px;font-family:Geist,system-ui,sans-serif;color:var(--ink,#1b1c1f);max-width:420px}.ds-card h3{margin:0;font-size:1.5rem;font-weight:600;line-height:1.3;letter-spacing:-.02em}.ds-card p{margin:10px 0 0;color:var(--ink-2,#5f636b);line-height:1.55;max-width:42ch}"
+    },
+    {
+      "name": "Status Tags",
+      "kind": "chip",
+      "refersTo": "tag-ok",
+      "description": "Hue-on-tint verdict pills; the only place green, amber and red appear.",
+      "html": "<div class=\"ds-tags\"><span class=\"ds-tag ok\">pass</span><span class=\"ds-tag warn\">deprecated</span><span class=\"ds-tag err\">never</span><span class=\"ds-tag info\">M1</span><span class=\"ds-tag neutral\">generated</span></div>",
+      "css": ".ds-tags{display:flex;gap:8px;flex-wrap:wrap}.ds-tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font:500 .7rem/1.5 Geist,system-ui,sans-serif;white-space:nowrap}.ds-tag.ok{background:var(--ok-soft,rgba(31,143,85,.10));color:var(--ok,#176f43)}.ds-tag.warn{background:var(--warn-soft,rgba(178,106,0,.10));color:var(--warn,#9a5b00)}.ds-tag.err{background:var(--err-soft,rgba(201,58,46,.09));color:var(--err,#b23329)}.ds-tag.info{background:var(--accent-soft,rgba(31,111,235,.09));color:var(--accent,#1f6feb)}.ds-tag.neutral{background:var(--line,rgba(20,24,34,.09));color:var(--ink-2,#5f636b)}"
+    },
+    {
+      "name": "Meta Pill",
+      "kind": "chip",
+      "refersTo": "pill",
+      "description": "Bordered surface pill for document metadata, with an optional accent dot.",
+      "html": "<span class=\"ds-pill\"><span class=\"dot\"></span>Draft for owner review</span>",
+      "css": ".ds-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:1px solid var(--line-2,rgba(20,24,34,.16));border-radius:999px;font:400 .8rem/1.4 Geist,system-ui,sans-serif;color:var(--ink-2,#5f636b);background:var(--surface,#fff)}.ds-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#1f6feb)}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "segmented",
+      "description": "Pill track switching between two views (fast / full verify).",
+      "html": "<div class=\"ds-seg\" role=\"tablist\"><button role=\"tab\" aria-selected=\"true\">Fast check</button><button role=\"tab\" aria-selected=\"false\">Full check</button></div>",
+      "css": ".ds-seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--line,rgba(20,24,34,.09));gap:2px}.ds-seg button{font:500 .86rem/1 Geist,system-ui,sans-serif;color:var(--ink-2,#5f636b);background:none;border:0;padding:9px 18px;border-radius:999px;cursor:pointer;transition:color .2s,background .2s,transform .1s}.ds-seg button:hover{color:var(--ink,#1b1c1f)}.ds-seg button:active{transform:scale(.97)}.ds-seg button:focus-visible{outline:2px solid var(--accent,#1f6feb);outline-offset:3px}.ds-seg button[aria-selected=\"true\"]{background:var(--surface,#fff);color:var(--ink,#1b1c1f);box-shadow:0 1px 3px rgba(0,0,0,.12)}"
+    },
+    {
+      "name": "Selectable Layer Card",
+      "kind": "button",
+      "refersTo": "selectable-card",
+      "description": "Full-width option card; selection is an accent border plus a 3px soft halo, never a lift.",
+      "html": "<div class=\"ds-stack\"><button class=\"ds-layer\" aria-pressed=\"true\"><span class=\"n\">1</span><span><b>Platform</b><small>What’s true for this SDK</small></span></button><button class=\"ds-layer\" aria-pressed=\"false\"><span class=\"n\">2</span><span><b>Project map</b><small>Where everything lives</small></span></button></div>",
+      "css": ".ds-stack{display:grid;gap:10px;max-width:420px}.ds-layer{width:100%;text-align:left;font:inherit;font-family:Geist,system-ui,sans-serif;color:var(--ink,#1b1c1f);cursor:pointer;display:grid;grid-template-columns:34px 1fr;align-items:center;gap:16px;padding:18px 22px;border-radius:18px;background:var(--surface,#fff);border:1px solid var(--line,rgba(20,24,34,.09));transition:border-color .2s,box-shadow .2s,transform .1s ease-out}.ds-layer:hover{border-color:var(--line-2,rgba(20,24,34,.16))}.ds-layer:active{transform:scale(.99)}.ds-layer:focus-visible{outline:2px solid var(--accent,#1f6feb);outline-offset:3px}.ds-layer[aria-pressed=\"true\"]{border-color:var(--accent,#1f6feb);box-shadow:0 0 0 3px var(--accent-soft,rgba(31,111,235,.09))}.ds-layer .n{width:34px;height:34px;border-radius:10px;background:var(--surface-2,#f6f7f9);display:grid;place-items:center;font-weight:600;font-size:.9rem;color:var(--ink-2,#5f636b)}.ds-layer[aria-pressed=\"true\"] .n{background:var(--accent,#1f6feb);color:var(--on-fill,#ffffff)}.ds-layer b{display:block;font-weight:600;letter-spacing:-.01em}.ds-layer small{display:block;font-size:.84rem;color:var(--ink-2,#5f636b)}"
+    },
+    {
+      "name": "Details Disclosure",
+      "kind": "custom",
+      "refersTo": "disclosure-summary",
+      "description": "Hairline-topped disclosure that holds everything beyond a section's one figure.",
+      "html": "<details class=\"ds-more\"><summary><svg viewBox=\"0 0 14 14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"><path d=\"M5 3l4 4-4 4\"/></svg>Details</summary><div class=\"body\"><p><b>Bash changes are caught too.</b> Content hashes are compared, so dependency changes are checked like an edit.</p><p><b>Why fixes wait for Stop:</b> rewriting a file the agent just read makes its next edit fail.</p></div></details>",
+      "css": ".ds-more{border-top:1px solid var(--line,rgba(20,24,34,.09));font-family:Geist,system-ui,sans-serif}.ds-more summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:16px 0 0;font-size:.88rem;font-weight:500;color:var(--accent,#1f6feb);width:max-content}.ds-more summary::-webkit-details-marker{display:none}.ds-more summary:focus-visible{outline:2px solid var(--accent,#1f6feb);outline-offset:3px;border-radius:6px}.ds-more summary:active{opacity:.6}.ds-more summary svg{width:14px;height:14px;transition:transform .25s cubic-bezier(.2,.8,.2,1)}.ds-more[open] summary svg{transform:rotate(90deg)}.ds-more .body{padding-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 32px;font-size:.88rem;color:var(--ink-2,#5f636b)}.ds-more .body p{margin:0}.ds-more .body b{color:var(--ink,#1b1c1f);font-weight:500}"
+    },
+    {
+      "name": "Hairline Stat Grid",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Grouped figures in one rounded container; 1px gaps over the line color draw the dividers.",
+      "html": "<div class=\"ds-stats\"><div><b>8–11</b><p>releases old: the versions agents write code for.</p></div><div><b>5.2–21.7%</b><p>of samples invent a package name.</p></div></div>",
+      "css": ".ds-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line,rgba(20,24,34,.09));border:1px solid var(--line,rgba(20,24,34,.09));border-radius:18px;overflow:hidden;font-family:Geist,system-ui,sans-serif;max-width:520px}.ds-stats div{background:var(--surface,#fff);padding:28px 24px 26px}.ds-stats b{display:block;font-size:2.2rem;font-weight:600;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink,#1b1c1f)}.ds-stats p{margin:12px 0 0;font-size:.92rem;color:var(--ink-2,#5f636b);line-height:1.45}"
+    },
+    {
+      "name": "Command Chip",
+      "kind": "chip",
+      "refersTo": "code-chip",
+      "description": "Pill pairing a mono command with a plain-language label.",
+      "html": "<span class=\"ds-cmd\"><code>appstein verify --full</code>blocks “done”</span>",
+      "css": ".ds-cmd{display:inline-flex;gap:8px;align-items:baseline;padding:8px 14px;border-radius:999px;background:var(--surface,#fff);border:1px solid var(--line,rgba(20,24,34,.09));font:400 .84rem/1.4 Geist,system-ui,sans-serif;color:var(--ink-2,#5f636b)}.ds-cmd code{font-family:'Geist Mono',ui-monospace,Consolas,monospace;font-size:.86em;color:var(--ink,#1b1c1f);font-weight:500}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Product Page",
+    "overview": "Appstein presents a technical developer tool the way a premium hardware maker presents a device: one idea per section, a large, tightly tracked headline, one sentence of lead copy, and a single diagram or interactive figure that carries the explanation. Density is deliberately low. Each section gets 112px of vertical air, surfaces are white or near-white cards on a faintly cool page, and the only color with identity is one blue. Any detail beyond the headline claim moves into a \"Details\" disclosure, so the page reads in a skim and the depth is still there for anyone who opens it.\n\nMaterial is soft and physical without being skeuomorphic. Cards have a hairline border and a two-layer ambient shadow, the sticky nav is frosted glass, and the hero is a rendered phone mockup with floating proof cards (an MCP answer and a passing verifier run). Neither of those is a stock illustration. The mockup shows the product doing its job. Light and dark are both first-class. The page follows the system theme until the reader flips the sun/moon switch, then remembers that choice.\n\nThe owner explicitly rejected the earlier directions: a periodic-table grid of elements, a \"build instructions\" assembly-manual metaphor, a terminal/wayfinding-signage look, and a dense text-first docs page. All four were judged too complex, too themed, too bold, or not clean enough (drafts kept in `docs/superpowers/specs/drafts/`). The system stays clean because it adds no concept on top of the product itself.",
+    "keyCharacteristics": [
+      "One blue accent, tinted cool neutrals, and green/amber/red only as pass/warning/error.",
+      "Geist for everything readable, Geist Mono only for commands, file paths, tool names and code-like figures.",
+      "Large semibold headlines with negative tracking; calm grey lead text capped at 42ch.",
+      "White cards with 18px corners, hairline borders and soft two-layer shadows.",
+      "One diagram or interactive figure per section; extra detail goes behind \"Details\".",
+      "Light and dark themes with equal standing, system default, choice persisted."
+    ],
+    "rules": [
+      { "name": "The One Blue Rule", "body": "Blue is the only identity color. If something is interactive, selected or primary, it is blue. Nothing decorative is blue.", "section": "colors" },
+      { "name": "The Verdict-Only Rule", "body": "Green, amber and red mean pass, warning and error. They never decorate, categorize or brand.", "section": "colors" },
+      { "name": "The Hue-on-Tint Rule", "body": "Status is always shown as the full hue as text on its own ~10% tint, inside a pill. It is never a saturated solid block of text on color.", "section": "colors" },
+      { "name": "The On-Fill Rule", "body": "Text on a solid `accent` or `ok` fill always uses `on-fill`, never a hard-coded white. The value flips per theme.", "section": "colors" },
+      { "name": "The Tight-Top Rule", "body": "Tracking tightens as size grows (-0.01em at titles, -0.035em at display). Weight stays at 600, never bold 700+ for headings.", "section": "typography" },
+      { "name": "The Real-Mono Rule", "body": "Monospace marks something a user could type, open or read in a terminal. Prose is never set in mono.", "section": "typography" },
+      { "name": "The One Figure Rule", "body": "Each section carries one diagram or interactive figure (stat grid, two halves, timeline, layer stack, tabbed verifier, architecture SVG, pipeline, slice picker). Supporting facts go in a \"Details\" disclosure below it, not in more figures.", "section": "layout" },
+      { "name": "The Ring-Not-Lift Rule", "body": "Selection is shown by an accent border and a 3px soft halo, never by raising the shadow or scaling up the card.", "section": "elevation" },
+      { "name": "The Hairline-Grid Rule", "body": "Grouped figures (stats, performance numbers, principles) share one rounded container whose `line` background shows through 1px gaps, drawing the dividers without separate borders.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use `accent` for every interactive, selected or primary meaning, and nothing else.",
+      "Do show status as hue-on-tint pills (`tag-ok`, `tag-warn`, `tag-err`, `tag-info`, `tag-neutral`).",
+      "Do give each section one headline sentence, one lead sentence (max 42ch), one figure, and put the rest behind \"Details\".",
+      "Do mark selection with an accent border and a 3px `accent-soft` halo.",
+      "Do set text on solid `accent` or `ok` fills in `on-fill`, so it stays legible in both themes.",
+      "Do define both light and dark values for every new token and test both themes; follow the system theme until the reader chooses, then persist the choice under `appstein-theme`.",
+      "Do set commands, paths, tool names and exit codes in Geist Mono, and everything else in Geist.",
+      "Do keep press feedback to a 0.92–0.99 scale over 0.1s ease-out, and drop all transitions under `prefers-reduced-motion`."
+    ],
+    "donts": [
+      "Don't reintroduce the rejected worlds: periodic-table grids, assembly-manual \"build instructions\" framing, terminal or wayfinding-signage theming, or dense text-first documentation layouts.",
+      "Don't use green, amber or red for decoration, categories or branding.",
+      "Don't add a second accent hue. The gradient squares in the phone mockup are sample app content, not palette.",
+      "Don't use Albert Einstein's name, likeness or signature in any visual. The Einstein reference stays a text pun (\"Apps = mc²\").",
+      "Don't hard-code white text on colored fills; use `on-fill`.",
+      "Don't lift or scale cards on hover. Hover only strengthens the border.",
+      "Don't set headings above weight 600 or with positive tracking."
+    ]
+  }
+}
