@@ -1,0 +1,116 @@
+import 'dart:io';
+
+import 'package:appstein_engine/appstein_engine.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+
+import '../support/temp.dart';
+
+void main() {
+  const runner = SystemProcessRunner();
+
+  test('runs a program and captures its output', () async {
+    final result = await runner.run(Platform.resolvedExecutable, ['--version']);
+    expect(result.ok, isTrue);
+    expect(result.stdout + result.stderr, contains('Dart SDK version'));
+  });
+
+  test('runs a script whose path and argument contain spaces', () async {
+    final dir = tempDir();
+    final String script;
+    if (Platform.isWindows) {
+      script = (File(
+        p.join(dir.path, 'echo arg.bat'),
+      )..writeAsStringSync('@echo off\r\necho %~1\r\n')).path;
+    } else {
+      script = (File(
+        p.join(dir.path, 'echo arg'),
+      )..writeAsStringSync('#!/bin/sh\necho "\$1"\n')).path;
+      Process.runSync('chmod', ['+x', script]);
+    }
+    final result = await runner.run(script, ['hello world']);
+    expect(result.stdout.trim(), 'hello world');
+  });
+
+  test('on Windows, a bare name does not find a .bat file', () async {
+    final dir = tempDir();
+    fakeExecutable(dir, 'appstein-bare-name-tool');
+    // The process PATH can't be changed, so put the file in the working
+    // folder, the other place Windows looks for a bare name.
+    final previous = Directory.current;
+    Directory.current = dir;
+    try {
+      final result = await runner.run('appstein-bare-name-tool', []);
+      expect(result.started, isFalse);
+    } finally {
+      Directory.current = previous;
+    }
+  }, testOn: 'windows');
+
+  test('reports a program that cannot start instead of throwing', () async {
+    final result = await runner.run('appstein-no-such-tool-xyz', []);
+    expect(result.started, isFalse);
+    expect(result.ok, isFalse);
+  });
+
+  test('kills a program that runs past the timeout', () async {
+    final script = File(p.join(tempDir().path, 'sleep.dart'))
+      ..writeAsStringSync(
+        "import 'dart:io';\n"
+        'void main() => sleep(const Duration(seconds: 30));\n',
+      );
+    final watch = Stopwatch()..start();
+    final result = await runner.run(Platform.resolvedExecutable, [
+      script.path,
+    ], timeout: const Duration(seconds: 3));
+    expect(result.timedOut, isTrue);
+    expect(result.ok, isFalse);
+    expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+  });
+
+  test('a timed-out script whose child keeps the pipes does not keep the '
+      'process alive', () async {
+    final dir = tempDir();
+    final String script;
+    if (Platform.isWindows) {
+      script =
+          (File(p.join(dir.path, 'slow child.bat'))..writeAsStringSync(
+                '@echo off\r\necho started\r\nping -n 30 127.0.0.1\r\n',
+              ))
+              .path;
+    } else {
+      script = (File(
+        p.join(dir.path, 'slow child.sh'),
+      )..writeAsStringSync('#!/bin/sh\necho started\nsleep 30\n')).path;
+      Process.runSync('chmod', ['+x', script]);
+    }
+    final harness = p.join(
+      Directory.current.path,
+      'test',
+      'host',
+      'support',
+      'timeout_harness.dart',
+    );
+    final watch = Stopwatch()..start();
+    final result = await Process.run(Platform.resolvedExecutable, [
+      harness,
+      script,
+    ]);
+    watch.stop();
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    expect(result.stdout, contains('timedOut=true'));
+    expect(result.stdout, contains('stdout=started'));
+    expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
+  });
+
+  test('decodes output that is not valid UTF-8 without throwing', () async {
+    final script = File(p.join(tempDir().path, 'bytes.dart'))
+      ..writeAsStringSync(
+        "import 'dart:io';\n"
+        'void main() { stdout.add([0xff, 0xfe, 0x41, 0x0a]); }\n',
+      );
+    final result = await runner.run(Platform.resolvedExecutable, [script.path]);
+    expect(result.exitCode, 0);
+    expect(result.stdout, contains('A'));
+  });
+}

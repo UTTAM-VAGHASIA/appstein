@@ -6,12 +6,13 @@ Keep this file short. It holds only what you can't infer from the repo. Architec
 
 Appstein is a Dart toolkit: a knowledge and verification layer for AI agents that build Flutter apps.
 
-**Current phase: design done, no code yet.** Next is the implementation plan for M1 slice 1a (§18 of the spec).
+**Current phase:** M1 slice 1a is complete: the workspace, the CLI, `doctor` and CI (plan: docs/superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md). Its "Carried to later slices" section lists what 1b and 1d inherit. Next: plan slice 1b.
 
 ## Source of truth
 
 - **Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. If code and spec disagree, stop and ask the owner. Never silently "fix" the spec.
 - **Visual summary:** `docs/superpowers/specs/2026-09-29-appstein-design.html` is a condensed companion. Whenever the spec changes, update it to match and re-check every claim on it against the spec.
+- **Developer guide:** `docs/guide/` explains how the code works now, for humans. Update the pages a change affects, and run `fvm dart run tool/check_guide.dart`.
 - **Plans:** `docs/superpowers/plans/`, one per slice.
 - **Knowledge graph:** when `graphify-out/GRAPH_REPORT.md` exists, read it before searching the repo.
 
@@ -25,5 +26,5 @@ Appstein is a Dart toolkit: a knowledge and verification layer for AI agents tha
 
 ## Environment gotchas
 
-- **Flutter SDK:** the spec targets Flutter 3.47.x / Dart 3.13.x and proposes Flutter 3.44+ as the minimum. Run `dart --version` before starting slice 1a; an older SDK must be upgraded first.
+- **Flutter SDK:** the repo pins Flutter 3.47.5 in `.fvmrc`. Run every command through FVM (`fvm dart …`, `fvm flutter …`). The `dart` on your PATH may be an older SDK.
 - **graphify** is dev tooling only: `uv tool install graphifyy`. Its git hook rebuilds the graph on each commit.

@@ -1,0 +1,41 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    - public_member_api_docs
+    - unawaited_futures
+    - prefer_final_locals
+
+plugins:
+  appstein_lints:
+    path: packages/appstein_lints
+    diagnostics:
+      layer_imports: true
+
+# Appstein's own package boundaries (spec §5.1), enforced by layer_imports.
+# The first matching tag wins, so tests and packs come before the packages
+# that contain them. Tags without an allow entry (tests) are unrestricted.
+appstein_lints:
+  layers:
+    test: [packages/*/test/**]
+    pack.official_mvvm: [packages/appstein_engine/lib/src/packs/official_mvvm/**]
+    pack.android: [packages/appstein_engine/lib/src/packs/android/**]
+    pack.ios: [packages/appstein_engine/lib/src/packs/ios/**]
+    protocol: [packages/appstein_protocol/**]
+    engine: [packages/appstein_engine/**]
+    cli: [packages/appstein_cli/**]
+    lints: [packages/appstein_lints/**]
+  allow:
+    protocol: []
+    engine: [protocol]
+    pack.official_mvvm: [engine, protocol]
+    pack.android: [engine, protocol]
+    pack.ios: [engine, protocol]
+    cli: [engine, protocol, pack.official_mvvm, pack.android, pack.ios]
+    lints: [protocol]

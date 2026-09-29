@@ -1,0 +1,23 @@
+name: appstein_lints
+description: Appstein's analyzer plugin. Architecture and design lint rules for Flutter projects.
+version: 0.1.0-dev
+repository: https://github.com/UTTAM-VAGHASIA/appstein
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+resolution: workspace
+
+dependencies:
+  analysis_server_plugin: ^0.3.23
+  analyzer: ^14.4.0
+  appstein_protocol:
+    path: ../appstein_protocol
+  glob: ^2.2.0
+  path: ^1.9.1
+  yaml: ^3.1.4
+dev_dependencies:
+  analyzer_testing: ^0.4.2
+  test: ^1.32.0
+  test_reflective_loader: ^0.4.0

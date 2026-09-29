@@ -1,0 +1,12 @@
+name: appstein_protocol
+description: Shared data models for Appstein, a knowledge and verification layer for AI agents that build Flutter apps.
+version: 0.1.0-dev
+repository: https://github.com/UTTAM-VAGHASIA/appstein
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+resolution: workspace
+dev_dependencies:
+  test: ^1.32.0
