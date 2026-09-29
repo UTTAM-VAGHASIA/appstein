@@ -7097,7 +7097,7 @@ After their review, use superpowers:finishing-a-development-branch to decide how
 
 | What | Where | Result |
 |---|---|---|
-| AOT `appstein --version` start-up, median of 7 | Windows development machine | _Task 12_ |
+| AOT `appstein --version` start-up, median of 7 | Windows development machine | **34 ms** (runs: 32, 33, 34, 34, 37, 47, 56 ms), 2026-09-30 |
 | AOT start-up, median of 7 | CI Linux / Windows / macOS | _Task 15_ |
 | Single-file `dart analyze`, no plugin | Windows development machine | _Task 13_ |
 | Single-file `dart analyze` with the plugin | Windows development machine | _Task 13_ |
