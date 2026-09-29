@@ -4,6 +4,7 @@
 /// there is exactly one data format (spec §4, principle 4).
 library;
 
+export 'src/config/appstein_config.dart';
 export 'src/layer_rules.dart';
 export 'src/protocol_version.dart';
 export 'src/sdk_info.dart';
