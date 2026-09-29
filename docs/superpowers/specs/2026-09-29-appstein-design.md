@@ -484,7 +484,7 @@ Fast checks **only report; they never modify files** (§5.4).
 **Fast checks use warm analysis (measured in slice 1a).**
 - **The measurement:** a cold single-file `dart analyze` with the plugin took 9–16 s, on CI Linux and Windows and on a developer's Windows machine. Even without the plugin it took 4–8 s, so analysis-server start-up alone misses the target.
 - **The design:** fast checks run warm analysis inside the long-running `appstein mcp` process, which the hook contacts over a local socket.
-- **When that process isn't running:** the hook falls back to cold analysis, which stays under the `fast_timeout_seconds` cap (20 s) but not the 5 s target.
+- **When that process isn't running:** the hook falls back to cold analysis, which took 9–16 s for one file in the measured runs, so it misses the 5 s target. The first run after the plugin changes also builds the plugin and may exceed the `fast_timeout_seconds` cap (20 s). Slice 1d measures this and decides what the hook does then.
 - **Still to prove:** that warm analysis meets 5 s. Slice 1d measures it.
 
 The measurements are recorded in the 1a plan.
