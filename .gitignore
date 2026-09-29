@@ -5,6 +5,8 @@ build/
 *.aot
 *.exe
 coverage/
+.fvm/
+doc/api/
 
 # graphify (machine-local; graph.json and GRAPH_REPORT.md can be force-added to share)
 graphify-out/

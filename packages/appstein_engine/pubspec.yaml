@@ -1,0 +1,18 @@
+name: appstein_engine
+description: The Appstein engine. SDK detection, configuration, doctor, and later knowledge and verification.
+version: 0.1.0-dev
+repository: https://github.com/UTTAM-VAGHASIA/appstein
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+resolution: workspace
+
+dependencies:
+  appstein_protocol: ^0.1.0-dev
+  path: ^1.9.1
+  pub_semver: ^2.2.1
+  yaml: ^3.1.4
+dev_dependencies:
+  test: ^1.32.0

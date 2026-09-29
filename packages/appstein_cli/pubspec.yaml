@@ -1,0 +1,22 @@
+name: appstein_cli
+description: The appstein command-line tool.
+version: 0.1.0-dev
+repository: https://github.com/UTTAM-VAGHASIA/appstein
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+resolution: workspace
+
+executables:
+  appstein: appstein
+
+dependencies:
+  appstein_engine: ^0.1.0-dev
+  appstein_protocol: ^0.1.0-dev
+  args: ^2.7.0
+  path: ^1.9.1
+dev_dependencies:
+  test: ^1.32.0
+  yaml: ^3.1.4

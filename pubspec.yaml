@@ -1,0 +1,16 @@
+name: appstein_workspace
+description: Development workspace for the Appstein toolkit. Not published.
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+workspace:
+  - packages/appstein_protocol
+  - packages/appstein_engine
+  - packages/appstein_cli
+  - packages/appstein_lints
+dev_dependencies:
+  lints: ^6.1.0
+  path: ^1.9.1
+  test: ^1.32.0
