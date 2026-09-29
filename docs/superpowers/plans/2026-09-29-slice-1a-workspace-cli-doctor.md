@@ -7098,15 +7098,17 @@ After their review, use superpowers:finishing-a-development-branch to decide how
 | What | Where | Result |
 |---|---|---|
 | AOT `appstein --version` start-up, median of 7 | Windows development machine | **34 ms** (runs: 32, 33, 34, 34, 37, 47, 56 ms), 2026-09-30 |
-| AOT start-up, median of 7 | CI Linux / Windows / macOS | _Task 15_ |
+| AOT start-up, median of 7 | CI Linux / Windows / macOS | **11 / 32 / 15 ms** (CI run 36626035917, 2026-09-30) |
 | Single-file `dart analyze`, no plugin | Windows development machine | Run 2 (canary-verified): **4 046 ms**. Run 1: 9 991 ms, likely cold caches |
 | Single-file `dart analyze` with the plugin | Windows development machine | Run 2: **15 725 ms**. Run 1: 12 705 ms |
 | Whole ~200-file app, first run with the plugin (includes the plugin build) | Windows development machine | Run 2: **49 895 ms**. Run 1: 42 065 ms |
-| Single-file `dart analyze` with the plugin | CI Linux / Windows | _Task 15_ |
+| Single-file `dart analyze`, no plugin | CI Linux / Windows | **7 938 / 5 679 ms** (medians of 3, canary-verified) |
+| Single-file `dart analyze` with the plugin | CI Linux / Windows | **9 177 / 12 115 ms** (medians of 3, canary-verified) |
 | Whole ~200-file app with the plugin | Windows development machine | Run 2: **20 312 ms**. Run 1: 15 955 ms (medians of 3) |
-| Oldest Flutter that passes `min-sdk` | CI | _Task 15_ |
+| Whole ~200-file app with the plugin | CI Linux / Windows | **10 686 / 14 006 ms** (medians of 3); first run 48 042 / 38 269 ms |
+| Oldest Flutter that passes `min-sdk` | CI | **Flutter 3.44.9 (Dart 3.12.2)**: every step green |
 
-Run 2 is the one to trust. Its script asserts that `layer_imports` fired on a canary violation, which proves the plugin ran. Run 1 couldn't prove that.
+Run 2 is the one to trust. Its script asserts that `layer_imports` fired on a canary violation, which proves the plugin ran. Run 1 couldn't prove that. The CI runs used the same canary.
 
 **Fast-verify decision (spec §9.1):** **warm analysis.** Slice 1d plans fast verify as warm analysis inside the long-running `appstein mcp` process (spec §9.1 fallback), with cold analysis only when that process isn't running.
 - In the canary-verified run on the Windows development machine, single-file cold analysis with the plugin took 15.7 s, far above the 3.0 s decision threshold.
@@ -7119,6 +7121,12 @@ Run 2 is the one to trust. Its script asserts that `layer_imports` fired on a ca
   - (b) profile the plugin and cache the matcher per config;
   - (c) re-check against the CI numbers from the `measure` job (Task 15);
   - (d) measure warm analysis, since "warm meets the budget" is still an assumption.
+- **CI confirms the decision (c).** Cold single-file analysis took 9.2 s on Linux and 12.1 s on Windows with the plugin. **Even without the plugin, it took 7.9 s and 5.7 s.** So analysis-server start-up alone misses the 5 s budget, and removing or speeding up the plugin can't rescue cold analysis. The plugin's share varies by machine (Linux about 1.2 s, the Windows runner about 6.4 s, the development machine about 12 s), so (b) is still worth doing.
 
-**Notes from execution:** _anything that differed from this plan, and why._
+**Notes from execution:**
+- **CI trigger.** ci.yml runs on pushes to `main`, on pull requests and on demand. GitHub never registered the workflow from a `slice-1a`-only push, so CI ran through draft PR #1 (`slice-1a` → `main`). The guide's "every push" wording was fixed.
+- **`startup_check` on Windows.** `Process.run('build/appstein.exe')` fails on Windows: a relative path with forward slashes can't be started. The script now resolves the argument to an absolute path. Without that, the Windows `build` job would have failed.
+- **POSIX-only test failure.** The fake SDK's `bin/flutter` lacked the executable bit, so the PATH-lookup test failed on Linux and macOS (and in `min-sdk`). The fix was in the test support only.
+- **Measure output.** Job summaries can't be read through `gh` or the API, so the measure step now also `tee`s its table into the log.
+- **Ruling R9, a missing FVM pin.** CI's `doctor` errored because `.fvmrc` pins 3.47.5 but CI installs Flutter without FVM. The locator now falls back to FLUTTER_ROOT and then PATH, and accepts the fallback only when its version equals the pin.
 
