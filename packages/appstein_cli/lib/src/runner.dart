@@ -14,7 +14,8 @@ import 'version.dart';
 /// [out] and [err] default to stdout and stderr, and [environment] and
 /// [processRunner] default to the real machine. [doctorChecks] and
 /// [extraCommands] exist only for tests: they replace the doctor's checks
-/// and add commands, such as one that crashes on purpose.
+/// and add commands, such as one that crashes on purpose. [environmentFactory]
+/// (also for tests) builds the environment when [environment] is null.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -23,20 +24,24 @@ Future<int> runAppstein(
   ProcessRunner? processRunner,
   List<DoctorCheck>? doctorChecks,
   List<Command<int>> extraCommands = const [],
+  HostEnvironment Function()? environmentFactory,
 }) async {
   final output = out ?? stdout;
   final errors = err ?? stderr;
-  final runner = _AppsteinCommandRunner(output)
-    ..addCommand(
-      DoctorCommand(
-        out: output,
-        environment: environment ?? HostEnvironment.current(),
-        processRunner: processRunner ?? const SystemProcessRunner(),
-        checks: doctorChecks,
-      ),
-    );
-  extraCommands.forEach(runner.addCommand);
+  // Everything, including setup, runs inside the try, so no failure can
+  // escape with the VM's own exit code.
   try {
+    final runner = _AppsteinCommandRunner(output)
+      ..addCommand(
+        DoctorCommand(
+          out: output,
+          environment:
+              environment ?? (environmentFactory ?? HostEnvironment.current)(),
+          processRunner: processRunner ?? const SystemProcessRunner(),
+          checks: doctorChecks,
+        ),
+      );
+    extraCommands.forEach(runner.addCommand);
     return await runner.run(arguments) ?? ExitCodes.ok;
   } on UsageException catch (error) {
     errors

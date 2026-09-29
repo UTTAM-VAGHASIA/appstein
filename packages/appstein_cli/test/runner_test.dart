@@ -71,6 +71,35 @@ void main() {
   test('an unknown option exits 3 and shows usage', () async {
     expect(await run(['--nope']), ExitCodes.appsteinFailed);
     expect(err.toString(), contains('Could not find an option named'));
+    expect(err.toString(), contains('Usage'));
+  });
+
+  for (final args in [
+    ['--help'],
+    ['help', 'doctor'],
+    ['doctor', '--help'],
+  ]) {
+    test(
+      '${args.join(' ')} prints usage to out, exits 0, and leaves err empty',
+      () async {
+        expect(await run(args), ExitCodes.ok);
+        expect(out.toString(), contains('Usage'));
+        expect(out.toString(), contains('doctor'));
+        expect(err.toString(), isEmpty);
+      },
+    );
+  }
+
+  test('a failure while building the environment exits 3', () async {
+    final code = await runAppstein(
+      ['doctor'],
+      out: out,
+      err: err,
+      environmentFactory: () => throw const FileSystemException('cwd gone'),
+    );
+    expect(code, ExitCodes.appsteinFailed);
+    expect(err.toString(), contains('cwd gone'));
+    expect(err.toString(), contains('appstein doctor'));
   });
 
   test('doctor exits 1 when a check finds an error', () async {
