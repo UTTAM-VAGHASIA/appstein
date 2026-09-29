@@ -10,8 +10,8 @@ environment:
 resolution: workspace
 
 dependencies:
-  analysis_server_plugin: 0.3.23
-  analyzer: 14.4.0
+  analysis_server_plugin: ^0.3.23
+  analyzer: ^14.4.0
   appstein_protocol: ^0.1.0-dev
   glob: ^2.2.0
   path: ^1.9.1
