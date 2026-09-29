@@ -50,4 +50,15 @@ void main() {
     file.writeAsStringSync('{broken');
     expect(readFlutterSettings(fakeEnvironment(vars)), isEmpty);
   });
+
+  test('reads a settings file that starts with a UTF-8 BOM', () {
+    final dir = tempDir();
+    final vars = Platform.isWindows
+        ? {'APPDATA': dir.path}
+        : {'HOME': dir.path};
+    File(
+      p.join(dir.path, '.flutter_settings'),
+    ).writeAsStringSync('\uFEFF{"jdk-dir": "C:/jdk"}');
+    expect(readFlutterSettings(fakeEnvironment(vars)), {'jdk-dir': 'C:/jdk'});
+  });
 }

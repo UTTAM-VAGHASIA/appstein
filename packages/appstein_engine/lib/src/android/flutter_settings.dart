@@ -36,9 +36,13 @@ Map<String, Object?> readFlutterSettings(HostEnvironment environment) {
   final file = File(path);
   if (!file.existsSync()) return const {};
   try {
-    final data = jsonDecode(file.readAsStringSync());
+    var text = file.readAsStringSync();
+    if (text.startsWith('\uFEFF')) text = text.substring(1);
+    final data = jsonDecode(text);
     return data is Map<String, Object?> ? data : const {};
   } on FormatException {
+    return const {};
+  } on FileSystemException {
     return const {};
   }
 }

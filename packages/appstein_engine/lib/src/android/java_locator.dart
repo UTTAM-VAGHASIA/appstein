@@ -51,9 +51,10 @@ final class JavaLocation {
 /// 3. JAVA_HOME;
 /// 4. `java` on PATH.
 ///
-/// Flutter finds Android Studio through its install records. This checks the
-/// `android-studio-dir` setting and the default install folders, which covers
-/// standard installs.
+/// Android Studio is looked for, in order, in the `android-studio-dir`
+/// setting, in Flutter's install records (the `.home` files Android Studio
+/// writes), and in the default install folders. JetBrains Toolbox installs
+/// are not searched.
 JavaLocation? locateFlutterJava(
   HostEnvironment environment,
   Map<String, Object?> settings,
@@ -112,20 +113,95 @@ String? _androidStudioJdk(
 ) {
   final studioDirs = <String>[
     if (settings['android-studio-dir'] case final String dir) dir,
+    ..._recordedStudioDirs(environment),
     ..._defaultStudioDirs(environment),
   ];
   for (final studio in studioDirs) {
-    final homes = environment.os == HostOs.macos
-        ? [
-            p.join(studio, 'Contents', 'jbr', 'Contents', 'Home'),
-            p.join(studio, 'jbr', 'Contents', 'Home'),
-          ]
-        : [p.join(studio, 'jbr'), p.join(studio, 'jre')];
-    for (final home in homes) {
+    for (final home in _jdkHomesIn(studio, environment)) {
       if (File(_javaIn(home, environment)).existsSync()) return home;
     }
   }
   return null;
+}
+
+/// The JDK folders Flutter looks at inside an Android Studio install
+/// (`AndroidStudio._initAndValidate` in `android_studio.dart`), newest first.
+List<String> _jdkHomesIn(String studio, HostEnvironment environment) {
+  if (environment.os != HostOs.macos) {
+    return [p.join(studio, 'jbr'), p.join(studio, 'jre')];
+  }
+  // Flutter works inside `Contents`; accept the `.app` folder or `Contents`.
+  final contents = p.basename(studio) == 'Contents'
+      ? studio
+      : p.join(studio, 'Contents');
+  return [
+    p.join(contents, 'jbr', 'Contents', 'Home'),
+    p.join(contents, 'jre', 'Contents', 'Home'),
+    p.join(contents, 'jre', 'jdk', 'Contents', 'Home'),
+  ];
+}
+
+/// Android Studio install folders named by the `.home` files that Android
+/// Studio writes (`_allLinuxOrWindows` in `android_studio.dart`):
+/// - `~/.cache/Google/AndroidStudio*/.home` and
+///   `~/.AndroidStudio*/system/.home` on Windows and Linux;
+/// - `%LOCALAPPDATA%\Google\AndroidStudio*\.home` on Windows.
+///
+/// Never throws: unreadable files and missing folders are skipped.
+List<String> _recordedStudioDirs(HostEnvironment environment) {
+  if (environment.os == HostOs.macos) return const [];
+  final homeFiles = <String>[];
+  final home = environment.homeDir;
+  if (home != null) {
+    for (final dir in _studioFoldersIn(home)) {
+      homeFiles.add(p.join(dir, 'system', '.home'));
+    }
+    for (final dir in _studioFoldersIn(p.join(home, '.cache', 'Google'))) {
+      homeFiles.add(p.join(dir, '.home'));
+    }
+  }
+  final localAppData = environment.variable('LOCALAPPDATA');
+  if (environment.os == HostOs.windows && localAppData != null) {
+    for (final dir in _studioFoldersIn(p.join(localAppData, 'Google'))) {
+      homeFiles.add(p.join(dir, '.home'));
+    }
+  }
+  final result = <String>[];
+  for (final file in homeFiles) {
+    try {
+      final install = File(file).readAsStringSync().trim();
+      if (install.isNotEmpty && Directory(install).existsSync()) {
+        result.add(install);
+      }
+    } on FileSystemException {
+      continue;
+    } on FormatException {
+      continue;
+    }
+  }
+  return result;
+}
+
+/// Folders in [parent] named like Android Studio's settings folders
+/// (`AndroidStudio*` or `.AndroidStudio*`), newest name first.
+List<String> _studioFoldersIn(String parent) {
+  try {
+    final dir = Directory(parent);
+    if (!dir.existsSync()) return const [];
+    final names =
+        dir
+            .listSync(followLinks: false)
+            .whereType<Directory>()
+            .map((d) => d.path)
+            .where(
+              (path) => RegExp(r'^\.?AndroidStudio').hasMatch(p.basename(path)),
+            )
+            .toList()
+          ..sort((a, b) => p.basename(b).compareTo(p.basename(a)));
+    return names;
+  } on FileSystemException {
+    return const [];
+  }
 }
 
 List<String> _defaultStudioDirs(HostEnvironment environment) {
@@ -138,7 +214,10 @@ List<String> _defaultStudioDirs(HostEnvironment environment) {
         'Android Studio',
       ),
     ],
-    HostOs.macos => ['/Applications/Android Studio.app'],
+    HostOs.macos => [
+      '/Applications/Android Studio.app',
+      if (home != null) p.join(home, 'Applications', 'Android Studio.app'),
+    ],
     HostOs.linux => [
       '/opt/android-studio',
       if (home != null) p.join(home, 'android-studio'),

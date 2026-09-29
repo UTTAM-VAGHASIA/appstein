@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/fake_android.dart';
@@ -46,4 +49,53 @@ void main() {
     expect(parseJavaMajor('openjdk 21.0.1 2023-10-17'), 21);
     expect(parseJavaMajor('garbage'), isNull);
   });
+
+  test(
+    'Windows: finds Studio through the LOCALAPPDATA Google AndroidStudio .home',
+    () {
+      final root = tempDir();
+      final studio = fakeStudio(root);
+      final localAppData = p.join(root.path, 'local');
+      final record = Directory(
+        p.join(localAppData, 'Google', 'AndroidStudio2025.1'),
+      )..createSync(recursive: true);
+      File(p.join(record.path, '.home')).writeAsStringSync('$studio\r\n');
+      final location = locateFlutterJava(
+        fakeEnvironment({'LOCALAPPDATA': localAppData}),
+        {},
+      );
+      expect(location!.source, JavaSource.androidStudio);
+      expect(location.home, studioJdkHome(studio));
+    },
+    testOn: 'windows',
+  );
+
+  test('Linux: finds Studio through ~/.cache/Google/AndroidStudio*/.home', () {
+    final root = tempDir();
+    final studio = fakeStudio(root);
+    final home = p.join(root.path, 'home');
+    final record = Directory(
+      p.join(home, '.cache', 'Google', 'AndroidStudio2025.1'),
+    )..createSync(recursive: true);
+    File(p.join(record.path, '.home')).writeAsStringSync(studio);
+    final location = locateFlutterJava(fakeEnvironment({'HOME': home}), {});
+    expect(location!.source, JavaSource.androidStudio);
+    expect(location.home, studioJdkHome(studio));
+  }, testOn: 'linux');
+
+  test('an unusable .home file is ignored', () {
+    final root = tempDir();
+    final home = p.join(root.path, 'home');
+    final record = Directory(
+      p.join(home, '.cache', 'Google', 'AndroidStudio2025.1'),
+    )..createSync(recursive: true);
+    File(p.join(record.path, '.home')).writeAsStringSync('no such folder');
+    final vars = Platform.isWindows
+        ? {'USERPROFILE': home, 'JAVA_HOME': 'jh'}
+        : {'HOME': home, 'JAVA_HOME': 'jh'};
+    expect(
+      locateFlutterJava(fakeEnvironment(vars), {})!.source,
+      JavaSource.javaHome,
+    );
+  }, skip: studioInstalledReason());
 }
