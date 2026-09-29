@@ -62,7 +62,7 @@ Before you commit, run `fvm dart format .` and `fvm dart analyze --fatal-infos` 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+`.github/workflows/ci.yml` runs on pushes to `main`, on every pull request, and on demand (`gh workflow run ci.yml`):
 
 | Job | What it proves |
 |---|---|
