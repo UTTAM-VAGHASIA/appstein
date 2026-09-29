@@ -32,7 +32,7 @@ final class LayerConfig {
 /// It reads through the analyzer's file system, so it sees unsaved editor
 /// changes and works in tests. Parsed files are cached until they change.
 final class LayerConfigFinder {
-  final Map<String, (int, LayerConfig?)> _cache = {};
+  final Map<String, (int, ({LayerConfig? config, bool unusable}))> _cache = {};
 
   /// The rules for [file], or null when no options file declares any.
   LayerConfig? find(File file) {
@@ -40,21 +40,33 @@ final class LayerConfigFinder {
     while (true) {
       final options = folder.getFile('analysis_options.yaml');
       if (options.exists) {
-        final config = _read(options);
-        if (config != null) return config;
+        final result = _read(options);
+        // A broken options file stops the walk: falling through to a parent
+        // config would apply rules the nearer file may have meant to replace.
+        if (result.unusable) return null;
+        if (result.config != null) return result.config;
       }
       if (folder.isRoot) return null;
       folder = folder.parent;
     }
   }
 
-  LayerConfig? _read(File options) {
-    final stamp = options.modificationStamp;
+  ({LayerConfig? config, bool unusable}) _read(File options) {
+    final int stamp;
+    final String text;
+    try {
+      stamp = options.modificationStamp;
+      text = options.readAsStringSync();
+    } on FileSystemException {
+      // Gone or locked between `exists` and the read.
+      return (config: null, unusable: true);
+    }
     final cached = _cache[options.path];
     if (cached != null && cached.$1 == stamp) return cached.$2;
     LayerConfig? config;
+    var unusable = false;
     try {
-      final doc = loadYaml(options.readAsStringSync());
+      final doc = loadYaml(text);
       if (doc is Map<Object?, Object?> && doc.containsKey('appstein_lints')) {
         try {
           config = LayerConfig(
@@ -72,9 +84,10 @@ final class LayerConfigFinder {
       }
     } on YamlException {
       // The analyzer already reports a broken analysis_options.yaml.
-      config = null;
+      unusable = true;
     }
-    _cache[options.path] = (stamp, config);
-    return config;
+    final result = (config: config, unusable: unusable);
+    _cache[options.path] = (stamp, result);
+    return result;
   }
 }

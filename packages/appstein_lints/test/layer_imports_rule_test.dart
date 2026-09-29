@@ -92,6 +92,36 @@ appstein_lints:
     await assertNoDiagnosticsInFile(_ui);
   }
 
+  static const _workspaceLayers = '''
+appstein_lints:
+  layers:
+    ui: [test/lib/ui/**]
+    data: [test/lib/data/**]
+  allow:
+    ui: []
+''';
+
+  Future<void> test_workspaceParentConfigIsFound() async {
+    newAnalysisOptionsYamlFile('/home', _workspaceLayers);
+    _options('');
+    newFile(_ui, "import '../data/repo.dart';\nRepo? r;\n");
+    await assertDiagnosticsInFile(_ui, [lint(7, 19)]);
+  }
+
+  Future<void> test_editedConfigInvalidatesTheCache() async {
+    newFile(_ui, "import '../data/repo.dart';\nRepo? r;\n");
+    await assertDiagnosticsInFile(_ui, [lint(7, 19)]);
+    // newFile refuses non-Dart changes after analysis, so edit in place.
+    // The analysis context keeps its cached options, so this only changes
+    // what the rule's own finder reads. Touching the Dart file re-runs it.
+    getFile('$testPackageRootPath/analysis_options.yaml').writeAsStringSync(
+      '${analysisOptionsContent(rules: ['layer_imports'])}\n'
+      '${_layers.replaceFirst('ui: [domain]', 'ui: [data]')}',
+    );
+    newFile(_ui, "import '../data/repo.dart';\nRepo? r;\n// edited\n");
+    await assertNoDiagnosticsInFile(_ui);
+  }
+
   Future<void> test_invalidConfigIsReported() async {
     _options(
       'appstein_lints:\n  layers:\n    ui: [lib/ui/**]\n'
