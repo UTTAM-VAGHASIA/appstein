@@ -48,7 +48,7 @@ final class SdkLocation {
   final String? fvmVersion;
 
   /// The version the project pins with FVM when FVM doesn't have it
-  /// installed, so this SDK was found another way. [SdkInfo.fvmVersion] takes
+  /// installed, so this SDK was found another way. `SdkInfo.fvmVersion` takes
   /// this value when the SDK's version matches the pin.
   final String? unmetFvmPin;
 }
