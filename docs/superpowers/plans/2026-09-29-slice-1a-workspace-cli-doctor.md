@@ -7104,14 +7104,14 @@ After their review, use superpowers:finishing-a-development-branch to decide how
 | Whole ~200-file app, first run with the plugin (includes the plugin build) | Windows development machine | Run 2: **49 895 ms**. Run 1: 42 065 ms |
 | Single-file `dart analyze` with the plugin | CI Linux / Windows | _Task 15_ |
 | Whole ~200-file app with the plugin | Windows development machine | Run 2: **20 312 ms**. Run 1: 15 955 ms (medians of 3) |
+| Oldest Flutter that passes `min-sdk` | CI | _Task 15_ |
 
 Run 2 is the one to trust. Its script asserts that `layer_imports` fired on a canary violation, which proves the plugin ran. Run 1 couldn't prove that.
-| Oldest Flutter that passes `min-sdk` | CI | _Task 15_ |
 
 **Fast-verify decision (spec §9.1):** **warm analysis.** Slice 1d plans fast verify as warm analysis inside the long-running `appstein mcp` process (spec §9.1 fallback), with cold analysis only when that process isn't running.
 - In the canary-verified run on the Windows development machine, single-file cold analysis with the plugin took 15.7 s, far above the 3.0 s decision threshold.
-- The no-plugin baseline was about 4 s, so **the plugin itself adds about 11.7 s** to a cold single-file run. That is the biggest cost.
-- Two causes are likely, both unmeasured:
+- The no-plugin baseline was about 4 s, so in that run **the plugin added roughly 12 s**. The earlier run implied much less (about 3 s) with a very different baseline, so the plugin's exact share is unsettled. The decision rests on the total, which is far over budget either way.
+- If the plugin's share is large, two causes are likely, both unmeasured:
   - plugin start-up, meaning the analysis server spinning up the plugin isolate;
   - per-file overhead in `layer_imports`, which rebuilds its `LayerMatcher` for every file (a deferred minor from Task 10).
 - For 1d:
