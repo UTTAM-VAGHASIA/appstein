@@ -51,7 +51,9 @@ The answer is a `RunResult` in one of three states:
 
 ### Timeouts and the Windows tree kill
 
-When a tool runs past its timeout, the runner kills it. On Windows, `Process.kill` isn't enough: for a `.bat` or `.cmd` tool it ends only the `cmd.exe` that runs the script, and the program the script started keeps running. So on Windows the runner first runs `taskkill /PID <pid> /T /F`, which ends the whole process tree. It starts `taskkill.exe` by its full path, `%SystemRoot%\System32\taskkill.exe` (with `C:\Windows` if `SystemRoot` is unset), never by bare name, so a `taskkill` elsewhere on the PATH can't be run instead. The kill reads the real OS and `SystemRoot` from the process itself, not from `HostEnvironment`: that is the second exception. Then it calls `Process.kill` as well.
+When a tool runs past its timeout, the runner kills it. On Windows, `Process.kill` isn't enough: for a `.bat` or `.cmd` tool it ends only the `cmd.exe` that runs the script, and the program the script started keeps running. So on Windows the runner first runs `taskkill /PID <pid> /T /F`, which ends the whole process tree. It starts `taskkill.exe` by its full path under `SystemRoot`, `%SystemRoot%\System32\taskkill.exe` (with `C:\Windows` if `SystemRoot` is unset), never by bare name, so no other `taskkill.exe` (for example one in the working folder or earlier on the PATH) runs instead. The kill reads the real OS and `SystemRoot` from the process itself, not from `HostEnvironment`: that is the second exception. Then it calls `Process.kill` as well.
+
+**Known gaps**, listed for slice 1d in the slice 1a plan's [Carried to later slices](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md#carried-to-later-slices): on POSIX, a timed-out tool's grandchildren aren't killed, and on Windows `taskkill /T` could kill a Gradle daemon the tool started.
 
 ### Reading output
 

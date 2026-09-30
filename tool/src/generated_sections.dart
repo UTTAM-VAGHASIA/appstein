@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 
 import 'guide_checker.dart';
+import 'markdown.dart';
 
 final _start = RegExp(r'^<!-- generated:([a-z0-9-]+) -->$');
 final _end = RegExp(r'^<!-- /generated:([a-z0-9-]+) -->$');
@@ -43,17 +44,15 @@ RegeneratedPage regenerate(
   final problems = <GuideProblem>[];
   String? open;
   var openLine = 0;
-  var inFence = false;
+  // Fences are tracked only outside sections: a section's body is replaced
+  // whole, so a fence inside it opens nothing.
+  final fences = FenceTracker();
   for (var i = 0; i < lines.length; i++) {
     final line = lines[i];
     final trimmed = line.trim();
     if (open == null) {
       out.add(line);
-      if (trimmed.startsWith('```')) {
-        inFence = !inFence;
-        continue;
-      }
-      if (inFence) continue;
+      if (fences.next(line) != FenceLine.prose) continue;
       final start = _start.firstMatch(trimmed);
       if (start != null) {
         open = start.group(1)!;

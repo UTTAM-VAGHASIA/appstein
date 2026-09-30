@@ -39,7 +39,7 @@ The details, from [`coverage.dart`](../../tool/src/coverage.dart):
 
 - **Source** means every file matched by `packages/*/lib/**`, `packages/*/bin/**`, `tool/**` or `.github/workflows/**`. Each must be covered by at least one page.
 - A page may also cover other files, such as test helpers. Those count for the stale-page check below, but nothing requires them to be covered.
-- Entries are globs, relative to the repo root, with forward slashes. Spaces, commas or line breaks separate them.
+- Entries are globs, relative to the repo root, with forward slashes. Spaces, commas or line breaks separate them, so a brace glob such as `{a,b}` is split in two and isn't supported. List each path instead.
 - **A glob that matches no file is an error.** That catches a folder that moved while its page kept the old path.
 - **Overlapping covers are fine.** A file may be on several pages' lists, such as a barrel file and the area pages behind it. Changing any one of those pages is enough for the stale-page check.
 - The comment must be the first non-blank line, and a page has only one. A comment inside a code fence, like the examples above, is ignored.
@@ -105,18 +105,20 @@ Run both from the repo root.
 | `fvm dart run tool/gen_docs.dart --check` | Writes nothing; exits 1 if any section is out of date |
 | `fvm dart run tool/check_guide.dart` | Every check except the stale-page check |
 | `fvm dart run tool/check_guide.dart --since main` | Every check, plus the stale-page check against `main` |
-| `fvm dart run tool/check_guide.dart --warn-only` | Prints problems as warnings and always exits 0 (used by the hook) |
+| `fvm dart run tool/check_guide.dart --warn-only` | Prints problems as warnings and exits 0, even when the check can't run; bad usage still exits 3 (used by the hook) |
 
 `check_guide` runs these checks, all from [`guide_check.dart`](../../tool/src/guide_check.dart):
 
 1. **Links and paths** ([`guide_checker.dart`](../../tool/src/guide_checker.dart)), in every guide page and package README:
    - relative links must point at a file that exists (the part after `#` isn't checked);
-   - a path in backticks that starts with `packages/`, `docs/`, `tool/` or `.github/` must exist;
+   - a path in backticks that starts with `packages/`, `docs/`, `tool/`, `test/` or `.github/` must exist;
    - ```` ```dart ```` code blocks are refused until slice 1f can analyze them. Link to real code instead.
 2. **Every page is linked**, through a chain of links from [README](README.md).
 3. **Covers comments and coverage.**
 4. **Stale pages**, only with `--since`.
 5. **Generated sections are up to date.**
+
+Every check reads Markdown through [`markdown.dart`](../../tool/src/markdown.dart), which tracks code fences and picks out links to files. Anything inside a fence (a link, a path, a covers comment, a marker) is an example and is skipped.
 
 Exit codes, for both tools:
 
@@ -126,7 +128,7 @@ Exit codes, for both tools:
 | `1` | Problems found. For `gen_docs`: a section is out of date (with `--check`), or a marker, section name or generator has a problem |
 | `3` | The tool couldn't run: bad usage, or (for `check_guide`) a git command failed, for example outside a git repo |
 
-`--since` with a revision that isn't a commit is reported as a problem (exit 1).
+`--since` with a revision that isn't a commit is reported as a problem (exit 1). With `--warn-only`, `check_guide` exits 0 whatever it finds, and when it can't run at all it prints one line, `warning: the guide check could not run: <error>`. Only bad usage still exits 3.
 
 ## Git hooks
 
@@ -170,3 +172,8 @@ This is the docs step of the per-slice process in [`AGENTS.md`](../../AGENTS.md)
 - The check proves that a page was touched or confirmed, not that it is good. A one-word edit satisfies it. Review still matters.
 - It can't tell whether hand-written text is true. Only the generated sections are right by construction, which is why facts the code knows are generated.
 - Links are checked to the file, not to the heading after `#`.
+- **A regenerated section counts as the page changing.** When a change alters a fact that `gen_docs` writes, the page's diff clears the stale check for every file that page covers. Read the page's hand-written text too.
+- **The check looks at the whole range at once.** One page edit or one `Docs-Checked` trailer anywhere in a pull request clears every matching change in it, in any commit. Only the local hook checks commit by commit, because it runs with `--since HEAD~1`.
+- **Trailers are read from every line of every commit message in the range**, not only from the trailer block at the end. A squash merge writes one new message, so it must keep the `Docs-Checked` lines, or the check on the push to `main` fails.
+- **A bad trailer can't be fixed with a new commit.** A `Docs-Checked` line that names no guide page or has no reason fails CI. The bad line stays in the range, so once the commit is pushed the only fix is to reword that commit, which rewrites the branch's history.
+- **The hook may not find FVM.** It looks for FVM with `command -v fvm` in Git's `sh`. On Windows, FVM installed with `dart pub global activate fvm` is an `fvm.bat` file, which that lookup doesn't find, so the hook falls back to plain `dart`, whichever SDK that is on your PATH (or skips the check when `sh` finds no `dart` either).

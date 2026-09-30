@@ -8,7 +8,7 @@ These steps add one check to `appstein doctor`. Read [doctor](../doctor.md) firs
 
 **File:** `packages/appstein_engine/lib/src/doctor/checks/<name>_check.dart`
 
-Write a `final class` with a `const` constructor that implements `DoctorCheck`, from [`doctor_check.dart`](../../../packages/appstein_engine/lib/src/doctor/doctor_check.dart):
+Write a `final class` with a `const` constructor that implements `DoctorCheck`, from [`doctor_check.dart`](../../../packages/appstein_engine/lib/src/doctor/doctor_check.dart). The constructor must be `const` because `defaultDoctorChecks()` returns a `const` list (step 3), and only `const` objects can go in one. What goes in the class:
 
 - **`id`** is `doctor.<name>`, such as `doctor.fvm`. Keep it stable once added: tests find a check by its ID. Write it as a string literal in this file (`String get id => 'doctor.<name>';`), because `gen_docs` finds the check's declaration by that literal.
 - **`title`** is the short name people see at the start of the check's line, such as `FVM`.
@@ -41,6 +41,8 @@ Add it to the list in `defaultDoctorChecks()`, at the place it should appear in 
 
 Add an `export` line for the new file, in alphabetical order. The CLI, the repo tools and the tests all import the engine through this file. A new `ToolCheck` constant needs nothing, because `tool_check.dart` is already exported.
 
+[architecture](../architecture.md) covers `appstein_engine.dart`, so the stale-page check in step 7 will ask for that page too. Update it if the export changes what it says; otherwise add the commit trailer `Docs-Checked: architecture.md - only a new export`.
+
 ## 5. Test it
 
 **File:** `packages/appstein_engine/test/doctor/checks/<name>_check_test.dart`
@@ -68,4 +70,4 @@ fvm dart run tool/gen_docs.dart
 fvm dart run tool/check_guide.dart --since main
 ```
 
-The first command adds the new row to [doctor](../doctor.md#the-checks). Read it in place, and update doctor.md's prose if the check needs more explanation than one row. The second command checks the guide, including that doctor.md changed along with the code.
+The first command adds the new row to [doctor](../doctor.md#the-checks). Read it in place, and update doctor.md's prose if the check needs more explanation than one row. The second command checks the guide, including that doctor.md changed along with the code, and that architecture.md changed or was confirmed with a trailer (step 4).

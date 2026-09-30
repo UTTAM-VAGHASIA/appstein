@@ -20,6 +20,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | File | What it holds |
 |---|---|
 | [`bin/appstein.dart`](../../packages/appstein_cli/bin/appstein.dart) | `main`, which hands the arguments to `runGuarded` |
+| [`lib/appstein_cli.dart`](../../packages/appstein_cli/lib/appstein_cli.dart) | The barrel: it exports every file below except `doctor_command.dart` and `project_option.dart`. `bin/appstein.dart` and the repo's `tool/src/generators.dart` import it |
 | [`run_guarded.dart`](../../packages/appstein_cli/lib/src/run_guarded.dart) | `runGuarded`: crash safety and the process exit code |
 | [`runner.dart`](../../packages/appstein_cli/lib/src/runner.dart) | `runAppstein`, the command runner and `reportCrash` |
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
@@ -45,7 +46,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | `ConfigException` | `Invalid appstein.yaml: ` and the error | 3 |
 | Anything else | `reportCrash`: "Appstein failed unexpectedly", a hint to run `appstein doctor`, and the stack trace | 3 |
 
-`doctor` itself never lets a `ConfigException` reach this point: its project check reports an invalid `appstein.yaml` as a check error instead (see [doctor](doctor.md)). The handler is there for commands that load the config directly.
+No command reaches the `ConfigException` handler today. `doctor`, the only command that reads `appstein.yaml`, reports an invalid file as a check error, with exit code 1 (see [doctor](doctor.md)). The handler is a safety net for any command that loads the config itself.
 
 ## Global options
 

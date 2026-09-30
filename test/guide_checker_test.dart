@@ -70,9 +70,13 @@ void main() {
   test('covers the guide and every package README', () {
     File(p.join(repo.path, 'docs', 'guide', 'page.md')).writeAsStringSync('');
     expect(guideFiles(repo.path), [
-      p.join('docs', 'guide', 'page.md'),
-      p.join('packages', 'appstein_cli', 'README.md'),
+      'docs/guide/page.md',
+      'packages/appstein_cli/README.md',
     ]);
+  });
+
+  test('toPosix writes a relative path with forward slashes', () {
+    expect(toPosix(p.join('a', 'b')), 'a/b');
   });
 
   group('checkLinked', () {

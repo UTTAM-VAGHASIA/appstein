@@ -10,6 +10,14 @@ const graphify =
     '#!/bin/sh\n# graphify-hook-start\n(\n  echo graph\n)\n'
     '# graphify-hook-end\n';
 
+bool _hasSh() {
+  try {
+    return Process.runSync('sh', ['-c', 'exit 0']).exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
+}
+
 void main() {
   final block = hookBlocks['post-merge']!;
 
@@ -22,6 +30,20 @@ void main() {
       expect(text, contains('\n)\n'));
     }
   });
+
+  test('every block is valid sh', () {
+    final folder = tempFolder();
+    for (final MapEntry(key: name, value: text) in hookBlocks.entries) {
+      File(
+        p.join(folder.path, name),
+      ).writeAsStringSync(upsertHookBlock(null, text));
+      final result = Process.runSync('sh', [
+        '-n',
+        name,
+      ], workingDirectory: folder.path);
+      expect(result.exitCode, 0, reason: '$name: ${result.stderr}');
+    }
+  }, skip: _hasSh() ? false : 'sh is not on PATH');
 
   test('upsert creates a file with a shebang', () {
     expect(upsertHookBlock(null, block), '#!/bin/sh\n$block\n');

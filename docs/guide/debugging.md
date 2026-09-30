@@ -7,7 +7,7 @@
 Code 3 means Appstein itself failed, not your project. The causes, from [cli](cli.md):
 
 - a bad option, an unknown command, or a `--project` folder with no `pubspec.yaml`;
-- an invalid `appstein.yaml` that reaches the command line (`doctor` reports an invalid `appstein.yaml` as a check error instead, with exit code 1);
+- an invalid `appstein.yaml`, but no command gets there today: the handler is a safety net for any command that loads the config itself. `doctor` reports an invalid file as a check error, with exit code 1;
 - a crash, including an error thrown outside any awaited future.
 
 The error output says which. Run `appstein doctor` first, because most failures are environment problems it explains.
@@ -41,7 +41,7 @@ After a commit you may see lines starting with `warning:`, then:
 The developer guide may need attention (2 warning(s)). CI fails on these. See docs/guide/docs-tooling.md.
 ```
 
-**What they mean.** The post-commit hook ran the guide check on the commit you just made (`--since HEAD~1`). Each warning is a problem CI will fail on, for example:
+**What they mean.** The post-commit hook ran the guide check on the commit you just made (`--since HEAD~1`). It compares the working tree with `HEAD~1`, not just the commit, so uncommitted and untracked work counts too. After a partial commit, it can warn about files you haven't committed yet, and an uncommitted page edit can hide a warning that CI would give if you pushed without it. Each warning is a problem CI will fail on, for example:
 
 - a file you changed is covered by a page you didn't change;
 - a generated section is out of date;

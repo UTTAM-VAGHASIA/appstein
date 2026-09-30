@@ -5,6 +5,7 @@ import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
 
 import 'guide_checker.dart';
+import 'markdown.dart';
 
 /// The files spec §19.6 calls source. Each must be covered by a guide page.
 const sourceGlobs = [
@@ -54,14 +55,12 @@ final _coversStart = RegExp(r'^<!--\s*covers:');
 CoversComment? parseCovers(String markdown) {
   final lines = const LineSplitter().convert(markdown);
   final starts = <int>[];
-  var inFence = false;
+  final fences = FenceTracker();
   for (var i = 0; i < lines.length; i++) {
-    final trimmed = lines[i].trim();
-    if (trimmed.startsWith('```')) {
-      inFence = !inFence;
-      continue;
+    if (fences.next(lines[i]) == FenceLine.prose &&
+        _coversStart.hasMatch(lines[i].trim())) {
+      starts.add(i);
     }
-    if (!inFence && _coversStart.hasMatch(trimmed)) starts.add(i);
   }
   if (starts.isEmpty) return null;
   if (starts.length > 1) {

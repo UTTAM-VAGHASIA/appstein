@@ -31,7 +31,7 @@ Built from the parser and the `AppsteinConfig` classes:
 | `appstein` | whole number | `1` | Only `1`, the `supportedConfigFormat`. Another number is "Config format N is not supported" |
 | `packs.stack` | text | `official_mvvm` | One of `knownStacks`: `official_mvvm` |
 | `packs.platforms` | list of text | `[android, ios]` | Each one of `knownPlatforms`: `android`, `ios`. At least one, no duplicates |
-| `delta.baseline` | quoted text | `"3.16"` | A Flutter version like `"3.16"`. It must be quoted: unquoted, YAML reads `3.20` as the number 3.2, so a number is an error |
+| `delta.baseline` | quoted text | `"3.16"` | A Flutter major.minor version only, like `"3.16"`; `"3.16.0"` is an error. It must be quoted: unquoted, YAML reads `3.20` as the number 3.2, so a number is an error |
 | `verify.fast_timeout_seconds` | whole number | `20` | 1 or more |
 | `verify.build_on_full` | `true` or `false` | `true` | |
 | `verify.severity` | map | empty | Keys are check IDs: two or more lowercase words joined by dots (`ui.no_hardcoded_colors`). Values are `error`, `warning` or `info` |

@@ -108,7 +108,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 
 ### build
 
-- **Compile:** `dart compile exe` builds the AOT binary on each OS. Agent hooks will start this binary, not `dart run`.
+- **Compile:** `dart compile exe` builds the AOT binary on each OS. Agent hooks will start this binary, not `dart run` ([spec §19.5](../superpowers/specs/2026-09-29-appstein-design.md#195-distribution-and-versioning): "Hooks use the compiled executable").
 - **Start-up budget:** [`tool/startup_check.dart`](../../tool/startup_check.dart) runs `appstein --version` seven times and fails if the median is over 200 ms (spec §15). A hook that starts slowly slows down every agent action.
 - **Run doctor (report only):** the binary runs `doctor` for real. Exit 0 or 1 is fine, because a CI runner may be missing tools such as the Android SDK. Exit 3 or 255 means Appstein crashed, and the step fails.
 - The binaries are uploaded as build artifacts.
@@ -116,7 +116,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 ### docs
 
 - **Full history:** the checkout uses `fetch-depth: 0`, because the stale-page check needs the merge base with the base commit.
-- **API docs:** `dart doc --dry-run` builds each package's API docs from the `///` comments without writing them, so a package whose docs don't build fails the job.
+- **API docs:** `dart doc --dry-run` builds each package's API docs from the `///` comments without writing them. Each package's `dartdoc_options.yaml` (for example [`packages/appstein_cli/dartdoc_options.yaml`](../../packages/appstein_cli/dartdoc_options.yaml)) turns the `unresolved-doc-reference` and `broken-link` warnings into errors, so a doc comment that names something that doesn't exist, or links nowhere, fails the job.
 - **Developer guide check:** `tool/check_guide.dart` runs with a `--since` that depends on the event:
 
   | Event | `--since` |

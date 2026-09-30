@@ -63,12 +63,19 @@ void main() {
     ]);
   });
 
-  for (final message in [
-    'Refactor\n\nDocs-Checked: sdk-lookups.md - only renamed a private helper',
-    'Tidy\r\n\r\ndocs-checked: docs/guide/sdk-lookups.md - no behaviour '
-        'change\r\n',
+  for (final (name, message) in [
+    (
+      'page relative to docs/guide',
+      'Refactor\n\nDocs-Checked: sdk-lookups.md - only renamed a private '
+          'helper',
+    ),
+    (
+      'lower-case key, repo path, CRLF',
+      'Tidy\r\n\r\ndocs-checked: docs/guide/sdk-lookups.md - no behaviour '
+          'change\r\n',
+    ),
   ]) {
-    test('a Docs-Checked trailer clears it: ${message.split('\n').first}', () {
+    test('a Docs-Checked trailer clears it: $name', () {
       expect(
         stale(['packages/engine/lib/src/sdk/fvm.dart'], [message]),
         isEmpty,

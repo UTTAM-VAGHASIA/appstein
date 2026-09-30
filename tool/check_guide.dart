@@ -12,8 +12,9 @@ import 'src/guide_checker.dart';
 ///                                                    stale-page check
 ///   fvm dart run tool/check_guide.dart --since main  plus the stale-page
 ///                                                    check against main
-/// The post-commit hook adds --warn-only, which prints problems as warnings
-/// and always exits 0. CI is the gate.
+/// The post-commit hook adds --warn-only, which prints problems, or a check
+/// that could not run, as warnings and exits 0. Bad usage still exits 3.
+/// CI is the gate.
 Future<void> main(List<String> arguments) async {
   final parser = ArgParser()
     ..addOption(
@@ -26,7 +27,9 @@ Future<void> main(List<String> arguments) async {
     ..addFlag(
       'warn-only',
       negatable: false,
-      help: 'Print problems as warnings and exit 0 (for the git hook).',
+      help:
+          'Print problems as warnings and exit 0, even when the check '
+          'cannot run (for the git hook).',
     )
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Show this help.');
   final ArgResults options;
@@ -57,9 +60,18 @@ Future<void> main(List<String> arguments) async {
       Directory.current.path,
       since: options.option('since'),
     );
-  } on GitException catch (error) {
-    stderr.writeln('Run this from the root of the Appstein repo. $error');
-    exitCode = warnOnly ? 0 : 3;
+  } on Object catch (error) {
+    // The hook must never fail a commit, whatever went wrong.
+    if (warnOnly) {
+      stderr.writeln('warning: the guide check could not run: $error');
+      return;
+    }
+    if (error is! GitException) rethrow;
+    final hint = error.message.contains('not a git repository')
+        ? 'Run this from the root of the Appstein repo. '
+        : '';
+    stderr.writeln('$hint$error');
+    exitCode = 3;
     return;
   }
   for (final problem in problems) {
