@@ -259,7 +259,11 @@ const _spotlightQuery =
 
 /// The macOS installs to try, as Flutter's `_allMacOS` finds them: every
 /// `Android Studio*.app` in [appFolders], then Spotlight's results. When
-/// [configured] is set and isn't a Toolbox launcher, only it counts.
+/// [configured] names an `.app` bundle that isn't a Toolbox launcher, only it
+/// counts. When it names the `Contents` folder inside a bundle, Flutter
+/// matches it against the bundle's path with `Contents` taken off, never
+/// finds a match, and so chooses among all installs: the bundle is then an
+/// ordinary candidate, after the scan and before Spotlight, and a note says so.
 Future<_Candidates> _macStudioCandidates(
   String? configured,
   ProcessRunner runner,
@@ -267,26 +271,45 @@ Future<_Candidates> _macStudioCandidates(
 ) async {
   final notes = <String>[];
   String? configuredBundle;
+  String? contentsBundle;
   if (configured != null) {
-    final bundle = p.basename(configured) == 'Contents'
-        ? p.dirname(configured)
-        : configured;
-    if (!Directory(bundle).existsSync()) {
-      // locateFlutterJava reports it as a folder that does not exist.
-      return (studios: [_Studio(bundle, null)], notes: notes);
+    if (p.basename(configured) == 'Contents') {
+      final bundle = p.dirname(configured);
+      if (!Directory(bundle).existsSync()) {
+        // locateFlutterJava reports it as a folder that does not exist.
+        return (studios: [_Studio(bundle, null)], notes: notes);
+      }
+      notes.add(
+        'android-studio-dir names the Contents folder inside $bundle, so '
+        'Flutter treats that Android Studio like any other and uses the '
+        'newest one. Point android-studio-dir at the .app itself to make it '
+        'the only one.',
+      );
+      contentsBundle = bundle;
+    } else {
+      if (!Directory(configured).existsSync()) {
+        // locateFlutterJava reports it as a folder that does not exist.
+        return (studios: [_Studio(configured, null)], notes: notes);
+      }
+      final studio = await _macStudio(configured, runner, notes);
+      if (studio != null) return (studios: [studio], notes: notes);
+      // A Toolbox launcher: Flutter drops it and chooses as if nothing were
+      // configured.
+      configuredBundle = configured;
     }
-    final studio = await _macStudio(bundle, runner, notes);
-    if (studio != null) return (studios: [studio], notes: notes);
-    // A Toolbox launcher: Flutter drops it and chooses as if nothing were
-    // configured.
-    configuredBundle = bundle;
   }
   final bundles = <String>[];
   for (final folder in appFolders) {
     _findStudioBundles(folder, bundles);
   }
+  if (contentsBundle != null &&
+      !bundles.any((found) => p.equals(found, contentsBundle!))) {
+    bundles.add(contentsBundle);
+  }
   final spotlight = await runner.run('mdfind', [_spotlightQuery]);
-  if (spotlight.ok) {
+  // As in Flutter, stdout is used whatever the exit code; only an `mdfind`
+  // that couldn't start adds nothing.
+  if (spotlight.started) {
     for (final line in LineSplitter.split(spotlight.stdout)) {
       // Flutter adds a result unless the scan found that exact text. A
       // bundle Spotlight still lists after it was deleted is invalid in
@@ -313,8 +336,10 @@ Future<_Candidates> _macStudioCandidates(
 /// Adds to [found] every `Android Studio*.app` folder in [folder], at any
 /// depth, as Flutter's `checkForStudio` does: it never looks inside an
 /// `.app` bundle and doesn't follow links to folders. Names are matched
-/// case-sensitively. Entries are read in name order, so "found first" is
-/// the same on every file system.
+/// case-sensitively. Flutter reads entries in the file system's own order
+/// (NTFS lists folders alphabetically; APFS and ext4 don't), so its
+/// tie-break there depends on the file system. Entries are read in name
+/// order here, so the answer is the same every time.
 void _findStudioBundles(String folder, List<String> found) {
   final List<FileSystemEntity> entries;
   try {
@@ -368,9 +393,11 @@ Future<_Studio?> _macStudio(
 }
 
 /// The Info.plist at [path] as XML, from `/usr/bin/plutil`, which reads the
-/// binary plists most apps ship. When plutil can't run (on Windows and
-/// Linux, in tests), the file is read as text. Null when there is no
-/// readable plist: the version is then unknown, as in Flutter.
+/// binary plists most apps ship. When plutil can't start (on Windows and
+/// Linux, in tests), the file is read as text. When plutil runs but fails,
+/// the plist counts as empty, as Flutter's plist parser returns `{}`. Null
+/// when there is no readable plist: the version is then unknown, as in
+/// Flutter.
 Future<String?> _readInfoPlist(String path, ProcessRunner runner) async {
   if (!File(path).existsSync()) return null;
   final xml = await runner.run('/usr/bin/plutil', [
@@ -380,7 +407,7 @@ Future<String?> _readInfoPlist(String path, ProcessRunner runner) async {
     '-',
     path,
   ]);
-  if (xml.ok) return xml.stdout;
+  if (xml.started) return xml.ok ? xml.stdout : '';
   try {
     return File(path).readAsStringSync();
   } on FileSystemException {
@@ -545,7 +572,8 @@ String? _readInstallRecord(String file) {
 }
 
 /// The folders directly inside [parent], in name order (Flutter uses the
-/// file system's order, which is alphabetical on NTFS and APFS); empty when
+/// file system's order: NTFS lists alphabetically, APFS and ext4 don't, so
+/// Appstein sorts to give the same answer every time); empty when
 /// it can't be listed.
 List<String> _foldersIn(String parent) {
   try {
