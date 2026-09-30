@@ -580,7 +580,7 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 | `0` | No errors |
 | `1` | Errors found (CLI and CI use) |
 | `2` | Errors found in `--hook claude` mode. Claude Code treats exit code 2 from PostToolUse and Stop hooks as "block and feed stderr back to the model". `--hook codex` maps to whatever blocking mechanism Codex supports, which is verified in slice 1e |
-| `3` | Appstein itself failed (bad environment, crash, invalid config). In hook mode this **never blocks the agent silently**: it prints a clear message to run `appstein doctor` and lets the agent continue |
+| `3` | Appstein itself failed (bad environment, crash, invalid config). In hook mode this **never blocks the agent silently**: it prints a clear message to run `appstein doctor` and lets the agent continue. `doctor` is the exception: diagnosing a bad environment or an invalid `appstein.yaml` is its job, so it reports them as failed checks (`1`) and exits `3` only when it can't run at all (bad usage or a crash) |
 
 ### 9.6 Lint rules in M1 (`appstein_lints`, one test file per rule)
 
@@ -775,7 +775,7 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 | **Concurrency** | Writes to `.appstein/` take a lock file with a timeout, so two hooks or two agents never corrupt knowledge. Readers never block |
 | **Offline** | Everything except package existence and advisory checks works offline. Network failures degrade to warnings and never block |
 | **Privacy** | No telemetry, no analytics, no code leaves the machine. Network calls: pub.dev API and advisory data; optional integrations only if enabled |
-| **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings |
+| **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings. The exception is `doctor`, whose findings are exactly those problems (§9.5) |
 | **Determinism** | The same inputs give byte-identical generated knowledge and human docs (sorted keys, stable ordering, no timestamps in committed docs), so golden tests and caching work and git diffs show only real changes |
 
 ---
@@ -876,7 +876,7 @@ The benchmark lives in `benchmark/`.
 
 ### 19.1 Tooling
 
-- **graphify from the first commit.** The graph covers code, this spec, the research report and docs, and is rebuilt by its git hook on each commit, so agent sessions start from the graph instead of rediscovering the repo.
+- **graphify from the first commit.** The graph covers code, this spec, the research report and docs. It is rebuilt by git hooks on each commit, checkout, merge and rebase (structure only), plus a full semantic update at the end of each slice, so agent sessions start from the graph instead of rediscovering the repo.
 - **`CLAUDE.md` / `AGENTS.md`** are short: commands, architecture at a glance, rules and "critical gotchas" (Twenty's style). No duplicated architecture prose that can drift; they point to this spec, to graphify and to the developer guide (§19.6).
 - **Dependency hygiene** in our own repo: `dependency_validator` in CI (the Dart equivalent of Twenty's `knip`).
 
@@ -892,7 +892,7 @@ The benchmark lives in `benchmark/`.
 | `analyze` | `dart format --set-exit-if-changed`, `dart analyze` (incl. our boundary lints and `public_member_api_docs`), `dependency_validator` |
 | `test` | Unit + golden tests on Linux, Windows and macOS |
 | `skills` | Snippet analysis against current stable and minimum supported SDK; link check; size budget |
-| `docs` | `dart doc` for every package, failing on warnings; developer guide checks (§19.6): snippet analysis, link check, and every file path it mentions exists |
+| `docs` | `dart doc` for every package, failing on warnings; developer guide checks (§19.6): snippet analysis, link check, every file path it mentions exists, every source file covered by a page, no stale pages, and generated sections up to date |
 | `integration-android` | `appstein create` → `verify --full` on Linux (real Android debug build) |
 | `integration-ios` | `appstein create` → `verify --full` on macOS (real iOS debug build) |
 | `integration-windows` | `appstein create` → `verify --full` on Windows (Android build) |
@@ -901,7 +901,7 @@ The benchmark lives in `benchmark/`.
 ### 19.4 Git and process
 
 - **Git:** agents may run read-only git. Commits happen only with owner approval, and nothing is pushed unless asked. Commits may include the Co-Authored-By trailer.
-- **Per slice:** spec → implementation plan → TDD implementation → verify → docs (API doc comments and the guide pages for what the slice built, §19.6) → owner review → commit.
+- **Per slice:** spec → implementation plan → TDD implementation → verify → docs (API doc comments, the guide pages for what the slice built, `gen_docs` and the guide check (§19.6), then a full graphify update) → owner review → commit.
 
 ### 19.5 Distribution and versioning
 
@@ -930,16 +930,21 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 | Page | Covers |
 |---|---|
 | `README.md` | Start here: set up on Windows, macOS or Linux; a tour of the repo; build and run the CLI from source; run the tests |
-| `architecture.md` | How one command flows CLI → engine → packs → protocol, and how hooks and the MCP server enter the same engine, with diagrams |
+| `architecture.md` | The overview: how the whole system works now. How one command flows CLI → engine → packs → protocol, and how hooks and the MCP server enter the same engine, with diagrams. It links to the area pages for detail |
+| Area pages | One page per area of the system, explaining how it works and why: for example `doctor` and how it finds the SDKs and JDK, config, running processes, the lints, CI. A page is added in the slice that builds its area |
 | `how-to/` | One page per common change: add a check, an extractor, a lint rule, an MCP tool, a curated note, a migration, a doc page, a pack |
-| `testing.md` | Fixture apps, golden tests and how to update goldens safely |
+| `testing.md` | How the tests are built: fakes, temporary folders, integration tests against the real machine and the cross-check with `flutter doctor -v`. Later: fixture apps, golden tests and how to update goldens safely |
 | `debugging.md` | Running hooks and the MCP server by hand, Windows path pitfalls, exit code 3 and `doctor` |
 
 **Keeping the guide correct:**
 
-- A guide page is written **in the slice that builds the thing it describes**, never ahead of the code (no pages about code that doesn't exist yet). The per-slice process has a docs step for this (§19.4).
+- A guide page is written **in the slice that builds the thing it describes**, never ahead of the code. The per-slice process has a docs step for this (§19.4).
+- **Every source file has a page.** Each page starts with a hidden `<!-- covers: … -->` comment listing the paths it explains. Source means `packages/*/lib/`, `packages/*/bin/`, `tool/` and `.github/workflows/`. The guide check fails if any source file is covered by no page.
+- **Code changes come with their page.** In CI, the check fails when a change edits a covered file but none of the pages covering it. If the page is still right, a commit trailer `Docs-Checked: <page> - <reason>` says so and clears it. This is the idea behind `docs.stale` (§6.9), applied to our own repo.
+- **Facts the code already knows are generated, not typed.** `tool/gen_docs.dart` writes them between `<!-- generated:<name> -->` markers: the doctor checks, the CLI commands and exit codes, the CI jobs and the package dependency diagram. CI fails if regenerating would change a page.
+- **CI is the gate; a local hook warns early.** `tool/install_hooks.dart` installs the repo's git hooks: graphify's graph rebuild (on commit, checkout, merge and rebase), and a post-commit warning when a page is stale or a generated section is out of date.
 - CI (`docs` job, §19.3) analyzes every Dart snippet in the guide, checks every link, and checks that every repo path the guide mentions exists, reusing the skills CI tooling (§11.3).
-- The guide never restates the spec. It links to the spec section for the "what and why", and covers only how the code does it.
+- The guide never restates the spec. The spec is the *design*, what we decided and why; the guide is the *current system*, how it works. The guide links to the spec instead of repeating it.
 
 **Not dogfooded:** Appstein's `docs/app/` renderer (§6.9) targets Flutter apps, and this repo is a Dart CLI workspace, so it doesn't run here.
 

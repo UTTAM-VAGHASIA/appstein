@@ -1,0 +1,82 @@
+<!-- covers:
+packages/appstein_engine/lib/src/config/**
+packages/appstein_engine/lib/src/text/**
+packages/appstein_protocol/lib/src/config/**
+-->
+
+# `appstein.yaml`
+
+## What the file is
+
+`appstein.yaml` sits at a project's root and holds the project's Appstein settings: which packs it uses, verifier settings, where human docs go, and so on. The keys, and why each exists, are in [spec §7](../superpowers/specs/2026-09-29-appstein-design.md#7-project-configuration-appsteinyaml). This page explains how the code loads and validates the file.
+
+Two packages share the work:
+
+- **The data** is `AppsteinConfig` in the protocol package, [`appstein_config.dart`](../../packages/appstein_protocol/lib/src/config/appstein_config.dart), with one class per section (`PacksConfig`, `DeltaConfig`, `VerifyConfig`, `DocsConfig`, `PackagesConfig`, `IntegrationsConfig`). The defaults live in their constructors, and `toJson` uses the same key names as the YAML file.
+- **The loading and validation** is in the engine, [`config_loader.dart`](../../packages/appstein_engine/lib/src/config/config_loader.dart).
+
+## Loading
+
+- **`loadConfig(projectRoot)`** reads `appstein.yaml` from the project folder. It returns **null when the file doesn't exist**: that isn't an error, it means the project isn't set up with Appstein yet. A file that exists but can't be read (not UTF-8, or locked) is a `ConfigException`.
+- **`parseConfig(content)`** parses and validates the text. **Every key has a default, so an empty file is valid**, and so is a file with only some sections. A key or section with no value (`packs:` and nothing under it) also takes its default.
+
+The parser reads each section with small helpers that check the type of each value, so every error points at the value that is wrong.
+
+## The keys
+
+Built from the parser and the `AppsteinConfig` classes:
+
+| Key | Type | Default | Allowed values |
+|---|---|---|---|
+| `appstein` | whole number | `1` | Only `1`, the `supportedConfigFormat`. Another number is "Config format N is not supported" |
+| `packs.stack` | text | `official_mvvm` | One of `knownStacks`: `official_mvvm` |
+| `packs.platforms` | list of text | `[android, ios]` | Each one of `knownPlatforms`: `android`, `ios`. At least one, no duplicates |
+| `delta.baseline` | quoted text | `"3.16"` | A Flutter major.minor version only, like `"3.16"`; `"3.16.0"` is an error. It must be quoted: unquoted, YAML reads `3.20` as the number 3.2, so a number is an error |
+| `verify.fast_timeout_seconds` | whole number | `20` | 1 or more |
+| `verify.build_on_full` | `true` or `false` | `true` | |
+| `verify.severity` | map | empty | Keys are check IDs: two or more lowercase words joined by dots (`ui.no_hardcoded_colors`). Values are `error`, `warning` or `info` |
+| `docs.enabled` | `true` or `false` | `true` | |
+| `docs.path` | text | docs/app (in the project) | A folder inside the project, relative to its root. Absolute paths, `.` and paths that climb out with `..` are errors. Backslashes become `/` |
+| `packages.stale_after_months` | whole number | `12` | 1 or more |
+| `packages.allow` | list of text | `[]` | Package names (lowercase letters, digits and `_`), no duplicates |
+| `packages.deny` | list of text | `[]` | As `packages.allow` |
+| `integrations.agents` | list of text | `[claude, codex]` | Each one of `knownAgents`: `claude`, `codex`. No duplicates |
+| `integrations.graphify_export` | `true` or `false` | `false` | |
+| `integrations.developer_knowledge_mcp` | `true` or `false` | `false` | |
+
+The top level and each section must be a map. The lists of known values (`knownStacks`, `knownPlatforms`, `knownAgents`) are constants in `config_loader.dart`, and they grow as later slices add packs and agents.
+
+## Errors
+
+**`ConfigException`** carries a message written for the person editing the file, plus the file, line and column (1-based) when they are known. Its text puts the position first, so an editor or terminal can jump to it:
+
+```text
+C:\my app\appstein.yaml:3:10: packs.stack must be one of: official_mvvm.
+```
+
+That is the error for `stack: foo` on line 3, indented by two spaces: the position is the start of the value `foo`.
+
+Every validation error takes its position from the YAML node that is wrong, and a YAML syntax error takes it from the parser's error span.
+
+**Unknown keys are errors, with a "did you mean" hint.** A typo such as `platfroms` would otherwise be ignored silently, and the default used without anyone noticing. The message names the key, suggests the closest allowed key, and lists all of them:
+
+```text
+Unknown key "platfroms" in packs. Did you mean "platforms"? Allowed keys: stack, platforms.
+```
+
+The hint comes from [`edit_distance.dart`](../../packages/appstein_engine/lib/src/text/edit_distance.dart), in the engine's `text/` folder:
+
+- `editDistance` is the Levenshtein distance: the fewest one-character insertions, deletions or substitutions that turn one string into the other.
+- `closestMatch` returns the allowed key with the smallest distance, if it is at most 2 edits away; on a tie, the one listed first. Further away, there is no hint, because a far-off guess would mislead more than help.
+
+**How it becomes exit code 3.** `runAppstein` catches a `ConfigException`, prints `Invalid appstein.yaml: ` and the error to stderr, and returns exit code 3 (see [cli](cli.md)). `doctor` never lets it get that far: its project check turns an invalid file into an error result, with exit code 1 ([doctor](doctor.md#finding-the-project)).
+
+## Byte order marks
+
+Windows PowerShell 5.1 writes UTF-8 files with a byte order mark (BOM), the invisible character U+FEFF, at the start. `parseConfig` strips a leading BOM before parsing, so such a file reads exactly like one saved without it. Appstein's JSON readers do the same, because `jsonDecode` rejects a BOM: the FVM pin, Flutter's settings file and Flutter's version file.
+
+**The code writes the BOM as an escape, never as the raw character:** a backslash, then `uFEFF`, inside the string. The raw character is invisible in an editor, and a tool that strips it would silently change what the code compares against. CI's `analyze` job fails if any Dart file contains the raw character; see [ci](ci.md#analyze).
+
+## Where config is used today
+
+`loadConfig` has one caller: `ProjectCheck` in `appstein doctor`, which reports whether the file is valid and shows the stack and platforms ([doctor](doctor.md#finding-the-project)). No other command reads `appstein.yaml` yet. The later commands that use it are planned in the [spec](../superpowers/specs/2026-09-29-appstein-design.md#53-commands).
