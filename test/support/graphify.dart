@@ -5,9 +5,9 @@ import 'package:path/path.dart' as p;
 /// A Python that can import graphify, for the graph check's tests, or null
 /// when there is none.
 ///
-/// It is `APPSTEIN_GRAPHIFY_PYTHON` when that is set (CI sets it), or else
-/// the interpreter this repo's `graphify-out/.graphify_python` names, which
-/// graphify writes on each `/graphify` run.
+/// It tries `APPSTEIN_GRAPHIFY_PYTHON` (CI sets it), then the interpreter
+/// this repo's `graphify-out/.graphify_python` names, which graphify writes
+/// on each `/graphify` run, and takes the first that can import graphify.
 final String? graphifyPython = _findGraphifyPython();
 
 String? _findGraphifyPython() {

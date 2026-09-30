@@ -133,15 +133,15 @@ Exit codes, for both tools:
 
 ## Is the graph current?
 
-graphify's knowledge graph (`graphify-out/`) has two layers. graphify's own hooks rebuild the code structure after every commit, checkout, merge and rebase. What the docs mean is extracted by an LLM, and that only happens when someone runs `/graphify . --update`. So after a doc changes, the graph describes the old version until the command runs again, and the hooks don't say so: `GRAPH_REPORT.md` still reports the latest commit.
+graphify's knowledge graph (`graphify-out/`) has two layers. The git hooks rebuild the code structure after every commit, checkout, merge and rebase (see [Git hooks](#git-hooks)). What the docs mean is extracted by an LLM, and that only happens when someone runs `/graphify . --update`. So after a doc changes, the graph describes the old version until the command runs again, and the hooks don't say so: `GRAPH_REPORT.md` still says "Built from commit …", which reads as fresh.
 
 [`check_graph.py`](../../tool/check_graph.py) closes that gap. It runs with graphify's own Python, because it is made of graphify calls, and takes about half a second. It lists the files graphify treats as docs with graphify's own `detect`, so `.graphifyignore` and `.gitignore` apply, and reports three kinds of problem:
 
 | Reason | Meaning |
 |---|---|
-| `new or changed` | No extraction of the doc's current content is cached. graphify keys its cache by a hash of the content and the path, so any edit counts. |
+| `new or changed` | No extraction of the doc's current content is cached. graphify keys its cache by a hash of the content and the path, so any edit to the content counts. For Markdown, graphify hashes only the text below the front matter, so an edit to the front matter alone doesn't. |
 | `missing from the graph` | An extraction is cached, but `graph.json` has no node from the doc: an update stopped before merging it. |
-| `deleted or no longer scanned` | `graph.json` still has nodes from a doc that graphify no longer scans, because the file was deleted or is now ignored. Code files are left out, because graphify's hooks prune them. |
+| `deleted or no longer scanned` | `graph.json` still has nodes from a doc that graphify no longer scans, because the file was deleted or is now ignored. graphify's background rebuild after a commit prunes such docs, and code files too (which the check leaves out), so this mostly shows once, right after the commit that deleted or renamed a doc, and clears by itself. |
 
 **Any agent's extraction counts.** Each agent's graphify skill (Claude Code, Codex and others) ships its own extraction prompt, and graphify files cached extractions under a fingerprint of the prompt that made them. The check accepts an extraction made with any prompt, in normal or deep mode, so a graph updated from a different agent doesn't look stale. A partial extraction (graphify marks one that was cut short) or an empty one doesn't count, as in graphify itself.
 
