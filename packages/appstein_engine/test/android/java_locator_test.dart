@@ -262,8 +262,8 @@ void main() {
       skip: studioInstalledReason(),
     );
 
-    test('newest version first; a Preview of the same version comes after '
-        'the release', () async {
+    test('newest version first; records are read in name order, so a release '
+        'comes before its Preview', () async {
       final root = tempDir();
       final home = p.join(root.path, 'home');
       final google = p.join(home, '.cache', 'Google');
@@ -278,6 +278,22 @@ void main() {
       });
       final location = await locate(fakeEnvironment(homeVars(home)), {});
       expect(location!.home, studioJdkHome(records['AndroidStudio2025.3.4']!));
+    }, testOn: '!mac-os');
+
+    test('equal versions keep the install found first, as in Flutter', () async {
+      final root = tempDir();
+      final home = p.join(root.path, 'home');
+      final first = workingStudio(root, 'Studio A');
+      final second = workingStudio(root, 'Studio Z');
+      // Flutter reads ~/.AndroidStudio* before ~/.cache/Google/AndroidStudio*.
+      writeStudioRecord(home, '.AndroidStudio2025.3.4', first);
+      writeStudioRecord(
+        p.join(home, '.cache', 'Google'),
+        'AndroidStudio2025.3.4',
+        second,
+      );
+      final location = await locate(fakeEnvironment(homeVars(home)), {});
+      expect(location!.home, studioJdkHome(first));
     }, testOn: '!mac-os');
 
     test('if android-studio-dir is set, only that install counts', () async {
@@ -331,5 +347,249 @@ void main() {
       },
       testOn: 'windows',
     );
+  });
+
+  group('macOS, searched as Flutter searches it', () {
+    const mac = HostOs.macos;
+    const spotlightQuery =
+        'kMDItemCFBundleIdentifier="com.google.android.studio*"';
+    late Directory root;
+    late String apps;
+    late String homeApps;
+
+    setUp(() {
+      root = tempDir();
+      apps = p.join(root.path, 'Applications');
+      homeApps = p.join(root.path, 'home', 'Applications');
+      Directory(apps).createSync(recursive: true);
+      Directory(homeApps).createSync(recursive: true);
+    });
+
+    /// An Android Studio app at [bundle] with an Info.plist, whose bundled
+    /// JDK runs, or fails when [works] is false.
+    String macStudio(
+      String bundle, {
+      String? version,
+      bool works = true,
+      bool toolbox = false,
+    }) {
+      fakeStudio(
+        Directory(p.dirname(bundle)),
+        name: p.basename(bundle),
+        os: mac,
+      );
+      writeInfoPlist(bundle, version: version, toolbox: toolbox);
+      runner.when(javaIn(studioJdkHome(bundle, os: mac), mac), [
+        '-version',
+      ], works ? java21 : brokenJava);
+      return bundle;
+    }
+
+    Future<JavaLookup> lookUp({
+      Map<String, Object?> settings = const {},
+      Map<String, String> vars = const {},
+    }) => locateFlutterJava(
+      fakeEnvironment({'HOME': p.join(root.path, 'home'), ...vars}, os: mac),
+      settings,
+      runner,
+      macAppFolders: [apps, homeApps],
+    );
+
+    String toolboxNote(String bundle) =>
+        'Android Studio at $bundle is a JetBrains Toolbox launcher. Flutter '
+        'skips it, and finds Toolbox installs only through Spotlight.';
+
+    test('finds any Android Studio*.app, in a subfolder too', () async {
+      final studio = macStudio(
+        p.join(apps, 'Dev Tools', 'Android Studio Preview.app'),
+        version: '2025.1',
+      );
+      final lookup = await lookUp();
+      expect(lookup.location!.source, JavaSource.androidStudio);
+      expect(lookup.location!.home, studioJdkHome(studio, os: mac));
+    });
+
+    test('never looks inside another app bundle', () async {
+      macStudio(
+        p.join(apps, 'Tools.app', 'Android Studio.app'),
+        version: '2025.1',
+      );
+      final lookup = await lookUp(vars: {'JAVA_HOME': 'jh'});
+      expect(lookup.location!.source, JavaSource.javaHome);
+    });
+
+    test('does not follow a link to a folder', () async {
+      final real = macStudio(
+        p.join(root.path, 'elsewhere', 'Android Studio.app'),
+        version: '2025.1',
+      );
+      Link(p.join(apps, 'Android Studio.app')).createSync(real);
+      final lookup = await lookUp(vars: {'JAVA_HOME': 'jh'});
+      expect(lookup.location!.source, JavaSource.javaHome);
+    });
+
+    test('newest version first, and equal versions keep the one found '
+        'first', () async {
+      macStudio(p.join(apps, 'Android Studio.app'), version: '2024.3.1');
+      // Sorted by name, "Android Studio Preview.app" comes before
+      // "Android Studio.app", and /Applications before ~/Applications.
+      final first = macStudio(
+        p.join(apps, 'Android Studio Preview.app'),
+        version: '2025.1.2',
+      );
+      macStudio(p.join(homeApps, 'Android Studio.app'), version: '2025.1.2');
+      final lookup = await lookUp();
+      expect(lookup.location!.home, studioJdkHome(first, os: mac));
+    });
+
+    test('reads the EAP version of a Preview build', () async {
+      macStudio(p.join(apps, 'Android Studio.app'), version: '2024.2.1');
+      final eap = macStudio(
+        p.join(apps, 'Android Studio Preview.app'),
+        version: 'EAP AI-242.21829.142.2422.12358220',
+      );
+      final lookup = await lookUp();
+      // 2422 reads as 2024.2.2, newer than 2024.2.1.
+      expect(lookup.location!.home, studioJdkHome(eap, os: mac));
+    });
+
+    test("an EAP version it can't read is unknown, so a known version "
+        'wins', () async {
+      final release = macStudio(
+        p.join(apps, 'Android Studio.app'),
+        version: '2024.2.1',
+      );
+      macStudio(
+        p.join(apps, 'Android Studio Preview.app'),
+        version: 'EAP AI-242.21829.142.242.12358220',
+      );
+      final lookup = await lookUp();
+      expect(lookup.location!.home, studioJdkHome(release, os: mac));
+    });
+
+    // Review Focus 2: a Toolbox-only Mac with Spotlight off (mdfind is not
+    // faked, so it "can't start").
+    test('skips a JetBrains Toolbox launcher, and says why', () async {
+      final launcher = macStudio(
+        p.join(apps, 'Android Studio.app'),
+        version: '2025.1',
+        toolbox: true,
+      );
+      final lookup = await lookUp(vars: {'JAVA_HOME': 'jh'});
+      expect(lookup.location!.source, JavaSource.javaHome);
+      expect(lookup.skipped, [toolboxNote(launcher)]);
+      expect(runner.calls.where((call) => call.endsWith(' -version')), isEmpty);
+    });
+
+    test('finds a Toolbox install, or a renamed app, through '
+        'Spotlight', () async {
+      macStudio(
+        p.join(apps, 'Android Studio.app'),
+        version: '2025.1',
+        toolbox: true,
+      );
+      final real = macStudio(
+        p.join(root.path, 'Toolbox', 'apps', 'AS.app'),
+        version: '2025.1.3',
+      );
+      runner.when('mdfind', [
+        spotlightQuery,
+      ], RunResult(exitCode: 0, stdout: '$real\n'));
+      final lookup = await lookUp();
+      expect(lookup.location!.home, studioJdkHome(real, os: mac));
+    });
+
+    test('ignores a Spotlight query that fails', () async {
+      final other = macStudio(
+        p.join(root.path, 'Else', 'AS.app'),
+        version: '2025.1',
+      );
+      runner.when('mdfind', [
+        spotlightQuery,
+      ], RunResult(exitCode: 1, stdout: '$other\n'));
+      final lookup = await lookUp(vars: {'JAVA_HOME': 'jh'});
+      expect(lookup.location!.source, JavaSource.javaHome);
+    });
+
+    test('adds each Spotlight result once, and skips ones that no longer '
+        'exist', () async {
+      final broken = macStudio(
+        p.join(apps, 'Android Studio.app'),
+        version: '2025.1',
+        works: false,
+      );
+      final gone = p.join(root.path, 'gone', 'Android Studio.app');
+      runner.when('mdfind', [
+        spotlightQuery,
+      ], RunResult(exitCode: 0, stdout: '$broken\n$gone\n'));
+      final lookup = await lookUp(vars: {'JAVA_HOME': 'jh'});
+      expect(lookup.location!.source, JavaSource.javaHome);
+      expect(lookup.skipped, [skippedNote(broken)]);
+    });
+
+    test('reads Info.plist through plutil when plutil runs', () async {
+      final bundle = p.join(apps, 'Android Studio.app');
+      // A binary plist, which only plutil can read.
+      final plist = File(p.join(bundle, 'Contents', 'Info.plist'))
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([0x62, 0x70, 0x6c, 0x69, 0x73, 0x74, 0xd1, 0x01]);
+      runner.when(
+        '/usr/bin/plutil',
+        ['-convert', 'xml1', '-o', '-', plist.path],
+        const RunResult(
+          exitCode: 0,
+          stdout:
+              '<plist version="1.0"><dict><key>CFBundleShortVersionString'
+              '</key><string>2021.1.1</string></dict></plist>',
+        ),
+      );
+      // Android Studio 2020 and 2021 keep their JDK in jre on macOS.
+      final jre = p.join(bundle, 'Contents', 'jre', 'Contents', 'Home');
+      File(javaIn(jre, mac)).createSync(recursive: true);
+      runner.when(javaIn(jre, mac), ['-version'], java21);
+      final lookup = await lookUp();
+      expect(lookup.location!.home, jre);
+    });
+
+    test('android-studio-dir may name the bundle or its Contents folder, '
+        'and then only it counts', () async {
+      final configured = macStudio(
+        p.join(root.path, 'Custom', 'Android Studio.app'),
+        version: '2024.1',
+      );
+      macStudio(p.join(apps, 'Android Studio.app'), version: '2025.1');
+      final lookup = await lookUp(
+        settings: {'android-studio-dir': p.join(configured, 'Contents')},
+      );
+      expect(lookup.location!.home, studioJdkHome(configured, os: mac));
+      expect(runner.calls, isNot(contains(startsWith('mdfind'))));
+    });
+
+    test('a configured Toolbox launcher is dropped, and the search runs as '
+        'if nothing were set', () async {
+      final launcher = macStudio(
+        p.join(root.path, 'Custom', 'Android Studio.app'),
+        version: '2025.1',
+        toolbox: true,
+      );
+      final studio = macStudio(
+        p.join(apps, 'Android Studio.app'),
+        version: '2024.1',
+      );
+      final lookup = await lookUp(settings: {'android-studio-dir': launcher});
+      expect(lookup.location!.home, studioJdkHome(studio, os: mac));
+      expect(lookup.skipped, [toolboxNote(launcher)]);
+    });
+
+    test('no JDK: the installs passed over still come back', () async {
+      final broken = macStudio(
+        p.join(apps, 'Android Studio.app'),
+        version: '2025.1',
+        works: false,
+      );
+      final lookup = await lookUp();
+      expect(lookup.location, isNull);
+      expect(lookup.skipped, [skippedNote(broken)]);
+    });
   });
 }

@@ -99,16 +99,22 @@ It returns a `JavaLookup`: `location`, the JDK, or null when none gives one, and
 
 This mirrors Flutter's `AndroidStudio.latestValid`:
 
-- **When `android-studio-dir` is set, only that install counts.** On Windows and Linux its version comes from a matching install record; on macOS, from the app's `Info.plist`.
+- **When `android-studio-dir` is set, only that install counts.** On Windows and Linux its version comes from a matching install record. On macOS it comes from the app's `Info.plist`, and the setting may name the `.app` bundle or its `Contents` folder. One exception, as in Flutter: on macOS, a JetBrains Toolbox launcher named there is dropped, and the search below runs as if nothing were set.
 - **Otherwise, the installs Flutter knows about:**
   - **Windows and Linux: install records.** These are the `.home` files Android Studio writes into its settings folders: `~/.AndroidStudio*` and `~/.cache/Google/AndroidStudio*`, plus `%LOCALAPPDATA%\Google\AndroidStudio*` on Windows. Each names an install folder, and the settings folder's name gives the version. When several records name one install, the newest version is kept.
   - **Linux also:** `/opt/android-studio` and `~/android-studio`.
   - **Windows:** only the records, as in Flutter. The default install folder isn't searched.
-  - **macOS:** only `Android Studio.app` in `/Applications` and `~/Applications`, with the version from its `Info.plist`.
-- **Newest first:** known versions before unknown ones, newest version first. Flutter has no rule for equal versions; Appstein puts a release before a Preview.
+  - **macOS,** as Flutter's `_allMacOS`, in this order:
+    1. every `Android Studio*.app` bundle in `/Applications`, then in `~/Applications`, at any depth. The search never looks inside an `.app` bundle and doesn't follow links to folders. Names are matched case-sensitively, so `Android Studio Preview.app` counts and a renamed `AS.app` doesn't;
+    2. every bundle Spotlight knows by Android Studio's bundle ID (`mdfind 'kMDItemCFBundleIdentifier="com.google.android.studio*"'`), unless the scan already found that exact path. If `mdfind` can't run or fails, this step adds nothing.
+
+    Each bundle's `Contents/Info.plist` is read with `/usr/bin/plutil -convert xml1 -o - <plist>`, which also reads the binary plists most apps ship, or as plain text when `plutil` can't run. A bundle whose plist has the `JetBrainsToolboxApp` key is a JetBrains Toolbox launcher, not an install. Flutter skips it, and so does Appstein, with a `skipped` line saying so. The real Toolbox install is found only through Spotlight, so with Spotlight indexing off, a Toolbox-only Mac has no Android Studio JDK, in Flutter and in doctor alike. The version is the plist's `CFBundleShortVersionString`. A Preview's `EAP AI-242.21829.142.2422.12358220` becomes 2024.2.2, from the four digits `2422`, as in Flutter.
+
+    `locateFlutterJava` takes the folders to search as `macAppFolders`, so the tests run this search in temporary folders on every OS.
+- **Newest first:** known versions before unknown ones, newest version first. Equal versions keep the install found first, because Flutter only replaces its choice with a strictly newer one. Folders are read in name order so that "found first" is the same on every machine; Flutter uses the file system's own order, which is alphabetical on NTFS and APFS. So on Windows and Linux a release's record (`AndroidStudio2025.3`) comes before a Preview's of the same version (`AndroidStudioPreview2025.3`). Among installs of unknown version, the folder whose path sorts last comes first, Flutter's rule for them.
 - **The bundled JDK must run.** For each install in turn, the bundled JDK is `jbr` (Android Studio 2022 and newer, or an unknown version) or `jre` (older), under `Contents/` on macOS. The first install whose `java -version` succeeds is chosen.
 - **Every install passed over is listed in `skipped`,** with the reason: no bundled JDK, a JDK that doesn't run, or a configured folder that doesn't exist. The Java check shows these lines whether or not it finds a JDK.
-- **JetBrains Toolbox installs are not searched.**
+- **On Windows and Linux, JetBrains Toolbox installs are found only through the `.home` records Android Studio writes,** as in Flutter.
 
 **A configured `android-studio-dir` that doesn't exist is an error.** Flutter stops with a tool error in that case, whatever JDK it would otherwise use. So `JavaCheck`, in [`java_check.dart`](../../packages/appstein_engine/lib/src/doctor/checks/java_check.dart), checks the setting before it looks for a JDK at all, and reports an error with the command to fix or clear it. See [doctor](doctor.md).
 
@@ -143,8 +149,8 @@ Flutter also reports an error when the platform or the build-tools are older tha
 
 The lookups don't copy every corner of Flutter yet. The list is in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md). For example:
 
-- **macOS Android Studio discovery is narrower than Flutter's.** It doesn't search `/Applications` for other `Android Studio*.app` names or subfolders, and doesn't use Spotlight, so a Mac with only a Preview app could get a different JDK than Flutter.
 - **A pin that names a channel** (`stable`) and that FVM doesn't have fails the version comparison with a confusing message.
 - FVM's own `cachePath` setting isn't read, and an invalid `FLUTTER_ROOT` is skipped silently.
 - **An empty `ANDROID_HOME`.** Flutter counts a variable that is set as defined, even when it is empty, and stops the search there. `HostEnvironment` treats an empty variable as unset everywhere, so Appstein goes on to `ANDROID_SDK_ROOT` and the default folder.
 - **`where` looks in the current folder first.** On Windows, Flutter finds `aapt` and `adb` with `where`, which searches the current folder before the PATH. `findAllExecutables` searches only the PATH.
+- **A configured Android Studio on Windows.** Flutter reads `android-studio-dir` only after it has listed `%LOCALAPPDATA%\Google`, and skips the setting when that folder is missing. That is a Flutter bug in a rare case, and Appstein doesn't copy it: it always uses the configured install, because the setting is the user's explicit choice.
