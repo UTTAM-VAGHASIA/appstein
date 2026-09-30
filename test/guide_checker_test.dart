@@ -62,6 +62,11 @@ void main() {
     expect(check('```text\n[x](missing.md) `packages/nope/`\n```\n'), isEmpty);
   });
 
+  test('a problem about a whole file has no line number', () {
+    expect('${const GuideProblem('a.md', null, 'x')}', 'a.md: x');
+    expect('${const GuideProblem('a.md', 3, 'x')}', 'a.md:3: x');
+  });
+
   test('covers the guide and every package README', () {
     File(p.join(repo.path, 'docs', 'guide', 'page.md')).writeAsStringSync('');
     expect(guideFiles(repo.path), [

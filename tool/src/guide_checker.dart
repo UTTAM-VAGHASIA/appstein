@@ -4,20 +4,21 @@ import 'package:path/path.dart' as p;
 
 /// A problem found in a Markdown file.
 final class GuideProblem {
-  /// Creates a problem at [line] of [file].
+  /// Creates a problem at [line] of [file]; [line] is null when the problem is about the whole file.
   const GuideProblem(this.file, this.line, this.message);
 
   /// The file, relative to the repo root.
   final String file;
 
-  /// The 1-based line.
-  final int line;
+  /// The 1-based line, or null for the whole file.
+  final int? line;
 
   /// What is wrong.
   final String message;
 
   @override
-  String toString() => '$file:$line: $message';
+  String toString() =>
+      line == null ? '$file: $message' : '$file:$line: $message';
 }
 
 final _link = RegExp(r'\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)');
@@ -112,3 +113,6 @@ List<String> guideFiles(String repoRoot) {
   }
   return files..sort();
 }
+
+/// [path] with forward slashes, the form every guide tool compares.
+String toPosix(String path) => p.split(path).join('/');
