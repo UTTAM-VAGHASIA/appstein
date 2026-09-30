@@ -41,6 +41,10 @@ void main() {
   RunResult javaVersion(String version) =>
       RunResult(exitCode: 0, stderr: 'openjdk version "$version" 2025-01-21');
 
+  const fixJdkDir =
+      'Run `flutter config --jdk-dir="<path to a JDK 17+>"`, or '
+      '`flutter config --jdk-dir=""` to remove the setting.';
+
   Future<CheckResult> run(Map<String, String> vars) => const JavaCheck().run(
     testContext(environment: fakeEnvironment(vars), runner: runner),
   );
@@ -177,5 +181,73 @@ void main() {
   test('error when there is no JDK at all', () async {
     final result = await run(settings({}));
     expect(result.status, CheckStatus.error);
+  }, skip: studioInstalledReason());
+
+  test('error when there is no JDK, still naming the Studio Flutter '
+      'skipped', () async {
+    final studio = fakeStudio(tempDir());
+    runner.when(javaIn(studioJdkHome(studio)), [
+      '-version',
+    ], const RunResult(exitCode: 1, stderr: 'Error: broken'));
+    final result = await run(settings({'android-studio-dir': studio}));
+    expect(result.status, CheckStatus.error);
+    expect(
+      result.summary,
+      'No JDK found. Android builds need JDK 17 or newer.',
+    );
+    expect(result.details, [
+      'Android Studio at $studio has a JDK that does not run; '
+          'Flutter skips it.',
+    ]);
+  });
+
+  test("error for an empty jdk-dir, which Flutter can't use", () async {
+    runner.when(javaIn('jdk 21'), ['-version'], javaVersion('21.0.2'));
+    final result = await run(
+      settings({'jdk-dir': ''}, {'JAVA_HOME': 'jdk 21'}),
+    );
+    expect(result.status, CheckStatus.error);
+    expect(
+      result.summary,
+      "Flutter's jdk-dir setting is empty, so Flutter can't find a JDK.",
+    );
+    expect(result.details, [
+      'Flutter treats the empty value as a JDK folder, and looks for '
+          'bin/java relative to the folder it runs in.',
+    ]);
+    expect(result.fixHint, fixJdkDir);
+  });
+
+  test('error for a jdk-dir that is not text', () async {
+    final file = File(p.join(settingsDir.path, '.flutter_settings'))
+      ..writeAsStringSync('{"jdk-dir": 17}');
+    final result = await run({
+      if (Platform.isWindows)
+        'APPDATA': settingsDir.path
+      else
+        'HOME': settingsDir.path,
+    });
+    expect(result.status, CheckStatus.error);
+    expect(result.summary, 'jdk-dir in ${file.path} is not text.');
+    expect(result.details, [
+      'Flutter stops with an error when it reads this setting.',
+    ]);
+    expect(result.fixHint, fixJdkDir);
+  });
+
+  test('a jdk-dir of null counts as unset', () async {
+    File(
+      p.join(settingsDir.path, '.flutter_settings'),
+    ).writeAsStringSync('{"jdk-dir": null}');
+    runner.when(javaIn('jdk 21'), ['-version'], javaVersion('21.0.2'));
+    final result = await run({
+      if (Platform.isWindows)
+        'APPDATA': settingsDir.path
+      else
+        'HOME': settingsDir.path,
+      'JAVA_HOME': 'jdk 21',
+    });
+    expect(result.status, CheckStatus.ok);
+    expect(result.summary, contains('JAVA_HOME'));
   }, skip: studioInstalledReason());
 }

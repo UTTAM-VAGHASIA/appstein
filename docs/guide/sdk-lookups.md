@@ -88,12 +88,12 @@ The FVM link and `flutter` on PATH are often symbolic links, or junctions on Win
 
 `locateFlutterJava` in [`java_locator.dart`](../../packages/appstein_engine/lib/src/android/java_locator.dart) returns the JDK Flutter uses, from the first of these that gives one (`JavaSource`):
 
-1. **`flutter config --jdk-dir`**, the `jdk-dir` setting.
+1. **`flutter config --jdk-dir`**, the `jdk-dir` setting. Any text counts, even empty text: Flutter then looks for `bin/java` relative to the folder it runs in, which fails. `flutter config --jdk-dir=""` removes the setting instead, and JSON `null` counts as unset. The Java check reports an empty value, or one that isn't text, as an error with the command to fix it.
 2. **Android Studio's bundled JDK.**
 3. **`JAVA_HOME`.**
 4. **`java` on PATH.**
 
-It returns null when none gives a JDK.
+It returns a `JavaLookup`: `location`, the JDK, or null when none gives one, and `skipped`, the Android Studio installs passed over on the way. `skipped` is filled either way, so the Java check can explain a missing JDK too.
 
 ### Which Android Studio
 
@@ -107,7 +107,7 @@ This mirrors Flutter's `AndroidStudio.latestValid`:
   - **macOS:** only `Android Studio.app` in `/Applications` and `~/Applications`, with the version from its `Info.plist`.
 - **Newest first:** known versions before unknown ones, newest version first. Flutter has no rule for equal versions; Appstein puts a release before a Preview.
 - **The bundled JDK must run.** For each install in turn, the bundled JDK is `jbr` (Android Studio 2022 and newer, or an unknown version) or `jre` (older), under `Contents/` on macOS. The first install whose `java -version` succeeds is chosen.
-- **Every install passed over is listed in `skipped`,** with the reason: no bundled JDK, a JDK that doesn't run, or a configured folder that doesn't exist. The Java check shows these lines.
+- **Every install passed over is listed in `skipped`,** with the reason: no bundled JDK, a JDK that doesn't run, or a configured folder that doesn't exist. The Java check shows these lines whether or not it finds a JDK.
 - **JetBrains Toolbox installs are not searched.**
 
 **A configured `android-studio-dir` that doesn't exist is an error.** Flutter stops with a tool error in that case, whatever JDK it would otherwise use. So `JavaCheck`, in [`java_check.dart`](../../packages/appstein_engine/lib/src/doctor/checks/java_check.dart), checks the setting before it looks for a JDK at all, and reports an error with the command to fix or clear it. See [doctor](doctor.md).

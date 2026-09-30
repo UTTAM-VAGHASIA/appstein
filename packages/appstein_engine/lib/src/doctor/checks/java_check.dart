@@ -17,6 +17,11 @@ final class JavaCheck implements DoctorCheck {
   /// The oldest JDK that current Android Gradle Plugin versions accept.
   static const minimumMajor = 17;
 
+  /// The fix for a `jdk-dir` setting Flutter can't use.
+  static const _fixJdkDir =
+      'Run `flutter config --jdk-dir="<path to a JDK $minimumMajor+>"`, or '
+      '`flutter config --jdk-dir=""` to remove the setting.';
+
   @override
   String get id => 'doctor.java';
 
@@ -42,20 +47,48 @@ final class JavaCheck implements DoctorCheck {
             '`flutter config --android-studio-dir ""`.',
       );
     }
-    final java = await locateFlutterJava(environment, settings, context.runner);
+    // Flutter uses any text in jdk-dir as the JDK folder, and stops with an
+    // error on anything else (`_findJavaHome` in `java.dart`).
+    final jdkDir = settings['jdk-dir'];
+    if (jdkDir != null && jdkDir is! String) {
+      return CheckResult.error(
+        'jdk-dir in ${flutterSettingsPath(environment)} is not text.',
+        details: const [
+          'Flutter stops with an error when it reads this setting.',
+        ],
+        fixHint: _fixJdkDir,
+      );
+    }
+    if (jdkDir == '') {
+      return const CheckResult.error(
+        "Flutter's jdk-dir setting is empty, so Flutter can't find a JDK.",
+        details: [
+          'Flutter treats the empty value as a JDK folder, and looks for '
+              'bin/java relative to the folder it runs in.',
+        ],
+        fixHint: _fixJdkDir,
+      );
+    }
+    final lookup = await locateFlutterJava(
+      environment,
+      settings,
+      context.runner,
+    );
+    final java = lookup.location;
     const pointFlutter =
         'Point Flutter at a working JDK $minimumMajor or '
         'newer: `flutter config --jdk-dir "<path to the JDK>"`.';
     if (java == null) {
-      return const CheckResult.error(
+      return CheckResult.error(
         'No JDK found. Android builds need JDK $minimumMajor or newer.',
+        details: lookup.skipped,
         fixHint:
             'Install JDK $minimumMajor or newer, then set JAVA_HOME or '
             'run `flutter config --jdk-dir "<path>"`.',
       );
     }
     final where = '${java.source.label} (${java.home ?? java.javaBinary})';
-    final found = ['Path: ${java.home ?? java.javaBinary}', ...java.skipped];
+    final found = ['Path: ${java.home ?? java.javaBinary}', ...lookup.skipped];
     final details = [
       ...found,
       'Flutter checks, in order: `flutter config --jdk-dir`, the newest '

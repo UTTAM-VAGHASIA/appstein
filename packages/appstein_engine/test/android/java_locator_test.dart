@@ -13,8 +13,11 @@ void main() {
 
   setUp(() => runner = FakeProcessRunner());
 
-  String javaIn(String home) =>
-      p.join(home, 'bin', Platform.isWindows ? 'java.exe' : 'java');
+  String javaIn(String home, [HostOs? os]) => p.join(
+    home,
+    'bin',
+    (os ?? HostOs.current) == HostOs.windows ? 'java.exe' : 'java',
+  );
 
   const java21 = RunResult(
     exitCode: 0,
@@ -47,24 +50,42 @@ void main() {
   Map<String, String> homeVars(String home) =>
       Platform.isWindows ? {'USERPROFILE': home} : {'HOME': home};
 
+  /// The JDK location alone, for tests that don't look at skipped installs.
+  Future<JavaLocation?> locate(
+    HostEnvironment environment,
+    Map<String, Object?> settings,
+  ) async => (await locateFlutterJava(environment, settings, runner)).location;
+
   test('flutter config --jdk-dir wins', () async {
-    final location = await locateFlutterJava(
-      fakeEnvironment({'JAVA_HOME': 'jh'}),
-      {'jdk-dir': 'configured'},
-      runner,
-    );
+    final location = await locate(fakeEnvironment({'JAVA_HOME': 'jh'}), {
+      'jdk-dir': 'configured',
+    });
     expect(location!.source, JavaSource.flutterConfig);
     expect(location.home, 'configured');
     expect(runner.calls, isEmpty);
   });
 
+  test('an empty jdk-dir still counts, as in Flutter', () async {
+    final location = await locate(fakeEnvironment({'JAVA_HOME': 'jh'}), {
+      'jdk-dir': '',
+    });
+    expect(location!.source, JavaSource.flutterConfig);
+    expect(location.home, '');
+    expect(location.javaBinary, javaIn(''));
+  });
+
+  test('a jdk-dir of JSON null counts as unset', () async {
+    final location = await locate(fakeEnvironment({'JAVA_HOME': 'jh'}), {
+      'jdk-dir': null,
+    });
+    expect(location!.source, JavaSource.javaHome);
+  }, skip: studioInstalledReason());
+
   test("Android Studio's JDK comes before JAVA_HOME", () async {
     final studio = workingStudio(tempDir());
-    final location = await locateFlutterJava(
-      fakeEnvironment({'JAVA_HOME': 'jh'}),
-      {'android-studio-dir': studio},
-      runner,
-    );
+    final location = await locate(fakeEnvironment({'JAVA_HOME': 'jh'}), {
+      'android-studio-dir': studio,
+    });
     expect(location!.source, JavaSource.androidStudio);
     expect(location.home, studioJdkHome(studio));
     expect(location.versionOutput, contains('21.0.6'));
@@ -72,26 +93,32 @@ void main() {
 
   test('then JAVA_HOME, then java on PATH', () async {
     expect(
-      (await locateFlutterJava(
-        fakeEnvironment({'JAVA_HOME': 'jh'}),
-        {},
-        runner,
-      ))!.source,
+      (await locate(fakeEnvironment({'JAVA_HOME': 'jh'}), {}))!.source,
       JavaSource.javaHome,
     );
     final bin = tempDir();
     fakeExecutable(bin, 'java');
-    final onPath = await locateFlutterJava(
+    final onPath = await locate(
       fakeEnvironment({'PATH': bin.path, 'PATHEXT': defaultPathExt}),
       {},
-      runner,
     );
     expect(onPath!.source, JavaSource.path);
   }, skip: studioInstalledReason());
 
-  test('returns null when there is no JDK at all', () async {
-    expect(await locateFlutterJava(fakeEnvironment({}), {}, runner), isNull);
+  test('finds no JDK when there is none', () async {
+    final lookup = await locateFlutterJava(fakeEnvironment({}), {}, runner);
+    expect(lookup.location, isNull);
+    expect(lookup.skipped, isEmpty);
   }, skip: studioInstalledReason());
+
+  test('no JDK: the Studio passed over is still reported', () async {
+    final studio = brokenStudio(tempDir());
+    final lookup = await locateFlutterJava(fakeEnvironment({}), {
+      'android-studio-dir': studio,
+    }, runner);
+    expect(lookup.location, isNull);
+    expect(lookup.skipped, [skippedNote(studio)]);
+  });
 
   test('parses the major version from java -version output', () {
     expect(parseJavaMajor('openjdk version "21.0.2" 2024-01-16'), 21);
@@ -111,10 +138,9 @@ void main() {
         p.join(localAppData, 'Google', 'AndroidStudio2025.1'),
       )..createSync(recursive: true);
       File(p.join(record.path, '.home')).writeAsStringSync('$studio\r\n');
-      final location = await locateFlutterJava(
+      final location = await locate(
         fakeEnvironment({'LOCALAPPDATA': localAppData}),
         {},
-        runner,
       );
       expect(location!.source, JavaSource.androidStudio);
       expect(location.home, studioJdkHome(studio));
@@ -133,11 +159,7 @@ void main() {
         'AndroidStudio2025.1',
         studio,
       );
-      final location = await locateFlutterJava(
-        fakeEnvironment({'HOME': home}),
-        {},
-        runner,
-      );
+      final location = await locate(fakeEnvironment({'HOME': home}), {});
       expect(location!.source, JavaSource.androidStudio);
       expect(location.home, studioJdkHome(studio));
     },
@@ -152,10 +174,9 @@ void main() {
       'AndroidStudio2025.1',
       'no such folder',
     );
-    final location = await locateFlutterJava(
+    final location = await locate(
       fakeEnvironment({...homeVars(home), 'JAVA_HOME': 'jh'}),
       {},
-      runner,
     );
     expect(location!.source, JavaSource.javaHome);
   }, skip: studioInstalledReason());
@@ -186,10 +207,9 @@ void main() {
         ]) {
           writeStudioRecord(google, folder, working);
         }
-        final location = await locateFlutterJava(
+        final location = await locate(
           fakeEnvironment({'LOCALAPPDATA': localAppData, 'JAVA_HOME': 'jh'}),
           {},
-          runner,
         );
         expect(location!.source, JavaSource.androidStudio);
         expect(location.home, studioJdkHome(working));
@@ -207,13 +227,13 @@ void main() {
         final working = workingStudio(root);
         writeStudioRecord(google, 'AndroidStudio2025.3.4', broken);
         writeStudioRecord(google, 'AndroidStudio2024.3', working);
-        final location = await locateFlutterJava(
+        final lookup = await locateFlutterJava(
           fakeEnvironment(homeVars(home)),
           {},
           runner,
         );
-        expect(location!.home, studioJdkHome(working));
-        expect(location.skipped, [skippedNote(broken)]);
+        expect(lookup.location!.home, studioJdkHome(working));
+        expect(lookup.skipped, [skippedNote(broken)]);
       },
       testOn: '!mac-os',
       skip: studioInstalledReason(),
@@ -230,13 +250,13 @@ void main() {
           'AndroidStudio2025.3.4',
           broken,
         );
-        final location = await locateFlutterJava(
+        final lookup = await locateFlutterJava(
           fakeEnvironment({...homeVars(home), 'JAVA_HOME': 'jh'}),
           {},
           runner,
         );
-        expect(location!.source, JavaSource.javaHome);
-        expect(location.skipped, [skippedNote(broken)]);
+        expect(lookup.location!.source, JavaSource.javaHome);
+        expect(lookup.skipped, [skippedNote(broken)]);
       },
       testOn: '!mac-os',
       skip: studioInstalledReason(),
@@ -256,11 +276,7 @@ void main() {
       records.forEach((folder, studio) {
         writeStudioRecord(google, folder, studio);
       });
-      final location = await locateFlutterJava(
-        fakeEnvironment(homeVars(home)),
-        {},
-        runner,
-      );
+      final location = await locate(fakeEnvironment(homeVars(home)), {});
       expect(location!.home, studioJdkHome(records['AndroidStudio2025.3.4']!));
     }, testOn: '!mac-os');
 
@@ -274,13 +290,13 @@ void main() {
         'AndroidStudio2025.3.4',
         newer,
       );
-      final location = await locateFlutterJava(
+      final lookup = await locateFlutterJava(
         fakeEnvironment({...homeVars(home), 'JAVA_HOME': 'jh'}),
         {'android-studio-dir': configured},
         runner,
       );
-      expect(location!.source, JavaSource.javaHome);
-      expect(location.skipped, [skippedNote(configured)]);
+      expect(lookup.location!.source, JavaSource.javaHome);
+      expect(lookup.skipped, [skippedNote(configured)]);
     });
 
     test('a Studio older than 2022 has its JDK in jre', () async {
@@ -295,11 +311,7 @@ void main() {
         'AndroidStudio2021.3',
         studio,
       );
-      final location = await locateFlutterJava(
-        fakeEnvironment(homeVars(home)),
-        {},
-        runner,
-      );
+      final location = await locate(fakeEnvironment(homeVars(home)), {});
       expect(location!.home, jre);
     }, testOn: '!mac-os');
 
@@ -308,13 +320,12 @@ void main() {
       () async {
         final programFiles = tempDir();
         workingStudio(Directory(p.join(programFiles.path, 'Android')));
-        final location = await locateFlutterJava(
+        final location = await locate(
           fakeEnvironment({
             'ProgramFiles': programFiles.path,
             'JAVA_HOME': 'jh',
           }),
           {},
-          runner,
         );
         expect(location!.source, JavaSource.javaHome);
       },

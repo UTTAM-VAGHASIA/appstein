@@ -34,7 +34,6 @@ final class JavaLocation {
     required this.source,
     this.home,
     this.versionOutput,
-    this.skipped = const [],
   });
 
   /// The `java` executable.
@@ -49,18 +48,34 @@ final class JavaLocation {
   /// What `java -version` printed, when the lookup already ran it, so callers
   /// need not run it again. Null when the lookup did not run it.
   final String? versionOutput;
+}
 
-  /// Why Flutter passed over Android Studio installs, one line each, newest
-  /// install first.
+/// The result of looking for the JDK Flutter uses: the JDK, when there is
+/// one, and the Android Studio installs passed over on the way.
+final class JavaLookup {
+  /// Creates a result.
+  const JavaLookup({this.location, this.skipped = const []});
+
+  /// The JDK Flutter would use, or null when it finds none.
+  final JavaLocation? location;
+
+  /// Why Flutter passed over Android Studio installs, one line each, in the
+  /// order they were tried. It is filled whether or not a JDK was found, so
+  /// a missing JDK can be explained too.
   final List<String> skipped;
 }
 
 /// Finds the JDK Flutter uses, in Flutter's own order (`_findJavaHome` in
 /// `flutter_tools/lib/src/android/java.dart`, Flutter 3.47):
-/// 1. `flutter config --jdk-dir`;
+/// 1. `flutter config --jdk-dir`, whenever it is text, even empty text, as
+///    in Flutter (an empty home gives a relative `bin/java` that won't run);
 /// 2. the JDK bundled with Android Studio;
 /// 3. JAVA_HOME;
 /// 4. `java` on PATH.
+///
+/// A `jdk-dir` that is JSON null counts as unset. Any other non-text value
+/// is skipped here too; `JavaCheck` reports it, because Flutter stops with
+/// an error on it.
 ///
 /// Android Studio is chosen as Flutter's `AndroidStudio.latestValid` chooses
 /// it:
@@ -72,19 +87,21 @@ final class JavaLocation {
 ///   and `~/Applications` on macOS.
 ///
 /// An install counts only if its bundled `java -version`, run with [runner],
-/// succeeds. The installs passed over are listed in [JavaLocation.skipped].
+/// succeeds. The installs passed over are listed in [JavaLookup.skipped].
 /// JetBrains Toolbox installs are not searched.
-Future<JavaLocation?> locateFlutterJava(
+Future<JavaLookup> locateFlutterJava(
   HostEnvironment environment,
   Map<String, Object?> settings,
   ProcessRunner runner,
 ) async {
   final configured = settings['jdk-dir'];
-  if (configured is String && configured.isNotEmpty) {
-    return JavaLocation(
-      javaBinary: _javaIn(configured, environment),
-      source: JavaSource.flutterConfig,
-      home: configured,
+  if (configured is String) {
+    return JavaLookup(
+      location: JavaLocation(
+        javaBinary: _javaIn(configured, environment),
+        source: JavaSource.flutterConfig,
+        home: configured,
+      ),
     );
   }
   final skipped = <String>[];
@@ -106,11 +123,13 @@ Future<JavaLocation?> locateFlutterJava(
     }
     final result = await runner.run(java, ['-version']);
     if (result.ok) {
-      return JavaLocation(
-        javaBinary: java,
-        source: JavaSource.androidStudio,
-        home: home,
-        versionOutput: '${result.stderr}\n${result.stdout}',
+      return JavaLookup(
+        location: JavaLocation(
+          javaBinary: java,
+          source: JavaSource.androidStudio,
+          home: home,
+          versionOutput: '${result.stderr}\n${result.stdout}',
+        ),
         skipped: skipped,
       );
     }
@@ -121,21 +140,22 @@ Future<JavaLocation?> locateFlutterJava(
   }
   final javaHome = environment.variable('JAVA_HOME');
   if (javaHome != null) {
-    return JavaLocation(
-      javaBinary: _javaIn(javaHome, environment),
-      source: JavaSource.javaHome,
-      home: javaHome,
+    return JavaLookup(
+      location: JavaLocation(
+        javaBinary: _javaIn(javaHome, environment),
+        source: JavaSource.javaHome,
+        home: javaHome,
+      ),
       skipped: skipped,
     );
   }
   final onPath = findExecutable('java', environment);
-  return onPath == null
-      ? null
-      : JavaLocation(
-          javaBinary: onPath,
-          source: JavaSource.path,
-          skipped: skipped,
-        );
+  return JavaLookup(
+    location: onPath == null
+        ? null
+        : JavaLocation(javaBinary: onPath, source: JavaSource.path),
+    skipped: skipped,
+  );
 }
 
 /// The major Java version in `java -version` output: 21 for "21.0.2", and 8
