@@ -129,3 +129,39 @@ RegeneratedPage regenerate(
     const [],
   );
 }
+
+/// [markdown] with the body of every generated section removed and LF line
+/// endings, to compare two versions of a page for the stale-page check
+/// (spec §19.6): a page whose only change is inside its sections strips to
+/// the same text. The markers stay, and markers inside code fences are left
+/// alone, as in [regenerate]. Any section name is accepted. Null when the
+/// markers are malformed, because the sections can't be told apart from
+/// the hand-written text then.
+String? stripGeneratedBodies(String markdown) {
+  final out = <String>[];
+  final fences = FenceTracker();
+  String? open;
+  for (final line in markdown.replaceAll('\r\n', '\n').split('\n')) {
+    final trimmed = line.trim();
+    if (open == null) {
+      out.add(line);
+      if (fences.next(line) != FenceLine.prose) continue;
+      final start = _start.firstMatch(trimmed);
+      if (start != null) {
+        open = start.group(1);
+      } else if (_end.hasMatch(trimmed)) {
+        return null;
+      }
+      continue;
+    }
+    final end = _end.firstMatch(trimmed);
+    if (end == null) {
+      if (_start.hasMatch(trimmed)) return null;
+      continue;
+    }
+    if (end.group(1) != open) return null;
+    out.add(line);
+    open = null;
+  }
+  return open == null ? out.join('\n') : null;
+}

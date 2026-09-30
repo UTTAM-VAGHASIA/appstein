@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
 
 /// Builds the parts of a Flutter SDK folder that Appstein reads, at [root].
@@ -40,3 +41,24 @@ String createFakeSdk(
   }
   return root;
 }
+
+/// Variables that make [home] the user's home folder, and the folder FVM's
+/// global settings file lives under, for this OS (see [fvmSettingsFile]).
+Map<String, String> fvmHomeVars(String home) => switch (HostOs.current) {
+  HostOs.windows => {'USERPROFILE': home, 'APPDATA': home},
+  HostOs.macos => {'HOME': home},
+  HostOs.linux => {'HOME': home, 'XDG_CONFIG_HOME': home},
+};
+
+/// Where FVM's global settings file is, with the variables of
+/// [fvmHomeVars] for [home].
+String fvmSettingsFile(String home) => switch (HostOs.current) {
+  HostOs.windows || HostOs.linux => p.join(home, 'fvm', '.fvmrc'),
+  HostOs.macos => p.join(
+    home,
+    'Library',
+    'Application Support',
+    'fvm',
+    '.fvmrc',
+  ),
+};

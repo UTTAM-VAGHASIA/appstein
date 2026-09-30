@@ -47,4 +47,37 @@ void main() {
       isNull,
     );
   }, testOn: '!windows');
+
+  test('findAllExecutables lists every match, in PATH order', () {
+    final first = tempDir();
+    final second = tempDir();
+    final a = fakeExecutable(first, 'mytool');
+    final b = fakeExecutable(second, 'mytool');
+    final separator = Platform.isWindows ? ';' : ':';
+    final env = fakeEnvironment({
+      'PATH': '${second.path}$separator${first.path}',
+      'PATHEXT': defaultPathExt,
+    });
+    expect(findAllExecutables('mytool', env), [b, a]);
+    expect(findExecutable('mytool', env), b);
+  });
+
+  test('findAllExecutables is empty when the tool is missing', () {
+    final env = fakeEnvironment({
+      'PATH': tempDir().path,
+      'PATHEXT': defaultPathExt,
+    });
+    expect(findAllExecutables('mytool', env), isEmpty);
+  });
+
+  test('on Windows, findAllExecutables lists each PATHEXT match in a '
+      'folder', () {
+    final dir = tempDir();
+    final cmd = File(p.join(dir.path, 'mytool.cmd'))
+      ..writeAsStringSync('@echo off');
+    final bat = File(p.join(dir.path, 'mytool.bat'))
+      ..writeAsStringSync('@echo off');
+    final env = fakeEnvironment({'PATH': dir.path, 'PATHEXT': '.BAT;.CMD'});
+    expect(findAllExecutables('mytool', env), [bat.path, cmd.path]);
+  }, testOn: 'windows');
 }

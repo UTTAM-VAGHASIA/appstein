@@ -1,5 +1,10 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
 import 'coverage.dart';
 import 'generated_docs.dart';
+import 'generated_sections.dart';
 import 'git_repo.dart';
 import 'guide_checker.dart';
 import 'stale_check.dart';
@@ -10,7 +15,9 @@ import 'stale_check.dart';
 /// - the coverage map;
 /// - generated sections up to date;
 /// - with [since], the stale-page check against the merge base of [since]
-///   and HEAD.
+///   and HEAD. A guide page counts as changed only when its hand-written
+///   text changed: a page whose only change is inside generated sections
+///   doesn't explain anything new.
 ///
 /// Throws [GitException] when [repoRoot] isn't a git repo.
 Future<List<GuideProblem>> checkGuide(String repoRoot, {String? since}) async {
@@ -29,7 +36,17 @@ Future<List<GuideProblem>> checkGuide(String repoRoot, {String? since}) async {
       problems.addAll(
         checkStale(
           map: covers.map,
-          changed: git.changedSince(since),
+          changed: [
+            for (final file in git.changedSince(since))
+              if (!_onlyGeneratedChanged(
+                repoRoot,
+                git,
+                since,
+                file,
+                covers.map,
+              ))
+                file,
+          ],
           messages: git.messagesSince(since),
         ),
       );
@@ -50,4 +67,31 @@ Future<List<GuideProblem>> checkGuide(String repoRoot, {String? since}) async {
         ),
     ]);
   return problems;
+}
+
+/// Whether [file] is a guide page whose text is the same as at the merge
+/// base of [since], once generated section bodies are left out and line
+/// endings are made LF. Such a page changed only where `gen_docs` writes.
+/// A page that is new, deleted, unreadable or has broken markers counts as
+/// changed.
+bool _onlyGeneratedChanged(
+  String repoRoot,
+  GitRepo git,
+  String since,
+  String file,
+  CoverMap map,
+) {
+  if (!map.pages.containsKey(file)) return false;
+  final current = File(p.joinAll([repoRoot, ...file.split('/')]));
+  if (!current.existsSync()) return false;
+  final base = git.fileAt(since, file);
+  if (base == null) return false;
+  final String text;
+  try {
+    text = current.readAsStringSync();
+  } on FileSystemException {
+    return false;
+  }
+  final stripped = stripGeneratedBodies(text);
+  return stripped != null && stripped == stripGeneratedBodies(base);
 }

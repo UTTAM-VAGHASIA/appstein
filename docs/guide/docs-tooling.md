@@ -50,6 +50,7 @@ The details, from [`coverage.dart`](../../tool/src/coverage.dart):
 With `--since <rev>`, the check also looks for pages that fell behind. From [`git_repo.dart`](../../tool/src/git_repo.dart) and [`stale_check.dart`](../../tool/src/stale_check.dart):
 
 - **What counts as changed:** every file that differs between the merge base of `<rev>` and HEAD, and the working tree. That includes committed, staged, unstaged and untracked (but not ignored) changes. A rename counts as both its old and its new path, so moving a file trips the pages of both places.
+- **A guide page must change in its own words.** A page counts as changed only when its text differs from the merge base's copy with every generated section body left out and line endings ignored. So a page that only `gen_docs` rewrote doesn't clear the check for the files it covers: a regenerated fact isn't a sign that someone read the hand-written text around it. A page that is new since the merge base, deleted, unreadable, or has broken markers counts as changed. `stripGeneratedBodies` in [`generated_sections.dart`](../../tool/src/generated_sections.dart) removes the bodies, and `GitRepo.fileAt` reads the merge base's copy.
 - **The rule:** each changed file that a page covers needs one of its covering pages in the change too, or a `Docs-Checked` trailer naming one of them.
 - **Trailers** are read from the commit messages between the merge base and HEAD, so a trailer counts once it is committed.
 
@@ -220,7 +221,6 @@ Any edit after step 3, such as a review fix, puts the graph behind again, and th
 - The check proves that a page was touched or confirmed, not that it is good. A one-word edit satisfies it. Review still matters.
 - It can't tell whether hand-written text is true. Only the generated sections are right by construction, which is why facts the code knows are generated.
 - Links are checked to the file, not to the heading after `#`.
-- **A regenerated section counts as the page changing.** When a change alters a fact that `gen_docs` writes, the page's diff clears the stale check for every file that page covers. Read the page's hand-written text too.
 - **The check looks at the whole range at once.** One page edit or one `Docs-Checked` trailer anywhere in a pull request clears every matching change in it, in any commit. Only the local hook checks commit by commit, because it runs with `--since HEAD~1`.
 - **Trailers are read from every line of every commit message in the range**, not only from the trailer block at the end. A squash merge writes one new message, so it must keep the `Docs-Checked` lines, or the check on the push to `main` fails.
 - **A bad trailer can't be fixed with a new commit.** A `Docs-Checked` line that names no guide page or has no reason fails CI. The bad line stays in the range, so once the commit is pushed the only fix is to reword that commit, which rewrites the branch's history.

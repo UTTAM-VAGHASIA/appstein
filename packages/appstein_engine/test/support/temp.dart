@@ -32,7 +32,10 @@ String fakeExecutable(Directory dir, String name, {String output = 'fake'}) {
 }
 
 /// A [HostEnvironment] with only [variables], for the real OS unless [os] is
-/// given. Pass a fake [os] only to tests that touch no files.
+/// given. Pass a fake [os] only to tests that touch no files, or whose files
+/// don't depend on the real OS: the macOS Android Studio tests lay out
+/// their bundles with `fakeStudio(os: HostOs.macos)` and pass the folders
+/// to search, so they run on every OS.
 HostEnvironment fakeEnvironment(
   Map<String, String> variables, {
   HostOs? os,

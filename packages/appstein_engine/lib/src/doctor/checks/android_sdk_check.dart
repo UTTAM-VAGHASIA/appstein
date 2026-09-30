@@ -1,15 +1,21 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:pub_semver/pub_semver.dart';
 
+import '../../android/android_sdk_contents.dart';
 import '../../android/android_sdk_locator.dart';
 import '../../android/flutter_settings.dart';
+import '../../host/executable_finder.dart';
+import '../../host/file_links.dart';
 import '../../host/host_environment.dart';
 import '../doctor_check.dart';
 
-/// Checks the Android SDK: build-tools, including `zipalign` for the 16 KB
-/// page-size check, and `platform-tools`.
+/// Checks the Android SDK as Flutter reads it: the newest platform, the
+/// build-tools Flutter pairs with it, `zipalign` in those build-tools for
+/// the 16 KB page-size check, and `platform-tools`.
+///
+/// The summary names the platform and build-tools in the words
+/// `flutter doctor -v` uses, so the two can be compared.
 final class AndroidSdkCheck implements DoctorCheck {
   /// Creates the check.
   const AndroidSdkCheck();
@@ -19,6 +25,11 @@ final class AndroidSdkCheck implements DoctorCheck {
 
   @override
   String get title => 'Android SDK';
+
+  static const _pairing =
+      'Flutter pairs the newest platform with the newest build-tools of the '
+      'same major version, previews included, or else with the newest '
+      'build-tools.';
 
   @override
   Future<CheckResult> run(DoctorContext context) async {
@@ -32,24 +43,50 @@ final class AndroidSdkCheck implements DoctorCheck {
             'run `flutter config --android-sdk "<path>"` or set ANDROID_HOME.',
       );
     }
-    final details = ['Path: $sdk'];
-    final buildTools = _newestBuildTools(sdk);
-    if (buildTools == null) {
+    final contents = readAndroidSdkContents(sdk);
+    final details = [
+      'Path: $sdk',
+      if (contents.ignoredPlatforms.isNotEmpty)
+        'Flutter ignores these platform folders, because it finds no API '
+            'level in them: ${contents.ignoredPlatforms.join(', ')}.',
+    ];
+    if (contents.buildTools.isEmpty) {
       return CheckResult.error(
         'The Android SDK has no build-tools.',
         details: details,
         fixHint:
-            'Install the latest build-tools in Android Studio '
-            '(SDK Manager, SDK Tools tab).',
+            'Install build-tools with `sdkmanager "build-tools;<version>"`, '
+            'or in Android Studio (SDK Manager, SDK Tools tab).',
       );
     }
+    final platform = contents.latestPlatform;
+    final buildTools = contents.buildToolsForLatest;
+    if (platform == null || buildTools == null) {
+      return CheckResult.error(
+        "The Android SDK has no platforms, so Flutter can't build for "
+        'Android.',
+        details: details,
+        fixHint:
+            'Install a platform with '
+            '`sdkmanager "platforms;android-<API level>"`, or in Android '
+            'Studio (SDK Manager, SDK Platforms tab).',
+      );
+    }
+    details.add(_pairing);
+    final pair = 'platform ${platform.name}, build-tools ${buildTools.text}';
     final problems = <String>[];
+    final toolsDir = p.join(sdk, 'build-tools', buildTools.text);
     final zipalign = environment.os == HostOs.windows
         ? 'zipalign.exe'
         : 'zipalign';
-    if (!File(p.join(buildTools.path, zipalign)).existsSync()) {
+    if (!Directory(toolsDir).existsSync()) {
       problems.add(
-        'build-tools ${buildTools.version} has no zipalign, so the '
+        'build-tools/${buildTools.text} is not a folder, but Flutter still '
+        'picks it. Remove it, or reinstall build-tools ${buildTools.text}.',
+      );
+    } else if (!File(p.join(toolsDir, zipalign)).existsSync()) {
+      problems.add(
+        'build-tools ${buildTools.text} has no zipalign, so the '
         '16 KB page-size check will be skipped.',
       );
     }
@@ -59,40 +96,42 @@ final class AndroidSdkCheck implements DoctorCheck {
         'installed on devices.',
       );
     }
+    details.addAll(_adbConflicts(sdk, environment));
     if (problems.isNotEmpty) {
       return CheckResult.warning(
-        'Android SDK with build-tools ${buildTools.version}, but with gaps',
+        '$pair, but with gaps',
         details: [...details, ...problems],
         fixHint:
             'Install the missing parts in Android Studio '
             '(SDK Manager, SDK Tools tab).',
       );
     }
-    return CheckResult.ok(
-      'Android SDK with build-tools ${buildTools.version}',
-      details: details,
-    );
+    return CheckResult.ok(pair, details: details);
   }
 
-  /// The newest stable build-tools, or the newest preview when there is no
-  /// stable one.
-  ({Version version, String path})? _newestBuildTools(String sdk) {
-    final dir = Directory(p.join(sdk, 'build-tools'));
-    if (!dir.existsSync()) return null;
-    final all = <({Version version, String path})>[];
-    for (final entry in dir.listSync().whereType<Directory>()) {
-      try {
-        all.add((
-          version: Version.parse(p.basename(entry.path)),
-          path: entry.path,
-        ));
-      } on FormatException {
-        continue;
+  /// Every distinct `adb`, as detail lines, when there is more than one:
+  /// the SDK's own (`cmdline-tools` first, then `platform-tools`, as in
+  /// Flutter's `getPlatformToolsPath`) and each one on PATH, with links
+  /// resolved. Flutter shows the same list as its "Multiple adb binaries
+  /// found" hint. Empty when there is one or none.
+  static List<String> _adbConflicts(String sdk, HostEnvironment environment) {
+    final name = environment.os == HostOs.windows ? 'adb.exe' : 'adb';
+    final found = <String>{};
+    for (final folder in ['cmdline-tools', 'platform-tools']) {
+      final adb = p.join(sdk, folder, name);
+      if (File(adb).existsSync()) {
+        found.add(resolveLinks(adb));
+        break;
       }
     }
-    if (all.isEmpty) return null;
-    all.sort((a, b) => a.version.compareTo(b.version));
-    final stable = all.where((b) => !b.version.isPreRelease);
-    return stable.isNotEmpty ? stable.last : all.last;
+    for (final adb in findAllExecutables('adb', environment)) {
+      found.add(resolveLinks(adb));
+    }
+    if (found.length < 2) return const [];
+    return [
+      'More than one adb was found. They can conflict, and devices may not '
+          'be detected:',
+      for (final adb in found) '- $adb',
+    ];
   }
 }

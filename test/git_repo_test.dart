@@ -89,4 +89,18 @@ void main() {
     expect(fromHook.files(), contains('packages/a/lib/a.dart'));
     expect(fromHook.files(), isNot(contains('other.txt')));
   });
+
+  test('fileAt() reads a file at the merge base, or null when it was not '
+      'there', () {
+    writeFile(repo, 'docs/guide/a b ë.md', '# Spaced\r\n');
+    runGit(repo, ['add', '.']);
+    runGit(repo, ['commit', '-q', '-m', 'spaced']);
+    runGit(repo, ['switch', '-q', '-c', 'feature']);
+    writeFile(repo, 'docs/guide/README.md', '# Changed\n');
+    runGit(repo, ['add', '.']);
+    runGit(repo, ['commit', '-q', '-m', 'change']);
+    expect(git.fileAt('main', 'docs/guide/README.md'), '# Guide\n');
+    expect(git.fileAt('main', 'docs/guide/a b ë.md'), '# Spaced\r\n');
+    expect(git.fileAt('main', 'docs/guide/new.md'), isNull);
+  });
 }

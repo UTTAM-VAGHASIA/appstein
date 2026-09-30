@@ -34,6 +34,7 @@ final class SdkLocation {
     required this.source,
     this.fvmVersion,
     this.unmetFvmPin,
+    this.notes = const [],
   });
 
   /// The SDK folder (the one that contains `bin/flutter`).
@@ -47,10 +48,14 @@ final class SdkLocation {
   /// another way; see [unmetFvmPin] for a pin that such an SDK stands in for.
   final String? fvmVersion;
 
-  /// The version the project pins with FVM when FVM doesn't have it
-  /// installed, so this SDK was found another way. `SdkInfo.fvmVersion` takes
-  /// this value when the SDK's version matches the pin.
+  /// The pin the project sets with FVM when FVM doesn't have it installed,
+  /// so this SDK was found another way. `SdkInfo.fvmVersion` takes this
+  /// value when the SDK meets the pin.
   final String? unmetFvmPin;
+
+  /// Notes about what the lookup passed over on the way, such as a
+  /// FLUTTER_ROOT that isn't an SDK. The Flutter check shows them.
+  final List<String> notes;
 }
 
 /// The result of looking for a project's Flutter SDK: a location, or a
@@ -78,27 +83,34 @@ final class SdkLookup {
 /// Finds the Flutter SDK a project uses, in the same order a developer's own
 /// tools would:
 /// 1. the project's FVM pin (the `.fvm/flutter_sdk` link, else FVM's cache,
-///    which is `FVM_CACHE_PATH` or `~/fvm`);
+///    found by [fvmCacheFolder]);
 /// 2. the FLUTTER_ROOT environment variable;
 /// 3. the `flutter` command on PATH.
 ///
-/// A pin states which version the project needs, and FVM is only one way to
-/// install it. When the project pins a version that FVM doesn't have, steps 2
-/// and 3 still run, and an SDK they find records the unmet pin in
-/// [SdkLocation.unmetFvmPin] so the caller can check its version. Only when
-/// neither finds an SDK does the lookup fail, saying the pinned version is not
-/// installed.
+/// A pin states which Flutter the project needs, and FVM is only one way to
+/// install it. When the project pins one that FVM doesn't have, steps 2 and
+/// 3 still run, and an SDK they find records the unmet pin in
+/// [SdkLocation.unmetFvmPin]; the caller then checks that the SDK meets it.
+/// A version pin (`3.47.5`, or `3.24.0@beta`, whose version is `3.24.0`) is
+/// met by that version; a channel pin (`stable`) by an SDK on that channel.
+/// Only when neither step finds an SDK does the lookup fail, naming every
+/// source it tried.
 ///
 /// The pin is looked up in the project folder and its parents, as FVM does.
 /// FLUTTER_ROOT is preferred over PATH even when its version differs from
-/// the pin; the caller then reports the mismatch. A pin that names a channel
-/// (`stable`) is never compared with an SDK's version.
+/// the pin; the caller then reports the mismatch. A FLUTTER_ROOT that isn't
+/// an SDK is skipped with a note: Flutter's own launcher scripts set it
+/// themselves, so a wrong value can only mislead this lookup.
 final class FlutterSdkLocator {
   /// Creates a locator for [environment].
   const FlutterSdkLocator(this.environment);
 
   /// The machine to look on.
   final HostEnvironment environment;
+
+  static const _installHint =
+      'Install Flutter (https://docs.flutter.dev/get-started/install), or '
+      'pin a version in the project with `fvm use <version>`.';
 
   /// Finds the SDK for [projectRoot], or for no project when it is null.
   SdkLookup locate({String? projectRoot}) {
@@ -120,14 +132,21 @@ final class FlutterSdkLocator {
       }
     }
     final unmetVersion = unmetPin?.version;
+    final notes = <String>[];
     final flutterRoot = environment.variable('FLUTTER_ROOT');
-    if (flutterRoot != null && _isSdk(flutterRoot)) {
-      return SdkLookup.found(
-        SdkLocation(
-          root: flutterRoot,
-          source: SdkSource.flutterRoot,
-          unmetFvmPin: unmetVersion,
-        ),
+    if (flutterRoot != null) {
+      if (_isSdk(flutterRoot)) {
+        return SdkLookup.found(
+          SdkLocation(
+            root: flutterRoot,
+            source: SdkSource.flutterRoot,
+            unmetFvmPin: unmetVersion,
+          ),
+        );
+      }
+      notes.add(
+        'FLUTTER_ROOT is set to $flutterRoot, which is not a Flutter SDK, so '
+        'it was ignored.',
       );
     }
     final flutter = findExecutable('flutter', environment);
@@ -140,30 +159,29 @@ final class FlutterSdkLocator {
             root: root,
             source: SdkSource.path,
             unmetFvmPin: unmetVersion,
+            notes: notes,
           ),
         );
       }
     }
-    if (unmetPin != null) {
-      return SdkLookup.failed(
-        'The project pins Flutter ${unmetPin.version} with FVM '
-            '(${unmetPin.configPath}), but that version is not installed.',
-        'Run `fvm install ${unmetPin.version}` in the project folder.',
-      );
-    }
-    const installHint =
-        'Install Flutter (https://docs.flutter.dev/get-started/install), or '
-        'pin a version in the project with `fvm use <version>`.';
-    if (flutter != null) {
-      return SdkLookup.failed(
-        '`flutter` on PATH ($flutter) is not inside a Flutter SDK folder.',
-        installHint,
-      );
-    }
-    return const SdkLookup.failed(
-      'No Flutter SDK found: the project has no FVM pin, FLUTTER_ROOT is not '
-      'set, and `flutter` is not on PATH.',
-      installHint,
+    final tried = [
+      if (unmetPin != null)
+        "the project's FVM pin (${describeFvmPin(unmetPin.version)}, from "
+            '${unmetPin.configPath}, not installed)'
+      else if (projectRoot != null)
+        'no FVM pin in the project',
+      if (flutterRoot == null)
+        'FLUTTER_ROOT (not set)'
+      else
+        'FLUTTER_ROOT (set to $flutterRoot, not an SDK)',
+      if (flutter == null)
+        '`flutter` on PATH (not found)'
+      else
+        '`flutter` on PATH (found at $flutter, not inside an SDK)',
+    ];
+    return SdkLookup.failed(
+      'No Flutter SDK found. Tried: ${tried.join(', ')}.',
+      unmetPin != null ? fvmInstallHint(unmetPin.version) : _installHint,
     );
   }
 
@@ -174,8 +192,8 @@ final class FlutterSdkLocator {
   /// bump leaves the link on the old version. A link whose SDK reports a
   /// version other than the pin is skipped, and FVM's cache is tried next.
   /// A link is kept when its SDK can't be read (so the caller reports it as
-  /// not set up), and when the pin is a channel such as `stable`, which can't
-  /// be compared with a version.
+  /// not set up), and when the pin has no version to compare: a bare channel
+  /// such as `stable`, or a git reference.
   SdkLocation? _locateFvm(FvmPin pin) {
     final link = p.join(pin.pinDirectory, '.fvm', 'flutter_sdk');
     if (_isSdk(link) && !_isStaleLink(link, pin)) {
@@ -185,10 +203,7 @@ final class FlutterSdkLocator {
         fvmVersion: pin.version,
       );
     }
-    final home = environment.homeDir;
-    final cache =
-        environment.variable('FVM_CACHE_PATH') ??
-        (home == null ? null : p.join(home, 'fvm'));
+    final cache = fvmCacheFolder(pin, environment);
     if (cache != null) {
       final root = p.join(cache, 'versions', pin.version);
       if (_isSdk(root)) {
@@ -203,13 +218,15 @@ final class FlutterSdkLocator {
   }
 
   bool _isStaleLink(String link, FvmPin pin) {
+    final version = pin.flutterVersion;
+    if (version == null) return false;
     try {
-      Version.parse(pin.version);
+      Version.parse(version);
     } on FormatException {
       return false;
     }
     try {
-      return readSdkVersions(link).flutter != pin.version;
+      return readSdkVersions(link).flutter != version;
     } on SdkNotSetUpException {
       return false;
     } on FormatException {

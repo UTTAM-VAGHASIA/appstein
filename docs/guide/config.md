@@ -17,7 +17,7 @@ Two packages share the work:
 
 ## Loading
 
-- **`loadConfig(projectRoot)`** reads `appstein.yaml` from the project folder. It returns **null when the file doesn't exist**: that isn't an error, it means the project isn't set up with Appstein yet. A file that exists but can't be read (not UTF-8, or locked) is a `ConfigException`.
+- **`loadConfig(projectRoot)`** reads `appstein.yaml` from the project folder. It returns **null when the file doesn't exist**: that isn't an error, it means the project isn't set up with Appstein yet. A file that exists but can't be read (not UTF-8, or locked) is a `ConfigException` without a line, whose message gives the reason, in the OS's words when it gave any ("Access is denied."; see [running-tools](running-tools.md#fileerrorreason)).
 - **`parseConfig(content)`** parses and validates the text. **Every key has a default, so an empty file is valid**, and so is a file with only some sections. A key or section with no value (`packs:` and nothing under it) also takes its default.
 
 The parser reads each section with small helpers that check the type of each value, so every error points at the value that is wrong.

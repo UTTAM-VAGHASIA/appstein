@@ -22,6 +22,12 @@ Doctor and the SDK lookups read environment variables, search the PATH and run t
 - **On Windows** it tries each extension in `PATHEXT` in order (`.COM;.EXE;.BAT;.CMD` when the variable isn't set). So `findExecutable('fvm', …)` finds `fvm.bat`. A name that already ends in one of those extensions is tried as it is.
 - **Elsewhere** the file must have an execute bit, as for a shell. A file without one is passed over.
 
+### `findAllExecutables`
+
+`findAllExecutables` returns every match instead of the first, in the order a shell tries them: PATH order, and on Windows the `PATHEXT` order inside one folder. Its first entry is what `findExecutable` returns. The Android SDK lookup uses it, because Flutter tries every `aapt` and every `adb` on the PATH, not only the first (see [sdk-lookups](sdk-lookups.md#the-android-sdk)).
+
+Flutter lists them with `where` on Windows, which also looks in the current folder before the PATH. `findAllExecutables` doesn't, for the same reason `pathEntries` drops empty entries: a tool is never "found" just because it sits in the folder you ran Appstein from.
+
 ## `ProcessRunner` and `SystemProcessRunner`
 
 [`process_runner.dart`](../../packages/appstein_engine/lib/src/host/process_runner.dart) holds the interface, `ProcessRunner`, and the real implementation, `SystemProcessRunner`. Engine code only ever sees the interface, so tests pass a fake.
@@ -69,3 +75,7 @@ The lookups need it because tools are often installed as links: FVM's `.fvm/flut
 ## Testing code that uses these
 
 Tests pass a `fakeEnvironment` and a `FakeProcessRunner` instead of the real ones, and use real temporary folders for files. The runner itself is tested with real processes, including a script whose child keeps the pipes open. [testing](testing.md) explains the helpers.
+
+## `fileErrorReason`
+
+[`file_errors.dart`](../../packages/appstein_engine/lib/src/host/file_errors.dart) turns a `FileSystemException` into the reason a message should show: the operating system's own words when it gave any, such as "Access is denied." for a locked file on Windows or "Permission denied" elsewhere, or else Dart's message, such as the one for a file that isn't valid UTF-8, where there is no OS error. Every file error the engine reports goes through it: `appstein.yaml`, `pubspec.yaml`, the FVM pin and settings, and Flutter's version file. It is used only inside the engine, so the barrel doesn't export it.

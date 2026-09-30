@@ -63,4 +63,19 @@ void main() {
       expect(result.fixHint, isNot(contains('bug in Appstein')));
     },
   );
+
+  test('an appstein.yaml that cannot be read gets a fix without a '
+      'position', () async {
+    File(
+      p.join(project.path, 'appstein.yaml'),
+    ).writeAsBytesSync([0x61, 0x3a, 0x20, 0xff, 0xfe, 0x0a]);
+    final result = await run();
+    expect(result.status, CheckStatus.error);
+    expect(result.summary, contains('Could not read appstein.yaml'));
+    expect(
+      result.fixHint,
+      'Make sure appstein.yaml is a readable UTF-8 text file with valid '
+      'YAML.',
+    );
+  });
 }

@@ -36,10 +36,42 @@ void main() {
     expect(
       result.details,
       contains(
-        'The project pins 3.47.5 with FVM; FVM does not have it, so this '
-        'matching Flutter is used.',
+        'The project pins Flutter 3.47.5 with FVM; FVM does not have it, so '
+        'this matching Flutter is used.',
       ),
     );
+  });
+
+  test('a version@channel pin reads as a version on a channel', () async {
+    final result = await check(foundSdk(unmetFvmPin: '3.47.5@beta'));
+    expect(
+      result.details,
+      contains(
+        'The project pins Flutter 3.47.5 on the beta channel with FVM; FVM '
+        'does not have it, so this matching Flutter is used.',
+      ),
+    );
+  });
+
+  test('an SDK on the channel an unmet FVM pin names says why it is '
+      'used', () async {
+    final result = await check(foundSdk(unmetFvmPin: 'stable'));
+    expect(result.status, CheckStatus.ok);
+    expect(
+      result.details,
+      contains(
+        'The project pins the Flutter stable channel with FVM; FVM does not '
+        'have it, so this Flutter on that channel is used.',
+      ),
+    );
+  });
+
+  test("shows the SDK lookup's notes", () async {
+    const note =
+        'FLUTTER_ROOT is set to /nowhere, which is not a Flutter SDK, so it '
+        'was ignored.';
+    final result = await check(foundSdk(notes: const [note]));
+    expect(result.details, contains(note));
   });
 
   test('a failed detection passes its problem and fix through', () async {

@@ -1,5 +1,6 @@
 import 'package:pub_semver/pub_semver.dart';
 
+import '../../sdk/fvm_pin.dart';
 import '../../sdk/supported_versions.dart';
 import '../doctor_check.dart';
 
@@ -25,8 +26,12 @@ final class FlutterCheck implements DoctorCheck {
     final details = [
       'Found through ${location.source.label}: ${location.root}',
       if (location.unmetFvmPin case final pin?)
-        'The project pins $pin with FVM; FVM does not have it, so this '
-            'matching Flutter is used.',
+        fvmPinVersion(pin) == null
+            ? 'The project pins ${describeFvmPin(pin)} with FVM; FVM does '
+                  'not have it, so this Flutter on that channel is used.'
+            : 'The project pins ${describeFvmPin(pin)} with FVM; FVM does not have it, so '
+                  'this matching Flutter is used.',
+      ...location.notes,
     ];
     final label = 'Flutter ${info.flutterVersion} (${info.channel})';
     final Version version;
