@@ -92,7 +92,7 @@ def find_behind(root: Path) -> dict:
 
     detected = detect(root)
     docs = sorted({
-        Path(f).resolve().relative_to(root).as_posix()
+        _relative(str(f), root)
         for kind in _DOC_KINDS for f in detected['files'].get(kind, [])
     })
     in_graph = {
@@ -137,7 +137,9 @@ def main(argv: list) -> int:
     reasons = [(k, v) for k, v in result.items() if k != 'docs' and v]
     if not reasons:
         if not quiet:
-            print(f'graphify: the graph is current ({result["docs"]} docs checked).')
+            docs = result['docs']
+            print(f'graphify: the graph is current ({docs} '
+                  f'{"doc" if docs == 1 else "docs"} checked).')
         return 0
     count = sum(len(v) for _, v in reasons)
     detail = '; '.join(f'{k}: {_names(v)}' for k, v in reasons)
