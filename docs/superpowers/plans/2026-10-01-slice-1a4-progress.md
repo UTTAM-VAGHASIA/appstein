@@ -2718,6 +2718,7 @@ Executed 2026-10-01 in quick subagent-driven mode (one implementer at a time, ea
   - the notes-from-execution check matched a heading inside a code fence; it now reads plans through `FenceTracker` like every other check;
   - wording in docs-tooling ("both CI runs") and `AGENTS.md` (notes go in the done commit); a border between the hero and Progress.
 - While writing these notes, the controller found a stray unclosed ```` fence at the end of this plan. With the fence-aware check, a notes heading after it would not have counted, and the check would not have required the slice to be done. It was removed. The lesson: a plan must end outside any fence.
+- CI's `analyze` job failed on the PR: `tool/src/progress.dart` and `test/progress_test.dart` held a raw U+FEFF character, and the repo's CI rejects that. The Task 1 implementer reported writing the `﻿` escape. The Task 1 reviewer flagged the character as invisible in the diff, but nobody followed that up. Every local check passed, because the raw character is valid Dart. Fixed by writing the escape. The lesson: when a report and a reviewer disagree about invisible characters, check the bytes (`LC_ALL=C grep -rl $'\xEF\xBB\xBF' --include='*.dart' .`).
 
 **Rulings**
 - Fix all eight final-review minors in one wave, because each was a line or two and three touched correctness or accessibility.

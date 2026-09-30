@@ -211,7 +211,7 @@ ProgressRead readProgress(String repoRoot) {
 ProgressRead parseProgress(String text) {
   final YamlNode root;
   try {
-    root = loadYamlNode(text.startsWith('﻿') ? text.substring(1) : text);
+    root = loadYamlNode(text.startsWith('\uFEFF') ? text.substring(1) : text);
   } on YamlException catch (error) {
     final span = error.span;
     return ProgressRead(null, [

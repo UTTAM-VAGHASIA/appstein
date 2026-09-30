@@ -136,7 +136,7 @@ void main() {
 
   // Review Focus 3.
   test('a byte order mark is ignored', () {
-    final read = parseProgress('﻿$_valid');
+    final read = parseProgress('\uFEFF$_valid');
     expect(read.problems, isEmpty);
     expect(read.progress!.milestones, hasLength(2));
   });
