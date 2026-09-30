@@ -46,7 +46,8 @@ final class ToolCheck implements DoctorCheck {
   }
 }
 
-/// git: `create` proposes the first commit and `upgrade` refuses a dirty tree.
+/// git: the planned `create` and `upgrade` commands need it, to propose the
+/// first commit and to refuse a dirty tree (spec §13).
 const gitCheck = ToolCheck(
   id: 'doctor.git',
   title: 'git',

@@ -15,7 +15,7 @@ These steps add a rule to the `appstein_lints` analyzer plugin. Read [lints](../
   - the message may use `{0}`, `{1}` and so on, filled from the `arguments` you report with;
   - `correctionMessage` says how to fix it;
   - with several codes, give each a `uniqueName`, such as `layer_imports_forbidden`.
-- **Override `registerNodeProcessors`.** Add a visitor for only the node types the rule needs, for example `registry.addImportDirective(this, visitor)`. The visitor extends `SimpleAstVisitor<void>`, and reports with `rule.reportAtNode(...)`, passing the `diagnosticCode` and `arguments`. If the rule doesn't apply to a file, register nothing, so the file costs nothing.
+- **Override `registerNodeProcessors`.** Add a visitor for only the node types the rule needs, for example `registry.addImportDirective(this, visitor)`. The visitor extends `SimpleAstVisitor<void>`, and reports with `rule.reportAtNode(node, arguments: [...])`. A `MultiAnalysisRule`, like `layer_imports`, also passes `diagnosticCode:` to say which of its codes it reports. If the rule doesn't apply to a file, register nothing, so the file costs nothing.
 
 Every public member needs a `///` comment; `dart analyze` enforces that. The lints package may import only `appstein_protocol` among our packages, and `layer_imports` checks that too.
 
