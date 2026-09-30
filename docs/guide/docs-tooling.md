@@ -1,5 +1,6 @@
 <!-- covers:
 tool/check_guide.dart
+tool/check_graph.py
 tool/gen_docs.dart
 tool/install_hooks.dart
 tool/src/**
