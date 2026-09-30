@@ -45,6 +45,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -71,9 +72,12 @@ def _valid_extraction(entry: Path):
     return None
 
 
-def _extractions(doc: Path, root: Path, cache: Path, file_hash) -> list:
+def _extractions(doc: Path, root: Path, cache: Path, helpers: tuple) -> list:
     """Every valid cached extraction of this exact content, from any prompt's
-    cache and in any mode, newest first."""
+    cache and in any mode, newest first. Entries are read as graphify's
+    load_cached reads them: one whose nodes come from another file is a miss,
+    and the root placeholder in its ids is turned back into the real ones."""
+    file_hash, matches_path, absolutize_ids = helpers
     try:
         name = file_hash(doc, root) + '.json'
     except OSError:
@@ -88,8 +92,10 @@ def _extractions(doc: Path, root: Path, cache: Path, file_hash) -> list:
     found = []
     for entry in sorted(entries, key=lambda e: e.stat().st_mtime, reverse=True):
         data = _valid_extraction(entry)
-        if data is not None:
-            found.append(data)
+        if data is None or not matches_path(data, doc, root):
+            continue
+        absolutize_ids(data, doc, root)
+        found.append(data)
     return found
 
 
@@ -145,6 +151,15 @@ def _out_dir(root: Path) -> Path:
     return out if out.is_absolute() else root / out
 
 
+def _require_graph(out: Path) -> Path:
+    """graph.json in [out], or FileNotFoundError when there is none."""
+    graph_file = out / 'graph.json'
+    if not graph_file.is_file():
+        raise FileNotFoundError(
+            f'there is no graph yet ({graph_file} is missing); run /graphify .')
+    return graph_file
+
+
 def find_behind(root: Path) -> dict:
     """The number of docs, the docs the graph is behind on by reason, and
     under 'cached' the cached extractions of each doc missing from the graph.
@@ -152,14 +167,13 @@ def find_behind(root: Path) -> dict:
     Raises on anything that stops the check, such as a missing graph or a
     graphify that lacks the functions used here.
     """
-    from graphify.cache import file_hash
+    from graphify.cache import (
+        _absolutize_ids_in, _semantic_entry_matches_path, file_hash)
     from graphify.detect import CODE_EXTENSIONS, FileType, classify_file, detect
 
+    helpers = (file_hash, _semantic_entry_matches_path, _absolutize_ids_in)
     out = _out_dir(root)
-    graph_file = out / 'graph.json'
-    if not graph_file.is_file():
-        raise FileNotFoundError(
-            f'there is no graph yet ({graph_file} is missing); run /graphify .')
+    graph_file = _require_graph(out)
     graph = json.loads(graph_file.read_text(encoding='utf-8'))
     graph_ids = _ids(graph)
 
@@ -178,14 +192,18 @@ def find_behind(root: Path) -> dict:
     heading_ids = {n.get('id') for n in graph.get('nodes', []) if _is_ast(n)}
     changed, missing, cached = [], [], {}
     for doc in docs:
-        extractions = _extractions(root / doc, root, out / 'cache', file_hash)
+        extractions = _extractions(root / doc, root, out / 'cache', helpers)
         if not extractions:
             changed.append(doc)
             continue
-        adds = [_ids(e) - heading_ids for e in extractions]
-        if any(adds) and not any(a & graph_ids for a in adds):
+        # Only an extraction that adds something counts: a newer one with
+        # just the doc's own node (from another agent's prompt) must not hide
+        # an older one the repair could put back.
+        useful = [(e, a) for e in extractions
+                  if (a := _ids(e) - heading_ids)]
+        if useful and not any(a & graph_ids for _, a in useful):
             missing.append(doc)
-            cached[doc] = extractions
+            cached[doc] = [e for e, _ in useful]
     doc_set = set(docs)
     removed = sorted(
         source for source in in_graph
@@ -213,6 +231,8 @@ def repair(root: Path, echo=None, rebuild: bool = False) -> tuple:
     import graphify.watch as watch
 
     out = _out_dir(root)
+    # Before the lock, which creates the folder.
+    _require_graph(out)
     with watch._rebuild_lock(out, blocking=True):
         before = find_behind(root)
         docs = before[_MISSING]
@@ -373,6 +393,32 @@ def _seconds(name: str, default: float) -> float:
         return default
 
 
+def _lock_is_free(out: Path) -> bool:
+    """Whether nobody holds graphify's rebuild lock. If graphify's lock can't
+    be tried, say yes: the repair that follows reports the problem."""
+    try:
+        import graphify.watch as watch
+        with watch._rebuild_lock(out, blocking=False) as acquired:
+            return bool(acquired)
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _in_progress(root: Path) -> bool:
+    """Whether a merge, cherry-pick or rebase is under way in this repo."""
+    try:
+        found = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'], cwd=str(root),
+            capture_output=True, text=True, encoding='utf-8')
+        if found.returncode != 0:
+            return False
+        git_dir = root / found.stdout.strip()
+    except (OSError, ValueError):
+        return False
+    return any((git_dir / name).exists() for name in (
+        'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'rebase-merge', 'rebase-apply'))
+
+
 def _after_rebuild(root: Path) -> int:
     """Waits for the rebuild graphify's hook just started, then repairs, and
     writes what happened to graphify's rebuild log.
@@ -384,6 +430,12 @@ def _after_rebuild(root: Path) -> int:
     It then runs graphify's code rebuild once more, with any missing docs
     put back: graphify's hook skips its rebuild during a merge or a rebase,
     and when another rebuild still holds the lock.
+
+    It gives up after GRAPHIFY_REBUILD_TIMEOUT (graphify's own limit for a
+    rebuild, default 600 s) plus a minute for the whole job, the wait for the
+    lock included: it logs that it took too long and exits, and the OS
+    releases graphify's lock. It does nothing while a merge or a rebase is
+    still in progress, because the hook that ends it starts another job.
     """
     try:
         log_file = _log_path()
@@ -392,25 +444,48 @@ def _after_rebuild(root: Path) -> int:
     except OSError:
         return 3
     with log:
+        writing = threading.Lock()
+
         def say(text: str) -> None:
             stamp = time.strftime('%Y-%m-%d %H:%M:%S')
-            for line in text.splitlines():
-                if line.strip():
-                    log.write(f'[appstein] {stamp} {line}\n')
-            log.flush()
+            with writing:
+                for line in text.splitlines():
+                    if line.strip():
+                        log.write(f'[appstein] {stamp} {line}\n')
+                log.flush()
 
+        def give_up() -> None:
+            say('graphify: could not repair the graph: it took too long.')
+            os._exit(3)
+
+        limit = threading.Timer(
+            _seconds('GRAPHIFY_REBUILD_TIMEOUT', 600) + 60, give_up)
+        limit.daemon = True
+        limit.start()
         try:
-            lock = _out_dir(root) / '.rebuild.lock'
-        except Exception as error:  # noqa: BLE001 - any failure means "couldn't repair"
-            say(f'graphify: could not repair the graph: {error}')
-            return 3
-        until = time.monotonic() + _seconds('APPSTEIN_REPAIR_START_WAIT', 20)
-        while not lock.exists() and time.monotonic() < until:
-            time.sleep(0.1)
-        until = time.monotonic() + _seconds('APPSTEIN_REPAIR_MAX_WAIT', 660)
-        while lock.exists() and time.monotonic() < until:
-            time.sleep(0.2)
-        return _repair(root, say, echo=say, rebuild=True)
+            try:
+                out = _out_dir(root)
+                lock = out / '.rebuild.lock'
+            except Exception as error:  # noqa: BLE001 - any failure means "couldn't repair"
+                say(f'graphify: could not repair the graph: {error}')
+                return 3
+            until = time.monotonic() + _seconds('APPSTEIN_REPAIR_START_WAIT', 20)
+            while not lock.exists() and time.monotonic() < until:
+                time.sleep(0.1)
+            until = time.monotonic() + _seconds('APPSTEIN_REPAIR_MAX_WAIT', 660)
+            while lock.exists() and time.monotonic() < until:
+                # A lock file nobody holds (a killed rebuild left it) is no
+                # reason to wait.
+                if _lock_is_free(out):
+                    break
+                time.sleep(0.2)
+            if _in_progress(root):
+                say('graphify: a merge or rebase is in progress; the job '
+                    'that follows it will repair the graph.')
+                return 0
+            return _repair(root, say, echo=say, rebuild=True)
+        finally:
+            limit.cancel()
 
 
 def main(argv: list) -> int:

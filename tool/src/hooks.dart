@@ -145,7 +145,9 @@ String _graphCheck(String guard, {bool repairing = false}) =>
 ''') +
     (repairing
         ? r'''
-  if [ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ]; then
+  # A branch from before --skip-repairable has a check_graph.py without it.
+  if [ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ] ||
+      ! grep -q -e --skip-repairable tool/check_graph.py; then
     "$py" tool/check_graph.py --quiet
   else
     "$py" tool/check_graph.py --quiet --skip-repairable

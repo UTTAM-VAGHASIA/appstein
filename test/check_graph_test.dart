@@ -330,6 +330,21 @@ void main() {
       );
     });
 
+    test('--repair without a graph fails before creating graphify-out', () {
+      final result = check(['--repair']);
+      expect(result.code, 3);
+      expect(
+        result.output,
+        startsWith(
+          'graphify: could not repair the graph: there is no graph yet',
+        ),
+      );
+      expect(
+        Directory(p.join(repo.path, 'graphify-out')).existsSync(),
+        isFalse,
+      );
+    });
+
     test('rejects an unknown argument, or two modes at once', () {
       expect(check(['--nope']), (
         code: 3,
@@ -514,6 +529,10 @@ void main() {
       unawaited(repairing.stderr.drain<void>());
       var finished = false;
       unawaited(repairing.exitCode.then((_) => finished = true));
+      // It has had time to start and get to the lock, and it is still
+      // waiting for it, not failed or done.
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(finished, isFalse, reason: 'it gave up or ignored the lock');
       await said.firstWhere((line) => line == 'released');
       expect(finished, isFalse, reason: 'it repaired while the lock was held');
       expect(await repairing.exitCode, 0);
@@ -528,9 +547,14 @@ void main() {
         'and writes only to the log, each line prefixed', () async {
       repairAll();
       dropB();
-      // Stands in for a rebuild in progress: graphify's lock file.
-      final lock = File(p.join(repo.path, 'graphify-out', '.rebuild.lock'))
-        ..writeAsStringSync('12345\n');
+      // A rebuild in progress: something holds graphify's lock.
+      final holder = await startPython(['-c', _holdLock, '5']);
+      unawaited(holder.stderr.drain<void>());
+      final said = holder.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .asBroadcastStream();
+      await said.firstWhere((line) => line == 'held');
       final job = await startPython(
         [_script, '--after-rebuild'],
         extra: {
@@ -545,8 +569,9 @@ void main() {
       unawaited(job.exitCode.then((_) => finished = true));
       await Future<void>.delayed(const Duration(seconds: 3));
       expect(finished, isFalse, reason: 'it ran before the rebuild ended');
-      lock.deleteSync();
+      await said.firstWhere((line) => line == 'released');
       expect(await job.exitCode, 0);
+      await holder.exitCode;
       expect('${await output}${await errors}', isEmpty);
       final lines = log.readAsLinesSync();
       expect(
@@ -603,6 +628,164 @@ void main() {
       expect(logged(), startsWith('[graphify] rebuilt meanwhile\n'));
       expect(logged(), contains(repaired));
       expect(check().code, 0);
+    });
+
+    test('--after-rebuild gives up, and says so in the log, when it takes too '
+        'long', () async {
+      repairAll();
+      dropB();
+      final holder = await startPython(['-c', _holdLock, '30']);
+      unawaited(holder.stderr.drain<void>());
+      final said = holder.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .asBroadcastStream();
+      await said.firstWhere((line) => line == 'held');
+      final job = await startPython(
+        [_script, '--after-rebuild'],
+        extra: {
+          'GRAPHIFY_REBUILD_LOG': log.path,
+          'APPSTEIN_REPAIR_START_WAIT': '0',
+          'APPSTEIN_REPAIR_MAX_WAIT': '0',
+          // The limit is this plus a minute: one second.
+          'GRAPHIFY_REBUILD_TIMEOUT': '-59',
+        },
+      );
+      unawaited(job.stdout.drain<void>());
+      unawaited(job.stderr.drain<void>());
+      // With the lock held, the repair waits for it; the limit ends that.
+      expect(await job.exitCode.timeout(const Duration(seconds: 25)), 3);
+      expect(
+        logged().trim(),
+        endsWith(' graphify: could not repair the graph: it took too long.'),
+      );
+      holder.kill();
+      await holder.exitCode;
+    });
+
+    test(
+      '--after-rebuild does not wait for a lock file nobody holds',
+      () async {
+        repairAll();
+        dropB();
+        // What a killed rebuild leaves behind.
+        writeFile(repo, 'graphify-out/.rebuild.lock', '12345\n');
+        final job = await startPython(
+          [_script, '--after-rebuild'],
+          extra: {
+            'GRAPHIFY_REBUILD_LOG': log.path,
+            'APPSTEIN_REPAIR_START_WAIT': '0.5',
+            'APPSTEIN_REPAIR_MAX_WAIT': '300',
+          },
+        );
+        unawaited(job.stdout.drain<void>());
+        unawaited(job.stderr.drain<void>());
+        expect(await job.exitCode.timeout(const Duration(seconds: 60)), 0);
+        expect(
+          logged().trim(),
+          endsWith(' graphify: repaired 1 doc from the cache (docs/b.md).'),
+        );
+      },
+    );
+
+    test('--after-rebuild does nothing while a merge or rebase is in '
+        'progress', () {
+      repairAll();
+      dropB();
+      writeFile(repo, '.git/MERGE_HEAD', 'deadbeef\n');
+      final result = runPython(
+        [_script, '--after-rebuild'],
+        extra: {
+          'GRAPHIFY_REBUILD_LOG': log.path,
+          'APPSTEIN_REPAIR_START_WAIT': '0.5',
+        },
+      );
+      expect(result.exitCode, 0, reason: logged());
+      final lines = log.readAsLinesSync();
+      expect(lines, hasLength(1));
+      expect(
+        lines.single,
+        endsWith(
+          ' graphify: a merge or rebase is in progress; the job that follows '
+          'it will repair the graph.',
+        ),
+      );
+      expect(check().code, 1, reason: 'nothing was repaired');
+    });
+
+    test('puts back the newest extraction that adds something, not a newer '
+        'one with only the doc node', () {
+      repairAll();
+      dropB();
+      extract('another agent prompt', ['docs/b.md'], flags: ['--only-heading']);
+      expect(check().code, 1);
+      expect(check(['--repair']), (
+        code: 0,
+        output: 'graphify: repaired 1 doc from the cache (docs/b.md).',
+      ));
+      expect(nodeIds(), contains('docs_b_concept'));
+    });
+
+    /// Rewrites every cache entry that holds docs/b.md's concept node.
+    void editBEntries(String Function(String) edit) {
+      final cache = Directory(p.join(repo.path, 'graphify-out', 'cache'));
+      var edited = 0;
+      for (final file in cache.listSync(recursive: true).whereType<File>()) {
+        final text = file.readAsStringSync();
+        if (text.contains('docs_b_concept')) {
+          file.writeAsStringSync(edit(text));
+          edited++;
+        }
+      }
+      expect(edited, greaterThan(0));
+    }
+
+    test('reads cache entries as graphify does: turns the root placeholder '
+        'in ids back', () {
+      repairAll();
+      dropB();
+      editBEntries(
+        (text) => text.replaceAll(
+          'docs_b_concept',
+          r'$graphify-root$_docs_b_concept',
+        ),
+      );
+      expect(check(['--repair']).code, 0);
+      final ids = nodeIds();
+      expect(ids.where((id) => id.contains('graphify-root')), isEmpty);
+      expect(ids.where((id) => id.endsWith('_docs_b_concept')), isNotEmpty);
+      expect(check().code, 0);
+    });
+
+    test('skips a cache entry whose nodes come from another file', () {
+      repairAll();
+      editBEntries((text) => text.replaceAll('"docs/b.md"', '"docs/a.md"'));
+      expect(check(), (
+        code: 1,
+        output:
+            'graphify: the graph is behind on 1 doc (new or changed: '
+            'docs/b.md). $_update',
+      ));
+    });
+
+    test("says when graphify's rebuild fails, quoting its last line", () {
+      repairAll();
+      dropB();
+      writeFile(
+        repo,
+        'shim/sitecustomize.py',
+        'import graphify.watch\n'
+            'def fail(*a, **k):\n'
+            "    print('the rebuild blew up')\n"
+            '    return False\n'
+            'graphify.watch._rebuild_code = fail\n',
+      );
+      expect(check(['--repair'], {'PYTHONPATH': p.join(repo.path, 'shim')}), (
+        code: 3,
+        output:
+            "graphify: could not repair the graph: graphify's rebuild "
+            'failed. It said: the rebuild blew up',
+      ));
     });
 
     test("cannot repair when graphify's rebuild no longer takes the "

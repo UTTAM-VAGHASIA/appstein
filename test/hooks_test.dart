@@ -230,7 +230,11 @@ void main() {
         Process.runSync('chmod', ['+x', fakePython.path]);
       }
       writeFile(repo, '.gitignore', 'graphify-out/\n');
-      writeFile(repo, 'tool/check_graph.py', '# stand-in with --detach\n');
+      writeFile(
+        repo,
+        'tool/check_graph.py',
+        '# stand-in with --detach and --skip-repairable\n',
+      );
       writeFile(repo, 'graphify-out/graph.json', '{}');
       writeFile(repo, 'graphify-out/.graphify_python', fakePython.path);
       installHookBlocks(p.join(repo.path, '.git', 'hooks'));
@@ -346,6 +350,19 @@ void main() {
       File(p.join(repo.path, 'tool', 'check_graph.py')).deleteSync();
       git(['switch', '-q', 'feature']);
       expect(repairs(), 0);
+    });
+
+    test('after a merge, falls back to a plain quiet check with a script from '
+        'before --skip-repairable', () {
+      commit('a.txt');
+      git(['switch', '-q', '-c', 'feature']);
+      commit('b.txt');
+      git(['switch', '-q', 'main']);
+      commit('c.txt');
+      writeFile(repo, 'tool/check_graph.py', '# stand-in, before 1a.3\n');
+      git(['merge', '-q', '--no-edit', 'feature']);
+      expect(checks().last, 'tool/check_graph.py --quiet');
+      expect(checks().where((c) => c.contains('--skip-repairable')), isEmpty);
     });
 
     test('after a merge with GRAPHIFY_SKIP_HOOK=1, which keeps the repair '
