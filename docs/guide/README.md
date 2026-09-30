@@ -1,6 +1,8 @@
+<!-- covers: none -->
+
 # Appstein developer guide: start here
 
-This guide is for people working on Appstein's code without an agent. It explains how the code works **now**, and each page is written in the slice that builds what it describes. For *what* was decided and *why*, read the [design spec](../superpowers/specs/2026-09-29-appstein-design.md). This guide links to it instead of repeating it.
+This guide is for people working on Appstein's code without an agent. It explains how the code works **now**, and each page is written in the slice that builds what it describes. For *what* was decided and *why*, read the [design spec](../superpowers/specs/2026-09-29-appstein-design.md). This guide links to it instead of repeating it. The spec is the design: what we decided and why. This guide is the current system: how it works.
 
 ## Set up
 
@@ -11,6 +13,7 @@ This guide is for people working on Appstein's code without an agent. It explain
    fvm dart pub get
    ```
 3. Always use `fvm dart` and `fvm flutter`. A plain `dart` on your PATH may be a different, older SDK. `appstein doctor` tells you when that is the case.
+4. Install the git hooks: `fvm dart run tool/install_hooks.dart`. It installs graphify's graph rebuilds and a post-commit warning when this guide may have fallen behind the code. See [docs-tooling](docs-tooling.md).
 
 On Windows, everything works in PowerShell, including paths with spaces.
 
@@ -22,10 +25,29 @@ On Windows, everything works in PowerShell, including paths with spaces.
 | `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor ([README](../../packages/appstein_engine/README.md)) |
 | `packages/appstein_cli/` | The `appstein` command, a thin layer over the engine ([README](../../packages/appstein_cli/README.md)) |
 | `packages/appstein_lints/` | The analyzer plugin with our lint rules ([README](../../packages/appstein_lints/README.md)) |
-| `tool/` | Repo scripts: start-up check, analyze measurement, guide check |
+| `tool/` | Repo scripts: start-up check, analyze measurement, the guide check, the docs generator and the hooks installer |
 | `docs/` | Spec, plans, research and this guide |
 
 The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces): one `pubspec.lock` and one `analysis_options.yaml` at the root. The packages may only depend on each other in one direction (spec §5.1), and the `layer_imports` rule enforces that. See [architecture](architecture.md).
+
+## Guide map
+
+| Page | Read it to learn |
+|---|---|
+| [architecture](architecture.md) | How the whole system fits together, and how one command flows through it |
+| [cli](cli.md) | How the `appstein` command starts, parses options, prints and exits |
+| [doctor](doctor.md) | How `appstein doctor` runs its checks, and what each one looks at |
+| [sdk-lookups](sdk-lookups.md) | How Appstein finds the Flutter SDK, the JDK and the Android SDK |
+| [running-tools](running-tools.md) | How the engine reads the environment and runs external tools safely |
+| [config](config.md) | How `appstein.yaml` is loaded and validated |
+| [lints](lints.md) | How the analyzer plugin and the `layer_imports` rule work |
+| [ci](ci.md) | What each CI job proves, and how to read its results |
+| [docs-tooling](docs-tooling.md) | How this guide is checked and generated, and what the git hooks do |
+| [testing](testing.md) | How the tests are built: fakes, temporary folders and real-machine tests |
+| [debugging](debugging.md) | What to do when something goes wrong |
+| [How to: add a doctor check](how-to/add-a-doctor-check.md) | The steps to add a check to `appstein doctor` |
+| [How to: add a lint rule](how-to/add-a-lint-rule.md) | The steps to add a rule to the analyzer plugin |
+| [How to: add a guide page](how-to/add-a-guide-page.md) | The steps to add a page to this guide |
 
 ## Build and run the CLI from source
 
@@ -51,24 +73,28 @@ fvm dart test                      # unit tests
 fvm dart test --run-skipped --tags integration   # checks your real machine
 ```
 
-The guide checker and its test run from the repo root:
+The tests for `tool/` live in the root `test/` folder. From the repo root, `fvm dart test test` runs all of them. To run one file and the guide check itself:
 
 ```powershell
 fvm dart test test/guide_checker_test.dart
 fvm dart run tool/check_guide.dart
 ```
 
-Before you commit, run `fvm dart format .` and `fvm dart analyze --fatal-infos` from the repo root.
+See [testing](testing.md) for how the tests are built.
+
+## Before you commit
+
+Run these from the repo root:
+
+```powershell
+fvm dart format .
+fvm dart analyze --fatal-infos
+fvm dart run tool/gen_docs.dart
+fvm dart run tool/check_guide.dart --since main
+```
+
+The last two keep this guide in step with the code. [docs-tooling](docs-tooling.md) explains what they check.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pushes to `main`, on every pull request, and on demand (`gh workflow run ci.yml`):
-
-| Job | What it proves |
-|---|---|
-| `analyze` | Formatting, analyzer (including `layer_imports`), dependency hygiene |
-| `test` | Unit tests on Windows, macOS and Linux, plus `doctor` against each real runner |
-| `build` | The AOT binary on all three OSes, under the 200 ms start-up budget |
-| `docs` | API docs build cleanly; this guide's links and paths are valid |
-| `min-sdk` | Everything still works on the oldest supported Flutter (3.44) |
-| `measure` | Cold-analysis timings for the fast-verify budget, in the job summary |
+`.github/workflows/ci.yml` runs on every pull request, on pushes to `main` and on demand. [ci](ci.md) lists its jobs, generated from the workflow itself, and explains why each one exists.
