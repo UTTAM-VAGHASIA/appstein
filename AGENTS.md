@@ -14,7 +14,7 @@ Appstein is a Dart toolkit: a knowledge and verification layer for AI agents tha
 - **Visual summary:** `docs/superpowers/specs/2026-09-29-appstein-design.html` is a condensed companion. Whenever the spec changes, update it to match and re-check every claim on it against the spec.
 - **Developer guide:** `docs/guide/` explains how the whole system works now, for humans (spec §19.6). Every source file is covered by a page (the `<!-- covers: -->` comment at its top). When you change code, update the pages that cover it, or add a `Docs-Checked: <page> - <reason>` commit trailer when a page is still right. Run `fvm dart run tool/gen_docs.dart`, then `fvm dart run tool/check_guide.dart --since main`. See `docs/guide/docs-tooling.md`.
 - **Plans:** `docs/superpowers/plans/`, one per slice.
-- **Knowledge graph:** when `graphify-out/GRAPH_REPORT.md` exists, read it before searching the repo. If a hook warned that the graph is behind, or you're starting a session after others changed the repo, run `tool/check_graph.py` with graphify's Python (see `docs/guide/docs-tooling.md`) and run `/graphify . --update` when it names docs.
+- **Knowledge graph:** when `graphify-out/GRAPH_REPORT.md` exists, read it before searching the repo. If a hook warned that the graph is behind, or you're starting a session after others changed the repo, run `tool/check_graph.py` with graphify's Python (see `docs/guide/docs-tooling.md`). Run `/graphify . --update` when it names new, changed or deleted docs; docs `missing from the graph` are put back from the cache by the hooks, or at once with `tool/check_graph.py --repair` (no LLM).
 
 ## Rules
 
@@ -27,4 +27,4 @@ Appstein is a Dart toolkit: a knowledge and verification layer for AI agents tha
 ## Environment gotchas
 
 - **Flutter SDK:** the repo pins Flutter 3.47.5 in `.fvmrc`. Run every command through FVM (`fvm dart …`, `fvm flutter …`). The `dart` on your PATH may be an older SDK.
-- **Git hooks:** run `fvm dart run tool/install_hooks.dart` once per clone, and again when `tool/src/hooks.dart` changes. It installs graphify's hooks (dev tooling: `uv tool install graphifyy`), graph rebuilds after merges and rebases, a post-commit docs warning, and a warning when the graph lacks the current docs.
+- **Git hooks:** run `fvm dart run tool/install_hooks.dart` once per clone, and again when `tool/src/hooks.dart` changes. It installs graphify's hooks (dev tooling: `uv tool install graphifyy`), graph rebuilds after merges and rebases, a post-commit docs warning, a warning when the graph lacks the current docs, and a background repair of docs a rebuild dropped from the graph.

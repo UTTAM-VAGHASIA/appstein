@@ -13,7 +13,7 @@ This guide is for people working on Appstein's code without an agent. It explain
    fvm dart pub get
    ```
 3. Always use `fvm dart` and `fvm flutter`. A plain `dart` on your PATH may be a different, older SDK. `appstein doctor` tells you when that is the case.
-4. Install the git hooks: `fvm dart run tool/install_hooks.dart`. It installs graphify's graph rebuilds, a post-commit warning when this guide may have fallen behind the code, and a warning when the knowledge graph lacks the current docs. See [docs-tooling](docs-tooling.md).
+4. Install the git hooks: `fvm dart run tool/install_hooks.dart`. It installs graphify's graph rebuilds, a post-commit warning when this guide may have fallen behind the code, a warning when the knowledge graph lacks the current docs, and a background repair of docs a rebuild dropped from it. See [docs-tooling](docs-tooling.md).
 
 On Windows, everything works in PowerShell, including paths with spaces.
 
