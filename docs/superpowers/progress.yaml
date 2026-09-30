@@ -43,9 +43,11 @@ milestones:
           - id: 1a.4
             title: Project progress on the visual page
             summary: This record, rendered on the spec's visual page and kept consistent with the plans and §18 by the guide check.
-            status: next
+            status: done
             tooling: true
             plan: 2026-10-01-slice-1a4-progress.md
+            pr: 6
+            finished: 2026-10-01
       - id: 1b
         title: Knowledge layers 1–2
         summary: What an agent needs to know about the SDK, the native toolchain and the project, written into `.appstein/`.
@@ -60,7 +62,7 @@ milestones:
           - id: 1b.2
             title: Knowledge store and platform layer
             summary: The `.appstein/` store with its lock and freshness state, `sdk.json`, curated notes for Flutter 3.44–3.47, `delta.md`, `toolchain.json` and `appstein sync`.
-            status: planned
+            status: next
           - id: 1b.3
             title: Project map
             summary: The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through `official_mvvm` and the platform extractors.

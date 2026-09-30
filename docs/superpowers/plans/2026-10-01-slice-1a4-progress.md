@@ -2703,4 +2703,28 @@ Not for an implementer subagent: it pushes, opens the pull request and merges, u
 - [ ] **Step 4:** Add "Notes from execution" to this plan; in `progress.yaml` set 1a.4 `status: done`, `pr: <number>`, `finished: <today>`, and 1b.2 `status: next`; run `fvm dart run tool/gen_docs.dart` and `fvm dart run tool/check_guide.dart --since main`; commit `docs: mark slice 1a.4 done` and push.
 - [ ] **Step 5:** `/graphify . --update` until `tool/check_graph.py` reports nothing.
 - [ ] **Step 6:** CI green and verified → merge with a merge commit (`gh pr merge <n> --merge`), `git fetch --prune`, `git switch -C main origin/main`, delete the branch locally and on GitHub, run the graph check on `main`.
-````
+
+## Notes from execution
+
+Executed 2026-10-01 in quick subagent-driven mode (one implementer at a time, each task's review alongside the next implementer, one final Opus review). Pull request #6.
+
+**What happened**
+- Tasks 1–4 each passed their task review on the first round (spec ✅, Approved). Task 5 was docs-only, so its review folded into the final whole-branch review.
+- The final review found no Critical or Important issues and eight Minor ones, all fixed in one wave (3edf141) and confirmed by a scoped re-review:
+  - planned timeline text used opacity, which fell below WCAG AA contrast; it now uses the page's `--ink-2`/`--ink-3` colours;
+  - the last sub-slice kept its bottom padding (a CSS specificity tie);
+  - "done" was described as "merged", but a slice is marked done once its PR is open; `SliceStatus.done` and docs-tooling now say "finished: its pull request is open or merged";
+  - backticks showed literally in milestone tooltips; attributes now drop them, and tests pin attribute escaping;
+  - the notes-from-execution check matched a heading inside a code fence; it now reads plans through `FenceTracker` like every other check;
+  - wording in docs-tooling ("both CI runs") and `AGENTS.md` (notes go in the done commit); a border between the hero and Progress.
+- While writing these notes, the controller found a stray unclosed ```` fence at the end of this plan. With the fence-aware check, a notes heading after it would not have counted, and the check would not have required the slice to be done. It was removed. The lesson: a plan must end outside any fence.
+
+**Rulings**
+- Fix all eight final-review minors in one wave, because each was a line or two and three touched correctness or accessibility.
+- Deferred minors left as they are (the final review agreed):
+  - Bad UTF-8 in `progress.yaml` was claimed to throw `FormatException`. Dart's `readAsStringSync` throws `FileSystemException` there, which is caught.
+  - A directory at the file's path is reported as "Missing".
+  - Some parser and check error branches have no test.
+  - `_badge` switches on a string.
+  - `gen_docs` would print a stack trace for an unreadable page. `check_guide` catches it.
+- The visual check ran on the controller's browser. Desktop light and dark rendered correctly. At a 390 px width there was no horizontal overflow (checked in the DOM), but the browser tool's screenshots at that width timed out.
