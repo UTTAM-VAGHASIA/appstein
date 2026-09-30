@@ -3360,10 +3360,13 @@ Executed subagent-driven. The controller committed every task; each task had a s
 - `fvm dart run tool/check_guide.dart --since HEAD~1 --warn-only` takes 2.9–3.0 s warm (three runs).
 - A whole commit, including graphify's detached rebuild launch, takes about 4 s.
 
-**Open questions for the owner:**
-- **Exit code for an invalid `appstein.yaml`.** Spec §9.5 and §15 say exit 3. `doctor` reports it as a ProjectCheck error, which exits 1, and the guide describes the code.
-- **A stricter stale rule.** The final review suggested ignoring page diffs that only `gen_docs` wrote. Today such a diff counts as the page changing (documented in docs-tooling.md "Limits").
-- **Trailer severity.** A mistyped `Docs-Checked` trailer fails CI and needs a history rewrite to fix. It could be a warning instead.
+**Owner decisions (2026-09-30), on the questions raised at the finish:**
+- **Exit code for an invalid `appstein.yaml`: the spec was updated to match the code.** §9.5 and §15 now say `doctor` reports a bad environment or an invalid config as failed checks (exit 1), and exits 3 only when it can't run at all. Other commands keep exit 3.
+- **A stricter stale rule: yes, in a later slice.** The stale-page check should stop counting a page diff that `gen_docs` wrote as the page changing. Compare pages with generated section bodies stripped (`git show <base>:<page>` against the working copy). Until then, the limit is documented in docs-tooling.md "Limits".
+- **Trailer severity: kept strict.** A mistyped `Docs-Checked` trailer still fails CI. It is rare, and the stale file it meant to clear fails anyway. Revisit if it causes trouble.
+
+**Carried to later slices:**
+- The stricter stale rule above. It is small and self-contained, so it can go into whichever slice next touches `tool/`.
 
 **Parked (see the final review):**
 - A slightly overbroad sentence in docs-tooling.md:121.

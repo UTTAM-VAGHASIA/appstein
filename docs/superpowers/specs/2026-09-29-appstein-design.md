@@ -580,7 +580,7 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 | `0` | No errors |
 | `1` | Errors found (CLI and CI use) |
 | `2` | Errors found in `--hook claude` mode. Claude Code treats exit code 2 from PostToolUse and Stop hooks as "block and feed stderr back to the model". `--hook codex` maps to whatever blocking mechanism Codex supports, which is verified in slice 1e |
-| `3` | Appstein itself failed (bad environment, crash, invalid config). In hook mode this **never blocks the agent silently**: it prints a clear message to run `appstein doctor` and lets the agent continue |
+| `3` | Appstein itself failed (bad environment, crash, invalid config). In hook mode this **never blocks the agent silently**: it prints a clear message to run `appstein doctor` and lets the agent continue. `doctor` is the exception: diagnosing a bad environment or an invalid `appstein.yaml` is its job, so it reports them as failed checks (`1`) and exits `3` only when it can't run at all (bad usage or a crash) |
 
 ### 9.6 Lint rules in M1 (`appstein_lints`, one test file per rule)
 
@@ -775,7 +775,7 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 | **Concurrency** | Writes to `.appstein/` take a lock file with a timeout, so two hooks or two agents never corrupt knowledge. Readers never block |
 | **Offline** | Everything except package existence and advisory checks works offline. Network failures degrade to warnings and never block |
 | **Privacy** | No telemetry, no analytics, no code leaves the machine. Network calls: pub.dev API and advisory data; optional integrations only if enabled |
-| **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings |
+| **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings. The exception is `doctor`, whose findings are exactly those problems (§9.5) |
 | **Determinism** | The same inputs give byte-identical generated knowledge and human docs (sorted keys, stable ordering, no timestamps in committed docs), so golden tests and caching work and git diffs show only real changes |
 
 ---
