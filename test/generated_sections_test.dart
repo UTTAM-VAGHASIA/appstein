@@ -100,4 +100,48 @@ void main() {
           'docs/guide/, so they belong in pages directly in that folder.',
     ]);
   });
+
+  test('regenerating a section with multi-line body containing code fences is '
+      'idempotent', () {
+    const bodiesWithFence = {
+      'help':
+          '```text\n\$ appstein --help\nUsage\n```\n\n```mermaid\ngraph LR\n  a --> b\n```',
+    };
+    const markdownLf =
+        '# Title\n\n<!-- generated:help -->\nold content here\n'
+        '<!-- /generated:help -->\n';
+
+    final first = regenerate(page, markdownLf, bodiesWithFence);
+    expect(first.problems, isEmpty);
+    expect(first.sections, ['help']);
+    expect(first.text, contains(bodiesWithFence['help']!));
+
+    final second = regenerate(page, first.text, bodiesWithFence);
+    expect(second.problems, isEmpty);
+    expect(second.text, first.text);
+  });
+
+  test('regenerating a CRLF section with multi-line body containing code '
+      'fences is idempotent', () {
+    const bodiesWithFence = {
+      'help':
+          '```text\n\$ appstein --help\nUsage\n```\n\n```mermaid\ngraph LR\n  a --> b\n```',
+    };
+    const markdownCrlf =
+        '# Title\r\n\r\n<!-- generated:help -->\r\nold content\r\n'
+        '<!-- /generated:help -->\r\n';
+
+    final first = regenerate(page, markdownCrlf, bodiesWithFence);
+    expect(first.problems, isEmpty);
+    expect(first.sections, ['help']);
+    expect(
+      first.text.replaceAll('\r\n', '\n'),
+      contains(bodiesWithFence['help']!),
+    );
+    expect(first.text, contains('\r\n'));
+
+    final second = regenerate(page, first.text, bodiesWithFence);
+    expect(second.problems, isEmpty);
+    expect(second.text, first.text);
+  });
 }

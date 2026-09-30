@@ -31,11 +31,18 @@ String firstParagraph(String doc) {
     }
     paragraph.add(line.trim());
   }
-  return paragraph
-      .join(' ')
-      .replaceAllMapped(
-        RegExp(r'\[([^\]]+)\](?!\()'),
-        (match) => '`${match[1]}`',
-      )
-      .replaceAll('|', r'\|');
+  final joined = paragraph.join(' ');
+
+  // Split by backticks: even indices are outside code, odd are inside.
+  // Process non-code parts (even indices) to rewrite [Name] references.
+  final parts = joined.split('`');
+  for (var i = 0; i < parts.length; i += 2) {
+    parts[i] = parts[i].replaceAllMapped(
+      RegExp(r'\[([^\]]+)\](?!\()'),
+      (match) => '`${match[1]}`',
+    );
+  }
+
+  // Rejoin with backticks and escape pipes globally.
+  return parts.join('`').replaceAll('|', r'\|');
 }

@@ -28,4 +28,12 @@ void main() {
       r'Finds `JavaLocation` via `a\|b` and [link](x).',
     );
   });
+
+  test('firstParagraph preserves code spans and does not rewrite references '
+      'inside them', () {
+    expect(
+      firstParagraph('Reads `list[0]` from [Config].'),
+      'Reads `list[0]` from `Config`.',
+    );
+  });
 }
