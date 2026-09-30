@@ -15,9 +15,13 @@ const hookBlockEnd = '# appstein-hook-end';
 /// runs in a subshell, so its `exit` never stops the next part, or another
 /// block in the same file, such as graphify's.
 final hookBlocks = {
+  'post-checkout': _block([_graphRepair]),
   'post-commit': _block([_docsCheck, _graphCheck(_notWhileRebasing)]),
-  'post-merge': _block([_mergeRebuild, _graphCheck('')]),
-  'post-rewrite': _block([_rebaseRebuild, _graphCheck(_onlyAfterRebase)]),
+  'post-merge': _block([_mergeRebuild, _graphCheck('', repairing: true)]),
+  'post-rewrite': _block([
+    _rebaseRebuild,
+    _graphCheck(_onlyAfterRebase, repairing: true),
+  ]),
 };
 
 String _block(List<String> parts) =>
@@ -56,31 +60,78 @@ const _docsCheck =
 
 const _mergeRebuild = r'''
 # Rebuilds the graphify graph after a merge or pull, which graphify's own
-# hooks miss. It reuses graphify's post-checkout rebuild, as if HEAD had
-# switched branches.
+# hooks miss. It replays the post-checkout hook (graphify's rebuild and the
+# graph repair), as if HEAD had switched branches.
 (
   hook="$(git rev-parse --git-path hooks)/post-checkout"
   [ -x "$hook" ] || exit 0
   old=$(git rev-parse -q --verify ORIG_HEAD) || exit 0
-  "$hook" "$old" "$(git rev-parse HEAD)" 1
+  APPSTEIN_HOOK_REPLAY=1 "$hook" "$old" "$(git rev-parse HEAD)" 1
 )''';
 
 const _rebaseRebuild = r'''
 # Rebuilds the graphify graph after a rebase; graphify's post-commit hook
-# already covers an amend. It reuses graphify's post-checkout rebuild.
+# already covers an amend. It replays the post-checkout hook.
 (
   [ "$1" = "rebase" ] || exit 0
   hook="$(git rev-parse --git-path hooks)/post-checkout"
   [ -x "$hook" ] || exit 0
   old=$(git rev-parse -q --verify ORIG_HEAD) || exit 0
-  "$hook" "$old" "$(git rev-parse HEAD)" 1
+  APPSTEIN_HOOK_REPLAY=1 "$hook" "$old" "$(git rev-parse HEAD)" 1
+)''';
+
+/// Finds graphify's Python for a graph part of a block: sets `py`, or runs
+/// [otherwise] (`sh` lines that end with `exit 0`) when
+/// `graphify-out/.graphify_python` is missing or names no executable.
+String _graphifyPython(String otherwise) =>
+    r'''
+  [ -f tool/check_graph.py ] && [ -f graphify-out/graph.json ] || exit 0
+  py=""
+  [ -f graphify-out/.graphify_python ] &&
+    py=$(tr -d '\r\n' < graphify-out/.graphify_python)
+  if [ -z "$py" ] || [ ! -x "$py" ]; then
+''' +
+    otherwise +
+    r'''
+  fi
+''';
+
+/// Starts the graph repair in the background after a branch switch, and
+/// when a merge or rebase replays this hook (spec §19.6). It waits for
+/// graphify's own rebuild, then puts back the docs that rebuild dropped.
+final _graphRepair =
+    r'''
+# Puts back, from graphify's cache, the docs a code rebuild dropped from the
+# knowledge graph (spec §19.6). It runs in the background, after graphify's
+# rebuild, and writes to graphify's log. Skip it with
+# APPSTEIN_SKIP_GRAPH_HOOK=1; it also stays off with GRAPHIFY_SKIP_HOOK=1.
+(
+  [ "${APPSTEIN_SKIP_GRAPH_HOOK:-0}" = "1" ] && exit 0
+  [ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ] && exit 0
+  [ "$3" = "1" ] && [ "$1" != "$2" ] || exit 0
+  if [ "${APPSTEIN_HOOK_REPLAY:-0}" != "1" ]; then
+    # A rebase checks out commits on its way; post-rewrite replays this
+    # hook once it is done.
+    GIT_DIR=${GIT_DIR:-$(git rev-parse --git-dir 2>/dev/null)}
+    [ -d "$GIT_DIR/rebase-merge" ] && exit 0
+    [ -d "$GIT_DIR/rebase-apply" ] && exit 0
+  fi
+''' +
+    _graphifyPython('    exit 0\n') +
+    r'''
+  # A branch from before the repair has a check_graph.py without it.
+  grep -q -e --detach tool/check_graph.py || exit 0
+  "$py" tool/check_graph.py --detach
+  exit 0
 )''';
 
 /// Warns when the knowledge graph doesn't hold the current docs
 /// (spec §19.6), by running `tool/check_graph.py` with graphify's Python.
 /// [guard] is `sh` lines that end the check early when this hook shouldn't
-/// run it.
-String _graphCheck(String guard) =>
+/// run it. With [repairing], the hook has just replayed post-checkout, which
+/// started the graph repair, so docs missing from the graph are reported as
+/// being repaired, unless `GRAPHIFY_SKIP_HOOK=1` kept the repair off.
+String _graphCheck(String guard, {bool repairing = false}) =>
     r'''
 # Warns when the knowledge graph doesn't hold the current docs (spec §19.6).
 # It only warns. Skip it with APPSTEIN_SKIP_GRAPH_HOOK=1.
@@ -88,18 +139,23 @@ String _graphCheck(String guard) =>
   [ "${APPSTEIN_SKIP_GRAPH_HOOK:-0}" = "1" ] && exit 0
 ''' +
     guard +
-    r'''
-  [ -f tool/check_graph.py ] && [ -f graphify-out/graph.json ] || exit 0
-  py=""
-  [ -f graphify-out/.graphify_python ] &&
-    py=$(tr -d '\r\n' < graphify-out/.graphify_python)
-  if [ -z "$py" ] || [ ! -x "$py" ]; then
+    _graphifyPython(r'''
     echo "graphify: the graph check could not run: graphify-out/.graphify_python doesn't name graphify's Python. Run /graphify . --update to set it."
     exit 0
+''') +
+    (repairing
+        ? r'''
+  if [ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ]; then
+    "$py" tool/check_graph.py --quiet
+  else
+    "$py" tool/check_graph.py --quiet --skip-repairable
   fi
+  exit 0
+)'''
+        : r'''
   "$py" tool/check_graph.py --quiet
   exit 0
-)''';
+)''');
 
 /// Where Appstein's block is in [text], or null when it has none. Throws
 /// [FormatException] when a start marker has no end marker.

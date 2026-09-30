@@ -226,21 +226,24 @@ graphify: repaired 1 doc from the cache (docs/superpowers/plans/2026-09-30-slice
 `fvm dart run tool/install_hooks.dart` sets up the repo's hooks. Run it once per clone. It:
 
 1. runs `graphify hook install` when `graphify` is on your PATH. That installs graphify's `post-commit` and `post-checkout` graph rebuilds. Without graphify it prints how to install it (`uv tool install graphifyy`) and skips this step;
-2. adds our own block to `post-commit`, `post-merge` and `post-rewrite`, from [`hooks.dart`](../../tool/src/hooks.dart). The block sits between `# appstein-hook-start` and `# appstein-hook-end`. An older block is replaced in place; everything else in the file, such as graphify's block, is kept.
+2. adds our own block to `post-checkout`, `post-commit`, `post-merge` and `post-rewrite`, from [`hooks.dart`](../../tool/src/hooks.dart). The block sits between `# appstein-hook-start` and `# appstein-hook-end`. An older block is replaced in place; everything else in the file, such as graphify's block, is kept.
 
 What each block does:
 
 | Hook | What our block does |
 |---|---|
+| `post-checkout` | After a branch switch, starts the [background repair](#repairing-the-graph) with `check_graph.py --detach`, and prints nothing. It sits after graphify's block, which has just started graphify's rebuild. It does nothing for a file checkout, for a new branch at the same commit, during a rebase (the rebase's own checkouts), without `tool/check_graph.py` (or with one from before the repair), without a graph or a usable `graphify-out/.graphify_python`, or with `APPSTEIN_SKIP_GRAPH_HOOK=1` or `GRAPHIFY_SKIP_HOOK=1`. |
 | `post-commit` | Runs `check_guide.dart --since HEAD~1 --warn-only` through `fvm dart`, or `dart` if there's no `fvm`. It skips during a rebase, on the first commit, when `tool/check_guide.dart` doesn't exist, or when `APPSTEIN_SKIP_DOCS_HOOK=1`. It only warns, and always exits 0. Then it runs the graph check (below). |
-| `post-merge` | graphify's hooks miss merges and pulls. This block runs graphify's `post-checkout` hook as if HEAD had switched from `ORIG_HEAD`, so the graph is rebuilt. Then it runs the graph check. |
-| `post-rewrite` | The same, but only after a rebase. graphify's `post-commit` already covers an amend. |
+| `post-merge` | graphify's hooks miss merges and pulls. This block replays the `post-checkout` hook as if HEAD had switched from `ORIG_HEAD`, with `APPSTEIN_HOOK_REPLAY=1`. graphify's block rebuilds after a fast-forward, but skips while `MERGE_HEAD` exists, which it still does after a real merge commit. Our block starts the repair, whose own rebuild covers that case. Then it runs the graph check. |
+| `post-rewrite` | The same, but only after a rebase. git still has the rebase's folder then, so graphify's block skips; `APPSTEIN_HOOK_REPLAY=1` lets ours run. graphify's `post-commit` already covers an amend. |
 
 **The graph check in each block** runs [`check_graph.py`](../../tool/check_graph.py) `--quiet` with the Python named in `graphify-out/.graphify_python`, a file graphify writes on each `/graphify` run. It prints nothing when the graph is current, and one line when it isn't:
 
 - It is skipped when there's no `tool/check_graph.py` or no `graphify-out/graph.json` (a clone where graphify was never run), during a rebase (`post-rewrite` checks once at the end), or when `APPSTEIN_SKIP_GRAPH_HOOK=1`.
 - If `.graphify_python` is missing or names a file that isn't there or isn't executable, it prints `graphify: the graph check could not run: …` instead.
 - It never stops the hook: the other parts of the block, and graphify's block, still run.
+
+**After a merge or rebase, docs being repaired get one calm line.** There the check runs with `--skip-repairable`, because the replay has just started the repair. Docs `missing from the graph` are reported as `graphify: repairing N docs from the cache in the background (…)`, not as a request to run `/graphify . --update`. That line says the hook is changing the graph in the background, and where to look if that fails (the log). Silence would hide it, and the request would send you to an LLM run that isn't needed. With `GRAPHIFY_SKIP_HOOK=1` there is no repair, so the check asks for the update as before. The `post-commit` check is unchanged: a commit doesn't drop docs.
 
 **Why tiny `sh` blocks.** Git runs every hook with its own `sh`, on Windows too, so a hook must be a shell script. Each part of a block is a few lines that call a tested Dart tool, graphify's own hook, or (for the graph) a tested Python script made of graphify calls, so the logic stays in tested code. Each part runs in a `( … )` subshell, so its `exit` can't stop another part or another block in the same file. (The `AGENTS.md` rule "no bash scripts" is about the hooks Appstein will install for agents, not these.)
 
@@ -250,12 +253,12 @@ What each block does:
   ```powershell
   $env:APPSTEIN_SKIP_DOCS_HOOK = '1'; git commit -m "wip"; Remove-Item Env:APPSTEIN_SKIP_DOCS_HOOK
   ```
-- `APPSTEIN_SKIP_GRAPH_HOOK=1` skips the graph warning, the same way.
-- `GRAPHIFY_SKIP_HOOK=1` is graphify's own switch. It skips graphify's rebuilds, and so our merge and rebase replays, which go through graphify's `post-checkout` hook.
+- `APPSTEIN_SKIP_GRAPH_HOOK=1` skips the graph warning and the background repair, the same way.
+- `GRAPHIFY_SKIP_HOOK=1` is graphify's own switch. It skips graphify's rebuilds, our merge and rebase replays of them, and the background repair, which rebuilds too.
 - `fvm dart run tool/install_hooks.dart --remove` takes our blocks out and leaves graphify's. `graphify hook uninstall` removes graphify's.
 - Re-run the installer whenever `tool/src/hooks.dart` changes. It is safe to run again: unchanged hooks are reported as `up to date`.
 
-**The cost.** graphify rebuilds in the background, so it doesn't slow a commit. The docs check does: it takes a few seconds (about 2.7 s on the development machine) after each commit. That cost is why doc comments are read as text, not with the analyzer. The graph check adds about half a second after a commit, merge or rebase.
+**The cost.** graphify rebuilds in the background, so it doesn't slow a commit. The docs check does: it takes a few seconds (about 2.7 s on the development machine) after each commit. That cost is why doc comments are read as text, not with the analyzer. The graph check adds about half a second after a commit, merge or rebase. A branch switch, merge or rebase also starts the background repair, which takes about 0.2 s in the foreground. It then runs one more code rebuild after graphify's, about 3 seconds on the development machine, in the background.
 
 ## The docs step of each slice
 
@@ -279,3 +282,6 @@ Any edit after step 3, such as a review fix, puts the graph behind again, and th
 - **The repair trusts the cache.** It puts back the newest cached extraction of the doc's current content. When several agents extracted the same content, the newest one wins.
 - **A doc whose extraction is only a node for the doc itself** can't be told from a doc graphify only scanned for headings: graphify's heading node has the same id and wins. The check counts such a doc as in the graph, since there is nothing to put back.
 - **The repair uses graphify's private functions** (`_rebuild_lock`, `_rebuild_code`, `_reconcile_existing_graph`, `_drain_pending`) and copies graphify's rule for telling its heading nodes apart. CI's tests pin the graphify version (`GRAPHIFY_VERSION`). A graphify release that changes them makes the repair say `could not repair the graph`, never report a repair it didn't make.
+- **A commit during a repair waits for the next rebuild.** The repair holds graphify's lock for a few seconds. graphify skips a rebuild that starts meanwhile, as it does whenever two overlap. A commit's rebuild queues its changes, and the next rebuild picks them up, usually the next commit's. A branch switch meanwhile starts a repair of its own, which rebuilds after it.
+- **The background repair reports only to the log.** If it fails, the terminal doesn't show it. The next commit's warning names any doc still missing, and the `[appstein]` lines in `~/.cache/graphify-rebuild.log` say why.
+- **A branch from before the repair** (slice 1a.3) has a `check_graph.py` without `--detach`. The `post-checkout` hook skips the repair there, and the next pull or checkout of a newer branch runs it.
