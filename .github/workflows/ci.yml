@@ -106,6 +106,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the stale-page check compares with the base commit
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_STABLE }}
@@ -116,7 +118,27 @@ jobs:
         shell: bash
         run: for pkg in packages/*/; do (cd "$pkg" && dart doc --dry-run) || exit 1; done
       - name: Developer guide check
-        run: dart run tool/check_guide.dart
+        shell: bash
+        # Pull requests compare with their base branch, and pushes with the
+        # commit before the push. A manual run, a new branch or a force push
+        # has no usable base, so only the stale-page part is skipped
+        # (spec §19.6).
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          since=""
+          if [ -n "$BASE_REF" ]; then
+            since="origin/$BASE_REF"
+          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            since="$BEFORE"
+          fi
+          if [ -n "$since" ]; then
+            dart run tool/check_guide.dart --since "$since"
+          else
+            echo "No base commit to compare with, so the stale-page check is skipped."
+            dart run tool/check_guide.dart
+          fi
 
   min-sdk:
     runs-on: ubuntu-latest
