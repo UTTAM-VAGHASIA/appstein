@@ -101,6 +101,21 @@ void main() {
     ]);
   });
 
+  test('with guideLinks off, a page outside docs/guide/ may have sections', () {
+    final result = regenerate(
+      'docs/superpowers/specs/page.html',
+      '<p>\n<!-- generated:alpha -->\nold\n<!-- /generated:alpha -->\n</p>\n',
+      {'alpha': '<b>A</b>'},
+      guideLinks: false,
+    );
+    expect(result.problems, isEmpty);
+    expect(
+      result.text,
+      '<p>\n<!-- generated:alpha -->\n\n<b>A</b>\n\n'
+      '<!-- /generated:alpha -->\n</p>\n',
+    );
+  });
+
   test('regenerating a section with multi-line body containing code fences is '
       'idempotent', () {
     const bodiesWithFence = {
