@@ -4327,7 +4327,7 @@ Suggested message: `feat(sdk): classify FVM pins, find FVM's cache as FVM does, 
 - Modify: `docs/guide/testing.md` (`## Tests against the real machine`)
 
 **Interfaces:**
-- Consumes: Task 1's summary form `Android SDK: platform <p>, build-tools <b>`; `readFvmPin(...).pinDirectory`; `SdkDetector.detect`; `Doctor.run(projectRoot:)`.
+- Consumes: Task 1's summary form `platform <p>, build-tools <b>` (the printer adds the title "Android SDK: "; ruling during execution); `readFvmPin(...).pinDirectory`; `SdkDetector.detect`; `Doctor.run(projectRoot:)`.
 
 - [ ] **Step 1: Rewrite the integration tests**
 

@@ -124,13 +124,23 @@ This mirrors Flutter's `AndroidStudio.latestValid`:
 
 A folder is an Android SDK when it has a `licenses/` or a `platform-tools/` folder.
 
-The Android SDK check then looks inside: the newest build-tools (a preview only when there is no stable one), `zipalign` in it, and `platform-tools`.
+### Platforms and build-tools
+
+The Android SDK check reports the platform and build-tools Flutter will use, found the way Flutter's `AndroidSdk.reinitialize` finds them. [`android_sdk_contents.dart`](../../packages/appstein_engine/lib/src/android/android_sdk_contents.dart) reads the SDK:
+
+- **Folder names are read leniently, like Flutter's `Version.parse`.** A name counts when it starts with a number: `37.0.0-rc2` reads as 37.0.0, `36` as 36.0.0 and `36.1` as 36.1.0. Anything after the numbers, such as `-rc2`, is kept for display but ignored when comparing, so a preview is neither older nor newer than its release. Names like `latest` or `.DS_Store` are skipped. In `build-tools`, files count too, as in Flutter.
+- **Each platform needs an API level.** `platforms/android-36` has level 36 from its name. Any other name, such as `android-37.0` or `android-36.1`, needs a `build.prop` file with a `ro.build.version.sdk=<level>` line. A platform without a level is ignored, and the check lists it.
+- **The newest platform is the one with the highest level.** Among platforms of the same level, the name that sorts last wins: Flutter keeps the folder listing's order, which is alphabetical on NTFS and APFS, and takes the last. Appstein sorts the names itself, so the answer is the same on every file system.
+- **The build-tools are paired with that platform:** the newest build-tools with the same major version as its level, or else the newest of all. On a tie, such as `37.0.0` and `37.0.0-rc2`, the name that sorts first wins. That is the release, which is what Flutter picks on NTFS and APFS.
+
+So on a machine with platforms up to `android-37.0` (level 37) and build-tools `35.0.0`, `36.1.0` and `37.0.0-rc2`, doctor says `platform android-37.0, build-tools 37.0.0-rc2`, the words `flutter doctor -v` prints. The check then looks for `zipalign` in those build-tools and for `platform-tools`. With no build-tools, or no platform with a level, it reports an error, as Flutter does.
+
+Flutter also reports an error when the platform or the build-tools are older than its Gradle plugin needs. Those minimums are facts about each Flutter version, so they arrive with the toolchain knowledge in slice 1b.2.
 
 ## Known gaps
 
 The lookups don't copy every corner of Flutter yet. The list is in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md). For example:
 
 - **macOS Android Studio discovery is narrower than Flutter's.** It doesn't search `/Applications` for other `Android Studio*.app` names or subfolders, and doesn't use Spotlight, so a Mac with only a Preview app could get a different JDK than Flutter.
-- **Build-tools:** Flutter reports the newest build-tools, previews included; Appstein prefers the newest stable one.
 - **A pin that names a channel** (`stable`) and that FVM doesn't have fails the version comparison with a confusing message.
 - FVM's own `cachePath` setting isn't read, and an invalid `FLUTTER_ROOT` is skipped silently.

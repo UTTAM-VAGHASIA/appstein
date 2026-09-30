@@ -60,7 +60,7 @@ This table is generated from `defaultDoctorChecks()`, in the order doctor shows 
 | 2 | `doctor.dart` | Dart SDK | Reports the Dart SDK bundled with Flutter, and notes (as information, not a warning) when the `dart` on PATH belongs to a different SDK. | [dart_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/dart_check.dart) |
 | 3 | `doctor.fvm` | FVM | Checks FVM when the project pins a Flutter version with it. | [fvm_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/fvm_check.dart) |
 | 4 | `doctor.java` | JDK used by Flutter | Checks the JDK Flutter actually uses for Android builds, and whether JAVA_HOME names a JDK of another version. | [java_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/java_check.dart) |
-| 5 | `doctor.android_sdk` | Android SDK | Checks the Android SDK: build-tools, including `zipalign` for the 16 KB page-size check, and `platform-tools`. | [android_sdk_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/android_sdk_check.dart) |
+| 5 | `doctor.android_sdk` | Android SDK | Checks the Android SDK as Flutter reads it: the newest platform, the build-tools Flutter pairs with it, `zipalign` in those build-tools for the 16 KB page-size check, and `platform-tools`. | [android_sdk_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/android_sdk_check.dart) |
 | 6 | `doctor.xcode` | Xcode | Checks Xcode on macOS. App Store uploads need Xcode 26 or newer. | [xcode_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/xcode_check.dart) |
 | 7 | `doctor.cocoapods` | CocoaPods | Checks CocoaPods on macOS. Swift Package Manager is the default now, but plugins without SwiftPM support still need CocoaPods. | [cocoapods_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/cocoapods_check.dart) |
 | 8 | `doctor.git` | git | git: the planned `create` and `upgrade` commands need it, to propose the first commit and to refuse a dirty tree (spec §13). | [tool_check.dart](../../packages/appstein_engine/lib/src/doctor/checks/tool_check.dart) |
@@ -77,6 +77,7 @@ A few behaviours the table doesn't show:
 - **An unreadable FVM pin is counted once too.** The Flutter check reports it as an error, and the FVM check only notes it as info.
 - **Xcode and CocoaPods are skipped outside macOS.**
 - **The Java check names what Flutter passed over.** When a JDK is found, each Android Studio install Flutter would skip gets a detail line saying why. It also compares the JDK with JAVA_HOME: another JDK of the same major version is info, a different version is a warning, because Gradle run outside Flutter uses JAVA_HOME. See [sdk-lookups](sdk-lookups.md#the-jdk).
+- **The Android SDK check names the pair Flutter uses.** Its summary gives the newest platform and the build-tools Flutter pairs with it, previews included, in the words `flutter doctor -v` prints (`platform android-37.0, build-tools 37.0.0-rc2`). Platform folders Flutter ignores are listed in its details. See [sdk-lookups](sdk-lookups.md#platforms-and-build-tools).
 - **The `appstein` on PATH check reads the registry on Windows.** It compares the terminal's PATH with the user and system PATH saved in the registry (`reg query`), because an agent started from elsewhere gets the saved one.
 
 ## Finding the project
