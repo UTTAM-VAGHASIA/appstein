@@ -67,4 +67,75 @@ void main() {
       expect(await stale(repo.path), isEmpty);
     });
   });
+
+  group('a page whose only change is a regenerated section', () {
+    const page = 'docs/guide/README.md';
+    const covers = '<!-- covers: tool/a.dart -->\n# G\n\n';
+    const staleA =
+        'tool/a.dart: Changed, but the page that explains it did not: '
+        'docs/guide/README.md. Update the page, or if it is still right, add '
+        'a commit trailer: Docs-Checked: README.md - <why it is still right>';
+
+    String section(String body) =>
+        '<!-- generated:facts -->\n\n$body\n\n<!-- /generated:facts -->\n';
+
+    // Only the stale-page problems; the temp repo has none of Appstein's
+    // generated facts, so the generated-section check complains too.
+    Future<List<String>> stale(String repoRoot) async => [
+      for (final problem in await checkGuide(repoRoot, since: 'main'))
+        if (problem.message.startsWith('Changed, but') ||
+            problem.file == 'commit message')
+          '$problem',
+    ];
+
+    late Directory repo;
+
+    setUp(() {
+      repo = tempRepo();
+      writeFile(repo, page, '$covers${section('old fact')}');
+      writeFile(repo, 'tool/a.dart', '// a\n');
+      runGit(repo, ['add', '.']);
+      runGit(repo, ['commit', '-q', '-m', 'first']);
+      runGit(repo, ['switch', '-q', '-c', 'feature']);
+      writeFile(repo, 'tool/a.dart', '// a, changed\n');
+    });
+
+    test('does not clear the stale check', () async {
+      writeFile(repo, page, '$covers${section('new fact')}');
+      expect(await stale(repo.path), [staleA]);
+    });
+
+    // Review Focus 5.
+    test('does not clear it with CRLF line endings either', () async {
+      writeFile(
+        repo,
+        page,
+        '$covers${section('new fact')}'.replaceAll('\n', '\r\n'),
+      );
+      expect(await stale(repo.path), [staleA]);
+    });
+
+    test('a hand-written change next to it clears it', () async {
+      writeFile(
+        repo,
+        page,
+        '$covers${section('new fact')}\nExplains the change.\n',
+      );
+      expect(await stale(repo.path), isEmpty);
+    });
+
+    test('a page with broken markers counts as changed', () async {
+      writeFile(repo, page, '$covers<!-- generated:facts -->\n\nnew fact\n');
+      expect(await stale(repo.path), isEmpty);
+    });
+
+    test('a page that is new since the merge base counts as changed', () async {
+      writeFile(
+        repo,
+        'docs/guide/new.md',
+        '<!-- covers: tool/a.dart -->\n# New\n',
+      );
+      expect(await stale(repo.path), isEmpty);
+    });
+  });
 }

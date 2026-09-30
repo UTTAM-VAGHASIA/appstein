@@ -77,6 +77,15 @@ final class GitRepo {
       if (message.trim().isNotEmpty) message,
   ];
 
+  /// The text of [path] (repo-relative, with forward slashes) at the merge
+  /// base of [rev] and HEAD, as git stores it, or null when the file didn't
+  /// exist there.
+  String? fileAt(String rev, String path) {
+    final spec = '${_mergeBase(rev)}:$path';
+    if (_run(['cat-file', '-e', spec]).exitCode != 0) return null;
+    return _git(['cat-file', 'blob', spec]);
+  }
+
   String _mergeBase(String rev) => _git(['merge-base', rev, 'HEAD']).trim();
 
   List<String> _paths(List<String> arguments) {

@@ -144,4 +144,57 @@ void main() {
     expect(second.problems, isEmpty);
     expect(second.text, first.text);
   });
+
+  group('stripGeneratedBodies', () {
+    test('drops section bodies, keeps the markers and the text around them, '
+        'and uses LF', () {
+      expect(
+        stripGeneratedBodies(
+          '# T\r\n<!-- generated:alpha -->\r\nold\r\n\r\n'
+          '<!-- /generated:alpha -->\r\nText\r\n',
+        ),
+        '# T\n<!-- generated:alpha -->\n<!-- /generated:alpha -->\nText\n',
+      );
+    });
+
+    test('gives the same text before and after regenerating', () {
+      const before =
+          '# T\n\n<!-- generated:beta -->\nold\n<!-- /generated:beta -->\n';
+      final after = regenerate(page, before, bodies).text;
+      expect(after, isNot(before));
+      expect(stripGeneratedBodies(after), stripGeneratedBodies(before));
+    });
+
+    test('leaves markers inside code fences alone', () {
+      const markdown = '```text\n<!-- generated:alpha -->\nexample\n```\n';
+      expect(stripGeneratedBodies(markdown), markdown);
+    });
+
+    test('accepts section names gen_docs does not know', () {
+      expect(
+        stripGeneratedBodies(
+          '<!-- generated:gamma -->\nx\n<!-- /generated:gamma -->\n',
+        ),
+        '<!-- generated:gamma -->\n<!-- /generated:gamma -->\n',
+      );
+    });
+
+    for (final (name, markdown) in [
+      ('a section never closed', '<!-- generated:alpha -->\ntext\n'),
+      ('an end marker without a start', '<!-- /generated:alpha -->\n'),
+      (
+        'mismatched markers',
+        '<!-- generated:alpha -->\n<!-- /generated:beta -->\n',
+      ),
+      (
+        'nested sections',
+        '<!-- generated:alpha -->\n<!-- generated:beta -->\n'
+            '<!-- /generated:alpha -->\n',
+      ),
+    ]) {
+      test('is null for $name', () {
+        expect(stripGeneratedBodies(markdown), isNull);
+      });
+    }
+  });
 }
