@@ -1,0 +1,96 @@
+# Where Appstein stands (spec §19.6). This file is the only place progress
+# is written: `fvm dart run tool/gen_docs.dart` renders it into the spec's
+# visual page, and the guide check fails when the page, the plans or spec
+# §18 disagree with it. See docs/guide/docs-tooling.md#progress.
+repository: https://github.com/UTTAM-VAGHASIA/appstein
+milestones:
+  - id: M1
+    title: Knowledge + verification foundation
+    summary: What an agent needs to know before it writes Flutter code, and a deterministic check after.
+    slices:
+      - id: 1a
+        title: Workspace, CLI, doctor and CI
+        summary: The pub workspace with four packages, the `appstein` CLI with `doctor`, and CI on Linux, macOS and Windows.
+        status: done
+        plan: 2026-09-29-slice-1a-workspace-cli-doctor.md
+        pr: 1
+        finished: 2026-09-30
+        slices:
+          - id: 1a.1
+            title: Keep the developer guide current
+            summary: Every source file is covered by a guide page, stale pages fail CI, facts the code knows are generated, and git hooks warn early.
+            status: done
+            tooling: true
+            plan: 2026-09-30-slice-1a1-docs-freshness.md
+            pr: 2
+            finished: 2026-09-30
+          - id: 1a.2
+            title: Warn when the knowledge graph is behind
+            summary: "`tool/check_graph.py` and a hook warning name the docs whose current content isn't in the graph."
+            status: done
+            tooling: true
+            plan: 2026-09-30-slice-1a2-graph-staleness.md
+            pr: 3
+            finished: 2026-09-30
+          - id: 1a.3
+            title: The knowledge graph repairs itself
+            summary: Docs a code rebuild dropped are put back from graphify's cache in the background after each checkout, merge and rebase.
+            status: done
+            tooling: true
+            plan: 2026-10-01-slice-1a3-graph-self-repair.md
+            pr: 5
+            finished: 2026-10-01
+          - id: 1a.4
+            title: Project progress on the visual page
+            summary: This record, rendered on the spec's visual page and kept consistent with the plans and §18 by the guide check.
+            status: next
+            tooling: true
+            plan: 2026-10-01-slice-1a4-progress.md
+      - id: 1b
+        title: Knowledge layers 1–2
+        summary: What an agent needs to know about the SDK, the native toolchain and the project, written into `.appstein/`.
+        slices:
+          - id: 1b.1
+            title: doctor agrees with flutter doctor -v
+            summary: Build-tools and platforms, the aapt/adb fallback, macOS Android Studio discovery, FVM channel pins and cache, and file error reasons, on every OS.
+            status: done
+            plan: 2026-09-30-slice-1b1-sdk-gaps.md
+            pr: 4
+            finished: 2026-10-01
+          - id: 1b.2
+            title: Knowledge store and platform layer
+            summary: The `.appstein/` store with its lock and freshness state, `sdk.json`, curated notes for Flutter 3.44–3.47, `delta.md`, `toolchain.json` and `appstein sync`.
+            status: planned
+          - id: 1b.3
+            title: Project map
+            summary: The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through `official_mvvm` and the platform extractors.
+            status: planned
+          - id: 1b.4
+            title: Incremental sync, INDEX.md and package skills
+            summary: Sync that rebuilds only what changed, the always-in-view `INDEX.md`, and the package skills refresh.
+            status: planned
+      - id: 1c
+        title: MCP server
+        summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.
+        status: planned
+      - id: 1d
+        title: Verifier
+        summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale` and suppressions.
+        status: planned
+      - id: 1e
+        title: create + integrate
+        summary: "`appstein create` with its CI template and first human docs, and `integrate` for Claude Code and Codex with hooks."
+        status: planned
+      - id: 1f
+        title: upgrade, skills, benchmark
+        summary: The `upgrade` framework with the 3.47 migration, the lifecycle skills and the first published benchmark run.
+        status: planned
+  - id: M2
+    title: Single-agent pipeline
+    summary: Plan, implement, review and verify with hard gates, driving the official agent CLIs; visual verification; a guided mode for beginners.
+  - id: M3
+    title: Existing apps, more stacks
+    summary: "`appstein adopt` for existing projects; Riverpod and Bloc packs, community packs and a pack scaffold."
+  - id: M4
+    title: Desktop app, every platform
+    summary: A Flutter desktop app with several agents at once; web, Windows, macOS and Linux packs; then a web UI.

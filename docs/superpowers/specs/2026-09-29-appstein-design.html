@@ -506,6 +506,58 @@ footer{padding-block:48px 64px;border-top:1px solid var(--line)}
 footer .wrap{display:flex;flex-wrap:wrap;gap:12px 32px;justify-content:space-between;font-size:.82rem;color:var(--ink-3)}
 footer code{color:var(--ink-2);overflow-wrap:anywhere}
 
+/* ---------- progress (the markup is generated from docs/superpowers/progress.yaml) ---------- */
+.pg-status{color:var(--ink);border-color:var(--accent)}
+.pg-status:hover{text-decoration:none;background:var(--accent-soft)}
+.pg-status .dot{animation:pg-pulse 2.4s ease-in-out infinite}
+@keyframes pg-pulse{0%,100%{box-shadow:0 0 0 0 var(--accent-soft)}50%{box-shadow:0 0 0 5px var(--accent-soft)}}
+.pg-rail{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr)}
+.pg-rail li{position:relative;padding:30px 20px 0 0}
+.pg-rail li::before{content:"";position:absolute;top:7px;left:0;right:0;height:2px;background:var(--line-2)}
+.pg-rail li:last-child::before{right:auto;width:16px}
+.pg-rail li::after{content:"";position:absolute;top:0;left:0;width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--bg);border:2px solid var(--line-2)}
+.pg-rail li.pg-done::before{background:var(--ok)}
+.pg-rail li.pg-done::after{background:var(--ok);border-color:var(--ok)}
+.pg-rail li.pg-underway::before{background:linear-gradient(90deg,var(--accent) 0 40%,var(--line-2) 40%)}
+.pg-rail li.pg-underway::after{border-color:var(--accent);background:var(--accent);box-shadow:0 0 0 5px var(--accent-soft)}
+.pg-rail b{display:block;font:500 1.05rem/1 var(--mono);letter-spacing:-.02em}
+.pg-rail span{display:block;margin-top:8px;font-size:.88rem;color:var(--ink-2);line-height:1.35;max-width:24ch}
+.pg-rail em{display:block;margin-top:8px;font-style:normal;font-size:.74rem;letter-spacing:.02em;color:var(--ink-3)}
+.pg-rail li.pg-done em{color:var(--ok)}
+.pg-rail li.pg-underway em{color:var(--accent)}
+.pg-milestone{margin-top:56px}
+.pg-milestone h3{margin:0 0 14px;font-size:.8rem;font-weight:500;letter-spacing:.02em;color:var(--ink-3)}
+.pg-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.pg-seg{position:relative;overflow:hidden;display:flex;flex-direction:column;padding:14px 14px 18px;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--line);color:var(--ink);transition:border-color .2s,transform .1s ease-out}
+.pg-seg:hover{border-color:var(--line-2);text-decoration:none}
+.pg-seg:active{transform:scale(.98)}
+.pg-seg::before{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--line)}
+.pg-seg::after{content:"";position:absolute;left:0;bottom:0;height:4px;width:var(--fill);background:var(--ok)}
+.pg-seg.pg-underway::after,.pg-seg.pg-next::after{background:var(--accent)}
+.pg-seg.pg-next{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.pg-seg b{font:500 1.05rem/1 var(--mono);letter-spacing:-.02em}
+.pg-seg span{margin-top:8px;font-size:.8rem;line-height:1.35;color:var(--ink-2)}
+.pg-seg i{margin-top:auto;padding-top:12px;font-style:normal;font-size:.72rem;color:var(--ink-3)}
+.pg-timeline{list-style:none;margin:32px 0 0;padding:0;position:relative}
+.pg-timeline::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.pg-item{position:relative;padding:0 0 26px 36px}
+.pg-item:last-child{padding-bottom:0}
+.pg-item::before{content:"";position:absolute;left:0;top:2px;width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--bg);border:2px solid var(--line-2)}
+.pg-item.pg-done::before{background:var(--ok);border-color:var(--ok)}
+.pg-item.pg-done::after{content:"";position:absolute;left:5.5px;top:5px;width:4px;height:7px;border:solid var(--on-fill);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.pg-item.pg-next::before{border-color:var(--accent);background:var(--accent);box-shadow:0 0 0 5px var(--accent-soft)}
+.pg-item.pg-underway::before{border-color:var(--accent);background:linear-gradient(90deg,var(--accent) 50%,var(--bg) 50%)}
+.pg-item.pg-planned>.pg-title,.pg-item.pg-planned>.pg-summary{opacity:.6}
+.pg-title{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-weight:500}
+.pg-title b{font:500 .95rem/1.2 var(--mono);letter-spacing:-.02em}
+.pg-item.pg-next>.pg-title{color:var(--accent)}
+.pg-summary{margin:6px 0 0;max-width:72ch;font-size:.9rem;color:var(--ink-2)}
+.pg-meta{margin:6px 0 0;font-size:.8rem;color:var(--ink-3)}
+.pg-sub{margin-top:20px}
+.pg-sub .pg-item{padding-bottom:18px}
+@media (max-width:860px){.pg-rail{grid-template-columns:repeat(2,1fr);row-gap:28px}.pg-rail li:nth-child(2n)::before{right:auto;width:16px}}
+@media (max-width:600px){.pg-bar{grid-template-columns:repeat(3,1fr)}.pg-item{padding-left:30px}}
+@media (prefers-reduced-motion:reduce){.pg-status .dot{animation:none}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition-duration:0s!important}}
 @media (prefers-contrast:more){:root{--line:rgba(20,24,34,.3);--line-2:rgba(20,24,34,.5)}}
 </style>
@@ -516,6 +568,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   <div class="wrap">
     <a class="brand" href="#top"><span class="mark" aria-hidden="true">A</span>Appstein</a>
     <ul>
+      <li><a href="#progress">Progress</a></li>
       <li><a href="#how">How it works</a></li>
       <li><a href="#knowledge">Knowledge</a></li>
       <li><a href="#docs">Docs</a></li>
@@ -549,6 +602,11 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <div><b>Explain to humans</b><span>Readable docs from the same knowledge</span></div>
       </div>
       <div class="meta">
+<!-- generated:progress-status -->
+
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1a.4</b> Project progress on the visual page</a>
+
+<!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
         <span class="pill num">2026-09-29</span>
         <span class="pill">Claude Code · Codex</span>
@@ -592,6 +650,106 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     </div>
   </div>
 </header>
+
+<!-- ================= PROGRESS (§18; generated from docs/superpowers/progress.yaml) ================= -->
+<section id="progress">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Progress</p>
+      <h2>Where the build stands.</h2>
+      <p class="lead">Written once in <code>docs/superpowers/progress.yaml</code> and drawn here by <code>gen_docs</code>. CI fails when this page, the plans or §18 disagree with it.</p>
+    </div>
+<!-- generated:progress -->
+
+<ol class="pg-rail" aria-label="Milestones">
+  <li class="pg-underway" title="What an agent needs to know before it writes Flutter code, and a deterministic check after."><b>M1</b><span>Knowledge + verification foundation</span><em>In progress</em></li>
+  <li class="pg-planned" title="Plan, implement, review and verify with hard gates, driving the official agent CLIs; visual verification; a guided mode for beginners."><b>M2</b><span>Single-agent pipeline</span><em>Planned</em></li>
+  <li class="pg-planned" title="`appstein adopt` for existing projects; Riverpod and Bloc packs, community packs and a pack scaffold."><b>M3</b><span>Existing apps, more stacks</span><em>Planned</em></li>
+  <li class="pg-planned" title="A Flutter desktop app with several agents at once; web, Windows, macOS and Linux packs; then a web UI."><b>M4</b><span>Desktop app, every platform</span><em>Planned</em></li>
+</ol>
+<div class="pg-milestone">
+  <h3>M1 slices</h3>
+  <div class="pg-bar">
+    <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
+    <a class="pg-seg pg-underway" href="#pg-1b" style="--fill:25%"><b>1b</b><span>Knowledge layers 1–2</span><i>1 of 4 done</i></a>
+    <a class="pg-seg pg-planned" href="#pg-1c" style="--fill:0%"><b>1c</b><span>MCP server</span><i>0 of 1 done</i></a>
+    <a class="pg-seg pg-planned" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
+    <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
+    <a class="pg-seg pg-planned" href="#pg-1f" style="--fill:0%"><b>1f</b><span>upgrade, skills, benchmark</span><i>0 of 1 done</i></a>
+  </div>
+  <ol class="pg-timeline">
+    <li class="pg-item pg-done" id="pg-1a">
+      <p class="pg-title"><b>1a</b> Workspace, CLI, doctor and CI <span class="tag ok">Done</span></p>
+      <p class="pg-summary">The pub workspace with four packages, the <code>appstein</code> CLI with <code>doctor</code>, and CI on Linux, macOS and Windows.</p>
+      <p class="pg-meta"><time datetime="2026-09-30">30 Sep 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/1">PR #1</a> · <a href="../plans/2026-09-29-slice-1a-workspace-cli-doctor.md">Plan</a></p>
+      <ol class="pg-timeline pg-sub">
+        <li class="pg-item pg-done" id="pg-1a-1">
+          <p class="pg-title"><b>1a.1</b> Keep the developer guide current <span class="tag ok">Done</span> <span class="tag neutral">Repo tooling</span></p>
+          <p class="pg-summary">Every source file is covered by a guide page, stale pages fail CI, facts the code knows are generated, and git hooks warn early.</p>
+          <p class="pg-meta"><time datetime="2026-09-30">30 Sep 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/2">PR #2</a> · <a href="../plans/2026-09-30-slice-1a1-docs-freshness.md">Plan</a></p>
+        </li>
+        <li class="pg-item pg-done" id="pg-1a-2">
+          <p class="pg-title"><b>1a.2</b> Warn when the knowledge graph is behind <span class="tag ok">Done</span> <span class="tag neutral">Repo tooling</span></p>
+          <p class="pg-summary"><code>tool/check_graph.py</code> and a hook warning name the docs whose current content isn't in the graph.</p>
+          <p class="pg-meta"><time datetime="2026-09-30">30 Sep 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/3">PR #3</a> · <a href="../plans/2026-09-30-slice-1a2-graph-staleness.md">Plan</a></p>
+        </li>
+        <li class="pg-item pg-done" id="pg-1a-3">
+          <p class="pg-title"><b>1a.3</b> The knowledge graph repairs itself <span class="tag ok">Done</span> <span class="tag neutral">Repo tooling</span></p>
+          <p class="pg-summary">Docs a code rebuild dropped are put back from graphify's cache in the background after each checkout, merge and rebase.</p>
+          <p class="pg-meta"><time datetime="2026-10-01">1 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/5">PR #5</a> · <a href="../plans/2026-10-01-slice-1a3-graph-self-repair.md">Plan</a></p>
+        </li>
+        <li class="pg-item pg-next" id="pg-1a-4">
+          <p class="pg-title"><b>1a.4</b> Project progress on the visual page <span class="tag info">Next</span> <span class="tag neutral">Repo tooling</span></p>
+          <p class="pg-summary">This record, rendered on the spec's visual page and kept consistent with the plans and §18 by the guide check.</p>
+          <p class="pg-meta"><a href="../plans/2026-10-01-slice-1a4-progress.md">Plan</a></p>
+        </li>
+      </ol>
+    </li>
+    <li class="pg-item pg-underway" id="pg-1b">
+      <p class="pg-title"><b>1b</b> Knowledge layers 1–2 <span class="tag warn">In progress</span></p>
+      <p class="pg-summary">What an agent needs to know about the SDK, the native toolchain and the project, written into <code>.appstein/</code>.</p>
+      <ol class="pg-timeline pg-sub">
+        <li class="pg-item pg-done" id="pg-1b-1">
+          <p class="pg-title"><b>1b.1</b> doctor agrees with flutter doctor -v <span class="tag ok">Done</span></p>
+          <p class="pg-summary">Build-tools and platforms, the aapt/adb fallback, macOS Android Studio discovery, FVM channel pins and cache, and file error reasons, on every OS.</p>
+          <p class="pg-meta"><time datetime="2026-10-01">1 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/4">PR #4</a> · <a href="../plans/2026-09-30-slice-1b1-sdk-gaps.md">Plan</a></p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1b-2">
+          <p class="pg-title"><b>1b.2</b> Knowledge store and platform layer <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">The <code>.appstein/</code> store with its lock and freshness state, <code>sdk.json</code>, curated notes for Flutter 3.44–3.47, <code>delta.md</code>, <code>toolchain.json</code> and <code>appstein sync</code>.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1b-3">
+          <p class="pg-title"><b>1b.3</b> Project map <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through <code>official_mvvm</code> and the platform extractors.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1b-4">
+          <p class="pg-title"><b>1b.4</b> Incremental sync, INDEX.md and package skills <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">Sync that rebuilds only what changed, the always-in-view <code>INDEX.md</code>, and the package skills refresh.</p>
+        </li>
+      </ol>
+    </li>
+    <li class="pg-item pg-planned" id="pg-1c">
+      <p class="pg-title"><b>1c</b> MCP server <span class="tag neutral">Planned</span></p>
+      <p class="pg-summary">The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with <code>appstein docs</code>.</p>
+    </li>
+    <li class="pg-item pg-planned" id="pg-1d">
+      <p class="pg-title"><b>1d</b> Verifier <span class="tag neutral">Planned</span></p>
+      <p class="pg-summary">Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, <code>docs.stale</code> and suppressions.</p>
+    </li>
+    <li class="pg-item pg-planned" id="pg-1e">
+      <p class="pg-title"><b>1e</b> create + integrate <span class="tag neutral">Planned</span></p>
+      <p class="pg-summary"><code>appstein create</code> with its CI template and first human docs, and <code>integrate</code> for Claude Code and Codex with hooks.</p>
+    </li>
+    <li class="pg-item pg-planned" id="pg-1f">
+      <p class="pg-title"><b>1f</b> upgrade, skills, benchmark <span class="tag neutral">Planned</span></p>
+      <p class="pg-summary">The <code>upgrade</code> framework with the 3.47 migration, the lifecycle skills and the first published benchmark run.</p>
+    </li>
+  </ol>
+</div>
+
+<!-- /generated:progress -->
+  </div>
+</section>
 
 <!-- ================= WHY (§1, §2, §3) ================= -->
 <section class="alt" id="why">
