@@ -101,8 +101,14 @@ String renderExitCodes(String repoRoot) {
     if (doc == null) {
       throw GenerateException('ExitCodes.${match[1]} has no /// doc comment.');
     }
+    final code = int.tryParse(match[2]!);
+    if (code == null) {
+      throw GenerateException(
+        'ExitCodes.${match[1]} has a code that is not a number: ${match[2]}.',
+      );
+    }
     rows.add((
-      int.parse(match[2]!),
+      code,
       '| `${match[2]}` | `ExitCodes.${match[1]}` | ${firstParagraph(doc)} |',
     ));
   }
@@ -169,8 +175,7 @@ List<String> _commandNames(String usage) {
 /// steps, read from `.github/workflows/ci.yml`.
 String renderCiJobs(String repoRoot) {
   const file = '.github/workflows/ci.yml';
-  final workflow =
-      loadYaml(File(p.join(repoRoot, file)).readAsStringSync()) as YamlMap;
+  final workflow = _loadMap(repoRoot, file);
   final triggers = workflow['on'];
   final jobs = workflow['jobs'];
   if (triggers is! YamlMap || jobs is! YamlMap) {
@@ -183,7 +188,10 @@ String renderCiJobs(String repoRoot) {
         '${[for (final entry in triggers.entries) _trigger('${entry.key}', entry.value)].join(', ')}.',
   ];
   for (final entry in jobs.entries) {
-    final job = entry.value as YamlMap;
+    final job = entry.value;
+    if (job is! YamlMap) {
+      throw GenerateException('Job ${entry.key} in $file is not a map.');
+    }
     final steps = job['steps'];
     if (steps is! YamlList) {
       throw GenerateException('Job ${entry.key} in $file has no steps.');
@@ -193,12 +201,27 @@ String renderCiJobs(String repoRoot) {
       ..add('**`${entry.key}`** runs on ${_runsOn(job)}:')
       ..add('');
     var number = 0;
-    for (final step in steps.cast<YamlMap>()) {
+    for (final step in steps) {
       number++;
+      if (step is! YamlMap) {
+        throw GenerateException(
+          'Step $number of job ${entry.key} in $file is not a map.',
+        );
+      }
       out.add('$number. ${_step(step)}');
     }
   }
   return out.join('\n');
+}
+
+/// Reads the YAML file at [path] (relative to [repoRoot]), which must hold a
+/// map.
+YamlMap _loadMap(String repoRoot, String path) {
+  final document = loadYaml(File(p.join(repoRoot, path)).readAsStringSync());
+  if (document is! YamlMap) {
+    throw GenerateException('$path is not a YAML map.');
+  }
+  return document;
 }
 
 String _trigger(String name, Object? value) {
@@ -228,22 +251,14 @@ String _step(YamlMap step) {
 /// A Mermaid diagram of which workspace package depends on which, read from
 /// the pubspecs. Dev dependencies are left out.
 String renderPackageGraph(String repoRoot) {
-  final workspace =
-      loadYaml(File(p.join(repoRoot, 'pubspec.yaml')).readAsStringSync())
-          as YamlMap;
+  final workspace = _loadMap(repoRoot, 'pubspec.yaml');
   final members = workspace['workspace'];
   if (members is! YamlList) {
     throw const GenerateException('The root pubspec.yaml has no workspace.');
   }
   final dependencies = <String, List<String>>{};
   for (final member in members) {
-    final pubspec =
-        loadYaml(
-              File(
-                p.join(repoRoot, '$member', 'pubspec.yaml'),
-              ).readAsStringSync(),
-            )
-            as YamlMap;
+    final pubspec = _loadMap(repoRoot, '$member/pubspec.yaml');
     final deps = pubspec['dependencies'];
     dependencies['${pubspec['name']}'] = deps is YamlMap
         ? [for (final name in deps.keys) '$name']

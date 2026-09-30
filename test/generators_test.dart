@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../tool/src/generators.dart';
+import 'support/temp_repo.dart';
 
 /// `dart test test` runs from the repo root, and these generators read the
 /// real repo: that is the point of them.
@@ -96,6 +97,60 @@ void main() {
         '  appstein_engine --> appstein_protocol\n'
         '  appstein_lints --> appstein_protocol\n```',
       ),
+    );
+  });
+
+  Matcher generateError(String part) => throwsA(
+    isA<GenerateException>().having(
+      (e) => e.message,
+      'message',
+      contains(part),
+    ),
+  );
+
+  test('ci-jobs reports an empty workflow file', () {
+    final repo = tempFolder();
+    writeFile(repo, '.github/workflows/ci.yml', '');
+    expect(
+      () => renderCiJobs(repo.path),
+      generateError('.github/workflows/ci.yml is not a YAML map.'),
+    );
+  });
+
+  test('ci-jobs reports a step that is not a map', () {
+    final repo = tempFolder();
+    writeFile(
+      repo,
+      '.github/workflows/ci.yml',
+      'on:\n  push:\njobs:\n  test:\n    runs-on: ubuntu-latest\n'
+          '    steps:\n      - uses: a/b@v1\n      - just a string\n',
+    );
+    expect(
+      () => renderCiJobs(repo.path),
+      generateError('Step 2 of job test in .github/workflows/ci.yml'),
+    );
+  });
+
+  test('ci-jobs reports a job that is not a map', () {
+    final repo = tempFolder();
+    writeFile(
+      repo,
+      '.github/workflows/ci.yml',
+      'on:\n  push:\njobs:\n  build: nope\n',
+    );
+    expect(
+      () => renderCiJobs(repo.path),
+      generateError('Job build in .github/workflows/ci.yml is not a map.'),
+    );
+  });
+
+  test('package-graph reports a member pubspec that is not a map', () {
+    final repo = tempFolder();
+    writeFile(repo, 'pubspec.yaml', 'name: root\nworkspace:\n  - packages/a\n');
+    writeFile(repo, 'packages/a/pubspec.yaml', '- a\n- b\n');
+    expect(
+      () => renderPackageGraph(repo.path),
+      generateError('packages/a/pubspec.yaml is not a YAML map.'),
     );
   });
 

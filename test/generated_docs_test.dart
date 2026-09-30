@@ -68,7 +68,9 @@ void main() {
 
   test('a generator that fails is a problem, not a crash', () async {
     final result = await regenerateGuide(repo.path, pages, write: false);
-    expect(result.problems, isNotEmpty);
+    expect(result.problems, hasLength(1));
+    expect(result.problems.single.file, 'tool/src/generators.dart');
+    expect(result.problems.single.message, contains('exit_codes.dart'));
     expect(result.changedPages, isEmpty);
   });
 }
