@@ -2122,3 +2122,18 @@ Expected:
 3. `~/.cache/graphify-rebuild.log` ends with graphify's rebuild lines, then `[appstein] … graphify: repaired … from the cache (…).`
 
 Record the three outputs in memory. If any differs, don't repair by hand first: read the `[appstein]` lines, report, then run `--repair`.
+
+## Notes from execution
+
+Built subagent-driven, quick mode, on 2026-10-01. The owner delegated the whole mini-slice to the controller ("Don't wait for my approval, just complete this mini slice by yourself").
+
+- **Decisions settled under that delegation:** D1 accepted (the background job always runs one more code rebuild, which also fixes F3); D2's spec §19.6 wording approved verbatim, with D1; F1's stricter "in the graph" rule accepted; the plan's other choices accepted. Task 4's "with the owner's OK" steps are covered by the delegation and by the owner's standing merge rule (a green, verified PR is merged without asking).
+- **Found during planning:** F1 (1a.2's check called a dropped doc current once graphify's rebuild restored its heading nodes), F2 (a first background version overwrote graphify's log lines), F3 (1a.2's merge and rebase replays rebuilt nothing after a real merge commit or a rebase, because graphify's hook skips while `MERGE_HEAD` or the rebase folder exists).
+- **Extra commit:** `__pycache__/` and `*.pyc` are git-ignored. A planning experiment imported `check_graph.py` and left `tool/__pycache__/`, which the guide's coverage check saw as source.
+- **Order:** each review ran alongside the next implementer. Task 3 (docs only) had its review folded into the final review.
+- **Reviews:**
+  - Task 1 (Opus): Needs fixes, one Important finding (the background job had no timeout) plus hardening minors. Fixed in one round, which also added Task 2's minor (the merge warning falls back on branches from before 1a.3).
+  - Task 2: Approved.
+  - Final review (Opus): two Important findings. First, a `GRAPHIFY_REBUILD_TIMEOUT` of 0 or less, which graphify reads as "no limit", became a 60 s kill. Second, skipping while a merge or rebase was in progress could drop the repair in exactly the cases this slice is for. Both are fixed: `APPSTEIN_REPAIR_TIMEOUT` exists for tests, graphify's setting is read the way graphify reads it, and the job now waits for the merge or rebase to finish. Eight minors were also fixed. A scoped re-review followed.
+- **Cleanup:** an implementer's `python -` heredoc probe was left waiting on stdin. The controller checked its command line and stopped it. Implementers are now told never to use stdin heredocs for probes.
+- **Parked:** a Windows job object that kills on close and forbids breakaway could kill the detached job (untestable here). graphify unlinks its lock file after releasing it, which can let two holders coexist on POSIX (graphify's bug). An `os._exit` timeout can land between graphify writing `graph.json` and writing the report (graphify's own watchdog shares this).
