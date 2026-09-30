@@ -47,11 +47,12 @@ File checks aren't faked. Tests create real files in real temporary folders, bec
 Fakes can only answer the way we expect Flutter to. Some tests therefore run against the real machine:
 
 - **The `integration` tag.** [`dart_test.yaml`](../../packages/appstein_engine/dart_test.yaml) gives the tag a `skip` reason, so a plain `fvm dart test` skips these tests. Run them from `packages/appstein_engine` with `fvm dart test --run-skipped --tags integration`. CI runs them on all three OSes (see [ci](ci.md)).
-- **`doctor_real_environment_test.dart`** in `packages/appstein_engine/test/integration/` runs the real doctor and compares it with Flutter's own answers:
-  - the Flutter version it reports must match `flutter --version --machine`, and no check may crash;
-  - the JDK the Java check chooses must be the one `flutter doctor -v` names on its "Java binary at:" line.
+- **`doctor_real_environment_test.dart`** in `packages/appstein_engine/test/integration/` runs the real doctor for the Appstein repo and compares it with Flutter's own answers. The repo is the folder whose `.fvmrc` the tests find above their working folder. The `flutter` they run is the one `SdkDetector` finds for the repo, so both sides describe the same SDK: FVM's pinned one on the development machine, and in CI the one CI installs, which must match the pin.
+  - the Flutter version doctor reports must match `flutter --version --machine`, and no check may crash;
+  - the JDK the Java check chooses must be the one `flutter doctor -v` names on its "Java binary at:" line;
+  - the Android SDK check's summary must name the platform and build-tools on `flutter doctor -v`'s "Platform …, build-tools …" line.
 
-  Both skip themselves when `flutter` isn't on the PATH, and the JDK test also skips when Flutter reports no Java.
+  `flutter doctor -v` runs once, and its output is shared. When doctor finds no usable SDK for the repo, the tests skip themselves on a developer's machine but fail in CI (where the `CI` variable is set), because there it means CI itself is broken. The JDK test also skips when Flutter reports no Java, and the Android test when Flutter reports no Android SDK.
 
 **The lesson.** The unit tests for the JDK lookup encode our model of how Flutter chooses a JDK. If that model is wrong, the tests are wrong in the same way, and they still pass. Only comparing with Flutter's own answer, on a real machine, can catch a wrong model. That is why the cross-check with `flutter doctor -v` exists.
 
