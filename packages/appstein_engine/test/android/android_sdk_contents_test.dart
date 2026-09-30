@@ -63,38 +63,71 @@ void main() {
       buildProp('android-38.0', 'ro.build.version.sdk = 38\n');
       folder('platforms/android-TiramisuPrivacySandbox');
       final contents = readAndroidSdkContents(sdk);
-      expect(contents.platforms, [
-        (name: 'android-36', level: 36),
-        (name: 'android-36.1', level: 36),
-        (name: 'android-37.0', level: 37),
-      ]);
-      expect(contents.ignoredPlatforms, [
-        'android-38.0',
-        'android-TiramisuPrivacySandbox',
-      ]);
+      // The order is the file system's, so only the contents are compared.
+      expect(
+        contents.platforms,
+        unorderedEquals([
+          (name: 'android-36', level: 36),
+          (name: 'android-36.1', level: 36),
+          (name: 'android-37.0', level: 37),
+        ]),
+      );
+      expect(
+        contents.ignoredPlatforms,
+        unorderedEquals(['android-38.0', 'android-TiramisuPrivacySandbox']),
+      );
     });
 
-    test('among platforms of one level, the name that sorts last is the '
-        'newest', () {
+    test('the highest level is the newest platform', () {
       folder('platforms/android-36');
       buildProp('android-36.1', 'ro.build.version.sdk=36\n');
-      folder('build-tools/36.0.0');
+      folder('platforms/android-35');
+      expect(readAndroidSdkContents(sdk).latestPlatform?.level, 36);
+    });
+
+    test('among platforms of one level, the last in listing order is the '
+        'newest, as in Flutter', () {
+      folder('platforms/android-36');
+      buildProp('android-36.1', 'ro.build.version.sdk=36\n');
+      // The order is the file system's: alphabetical on NTFS, not on APFS or
+      // ext4. Read the real order to know which one Flutter takes.
+      final listed = [
+        for (final entry in Directory(p.join(sdk, 'platforms')).listSync())
+          p.basename(entry.path),
+      ];
+      expect(listed, hasLength(2));
       expect(readAndroidSdkContents(sdk).latestPlatform, (
-        name: 'android-36.1',
+        name: listed.last,
         level: 36,
       ));
     });
 
-    test('build-tools entries are read by name, files too', () {
+    test('build-tools entries are read, files too', () {
       folder('build-tools/35.0.0');
       folder('build-tools/latest');
       File(p.join(sdk, 'build-tools', '36.0.0'))
         ..createSync(recursive: true)
         ..writeAsStringSync('');
-      expect(readAndroidSdkContents(sdk).buildTools.map((v) => v.text), [
-        '35.0.0',
-        '36.0.0',
-      ]);
+      expect(
+        readAndroidSdkContents(sdk).buildTools.map((v) => v.text),
+        unorderedEquals(['35.0.0', '36.0.0']),
+      );
+    });
+
+    test('among build-tools of equal numbers, the first in listing order '
+        'wins, as in Flutter', () {
+      folder('platforms/android-37');
+      folder('build-tools/37.0.0');
+      folder('build-tools/37.0.0-rc2');
+      final listed = [
+        for (final entry in Directory(p.join(sdk, 'build-tools')).listSync())
+          p.basename(entry.path),
+      ];
+      expect(listed, hasLength(2));
+      expect(
+        readAndroidSdkContents(sdk).buildToolsForLatest?.text,
+        listed.first,
+      );
     });
 
     test('a missing SDK folder reads as empty', () {

@@ -92,8 +92,8 @@ Which project doctor checks is decided before the doctor runs. The CLI's `resolv
 |---|---|
 | No project | `skipped`: "Not inside a Dart or Flutter project." |
 | `pubspec.yaml` can't be read | `error`, with the file and the reason |
-| `appstein.yaml` can't be read | `error`, with the reason; the fix says to make it a readable UTF-8 file |
-| `appstein.yaml` is invalid | `error`, saying where: the file, and the line and column |
+| `appstein.yaml` can't be read, or its YAML error has no position | `error`, with the reason; the fix says to make it a readable UTF-8 file with valid YAML |
+| `appstein.yaml` is invalid | `error`, saying where: the file, and the line and column when known |
 | No `appstein.yaml` | `info`: the project isn't set up with Appstein yet |
 | A valid `appstein.yaml` | `ok`, with the stack, the platforms and the Dart language version |
 

@@ -66,21 +66,22 @@ final class AndroidSdkContents {
     required this.ignoredPlatforms,
   });
 
-  /// Every entry in `build-tools` whose name starts with a number, in name
-  /// order. Files count too, as in Flutter.
+  /// Every entry in `build-tools` whose name starts with a number, in the
+  /// file system's listing order. Files count too, as in Flutter.
   final List<LenientVersion> buildTools;
 
-  /// Every platform folder with an API level, in name order.
+  /// Every platform folder with an API level, in the file system's listing
+  /// order.
   final List<AndroidPlatform> platforms;
 
   /// The platform folders Flutter ignores because it finds no API level in
-  /// them, in name order.
+  /// them, in the file system's listing order.
   final List<String> ignoredPlatforms;
 
   /// The platform Flutter reports: the highest API level. Among platforms of
-  /// one level, the name that sorts last: Flutter sorts a name-ordered
-  /// listing by level, keeping ties in order, and takes the last. Null when
-  /// there is none.
+  /// one level, the last in listing order: Flutter sorts the listing by
+  /// level, keeping ties in order, and takes the last. Null when there is
+  /// none.
   AndroidPlatform? get latestPlatform {
     AndroidPlatform? latest;
     for (final platform in platforms) {
@@ -91,7 +92,7 @@ final class AndroidSdkContents {
 
   /// The build-tools Flutter pairs with [latestPlatform]: the newest whose
   /// major version equals its API level, or else the newest of all. On a
-  /// tie, such as `37.0.0` and `37.0.0-rc2`, the name that sorts first wins,
+  /// tie, such as `37.0.0` and `37.0.0-rc2`, the first in listing order wins,
   /// as Flutter keeps the first one it lists. Null when there is no platform
   /// or no build-tools.
   LenientVersion? get buildToolsForLatest {
@@ -115,13 +116,13 @@ final class AndroidSdkContents {
 /// counts as empty.
 AndroidSdkContents readAndroidSdkContents(String sdk) {
   final buildTools = <LenientVersion>[];
-  for (final entry in _listByName(p.join(sdk, 'build-tools'))) {
+  for (final entry in _listEntries(p.join(sdk, 'build-tools'))) {
     final version = LenientVersion.tryParse(p.basename(entry.path));
     if (version != null) buildTools.add(version);
   }
   final platforms = <AndroidPlatform>[];
   final ignored = <String>[];
-  for (final entry in _listByName(p.join(sdk, 'platforms'))) {
+  for (final entry in _listEntries(p.join(sdk, 'platforms'))) {
     if (entry is! Directory) continue;
     final name = p.basename(entry.path);
     final level = _platformLevel(entry.path, name);
@@ -160,16 +161,16 @@ int? _platformLevel(String path, String name) {
   return null;
 }
 
-/// The entries of the folder at [path], sorted by name, or none when it
-/// can't be listed. Links are followed, as in Flutter's listing. Flutter
-/// uses the file system's own order, which is alphabetical on NTFS and
-/// APFS; sorting makes the answer the same everywhere.
-List<FileSystemEntity> _listByName(String path) {
+/// The entries of the folder at [path], in the order the file system lists
+/// them, or none when it can't be listed. Links are followed, as in
+/// Flutter's listing. Flutter keeps that order too: it is alphabetical on
+/// NTFS but not on APFS or ext4, so a tie between two entries is decided by
+/// the file system, the same way on this machine as in Flutter.
+List<FileSystemEntity> _listEntries(String path) {
   final dir = Directory(path);
   try {
     if (!dir.existsSync()) return const [];
-    return dir.listSync()
-      ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+    return dir.listSync();
   } on FileSystemException {
     return const [];
   }

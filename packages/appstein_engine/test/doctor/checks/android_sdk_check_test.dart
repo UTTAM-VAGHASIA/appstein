@@ -81,12 +81,15 @@ void main() {
     expect((await run()).summary, 'platform android-36, build-tools 36.0.0');
   });
 
-  test('a release and its preview tie, and the release wins, as on NTFS '
-      'and APFS', () async {
+  test('a release and its preview tie, and the first one the file system '
+      'lists wins, as in Flutter', () async {
     platform('android-37');
     buildTools('37.0.0-rc2');
     buildTools('37.0.0');
-    expect((await run()).summary, 'platform android-37, build-tools 37.0.0');
+    final first = Directory(
+      p.join(sdk, 'build-tools'),
+    ).listSync().map((e) => p.basename(e.path)).first;
+    expect((await run()).summary, 'platform android-37, build-tools $first');
   });
 
   test('build-tools names that are not full versions count, as in '

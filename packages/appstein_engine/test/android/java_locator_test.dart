@@ -262,8 +262,8 @@ void main() {
       skip: studioInstalledReason(),
     );
 
-    test('newest version first; records are read in name order, so a release '
-        'comes before its Preview', () async {
+    test('newest version first; of two equal versions, the record the file '
+        'system lists first wins', () async {
       final root = tempDir();
       final home = p.join(root.path, 'home');
       final google = p.join(home, '.cache', 'Google');
@@ -276,8 +276,16 @@ void main() {
       records.forEach((folder, studio) {
         writeStudioRecord(google, folder, studio);
       });
+      // The two 2025.3.4 records tie. Flutter keeps the one it lists first,
+      // and the listing order is the file system's (alphabetical on NTFS,
+      // not on ext4), so read the real order to know which one that is.
+      final tied = {'AndroidStudio2025.3.4', 'AndroidStudioPreview2025.3.4'};
+      final winner = Directory(google)
+          .listSync()
+          .map((entry) => p.basename(entry.path))
+          .firstWhere(tied.contains);
       final location = await locate(fakeEnvironment(homeVars(home)), {});
-      expect(location!.home, studioJdkHome(records['AndroidStudio2025.3.4']!));
+      expect(location!.home, studioJdkHome(records[winner]!));
     }, testOn: '!mac-os');
 
     test('equal versions keep the install found first, as in Flutter', () async {
@@ -431,15 +439,34 @@ void main() {
     test('newest version first, and equal versions keep the one found '
         'first', () async {
       macStudio(p.join(apps, 'Android Studio.app'), version: '2024.3.1');
-      // Sorted by name, "Android Studio Preview.app" comes before
-      // "Android Studio.app", and /Applications before ~/Applications.
-      final first = macStudio(
+      // The two 2025.1.2 installs in /Applications tie; /Applications is
+      // scanned before ~/Applications, and inside it the file system's
+      // listing order decides, as in Flutter. Read the real order.
+      final preview = macStudio(
         p.join(apps, 'Android Studio Preview.app'),
         version: '2025.1.2',
       );
+      final release = macStudio(
+        p.join(apps, 'Android Studio 2.app'),
+        version: '2025.1.2',
+      );
       macStudio(p.join(homeApps, 'Android Studio.app'), version: '2025.1.2');
+      final listedFirst = Directory(apps)
+          .listSync()
+          .map((entry) => p.basename(entry.path))
+          .firstWhere(
+            (name) =>
+                name == 'Android Studio 2.app' ||
+                name == 'Android Studio Preview.app',
+          );
       final lookup = await lookUp();
-      expect(lookup.location!.home, studioJdkHome(first, os: mac));
+      expect(
+        lookup.location!.home,
+        studioJdkHome(
+          listedFirst == 'Android Studio 2.app' ? release : preview,
+          os: mac,
+        ),
+      );
     });
 
     test('reads the EAP version of a Preview build', () async {

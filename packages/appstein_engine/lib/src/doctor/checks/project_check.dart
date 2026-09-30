@@ -49,9 +49,11 @@ final class ProjectCheck implements DoctorCheck {
       return CheckResult.error(
         'appstein.yaml is invalid: $error',
         details: [root],
-        // Without a line, the file couldn't be read at all.
+        // Without a line, the file couldn't be read, or the YAML error has
+        // no position.
         fixHint: error.line == null
-            ? 'Make sure appstein.yaml is a readable UTF-8 text file.'
+            ? 'Make sure appstein.yaml is a readable UTF-8 text file with '
+                  'valid YAML.'
             : 'Fix appstein.yaml at the position shown. Every key and '
                   'its default are listed in section 7 of the Appstein spec.',
       );

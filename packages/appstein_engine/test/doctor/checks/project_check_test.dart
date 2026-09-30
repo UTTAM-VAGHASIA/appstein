@@ -74,7 +74,8 @@ void main() {
     expect(result.summary, contains('Could not read appstein.yaml'));
     expect(
       result.fixHint,
-      'Make sure appstein.yaml is a readable UTF-8 text file.',
+      'Make sure appstein.yaml is a readable UTF-8 text file with valid '
+      'YAML.',
     );
   });
 }

@@ -336,17 +336,15 @@ Future<_Candidates> _macStudioCandidates(
 /// Adds to [found] every `Android Studio*.app` folder in [folder], at any
 /// depth, as Flutter's `checkForStudio` does: it never looks inside an
 /// `.app` bundle and doesn't follow links to folders. Names are matched
-/// case-sensitively. Flutter reads entries in the file system's own order
-/// (NTFS lists folders alphabetically; APFS and ext4 don't), so its
-/// tie-break there depends on the file system. Entries are read in name
-/// order here, so the answer is the same every time.
+/// case-sensitively. Entries are read in the file system's own order, as in
+/// Flutter (NTFS lists folders alphabetically; APFS and ext4 don't), so a
+/// tie-break between equal versions gives Flutter's answer on this machine.
 void _findStudioBundles(String folder, List<String> found) {
   final List<FileSystemEntity> entries;
   try {
     final dir = Directory(folder);
     if (!dir.existsSync()) return;
-    entries = dir.listSync(followLinks: false)
-      ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+    entries = dir.listSync(followLinks: false);
   } on FileSystemException {
     return;
   }
@@ -527,7 +525,7 @@ List<_Studio> _recordedStudios(HostEnvironment environment) {
   final home = environment.homeDir;
   if (home != null) {
     for (final parent in [home, p.join(home, '.cache', 'Google')]) {
-      for (final folder in _foldersIn(parent)) {
+      for (final folder in _foldersIn(parent, followLinks: false)) {
         final match = _settingsFolder.firstMatch(p.basename(folder));
         final version = match == null ? null : _parseVersion(match[2]!);
         if (match == null || version == null) continue;
@@ -542,7 +540,10 @@ List<_Studio> _recordedStudios(HostEnvironment environment) {
   }
   final localAppData = environment.variable('LOCALAPPDATA');
   if (environment.os == HostOs.windows && localAppData != null) {
-    for (final folder in _foldersIn(p.join(localAppData, 'Google'))) {
+    for (final folder in _foldersIn(
+      p.join(localAppData, 'Google'),
+      followLinks: true,
+    )) {
       final name = p.basename(folder);
       for (final id in const ['AndroidStudio', 'AndroidStudioPreview']) {
         if (!name.startsWith(id)) continue;
@@ -571,18 +572,19 @@ String? _readInstallRecord(String file) {
   }
 }
 
-/// The folders directly inside [parent], in name order (Flutter uses the
-/// file system's order: NTFS lists alphabetically, APFS and ext4 don't, so
-/// Appstein sorts to give the same answer every time); empty when
-/// it can't be listed.
-List<String> _foldersIn(String parent) {
+/// The folders directly inside [parent], in the order the file system lists
+/// them, as Flutter reads them (NTFS lists alphabetically, APFS and ext4
+/// don't); empty when it can't be listed. Links to folders count when
+/// [followLinks] is true, as in Flutter's `%LOCALAPPDATA%\Google` listing;
+/// the home-folder listings pass false, as Flutter does.
+List<String> _foldersIn(String parent, {required bool followLinks}) {
   try {
     final dir = Directory(parent);
     if (!dir.existsSync()) return const [];
     return [
-      for (final entry in dir.listSync(followLinks: false))
+      for (final entry in dir.listSync(followLinks: followLinks))
         if (entry is Directory) entry.path,
-    ]..sort((a, b) => p.basename(a).compareTo(p.basename(b)));
+    ];
   } on FileSystemException {
     return const [];
   }

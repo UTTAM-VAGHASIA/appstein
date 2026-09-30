@@ -29,7 +29,7 @@ final class FlutterCheck implements DoctorCheck {
         fvmPinVersion(pin) == null
             ? 'The project pins ${describeFvmPin(pin)} with FVM; FVM does '
                   'not have it, so this Flutter on that channel is used.'
-            : 'The project pins $pin with FVM; FVM does not have it, so '
+            : 'The project pins ${describeFvmPin(pin)} with FVM; FVM does not have it, so '
                   'this matching Flutter is used.',
       ...location.notes,
     ];

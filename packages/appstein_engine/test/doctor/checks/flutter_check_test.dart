@@ -36,8 +36,19 @@ void main() {
     expect(
       result.details,
       contains(
-        'The project pins 3.47.5 with FVM; FVM does not have it, so this '
-        'matching Flutter is used.',
+        'The project pins Flutter 3.47.5 with FVM; FVM does not have it, so '
+        'this matching Flutter is used.',
+      ),
+    );
+  });
+
+  test('a version@channel pin reads as a version on a channel', () async {
+    final result = await check(foundSdk(unmetFvmPin: '3.47.5@beta'));
+    expect(
+      result.details,
+      contains(
+        'The project pins Flutter 3.47.5 on the beta channel with FVM; FVM '
+        'does not have it, so this matching Flutter is used.',
       ),
     );
   });
