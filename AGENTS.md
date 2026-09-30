@@ -6,7 +6,7 @@ Keep this file short. It holds only what you can't infer from the repo. Architec
 
 Appstein is a Dart toolkit: a knowledge and verification layer for AI agents that build Flutter apps.
 
-**Current phase:** M1 slice 1a is complete: the workspace, the CLI, `doctor` and CI (plan: docs/superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md). Its "Carried to later slices" section lists what 1b and 1d inherit. Next: plan slice 1b.
+**Current phase:** M1 slices 1a and 1a.1 are complete. 1a built the workspace, the CLI, `doctor` and CI (plan: docs/superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md); its "Carried to later slices" section lists what 1b and 1d inherit. 1a.1 made the developer guide cover the whole system and stay current: the coverage map, the stale-page check, generated sections and hooks (plan: docs/superpowers/plans/2026-09-30-slice-1a1-docs-freshness.md). Next: plan slice 1b.
 
 ## Source of truth
 

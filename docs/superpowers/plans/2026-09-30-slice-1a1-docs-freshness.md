@@ -3337,3 +3337,35 @@ The post-commit hook runs the docs check on this commit and must print nothing.
 - [ ] **Step 3:** Run a full semantic graph update (`/graphify . --update`), as the per-slice rule says.
 - [ ] **Step 4:** Commit, after the final whole-branch review and its fix wave. Then offer the owner a push and a PR. Never push without the owner's OK.
 - [ ] **Step 5:** Update memory: the slice 1a.1 status, and that the next step is planning slice 1b.
+
+---
+
+## Notes from execution (2026-09-30)
+
+Executed subagent-driven. The controller committed every task; each task had a spec-and-quality review, and the whole branch had a final review plus one fix wave. Commits: b7fa659 (spec and plan) through bf2c821 (final fixes).
+
+**What differed from the plan:**
+- **`firstParagraph`** leaves `[x]` inside backtick code alone (Task 4 fix). The plan's regex would have broken a table cell for a doc comment containing `list[0]`.
+- **YAML reading in the generators** checks each shape and reports a malformed `ci.yml` or pubspec as a problem naming the file (Task 5 fix). The plan's `as` casts threw `TypeError`, which the regeneration run didn't catch.
+- **The git check's doc comment** in `tool_check.dart` now says the planned `create` and `upgrade` commands need git (spec §13), so the generated doctor table no longer describes unbuilt commands (Task 9 fix). The user-facing `why:` strings are unchanged.
+- **Final review:**
+  - One shared fence helper and one link helper (`tool/src/markdown.dart`) replace four copies.
+  - Guide problems print posix paths on every OS, and backticked `test/` paths are checked.
+  - `--warn-only` never fails the hook.
+  - New tests: an end-to-end stale-page test and `sh -n` on every hook block.
+  - `docs-tooling.md` states the stale check's limits.
+- **Hand-made hooks:** the owner's hand-made `post-merge` and `post-rewrite` were kept as `.git/hooks/*.handmade-2026-09-30.bak`, not deleted, before the installer replaced them.
+
+**Measured on the development machine:**
+- `fvm dart run tool/check_guide.dart --since HEAD~1 --warn-only` takes 2.9–3.0 s warm (three runs).
+- A whole commit, including graphify's detached rebuild launch, takes about 4 s.
+
+**Open questions for the owner:**
+- **Exit code for an invalid `appstein.yaml`.** Spec §9.5 and §15 say exit 3. `doctor` reports it as a ProjectCheck error, which exits 1, and the guide describes the code.
+- **A stricter stale rule.** The final review suggested ignoring page diffs that only `gen_docs` wrote. Today such a diff counts as the page changing (documented in docs-tooling.md "Limits").
+- **Trailer severity.** A mistyped `Docs-Checked` trailer fails CI and needs a history rewrite to fix. It could be a warning instead.
+
+**Parked (see the final review):**
+- A slightly overbroad sentence in docs-tooling.md:121.
+- Multi-line git errors under `--warn-only`.
+- The empty reason when `merge-base` finds no common ancestor.
