@@ -13,7 +13,8 @@ graphify-out/
 .graphify_root
 .graphify_python
 
-# Python bytecode (tool/check_graph.py is imported by its own tests)
+# Python bytecode (appears when tool/check_graph.py is imported as a module,
+# e.g. in ad-hoc experiments; the tests run it as a script)
 __pycache__/
 *.pyc
 

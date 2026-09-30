@@ -42,6 +42,7 @@ are behind, 3 the check or the repair couldn't run, or bad usage.
 import contextlib
 import io
 import json
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -216,6 +217,24 @@ def find_behind(root: Path) -> dict:
             'cached': cached}
 
 
+def _rebuild_root(root: Path, out: Path) -> Path:
+    """The folder graphify's hook rebuilds: the one [out]/.graphify_root
+    names, when it is a folder inside [root], else '.'."""
+    try:
+        text = (out / '.graphify_root').read_text(
+            encoding='utf-8-sig').strip()
+        if text:
+            candidate = Path(text)
+            resolved = candidate.resolve()
+            here = root.resolve()
+            if (resolved == here or here in resolved.parents) \
+                    and resolved.is_dir():
+                return candidate
+    except (OSError, RuntimeError):
+        pass
+    return Path('.')
+
+
 def repair(root: Path, echo=None, rebuild: bool = False) -> tuple:
     """Puts the docs missing from the graph back from graphify's cache, and
     returns (the docs repaired, find_behind's result afterwards).
@@ -239,10 +258,20 @@ def repair(root: Path, echo=None, rebuild: bool = False) -> tuple:
         if not docs and not rebuild:
             return [], before
         added = {'nodes': [], 'edges': [], 'hyperedges': []}
+        seen = {bucket: set() for bucket in added}
         for doc in docs:
             newest = before['cached'][doc][0]
             for bucket, items in added.items():
-                items.extend(i for i in newest.get(bucket, []) if isinstance(i, dict))
+                for item in newest.get(bucket, []):
+                    if not isinstance(item, dict):
+                        continue
+                    # Two docs may cache the same entity or link: add it once.
+                    key = item.get('id')
+                    if key is None:
+                        key = json.dumps(item, sort_keys=True, default=str)
+                    if key not in seen[bucket]:
+                        seen[bucket].add(key)
+                        items.append(item)
         # Stamped as graphify stamps what it keeps from an existing graph.
         for item in added['nodes'] + added['edges']:
             item.setdefault('_origin', 'ast' if _is_ast(item) else 'semantic')
@@ -267,7 +296,8 @@ def repair(root: Path, echo=None, rebuild: bool = False) -> tuple:
                 # As in graphify's own full rebuild: it covers any change a
                 # hook queued while the lock was held.
                 watch._drain_pending(out)
-                rebuilt = watch._rebuild_code(Path('.'), acquire_lock=False)
+                rebuilt = watch._rebuild_code(
+                    _rebuild_root(root, out), acquire_lock=False)
         finally:
             watch._reconcile_existing_graph = keep
         if echo is not None:
@@ -393,6 +423,28 @@ def _seconds(name: str, default: float) -> float:
         return default
 
 
+def _job_limit():
+    """The seconds the background job may take, or None for no limit.
+
+    APPSTEIN_REPAIR_TIMEOUT sets it directly. Otherwise
+    GRAPHIFY_REBUILD_TIMEOUT is read as graphify's hooks read it: an int,
+    default 600 (600 also when it isn't one), and zero or less means no
+    limit. A limit is that plus a minute for the wait for the lock and the
+    repair's own steps.
+    """
+    direct = os.environ.get('APPSTEIN_REPAIR_TIMEOUT')
+    if direct is not None:
+        try:
+            return float(direct)
+        except ValueError:
+            pass
+    try:
+        timeout = int(os.environ.get('GRAPHIFY_REBUILD_TIMEOUT', '600'))
+    except ValueError:
+        timeout = 600
+    return None if timeout <= 0 else timeout + 60
+
+
 def _lock_is_free(out: Path) -> bool:
     """Whether nobody holds graphify's rebuild lock. If graphify's lock can't
     be tried, say yes: the repair that follows reports the problem."""
@@ -432,10 +484,17 @@ def _after_rebuild(root: Path) -> int:
     and when another rebuild still holds the lock.
 
     It gives up after GRAPHIFY_REBUILD_TIMEOUT (graphify's own limit for a
-    rebuild, default 600 s) plus a minute for the whole job, the wait for the
-    lock included: it logs that it took too long and exits, and the OS
-    releases graphify's lock. It does nothing while a merge or a rebase is
-    still in progress, because the hook that ends it starts another job.
+    rebuild: whole seconds, default 600, read as graphify reads it) plus a
+    minute for the whole job, the wait for the lock included: it logs that it
+    took too long, kills any worker processes and exits, and the OS releases
+    graphify's lock. A value of zero or less sets no limit, as graphify's
+    hook does. APPSTEIN_REPAIR_TIMEOUT (seconds) sets the job's limit
+    directly; the tests use it.
+
+    While a merge or a rebase is in progress it waits for it to end (polling
+    twice a second), up to APPSTEIN_REPAIR_MAX_WAIT seconds (default: the
+    job's limit, or 600 without one), and logs a line if that runs out. The
+    same bound applies to the wait for the lock.
     """
     try:
         log_file = _log_path()
@@ -456,12 +515,17 @@ def _after_rebuild(root: Path) -> int:
 
         def give_up() -> None:
             say('graphify: could not repair the graph: it took too long.')
+            # As graphify's own watchdog: a rebuild's workers must not
+            # outlive the job.
+            for child in multiprocessing.active_children():
+                child.kill()
             os._exit(3)
 
-        limit = threading.Timer(
-            _seconds('GRAPHIFY_REBUILD_TIMEOUT', 600) + 60, give_up)
+        seconds = _job_limit()
+        limit = threading.Timer(seconds if seconds is not None else 0, give_up)
         limit.daemon = True
-        limit.start()
+        if seconds is not None:
+            limit.start()
         try:
             try:
                 out = _out_dir(root)
@@ -472,17 +536,24 @@ def _after_rebuild(root: Path) -> int:
             until = time.monotonic() + _seconds('APPSTEIN_REPAIR_START_WAIT', 20)
             while not lock.exists() and time.monotonic() < until:
                 time.sleep(0.1)
-            until = time.monotonic() + _seconds('APPSTEIN_REPAIR_MAX_WAIT', 660)
+            longest = _seconds('APPSTEIN_REPAIR_MAX_WAIT',
+                               seconds if seconds is not None else 600)
+            until = time.monotonic() + longest
             while lock.exists() and time.monotonic() < until:
                 # A lock file nobody holds (a killed rebuild left it) is no
                 # reason to wait.
                 if _lock_is_free(out):
                     break
                 time.sleep(0.2)
-            if _in_progress(root):
-                say('graphify: a merge or rebase is in progress; the job '
-                    'that follows it will repair the graph.')
-                return 0
+            # The repair takes the lock itself, waiting for any rebuild that
+            # starts meanwhile, so waiting for the operation to end is safe.
+            until = time.monotonic() + longest
+            while _in_progress(root):
+                if time.monotonic() >= until:
+                    say('graphify: a merge or rebase was still in progress '
+                        'after waiting for it; the graph was not repaired.')
+                    return 0
+                time.sleep(0.5)
             return _repair(root, say, echo=say, rebuild=True)
         finally:
             limit.cancel()
