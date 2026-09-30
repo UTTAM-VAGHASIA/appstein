@@ -11,25 +11,39 @@ const hookBlockEnd = '# appstein-hook-end';
 /// The blocks Appstein keeps in the repo's git hooks, by hook name
 /// (spec §19.6).
 ///
-/// Git runs hooks with its own `sh`, on Windows too. Each block runs in a
-/// subshell, so its `exit` never stops the other blocks in the same file,
-/// such as graphify's.
-const hookBlocks = {
-  'post-commit': _postCommit,
-  'post-merge': _postMerge,
-  'post-rewrite': _postRewrite,
+/// Git runs hooks with its own `sh`, on Windows too. Each part of a block
+/// runs in a subshell, so its `exit` never stops the next part, or another
+/// block in the same file, such as graphify's.
+final hookBlocks = {
+  'post-commit': _block([_docsCheck, _graphCheck(_notWhileRebasing)]),
+  'post-merge': _block([_mergeRebuild, _graphCheck('')]),
+  'post-rewrite': _block([_rebaseRebuild, _graphCheck(_onlyAfterRebase)]),
 };
 
-const _postCommit = r'''
-# appstein-hook-start
-# Warns when the developer guide may have fallen behind this commit
-# (spec §19.6). CI is the gate; this only warns. Skip it once with
-# APPSTEIN_SKIP_DOCS_HOOK=1. Installed by: fvm dart run tool/install_hooks.dart
-(
-  [ "${APPSTEIN_SKIP_DOCS_HOOK:-0}" = "1" ] && exit 0
+String _block(List<String> parts) =>
+    '$hookBlockStart\n${parts.join('\n')}\n'
+    '# Installed by: fvm dart run tool/install_hooks.dart\n$hookBlockEnd';
+
+const _notWhileRebasing = r'''
   GIT_DIR=${GIT_DIR:-$(git rev-parse --git-dir 2>/dev/null)}
   [ -d "$GIT_DIR/rebase-merge" ] && exit 0
   [ -d "$GIT_DIR/rebase-apply" ] && exit 0
+''';
+
+const _onlyAfterRebase = r'''
+  [ "$1" = "rebase" ] || exit 0
+''';
+
+const _docsCheck =
+    r'''
+# Warns when the developer guide may have fallen behind this commit
+# (spec §19.6). CI is the gate; this only warns. Skip it once with
+# APPSTEIN_SKIP_DOCS_HOOK=1.
+(
+  [ "${APPSTEIN_SKIP_DOCS_HOOK:-0}" = "1" ] && exit 0
+''' +
+    _notWhileRebasing +
+    r'''
   [ -f tool/check_guide.dart ] || exit 0
   git rev-parse -q --verify HEAD~1 >/dev/null || exit 0
   if command -v fvm >/dev/null 2>&1; then
@@ -38,35 +52,54 @@ const _postCommit = r'''
     dart run tool/check_guide.dart --since HEAD~1 --warn-only
   fi
   exit 0
-)
-# appstein-hook-end''';
+)''';
 
-const _postMerge = r'''
-# appstein-hook-start
+const _mergeRebuild = r'''
 # Rebuilds the graphify graph after a merge or pull, which graphify's own
 # hooks miss. It reuses graphify's post-checkout rebuild, as if HEAD had
-# switched branches. Installed by: fvm dart run tool/install_hooks.dart
+# switched branches.
 (
   hook="$(git rev-parse --git-path hooks)/post-checkout"
   [ -x "$hook" ] || exit 0
   old=$(git rev-parse -q --verify ORIG_HEAD) || exit 0
   "$hook" "$old" "$(git rev-parse HEAD)" 1
-)
-# appstein-hook-end''';
+)''';
 
-const _postRewrite = r'''
-# appstein-hook-start
+const _rebaseRebuild = r'''
 # Rebuilds the graphify graph after a rebase; graphify's post-commit hook
 # already covers an amend. It reuses graphify's post-checkout rebuild.
-# Installed by: fvm dart run tool/install_hooks.dart
 (
   [ "$1" = "rebase" ] || exit 0
   hook="$(git rev-parse --git-path hooks)/post-checkout"
   [ -x "$hook" ] || exit 0
   old=$(git rev-parse -q --verify ORIG_HEAD) || exit 0
   "$hook" "$old" "$(git rev-parse HEAD)" 1
-)
-# appstein-hook-end''';
+)''';
+
+/// Warns when the knowledge graph doesn't hold the current docs
+/// (spec §19.6), by running `tool/check_graph.py` with graphify's Python.
+/// [guard] is `sh` lines that end the check early when this hook shouldn't
+/// run it.
+String _graphCheck(String guard) =>
+    r'''
+# Warns when the knowledge graph doesn't hold the current docs (spec §19.6).
+# It only warns. Skip it with APPSTEIN_SKIP_GRAPH_HOOK=1.
+(
+  [ "${APPSTEIN_SKIP_GRAPH_HOOK:-0}" = "1" ] && exit 0
+''' +
+    guard +
+    r'''
+  [ -f tool/check_graph.py ] && [ -f graphify-out/graph.json ] || exit 0
+  py=""
+  [ -f graphify-out/.graphify_python ] &&
+    py=$(tr -d '\r\n' < graphify-out/.graphify_python)
+  if [ -z "$py" ] || [ ! -x "$py" ]; then
+    echo "graphify: the graph check could not run: graphify-out/.graphify_python doesn't name graphify's Python. Run /graphify . --update to set it."
+    exit 0
+  fi
+  "$py" tool/check_graph.py --quiet
+  exit 0
+)''';
 
 /// Where Appstein's block is in [text], or null when it has none. Throws
 /// [FormatException] when a start marker has no end marker.

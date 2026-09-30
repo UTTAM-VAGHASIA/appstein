@@ -36,29 +36,38 @@ Directory tempRepo() {
 }
 
 /// Runs git in [repo] with a fixed identity, no signing and no line-ending
-/// conversion, and returns what it printed. Throws when git fails.
+/// conversion, and returns the whole result without checking it. Hooks print
+/// to stderr, so this is how a test reads what a hook said.
+ProcessResult gitResult(
+  Directory repo,
+  List<String> arguments, {
+  Map<String, String> environment = const {},
+}) => Process.runSync(
+  'git',
+  [
+    '-c',
+    'user.name=Appstein Test',
+    '-c',
+    'user.email=test@example.com',
+    '-c',
+    'commit.gpgsign=false',
+    '-c',
+    'core.autocrlf=false',
+    ...arguments,
+  ],
+  workingDirectory: repo.path,
+  environment: gitEnvironment(environment),
+  includeParentEnvironment: false,
+);
+
+/// Runs git in [repo] like [gitResult], and returns what it printed to
+/// stdout. Throws when git fails.
 String runGit(
   Directory repo,
   List<String> arguments, {
   Map<String, String> environment = const {},
 }) {
-  final result = Process.runSync(
-    'git',
-    [
-      '-c',
-      'user.name=Appstein Test',
-      '-c',
-      'user.email=test@example.com',
-      '-c',
-      'commit.gpgsign=false',
-      '-c',
-      'core.autocrlf=false',
-      ...arguments,
-    ],
-    workingDirectory: repo.path,
-    environment: gitEnvironment(environment),
-    includeParentEnvironment: false,
-  );
+  final result = gitResult(repo, arguments, environment: environment);
   if (result.exitCode != 0) {
     throw StateError('git ${arguments.join(' ')} failed: ${result.stderr}');
   }

@@ -162,4 +162,132 @@ void main() {
       expect(logged().last, '$oldTip ${head()} 1');
     });
   });
+
+  group('the graph check, run by git', () {
+    late Directory repo;
+    late File log;
+    late File fakePython;
+    const env = {'APPSTEIN_SKIP_DOCS_HOOK': '1'};
+
+    List<String> logged() =>
+        log.existsSync() ? log.readAsLinesSync() : const [];
+
+    /// Commits [file] and returns everything git and its hooks printed.
+    String commit(String file, {Map<String, String> extra = const {}}) {
+      writeFile(repo, file, file);
+      runGit(repo, ['add', '.'], environment: {...env, ...extra});
+      final result = gitResult(
+        repo,
+        ['commit', '-q', '-m', file],
+        environment: {...env, ...extra},
+      );
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      return '${result.stdout}${result.stderr}';
+    }
+
+    setUp(() {
+      repo = tempRepo();
+      log = File(p.join(repo.path, '.git', 'python.log'));
+      // Stands in for graphify's Python. It logs its arguments and exits 1,
+      // as the real check does when the graph is behind. Its name has a
+      // space, like "C:\Program Files\…".
+      fakePython = File(p.join(repo.path, '.git', 'fake python'))
+        ..writeAsStringSync(
+          '#!/bin/sh\necho "\$*" >> "\$(git rev-parse --git-dir)/'
+          'python.log"\nexit 1\n',
+        );
+      if (!Platform.isWindows) {
+        Process.runSync('chmod', ['+x', fakePython.path]);
+      }
+      writeFile(repo, '.gitignore', 'graphify-out/\n');
+      writeFile(repo, 'tool/check_graph.py', '# stand-in\n');
+      writeFile(repo, 'graphify-out/graph.json', '{}');
+      writeFile(repo, 'graphify-out/.graphify_python', fakePython.path);
+      installHookBlocks(p.join(repo.path, '.git', 'hooks'));
+    });
+
+    test('after a commit, runs the check quietly with graphify\'s Python, '
+        'and prints nothing of its own', () {
+      final output = commit('a.txt');
+      expect(logged(), ['tool/check_graph.py --quiet']);
+      expect(output, isNot(contains('graphify:')));
+    });
+
+    test('reads an interpreter path written with CRLF', () {
+      writeFile(
+        repo,
+        'graphify-out/.graphify_python',
+        '${fakePython.path}\r\n',
+      );
+      commit('a.txt');
+      expect(logged(), hasLength(1));
+    });
+
+    test('is silent with APPSTEIN_SKIP_GRAPH_HOOK=1, without a graph, and '
+        'without the script', () {
+      final skipped = commit('a.txt', extra: {'APPSTEIN_SKIP_GRAPH_HOOK': '1'});
+      File(p.join(repo.path, 'graphify-out', 'graph.json')).deleteSync();
+      final noGraph = commit('b.txt');
+      writeFile(repo, 'graphify-out/graph.json', '{}');
+      File(p.join(repo.path, 'tool', 'check_graph.py')).deleteSync();
+      final noScript = commit('c.txt');
+      expect(logged(), isEmpty);
+      for (final output in [skipped, noGraph, noScript]) {
+        expect(output, isNot(contains('graphify:')));
+      }
+    });
+
+    test('says so when graphify\'s Python is missing, and the commit still '
+        'succeeds', () {
+      const message =
+          "graphify: the graph check could not run: "
+          "graphify-out/.graphify_python doesn't name graphify's Python. "
+          'Run /graphify . --update to set it.';
+      writeFile(
+        repo,
+        'graphify-out/.graphify_python',
+        p.join(repo.path, 'no such python'),
+      );
+      expect(commit('a.txt'), contains(message));
+      File(p.join(repo.path, 'graphify-out', '.graphify_python')).deleteSync();
+      expect(commit('b.txt'), contains(message));
+      expect(logged(), isEmpty);
+    });
+
+    test('runs once after a merge, not during a rebase, once after it, and '
+        'not again for an amend', () {
+      commit('a.txt');
+      runGit(repo, ['switch', '-q', '-c', 'feature'], environment: env);
+      commit('b.txt');
+      runGit(repo, ['switch', '-q', 'main'], environment: env);
+      commit('c.txt');
+      expect(logged(), hasLength(3));
+      runGit(repo, ['merge', '-q', '--no-edit', 'feature'], environment: env);
+      expect(logged(), hasLength(4), reason: 'post-merge');
+      runGit(repo, [
+        'switch',
+        '-q',
+        '-c',
+        'topic',
+        'feature',
+      ], environment: env);
+      commit('d.txt');
+      commit('e.txt');
+      expect(logged(), hasLength(6));
+      runGit(repo, ['rebase', '-q', 'main'], environment: env);
+      expect(
+        logged(),
+        hasLength(7),
+        reason: 'post-rewrite once; post-commit skipped while rebasing',
+      );
+      runGit(repo, [
+        'commit',
+        '-q',
+        '--amend',
+        '-m',
+        'e amended',
+      ], environment: env);
+      expect(logged(), hasLength(8), reason: 'post-commit only');
+    });
+  });
 }
