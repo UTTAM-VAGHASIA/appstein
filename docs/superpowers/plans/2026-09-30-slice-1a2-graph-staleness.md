@@ -1201,3 +1201,14 @@ Mark `project_slice_1a2_graph_staleness.md` as done (with the merge commit once 
 - [ ] **Step 6: Finish the branch**
 
 Use superpowers:finishing-a-development-branch. Push and open a PR only with the owner's OK; before merging, re-run the graph check, because the rule is that it reports nothing when the slice merges.
+
+## Notes from execution
+
+Built subagent-driven on 2026-09-30; the owner asked for a quick run, so:
+- **Rulings for speed:** Task 1's review ran in parallel with Task 2's implementation (disjoint files). Tasks 3 and 4 went to one implementer, and their task review was folded into the final whole-branch review (Opus), which gave them their own verdict (Approved).
+- **Task 1 review (Approved)**, two minor fixes by the controller: a doc that graphify returns outside the repo (a symlink) no longer stops the check, and one doc prints `1 doc checked`.
+- **Task 2 review (Approved).** The open point, whether git's `sh` treats a real Windows `python.exe` path as executable, was checked on the development machine before planning and again with the installed hooks.
+- **Task 4:** the implementer found two places where page text disagreed with the code and fixed the pages: exit `3` also covers bad usage, and the hook's "could not run" line also appears when `.graphify_python` names a file that isn't executable.
+- **Final review (Ready to merge, no Critical or Important):** five wording fixes to the guide and `graphify.dart`'s doc comment. The one the owner will notice: right after deleting or renaming a doc, the hook may name the old path once, because graphify's background rebuild prunes it a moment later (now in docs-tooling and debugging).
+- **Owner decision:** spec §19.6 said the warning names "every doc", but it names at most five per reason. The owner chose to reword the spec to "naming the docs".
+- **Parked:** only `graphifyy` is pinned in CI; its dependencies float within their ranges. Add a constraints file only if that ever breaks CI.
