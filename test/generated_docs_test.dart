@@ -73,4 +73,102 @@ void main() {
     expect(result.problems.single.message, contains('exit_codes.dart'));
     expect(result.changedPages, isEmpty);
   });
+
+  group('regenerateVisualPage', () {
+    const sections = {'progress-status': '<a>S</a>', 'progress': '<ol></ol>'};
+    const page =
+        '<header>\n'
+        '<!-- generated:progress-status -->\n'
+        '<!-- /generated:progress-status -->\n'
+        '</header>\n'
+        '<section>\n'
+        '<!-- generated:progress -->\n'
+        '<!-- /generated:progress -->\n'
+        '</section>\n';
+
+    test('rewrites the page with write, and a second run finds nothing', () {
+      writeFile(repo, visualPage, page);
+      final first = regenerateVisualPage(
+        repo.path,
+        write: true,
+        bodies: sections,
+      );
+      expect(first.problems, isEmpty);
+      expect(first.changedPages, [visualPage]);
+      expect(read(visualPage), contains('\n\n<a>S</a>\n\n'));
+      final again = regenerateVisualPage(
+        repo.path,
+        write: false,
+        bodies: sections,
+      );
+      expect(again.changedPages, isEmpty);
+      expect(again.problems, isEmpty);
+    });
+
+    test('without write, reports the page and writes nothing', () {
+      writeFile(repo, visualPage, page);
+      final result = regenerateVisualPage(
+        repo.path,
+        write: false,
+        bodies: sections,
+      );
+      expect(result.changedPages, [visualPage]);
+      expect(read(visualPage), page);
+    });
+
+    // Review Focus 1.
+    test('keeps CRLF', () {
+      writeFile(repo, visualPage, page.replaceAll('\n', '\r\n'));
+      regenerateVisualPage(repo.path, write: true, bodies: sections);
+      final text = read(visualPage);
+      expect(text, contains('\r\n<a>S</a>\r\n'));
+      expect(text.replaceAll('\r\n', ''), isNot(contains('\n')));
+      expect(
+        regenerateVisualPage(
+          repo.path,
+          write: false,
+          bodies: sections,
+        ).changedPages,
+        isEmpty,
+      );
+    });
+
+    test('a section the page does not show is a problem', () {
+      writeFile(
+        repo,
+        visualPage,
+        '<!-- generated:progress -->\n<!-- /generated:progress -->\n',
+      );
+      final result = regenerateVisualPage(
+        repo.path,
+        write: false,
+        bodies: sections,
+      );
+      expect(result.problems.map((x) => '$x'), [
+        "$visualPage: The page doesn't show the generated section "
+            'progress-status. Add <!-- generated:progress-status --> and '
+            '<!-- /generated:progress-status --> where it belongs.',
+      ]);
+    });
+
+    test('a missing page is a problem', () {
+      final result = regenerateVisualPage(
+        repo.path,
+        write: false,
+        bodies: sections,
+      );
+      expect(result.problems.map((x) => '$x'), [
+        "$visualPage: Missing. It shows the progress sections.",
+      ]);
+    });
+
+    test('without bodies, an unreadable progress file is its problems', () {
+      writeFile(repo, visualPage, page);
+      final result = regenerateVisualPage(repo.path, write: false);
+      expect(result.problems.map((x) => '$x'), [
+        'docs/superpowers/progress.yaml: Missing. It records where each '
+            'milestone and slice stands (spec §19.6).',
+      ]);
+    });
+  });
 }

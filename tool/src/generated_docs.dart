@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'generated_sections.dart';
 import 'generators.dart';
 import 'guide_checker.dart';
+import 'progress.dart';
+import 'progress_html.dart';
 
 /// What regenerating the guide found.
 final class GuideRegeneration {
@@ -67,4 +69,55 @@ Future<GuideRegeneration> regenerateGuide(
     }
   }
   return GuideRegeneration(changed, problems);
+}
+
+/// The spec's visual page, which shows the progress sections (spec §19.6).
+const visualPage = 'docs/superpowers/specs/2026-09-29-appstein-design.html';
+
+/// Renders the progress sections of [visualPage] again (spec §19.6). With
+/// [write], an out-of-date page is rewritten; without it, nothing is
+/// written. [bodies] replaces the sections rendered from
+/// `docs/superpowers/progress.yaml`, for tests; without it, a progress file
+/// with problems is reported as those problems. A missing page, a section
+/// the page doesn't show and a malformed or unknown marker are problems.
+GuideRegeneration regenerateVisualPage(
+  String repoRoot, {
+  required bool write,
+  Map<String, String>? bodies,
+}) {
+  var rendered = bodies;
+  if (rendered == null) {
+    final read = readProgress(repoRoot);
+    final progress = read.progress;
+    if (progress == null) return GuideRegeneration(const [], read.problems);
+    rendered = renderProgressSections(progress);
+  }
+  final file = File(p.join(repoRoot, visualPage));
+  if (!file.existsSync()) {
+    return const GuideRegeneration([], [
+      GuideProblem(
+        visualPage,
+        null,
+        'Missing. It shows the progress sections.',
+      ),
+    ]);
+  }
+  final before = file.readAsStringSync();
+  final result = regenerate(visualPage, before, rendered, guideLinks: false);
+  final problems = [
+    ...result.problems,
+    for (final name in rendered.keys)
+      if (!result.sections.contains(name))
+        GuideProblem(
+          visualPage,
+          null,
+          "The page doesn't show the generated section $name. Add "
+          '<!-- generated:$name --> and <!-- /generated:$name --> where it '
+          'belongs.',
+        ),
+  ];
+  if (problems.isNotEmpty) return GuideRegeneration(const [], problems);
+  if (result.text == before) return const GuideRegeneration([], []);
+  if (write) file.writeAsStringSync(result.text);
+  return const GuideRegeneration([visualPage], []);
 }

@@ -18,6 +18,21 @@ void main() {
     );
   });
 
+  test('reports progress problems', () async {
+    final repo = tempRepo();
+    writeFile(repo, 'docs/guide/README.md', '<!-- covers: none -->\n# G\n');
+    runGit(repo, ['add', '.']);
+    runGit(repo, ['commit', '-q', '-m', 'first']);
+    final problems = await checkGuide(repo.path);
+    expect(
+      problems.map((problem) => '$problem'),
+      contains(
+        'docs/superpowers/progress.yaml: Missing. It records where each '
+        'milestone and slice stands (spec §19.6).',
+      ),
+    );
+  });
+
   group('the stale-page check, end to end', () {
     const page = 'docs/guide/README.md';
     const pageText = '<!-- covers: tool/a.dart -->\n# G\n';

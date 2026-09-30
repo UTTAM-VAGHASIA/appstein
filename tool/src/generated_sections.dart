@@ -30,13 +30,16 @@ final class RegeneratedPage {
 /// `<!-- /generated:<name> -->` line. The body is written with a blank line
 /// after the start marker and before the end marker. Markers inside code
 /// fences are examples and are left alone. The page's line endings (LF or
-/// CRLF) are kept. Generated links are relative to `docs/guide/`, so a page
-/// in a subfolder may not have sections.
+/// CRLF) are kept. Guide sections link relative to `docs/guide/`, so with
+/// [guideLinks] (the default) a page elsewhere, such as one in a subfolder,
+/// may not have sections. The spec's visual page turns it off: its sections
+/// write their own links.
 RegeneratedPage regenerate(
   String page,
   String markdown,
-  Map<String, String> bodies,
-) {
+  Map<String, String> bodies, {
+  bool guideLinks = true,
+}) {
   final crlf = markdown.contains('\r\n');
   final lines = markdown.replaceAll('\r\n', '\n').split('\n');
   final out = <String>[];
@@ -111,7 +114,9 @@ RegeneratedPage regenerate(
       ),
     );
   }
-  if (sections.isNotEmpty && p.posix.dirname(page) != 'docs/guide') {
+  if (guideLinks &&
+      sections.isNotEmpty &&
+      p.posix.dirname(page) != 'docs/guide') {
     problems.add(
       GuideProblem(
         page,

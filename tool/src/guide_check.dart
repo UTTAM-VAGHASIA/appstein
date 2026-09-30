@@ -7,6 +7,9 @@ import 'generated_docs.dart';
 import 'generated_sections.dart';
 import 'git_repo.dart';
 import 'guide_checker.dart';
+import 'progress.dart';
+import 'progress_check.dart';
+import 'progress_html.dart';
 import 'stale_check.dart';
 
 /// Runs every developer guide check (spec §19.6) on the repo at [repoRoot]:
@@ -14,6 +17,9 @@ import 'stale_check.dart';
 /// - every guide page linked from the start page;
 /// - the coverage map;
 /// - generated sections up to date;
+/// - `docs/superpowers/progress.yaml` valid, and consistent with the plans
+///   and spec §18;
+/// - the progress sections of the spec's visual page up to date;
 /// - with [since], the stale-page check against the merge base of [since]
 ///   and HEAD. A guide page counts as changed only when its hand-written
 ///   text changed: a page whose only change is inside generated sections
@@ -66,6 +72,28 @@ Future<List<GuideProblem>> checkGuide(String repoRoot, {String? since}) async {
           'fvm dart run tool/gen_docs.dart',
         ),
     ]);
+  final progress = readProgress(repoRoot);
+  problems.addAll(progress.problems);
+  final record = progress.progress;
+  if (record != null) {
+    problems.addAll(checkProgress(repoRoot, record));
+    final visual = regenerateVisualPage(
+      repoRoot,
+      write: false,
+      bodies: renderProgressSections(record),
+    );
+    problems
+      ..addAll(visual.problems)
+      ..addAll([
+        for (final page in visual.changedPages)
+          GuideProblem(
+            page,
+            null,
+            'The progress sections are out of date. Run: '
+            'fvm dart run tool/gen_docs.dart',
+          ),
+      ]);
+  }
   return problems;
 }
 
