@@ -22,7 +22,12 @@ void main() {
   final block = hookBlocks['post-merge']!;
 
   test('every block is marked and runs in a subshell', () {
-    expect(hookBlocks.keys, ['post-commit', 'post-merge', 'post-rewrite']);
+    expect(hookBlocks.keys, [
+      'post-checkout',
+      'post-commit',
+      'post-merge',
+      'post-rewrite',
+    ]);
     for (final text in hookBlocks.values) {
       expect(text, startsWith('$hookBlockStart\n'));
       expect(text, endsWith(hookBlockEnd));
@@ -83,16 +88,19 @@ void main() {
   test('installHookBlocks installs, reports up to date, and removes', () {
     final hooks = p.join(tempFolder().path, 'hooks');
     expect(installHookBlocks(hooks), [
+      'post-checkout: installed',
       'post-commit: installed',
       'post-merge: installed',
       'post-rewrite: installed',
     ]);
     expect(installHookBlocks(hooks), [
+      'post-checkout: up to date',
       'post-commit: up to date',
       'post-merge: up to date',
       'post-rewrite: up to date',
     ]);
     expect(installHookBlocks(hooks, remove: true), [
+      'post-checkout: removed (file deleted)',
       'post-commit: removed (file deleted)',
       'post-merge: removed (file deleted)',
       'post-rewrite: removed (file deleted)',
@@ -120,12 +128,12 @@ void main() {
       final hooks = p.join(repo.path, '.git', 'hooks');
       log = File(p.join(repo.path, '.git', 'checkout.log'));
       // Stands in for graphify's post-checkout rebuild: it logs its
-      // arguments.
+      // arguments, and whether one of our blocks replayed it.
       final fake = File(p.join(hooks, 'post-checkout'))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync(
-          '#!/bin/sh\necho "\$1 \$2 \$3" >> "\$(git rev-parse --git-dir)/'
-          'checkout.log"\n',
+          '#!/bin/sh\necho "\$1 \$2 \$3 replay=\${APPSTEIN_HOOK_REPLAY:-0}" '
+          '>> "\$(git rev-parse --git-dir)/checkout.log"\n',
         );
       if (!Platform.isWindows) Process.runSync('chmod', ['+x', fake.path]);
       installHookBlocks(hooks);
@@ -139,7 +147,7 @@ void main() {
       final b = head();
       runGit(repo, ['switch', '-q', 'main'], environment: env);
       runGit(repo, ['merge', '-q', '--ff-only', 'feature'], environment: env);
-      expect(logged().last, '$a $b 1');
+      expect(logged().last, '$a $b 1 replay=1');
     });
 
     test('post-rewrite replays a rebase, but not an amend', () {
@@ -159,7 +167,7 @@ void main() {
       expect(logged(), hasLength(before));
       final oldTip = head();
       runGit(repo, ['rebase', '-q', 'main'], environment: env);
-      expect(logged().last, '$oldTip ${head()} 1');
+      expect(logged().last, '$oldTip ${head()} 1 replay=1');
     });
   });
 
@@ -168,9 +176,19 @@ void main() {
     late File log;
     late File fakePython;
     const env = {'APPSTEIN_SKIP_DOCS_HOOK': '1'};
+    const repair = 'tool/check_graph.py --detach';
 
     List<String> logged() =>
         log.existsSync() ? log.readAsLinesSync() : const [];
+
+    /// The checks the hooks ran, without the repairs they started.
+    List<String> checks() => [
+      for (final line in logged())
+        if (line != repair) line,
+    ];
+
+    /// How many background repairs the hooks started.
+    int repairs() => logged().where((line) => line == repair).length;
 
     /// Commits [file] and returns everything git and its hooks printed.
     String commit(String file, {Map<String, String> extra = const {}}) {
@@ -179,6 +197,18 @@ void main() {
       final result = gitResult(
         repo,
         ['commit', '-q', '-m', file],
+        environment: {...env, ...extra},
+      );
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      return '${result.stdout}${result.stderr}';
+    }
+
+    /// Runs `git` [arguments] and returns everything git and its hooks
+    /// printed.
+    String git(List<String> arguments, {Map<String, String> extra = const {}}) {
+      final result = gitResult(
+        repo,
+        arguments,
         environment: {...env, ...extra},
       );
       expect(result.exitCode, 0, reason: '${result.stderr}');
@@ -200,7 +230,11 @@ void main() {
         Process.runSync('chmod', ['+x', fakePython.path]);
       }
       writeFile(repo, '.gitignore', 'graphify-out/\n');
-      writeFile(repo, 'tool/check_graph.py', '# stand-in\n');
+      writeFile(
+        repo,
+        'tool/check_graph.py',
+        '# stand-in with --detach and --skip-repairable\n',
+      );
       writeFile(repo, 'graphify-out/graph.json', '{}');
       writeFile(repo, 'graphify-out/.graphify_python', fakePython.path);
       installHookBlocks(p.join(repo.path, '.git', 'hooks'));
@@ -257,37 +291,93 @@ void main() {
     test('runs once after a merge, not during a rebase, once after it, and '
         'not again for an amend', () {
       commit('a.txt');
-      runGit(repo, ['switch', '-q', '-c', 'feature'], environment: env);
+      git(['switch', '-q', '-c', 'feature']);
       commit('b.txt');
-      runGit(repo, ['switch', '-q', 'main'], environment: env);
+      git(['switch', '-q', 'main']);
       commit('c.txt');
-      expect(logged(), hasLength(3));
-      runGit(repo, ['merge', '-q', '--no-edit', 'feature'], environment: env);
-      expect(logged(), hasLength(4), reason: 'post-merge');
-      runGit(repo, [
-        'switch',
-        '-q',
-        '-c',
-        'topic',
-        'feature',
-      ], environment: env);
+      expect(checks(), hasLength(3));
+      git(['merge', '-q', '--no-edit', 'feature']);
+      expect(checks(), hasLength(4), reason: 'post-merge');
+      expect(checks().last, 'tool/check_graph.py --quiet --skip-repairable');
+      git(['switch', '-q', '-c', 'topic', 'feature']);
       commit('d.txt');
       commit('e.txt');
-      expect(logged(), hasLength(6));
-      runGit(repo, ['rebase', '-q', 'main'], environment: env);
+      expect(checks(), hasLength(6));
+      git(['rebase', '-q', 'main']);
       expect(
-        logged(),
+        checks(),
         hasLength(7),
         reason: 'post-rewrite once; post-commit skipped while rebasing',
       );
-      runGit(repo, [
-        'commit',
-        '-q',
-        '--amend',
-        '-m',
-        'e amended',
-      ], environment: env);
-      expect(logged(), hasLength(8), reason: 'post-commit only');
+      expect(checks().last, 'tool/check_graph.py --quiet --skip-repairable');
+      git(['commit', '-q', '--amend', '-m', 'e amended']);
+      expect(checks(), hasLength(8), reason: 'post-commit only');
+    });
+
+    test('starts the background repair, silently, on a branch switch and '
+        'after a merge or rebase, but not while rebasing', () {
+      commit('a.txt');
+      expect(git(['switch', '-q', '-c', 'feature']), isEmpty);
+      expect(repairs(), 0, reason: 'a new branch at the same commit');
+      commit('b.txt');
+      expect(git(['switch', '-q', 'main']), isNot(contains('graphify:')));
+      expect(repairs(), 1, reason: 'a branch switch');
+      commit('c.txt');
+      git(['merge', '-q', '--no-edit', 'feature']);
+      expect(repairs(), 2, reason: 'a merge commit, through the replay');
+      git(['switch', '-q', '-c', 'topic', 'feature']);
+      expect(repairs(), 3);
+      commit('d.txt');
+      git(['rebase', '-q', 'main']);
+      expect(
+        repairs(),
+        4,
+        reason: "once, after the rebase; not for the rebase's own checkout",
+      );
+    });
+
+    test('starts no repair for a file checkout, with a skip variable, or '
+        'with a script from before the repair, or none', () {
+      commit('a.txt');
+      git(['switch', '-q', '-c', 'feature']);
+      commit('b.txt');
+      writeFile(repo, 'a.txt', 'edited');
+      git(['checkout', '--', 'a.txt']);
+      git(['switch', '-q', 'main'], extra: {'APPSTEIN_SKIP_GRAPH_HOOK': '1'});
+      git(['switch', '-q', 'feature'], extra: {'GRAPHIFY_SKIP_HOOK': '1'});
+      writeFile(repo, 'tool/check_graph.py', '# stand-in, before 1a.3\n');
+      expect(git(['switch', '-q', 'main']), isEmpty);
+      File(p.join(repo.path, 'tool', 'check_graph.py')).deleteSync();
+      git(['switch', '-q', 'feature']);
+      expect(repairs(), 0);
+    });
+
+    test('after a merge, falls back to a plain quiet check with a script from '
+        'before --skip-repairable', () {
+      commit('a.txt');
+      git(['switch', '-q', '-c', 'feature']);
+      commit('b.txt');
+      git(['switch', '-q', 'main']);
+      commit('c.txt');
+      writeFile(repo, 'tool/check_graph.py', '# stand-in, before 1a.3\n');
+      git(['merge', '-q', '--no-edit', 'feature']);
+      expect(checks().last, 'tool/check_graph.py --quiet');
+      expect(checks().where((c) => c.contains('--skip-repairable')), isEmpty);
+    });
+
+    test('after a merge with GRAPHIFY_SKIP_HOOK=1, which keeps the repair '
+        'off, the check asks for an update as before', () {
+      commit('a.txt');
+      git(['switch', '-q', '-c', 'feature']);
+      commit('b.txt');
+      git(['switch', '-q', 'main']);
+      commit('c.txt');
+      git(
+        ['merge', '-q', '--no-edit', 'feature'],
+        extra: {'GRAPHIFY_SKIP_HOOK': '1'},
+      );
+      expect(checks().last, 'tool/check_graph.py --quiet');
+      expect(repairs(), 1, reason: 'only the switch to main');
     });
   });
 }

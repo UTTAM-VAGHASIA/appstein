@@ -27,8 +27,8 @@ Engine tests create temporary folders with a space and a non-ASCII character in 
 graphify's hooks rebuild the graph in the background after a commit or a branch switch, and our hooks add merges, pulls and rebases (see [docs-tooling](docs-tooling.md#git-hooks)). If `graphify-out/` seems stale:
 
 1. Run `graphify hook status`. It should list `post-commit` and `post-checkout` as installed.
-2. Read the rebuild log at `~/.cache/graphify-rebuild.log`. A background rebuild prints its errors there, not in your terminal.
-3. Check that `GRAPHIFY_SKIP_HOOK` isn't set to `1` in your environment. It turns off every graph rebuild, including ours after a merge or rebase.
+2. Read the rebuild log at `~/.cache/graphify-rebuild.log`. A background rebuild prints its errors there, not in your terminal. Lines starting with `[appstein]` come from our background repair.
+3. Check that `GRAPHIFY_SKIP_HOOK` isn't set to `1` in your environment. It turns off every graph rebuild, including ours after a merge or rebase, and the background repair.
 4. Re-run `fvm dart run tool/install_hooks.dart`. It reinstalls graphify's hooks and our blocks, and it is safe to run again.
 
 Two more things to know: graphify's hooks do nothing in a linked git worktree, and they rebuild only the code structure. What the docs mean needs `/graphify . --update`; the graph hook below tells you when.
@@ -44,11 +44,12 @@ graphify: the graph is behind on 2 docs (new or changed: docs/guide/cli.md, docs
 It means the graph's picture of those docs is older than the files (see [docs-tooling](docs-tooling.md#is-the-graph-current)). It is a warning, not a failure:
 
 - **Run `/graphify . --update`** in your agent, then run the check by hand to confirm it reports nothing.
-- **A doc still listed as `missing from the graph` after an update** was extracted, but graphify's change detection saw no change, so the update didn't merge it again. Run a full `/graphify .`: it reuses cached extractions, so it costs little.
+- **`missing from the graph` is repaired by itself.** After a branch switch, merge or rebase, a background job puts such docs back from graphify's cache, with no LLM (see [docs-tooling](docs-tooling.md#repairing-the-graph)). After a merge or rebase the hook says `graphify: repairing 1 doc from the cache in the background (…)` instead of warning. If a later warning still names one, run `check_graph.py --repair` by hand, and read the `[appstein]` lines in `~/.cache/graphify-rebuild.log`.
 - **After switching branches**, it names the docs that differ from the branch the graph was last updated on. That's true: the graph describes the other branch's version of them.
 - **graphify's own change list is noisier than this check.** After a checkout or pull, `/graphify . --update` may say dozens of docs changed, because graphify's code-only rebuilds reset its record of the docs. Only the docs whose content changed since your agent's extraction prompt last extracted them are sent to the LLM, because graphify checks its content-hashed cache first. This hook reads the same cache, but accepts an extraction made with any agent's prompt, so after switching agents an update may re-extract docs the hook called current.
 - **Right after deleting or renaming a doc**, it may name the old path as `deleted or no longer scanned`. graphify's background rebuild prunes it a moment later, so the warning doesn't come back on the next commit.
 - **`graphify: the graph check could not run: …`** means the check itself failed. If it names `.graphify_python`, the file is missing or names a Python that no longer exists (for example after reinstalling graphify); any `/graphify` run rewrites it. If it names a missing function or module, a graphify upgrade changed what the check calls; fix [`check_graph.py`](../../tool/check_graph.py), whose tests in CI pin a graphify version.
+- **`graphify: could not repair the graph: …`** means the repair failed. With `graphify's rebuild failed`, it quotes graphify's last line: fix what that names, then run `--repair` again. With `didn't put back …`, or a missing function or module, a graphify upgrade changed what the repair calls; fix [`check_graph.py`](../../tool/check_graph.py). Until then, a full `/graphify .` puts the docs back; it reuses cached extractions, so it costs little.
 
 With no graph at all (graphify never run in this clone), the hook says nothing.
 
