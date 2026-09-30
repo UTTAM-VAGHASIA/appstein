@@ -22,6 +22,12 @@ Doctor and the SDK lookups read environment variables, search the PATH and run t
 - **On Windows** it tries each extension in `PATHEXT` in order (`.COM;.EXE;.BAT;.CMD` when the variable isn't set). So `findExecutable('fvm', …)` finds `fvm.bat`. A name that already ends in one of those extensions is tried as it is.
 - **Elsewhere** the file must have an execute bit, as for a shell. A file without one is passed over.
 
+### `findAllExecutables`
+
+`findAllExecutables` returns every match instead of the first, in the order a shell tries them: PATH order, and on Windows the `PATHEXT` order inside one folder. Its first entry is what `findExecutable` returns. The Android SDK lookup uses it, because Flutter tries every `aapt` and every `adb` on the PATH, not only the first (see [sdk-lookups](sdk-lookups.md#the-android-sdk)).
+
+Flutter lists them with `where` on Windows, which also looks in the current folder before the PATH. `findAllExecutables` doesn't, for the same reason `pathEntries` drops empty entries: a tool is never "found" just because it sits in the folder you ran Appstein from.
+
 ## `ProcessRunner` and `SystemProcessRunner`
 
 [`process_runner.dart`](../../packages/appstein_engine/lib/src/host/process_runner.dart) holds the interface, `ProcessRunner`, and the real implementation, `SystemProcessRunner`. Engine code only ever sees the interface, so tests pass a fake.

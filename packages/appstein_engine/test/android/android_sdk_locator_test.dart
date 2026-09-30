@@ -48,4 +48,59 @@ void main() {
       isNull,
     );
   });
+
+  group('the PATH fallback, when the chosen folder is not an SDK', () {
+    final separator = Platform.isWindows ? ';' : ':';
+
+    test('every aapt on PATH, with the SDK three folders up', () {
+      final root = tempDir();
+      final elsewhere = Directory(p.join(root.path, 'other', 'bin', 'x'))
+        ..createSync(recursive: true);
+      fakeExecutable(elsewhere, 'aapt');
+      final sdk = fakeAndroidSdk(p.join(root.path, 'real sdk'));
+      final tools = Directory(p.join(sdk, 'build-tools', '36.0.0'))
+        ..createSync(recursive: true);
+      fakeExecutable(tools, 'aapt');
+      final env = fakeEnvironment({
+        'ANDROID_HOME': p.join(root.path, 'no sdk here'),
+        'PATH': [elsewhere.path, tools.path].join(separator),
+        'PATHEXT': defaultPathExt,
+      });
+      expect(p.equals(locateAndroidSdk(env, {})!, resolveLinks(sdk)), isTrue);
+    });
+
+    test('then every adb on PATH, with the SDK two folders up, skipping '
+        'shims', () {
+      final root = tempDir();
+      final shims = Directory(p.join(root.path, 'shims', 'bin'))
+        ..createSync(recursive: true);
+      fakeExecutable(shims, 'adb');
+      final sdk = fakeAndroidSdk(p.join(root.path, 'real sdk'));
+      fakeExecutable(Directory(p.join(sdk, 'platform-tools')), 'adb');
+      final env = fakeEnvironment({
+        'ANDROID_HOME': p.join(root.path, 'no sdk here'),
+        'PATH': [shims.path, p.join(sdk, 'platform-tools')].join(separator),
+        'PATHEXT': defaultPathExt,
+      });
+      expect(p.equals(locateAndroidSdk(env, {})!, resolveLinks(sdk)), isTrue);
+    });
+
+    test('aapt comes before adb, whatever the PATH order', () {
+      final root = tempDir();
+      final viaAapt = fakeAndroidSdk(p.join(root.path, 'sdk a'));
+      final tools = Directory(p.join(viaAapt, 'build-tools', '36.0.0'))
+        ..createSync(recursive: true);
+      fakeExecutable(tools, 'aapt');
+      final viaAdb = fakeAndroidSdk(p.join(root.path, 'sdk b'));
+      fakeExecutable(Directory(p.join(viaAdb, 'platform-tools')), 'adb');
+      final env = fakeEnvironment({
+        'PATH': [p.join(viaAdb, 'platform-tools'), tools.path].join(separator),
+        'PATHEXT': defaultPathExt,
+      });
+      expect(
+        p.equals(locateAndroidSdk(env, {})!, resolveLinks(viaAapt)),
+        isTrue,
+      );
+    });
+  });
 }

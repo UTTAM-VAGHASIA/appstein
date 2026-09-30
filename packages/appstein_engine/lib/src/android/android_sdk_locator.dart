@@ -11,8 +11,12 @@ import '../host/host_environment.dart';
 ///
 /// The first *defined* of `flutter config --android-sdk`, ANDROID_HOME,
 /// ANDROID_SDK_ROOT and the default folder is used (or its `sdk` subfolder).
-/// When that isn't a valid SDK, `adb` on PATH is tried. A folder is an SDK
-/// when it has `licenses/` or `platform-tools/`.
+/// An empty variable counts as unset here, unlike in Flutter.
+/// When that isn't a valid SDK, every `aapt` on PATH is tried, with the SDK
+/// three folders above it (`build-tools/<version>/aapt`), then every `adb`,
+/// with the SDK two folders above it (`platform-tools/adb`). Links are
+/// resolved first. A folder is an SDK when it has `licenses/` or
+/// `platform-tools/`.
 String? locateAndroidSdk(
   HostEnvironment environment,
   Map<String, Object?> settings,
@@ -28,8 +32,11 @@ String? locateAndroidSdk(
     final nested = p.join(candidate, 'sdk');
     if (_isAndroidSdk(nested)) return nested;
   }
-  final adb = findExecutable('adb', environment);
-  if (adb != null) {
+  for (final aapt in findAllExecutables('aapt', environment)) {
+    final root = p.dirname(p.dirname(p.dirname(resolveLinks(aapt))));
+    if (_isAndroidSdk(root)) return root;
+  }
+  for (final adb in findAllExecutables('adb', environment)) {
     final root = p.dirname(p.dirname(resolveLinks(adb)));
     if (_isAndroidSdk(root)) return root;
   }

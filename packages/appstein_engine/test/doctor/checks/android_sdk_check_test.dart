@@ -186,4 +186,52 @@ void main() {
     expect(result.status, CheckStatus.error);
     expect(result.fixHint, contains('ANDROID_HOME'));
   });
+
+  group('more than one adb', () {
+    /// Puts an `adb` program in the folder [dir]: `adb.exe` on Windows, an
+    /// executable `adb` elsewhere. Returns its path.
+    String placeAdb(String dir) {
+      final file = File(p.join(dir, Platform.isWindows ? 'adb.exe' : 'adb'))
+        ..createSync(recursive: true);
+      if (!Platform.isWindows) Process.runSync('chmod', ['+x', file.path]);
+      return file.path;
+    }
+
+    Future<CheckResult> runWithPath(String path) => const AndroidSdkCheck().run(
+      testContext(
+        environment: fakeEnvironment({
+          'ANDROID_HOME': sdk,
+          'PATH': path,
+          'PATHEXT': defaultPathExt,
+        }),
+      ),
+    );
+
+    setUp(() {
+      platform('android-36');
+      buildTools('36.0.0');
+    });
+
+    test('lists every adb, and the status stays ok', () async {
+      final sdkAdb = placeAdb(p.join(sdk, 'platform-tools'));
+      final other = placeAdb(p.join(tempDir().path, 'other adb'));
+      final result = await runWithPath(p.dirname(other));
+      expect(result.status, CheckStatus.ok);
+      expect(
+        result.details,
+        containsAllInOrder([
+          'More than one adb was found. They can conflict, and devices may '
+              'not be detected:',
+          '- ${resolveLinks(sdkAdb)}',
+          '- ${resolveLinks(other)}',
+        ]),
+      );
+    });
+
+    test("says nothing when the adb on PATH is the SDK's own", () async {
+      placeAdb(p.join(sdk, 'platform-tools'));
+      final result = await runWithPath(p.join(sdk, 'platform-tools'));
+      expect(result.details.where((line) => line.contains('adb')), isEmpty);
+    });
+  });
 }

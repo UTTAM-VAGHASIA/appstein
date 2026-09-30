@@ -77,7 +77,7 @@ A few behaviours the table doesn't show:
 - **An unreadable FVM pin is counted once too.** The Flutter check reports it as an error, and the FVM check only notes it as info.
 - **Xcode and CocoaPods are skipped outside macOS.**
 - **The Java check names what Flutter passed over.** When a JDK is found, each Android Studio install Flutter would skip gets a detail line saying why. It also compares the JDK with JAVA_HOME: another JDK of the same major version is info, a different version is a warning, because Gradle run outside Flutter uses JAVA_HOME. See [sdk-lookups](sdk-lookups.md#the-jdk).
-- **The Android SDK check names the pair Flutter uses.** Its summary gives the newest platform and the build-tools Flutter pairs with it, previews included, in the words `flutter doctor -v` prints (`platform android-37.0, build-tools 37.0.0-rc2`). Platform folders Flutter ignores are listed in its details. See [sdk-lookups](sdk-lookups.md#platforms-and-build-tools).
+- **The Android SDK check names the pair Flutter uses.** Its summary gives the newest platform and the build-tools Flutter pairs with it, previews included, in the words `flutter doctor -v` prints (`platform android-37.0, build-tools 37.0.0-rc2`). Platform folders Flutter ignores are listed in its details. See [sdk-lookups](sdk-lookups.md#platforms-and-build-tools). When more than one `adb` is found (the SDK's own and others on the PATH), it lists them all, as `flutter doctor -v` does, without changing the status.
 - **The `appstein` on PATH check reads the registry on Windows.** It compares the terminal's PATH with the user and system PATH saved in the registry (`reg query`), because an agent started from elsewhere gets the saved one.
 
 ## Finding the project

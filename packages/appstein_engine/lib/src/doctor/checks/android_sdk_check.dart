@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import '../../android/android_sdk_contents.dart';
 import '../../android/android_sdk_locator.dart';
 import '../../android/flutter_settings.dart';
+import '../../host/executable_finder.dart';
+import '../../host/file_links.dart';
 import '../../host/host_environment.dart';
 import '../doctor_check.dart';
 
@@ -94,6 +96,7 @@ final class AndroidSdkCheck implements DoctorCheck {
         'installed on devices.',
       );
     }
+    details.addAll(_adbConflicts(sdk, environment));
     if (problems.isNotEmpty) {
       return CheckResult.warning(
         '$pair, but with gaps',
@@ -104,5 +107,31 @@ final class AndroidSdkCheck implements DoctorCheck {
       );
     }
     return CheckResult.ok(pair, details: details);
+  }
+
+  /// Every distinct `adb`, as detail lines, when there is more than one:
+  /// the SDK's own (`cmdline-tools` first, then `platform-tools`, as in
+  /// Flutter's `getPlatformToolsPath`) and each one on PATH, with links
+  /// resolved. Flutter shows the same list as its "Multiple adb binaries
+  /// found" hint. Empty when there is one or none.
+  static List<String> _adbConflicts(String sdk, HostEnvironment environment) {
+    final name = environment.os == HostOs.windows ? 'adb.exe' : 'adb';
+    final found = <String>{};
+    for (final folder in ['cmdline-tools', 'platform-tools']) {
+      final adb = p.join(sdk, folder, name);
+      if (File(adb).existsSync()) {
+        found.add(resolveLinks(adb));
+        break;
+      }
+    }
+    for (final adb in findAllExecutables('adb', environment)) {
+      found.add(resolveLinks(adb));
+    }
+    if (found.length < 2) return const [];
+    return [
+      'More than one adb was found. They can conflict, and devices may not '
+          'be detected:',
+      for (final adb in found) '- $adb',
+    ];
   }
 }

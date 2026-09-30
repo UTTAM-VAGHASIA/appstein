@@ -118,11 +118,13 @@ This mirrors Flutter's `AndroidStudio.latestValid`:
 
 `locateAndroidSdk` in [`android_sdk_locator.dart`](../../packages/appstein_engine/lib/src/android/android_sdk_locator.dart) mirrors Flutter's `locateAndroidSdk`:
 
-1. **It takes the first *defined* of:** the `android-sdk` setting, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and the default folder (`%USERPROFILE%\AppData\Local\Android\sdk` on Windows, `~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux). *Defined* matters: a variable that is set but wrong does not fall through to the next one, because Flutter's doesn't either.
+1. **It takes the first *defined* of:** the `android-sdk` setting, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and the default folder (`%USERPROFILE%\AppData\Local\Android\sdk` on Windows, `~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux). *Defined* matters: a variable that is set but wrong does not fall through to the next one, because Flutter's doesn't either. An empty variable is the exception: Appstein treats it as unset, while Flutter treats it as defined (see the known gaps below).
 2. **It accepts that folder or its `sdk` subfolder,** whichever is an SDK.
-3. **Otherwise it tries `adb` on PATH:** the SDK is two folders above the real `adb`, after links are resolved.
+3. **Otherwise it tries `aapt`, then `adb`, on PATH.** Every `aapt` in PATH order comes first, with the SDK three folders above it (`<sdk>/build-tools/<version>/aapt`), then every `adb`, with the SDK two folders above it (`<sdk>/platform-tools/adb`). Links are resolved first, and the first folder that is an SDK wins. A shim, such as a Scoop or Chocolatey `adb`, doesn't resolve into an SDK, so the next one is tried. `findAllExecutables` finds them all (see [running-tools](running-tools.md#findallexecutables)).
 
 A folder is an Android SDK when it has a `licenses/` or a `platform-tools/` folder.
+
+**More than one `adb`.** The Android SDK check collects the SDK's own `adb` and every `adb` on PATH, with links resolved. When they are not all the same file, it lists them in its details, as `flutter doctor -v` does, because two different `adb` programs fight over the connection to devices. The status doesn't change.
 
 ### Platforms and build-tools
 
@@ -144,3 +146,5 @@ The lookups don't copy every corner of Flutter yet. The list is in the slice 1a 
 - **macOS Android Studio discovery is narrower than Flutter's.** It doesn't search `/Applications` for other `Android Studio*.app` names or subfolders, and doesn't use Spotlight, so a Mac with only a Preview app could get a different JDK than Flutter.
 - **A pin that names a channel** (`stable`) and that FVM doesn't have fails the version comparison with a confusing message.
 - FVM's own `cachePath` setting isn't read, and an invalid `FLUTTER_ROOT` is skipped silently.
+- **An empty `ANDROID_HOME`.** Flutter counts a variable that is set as defined, even when it is empty, and stops the search there. `HostEnvironment` treats an empty variable as unset everywhere, so Appstein goes on to `ANDROID_SDK_ROOT` and the default folder.
+- **`where` looks in the current folder first.** On Windows, Flutter finds `aapt` and `adb` with `where`, which searches the current folder before the PATH. `findAllExecutables` searches only the PATH.
