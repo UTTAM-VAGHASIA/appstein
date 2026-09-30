@@ -48,9 +48,11 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 
 1. `actions/checkout@v4`
 2. `subosito/flutter-action@v2`
-3. `dart pub get --enforce-lockfile`
-4. Unit tests
-5. Doctor against this real machine
+3. `actions/setup-python@v5`
+4. Install graphify for the graph check's tests
+5. `dart pub get --enforce-lockfile`
+6. Unit tests
+7. Doctor against this real machine
 
 **`build`** runs on `ubuntu-latest`, `windows-latest`, `macos-latest`:
 
@@ -103,6 +105,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 ### test
 
 - It runs on Linux, Windows and macOS, because Appstein must behave the same on all three. `fail-fast: false` lets every OS finish, so one failure doesn't hide another.
+- **graphify for the graph check's tests:** it installs graphify, at the version pinned in `GRAPHIFY_VERSION` at the top of `ci.yml`, so the tests of [`tool/check_graph.py`](../../tool/check_graph.py) run on all three systems. It also sets `APPSTEIN_REQUIRE_GRAPHIFY=1`, which makes those tests fail instead of skip if graphify is missing. CI never builds a graph; see [docs-tooling](docs-tooling.md#is-the-graph-current) for why the graph itself isn't checked here.
 - **Unit tests:** `dart test test` runs the `tool/` tests from the root, then `dart test` runs in each package.
 - **Doctor against this real machine:** the engine's `integration`-tagged tests run with `--run-skipped --tags integration`. They compare Appstein's answers with the runner's real Flutter (see [testing](testing.md)).
 

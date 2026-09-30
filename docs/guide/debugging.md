@@ -31,7 +31,26 @@ graphify's hooks rebuild the graph in the background after a commit or a branch 
 3. Check that `GRAPHIFY_SKIP_HOOK` isn't set to `1` in your environment. It turns off every graph rebuild, including ours after a merge or rebase.
 4. Re-run `fvm dart run tool/install_hooks.dart`. It reinstalls graphify's hooks and our blocks, and it is safe to run again.
 
-Two more things to know: graphify's hooks do nothing in a linked git worktree, and they rebuild only the code structure. The semantic parts of the graph need a full `/graphify . --update`.
+Two more things to know: graphify's hooks do nothing in a linked git worktree, and they rebuild only the code structure. What the docs mean needs `/graphify . --update`; the graph hook below tells you when.
+
+## The graph hook says the graph is behind
+
+After a commit, merge or rebase you may see:
+
+```text
+graphify: the graph is behind on 2 docs (new or changed: docs/guide/cli.md, docs/guide/doctor.md). Run /graphify . --update before relying on it.
+```
+
+It means the graph's picture of those docs is older than the files (see [docs-tooling](docs-tooling.md#is-the-graph-current)). It is a warning, not a failure:
+
+- **Run `/graphify . --update`** in your agent, then run the check by hand to confirm it reports nothing.
+- **A doc still listed as `missing from the graph` after an update** was extracted, but graphify's change detection saw no change, so the update didn't merge it again. Run a full `/graphify .`: it reuses cached extractions, so it costs little.
+- **After switching branches**, it names the docs that differ from the branch the graph was last updated on. That's true: the graph describes the other branch's version of them.
+- **graphify's own change list is noisier than this check.** After a checkout or pull, `/graphify . --update` may say dozens of docs changed, because graphify's code-only rebuilds reset its record of the docs. Only the docs whose content changed since your agent's extraction prompt last extracted them are sent to the LLM, because graphify checks its content-hashed cache first. This hook reads the same cache, but accepts an extraction made with any agent's prompt, so after switching agents an update may re-extract docs the hook called current.
+- **Right after deleting or renaming a doc**, it may name the old path as `deleted or no longer scanned`. graphify's background rebuild prunes it a moment later, so the warning doesn't come back on the next commit.
+- **`graphify: the graph check could not run: …`** means the check itself failed. If it names `.graphify_python`, the file is missing or names a Python that no longer exists (for example after reinstalling graphify); any `/graphify` run rewrites it. If it names a missing function or module, a graphify upgrade changed what the check calls; fix [`check_graph.py`](../../tool/check_graph.py), whose tests in CI pin a graphify version.
+
+With no graph at all (graphify never run in this clone), the hook says nothing.
 
 ## The docs hook prints warnings after a commit
 

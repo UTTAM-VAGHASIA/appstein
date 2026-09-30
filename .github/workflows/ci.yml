@@ -12,6 +12,7 @@ permissions:
 env:
   FLUTTER_STABLE: "3.47.5"   # keep in step with .fvmrc (the analyze job checks)
   FLUTTER_MIN: "3.44.x"      # spec §22 #14: the confirmed minimum
+  GRAPHIFY_VERSION: "0.9.71" # tests of tool/check_graph.py (docs/guide/testing.md)
 
 jobs:
   analyze:
@@ -56,6 +57,18 @@ jobs:
           flutter-version: ${{ env.FLUTTER_STABLE }}
           channel: stable
           cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install graphify for the graph check's tests
+        shell: bash
+        # Pinned, so a graphify release can't break CI unannounced. With
+        # APPSTEIN_REQUIRE_GRAPHIFY=1 the tests fail instead of skipping
+        # when graphify is missing.
+        run: |
+          python -m pip install --disable-pip-version-check "graphifyy==$GRAPHIFY_VERSION"
+          echo "APPSTEIN_GRAPHIFY_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+          echo "APPSTEIN_REQUIRE_GRAPHIFY=1" >> "$GITHUB_ENV"
       - run: dart pub get --enforce-lockfile
       - name: Unit tests
         shell: bash
