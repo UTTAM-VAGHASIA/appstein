@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'guide_checker.dart';
+import 'markdown.dart';
 import 'progress.dart';
 
 /// The design spec, whose §18 lists the milestones and each milestone's
@@ -12,7 +13,19 @@ const specFile = 'docs/superpowers/specs/2026-09-29-appstein-design.md';
 /// The folder of slice plans, one Markdown file per slice.
 const plansFolder = 'docs/superpowers/plans';
 
-final _notes = RegExp(r'^## Notes from execution\b', multiLine: true);
+final _notes = RegExp(r'^## Notes from execution\b');
+
+/// Whether [text] has a `## Notes from execution` heading outside code
+/// fences.
+bool _hasNotes(String text) {
+  final fences = FenceTracker();
+  for (final line in text.replaceAll('\r\n', '\n').split('\n')) {
+    if (fences.next(line) == FenceLine.prose && _notes.hasMatch(line)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /// Checks [progress] against the repo at [repoRoot] (spec §19.6):
 /// - every plan in [plansFolder] (a `.md` file directly in it) is named by
@@ -74,7 +87,7 @@ List<GuideProblem> _checkPlans(String repoRoot, Progress progress) {
       );
       continue;
     }
-    if (!_notes.hasMatch(text.replaceAll('\r\n', '\n'))) continue;
+    if (!_hasNotes(text)) continue;
     for (final slice in slices) {
       if (slice.status != SliceStatus.done) {
         problems.add(

@@ -276,6 +276,51 @@ void main() {
     expect(renderProgressStatus(progress), contains('&lt;script&gt;'));
   });
 
+  test('strips backticks from the milestone tooltip', () {
+    const progress = Progress(
+      repository: 'https://github.com/owner/repo',
+      milestones: [
+        Milestone(
+          id: 'M1',
+          title: 'F',
+          summary: '`appstein adopt` for "apps"',
+          line: 1,
+        ),
+      ],
+    );
+    expect(
+      renderProgress(progress),
+      contains('title="appstein adopt for &quot;apps&quot;"'),
+    );
+  });
+
+  test('encodes and escapes a plan name in its link', () {
+    const progress = Progress(
+      repository: 'https://github.com/owner/repo',
+      milestones: [
+        Milestone(
+          id: 'M1',
+          title: 'F',
+          summary: 'S',
+          line: 1,
+          slices: [
+            Slice(
+              id: '1a',
+              title: 'W',
+              summary: 'S',
+              line: 1,
+              status: SliceStatus.done,
+              plan: 'a b&c.md',
+              pr: 1,
+              finished: '2026-09-30',
+            ),
+          ],
+        ),
+      ],
+    );
+    expect(renderProgress(progress), contains('href="../plans/a%20b%26c.md"'));
+  });
+
   test('leaves an unmatched backtick as text', () {
     const progress = Progress(
       repository: 'https://github.com/owner/repo',

@@ -39,7 +39,7 @@ String renderProgress(Progress progress) {
   for (final milestone in progress.milestones) {
     out.add(
       '  <li class="pg-${milestone.stage.name}" '
-      'title="${_escape(milestone.summary)}"><b>${_escape(milestone.id)}</b>'
+      'title="${_escape(milestone.summary.replaceAll('`', ''))}"><b>${_escape(milestone.id)}</b>'
       '<span>${_escape(milestone.title)}</span>'
       '<em>${_stageLabel(milestone.stage)}</em></li>',
     );

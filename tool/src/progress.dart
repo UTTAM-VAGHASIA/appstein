@@ -11,7 +11,7 @@ const progressFile = 'docs/superpowers/progress.yaml';
 
 /// Where a slice stands, as `progress.yaml` records it.
 enum SliceStatus {
-  /// Finished and merged into `main`.
+  /// Finished: its pull request is open or merged.
   done,
 
   /// Being built, or the one to build next. At most one slice is next.

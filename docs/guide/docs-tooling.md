@@ -295,7 +295,7 @@ milestones:
 |---|---|
 | `id` | `M1`, `M2` … for a milestone; `1a`, `1b` … for a slice; a sub-slice adds `.1`, `.2` … to its parent's id. Unique across the file |
 | `title`, `summary` | A short name, and a sentence on what it delivers. Text in backticks is shown as code |
-| `status` | `done` (merged), `next` (being built, or the one to build next) or `planned`. At most one slice is `next`. A slice without a status must have sub-slices, and its stage comes from them |
+| `status` | `done` (finished: its pull request is open or merged), `next` (being built, or the one to build next) or `planned`. At most one slice is `next`. A slice without a status must have sub-slices, and its stage comes from them |
 | `plan` | The plan's file name in `docs/superpowers/plans/` |
 | `pr`, `finished` | The pull request number and the day it was marked done (`YYYY-MM-DD`). A done slice needs `plan`, `pr` and `finished`; only a done slice may have `pr` or `finished` |
 | `tooling` | `true` for a slice that builds tooling for this repo rather than the product. The page tags it, and a slice's progress bar leaves it out, so tooling doesn't make the product look further along |
@@ -315,7 +315,7 @@ milestones:
 
 1. The slice to build is already `next` (the previous slice set it).
 2. The commit that adds the slice's plan also sets the slice's `plan`. Without it, the check reports the plan as belonging to no slice.
-3. Once the pull request is open, one more commit records the result: the plan's notes from execution, the slice `done` with `pr` and `finished`, and the following slice `next`. Then `fvm dart run tool/gen_docs.dart`. It comes after the PR opens because GitHub gives the number only then; before that commit, the slice is still `next` and its plan has no notes, so every check passes on both CI runs.
+3. Once the pull request is open, one more commit records the result: the plan's notes from execution, the slice `done` with `pr` and `finished`, and the following slice `next`. Then `fvm dart run tool/gen_docs.dart`. It comes after the PR opens because GitHub gives the number only then; before that commit, the slice is still `next` and its plan has no notes, so every check passes on the pull request's runs before and after that commit.
 
 ## The docs step of each slice
 

@@ -547,7 +547,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
 .pg-item.pg-done::after{content:"";position:absolute;left:5.5px;top:5px;width:4px;height:7px;border:solid var(--on-fill);border-width:0 2px 2px 0;transform:rotate(45deg)}
 .pg-item.pg-next::before{border-color:var(--accent);background:var(--accent);box-shadow:0 0 0 5px var(--accent-soft)}
 .pg-item.pg-underway::before{border-color:var(--accent);background:linear-gradient(90deg,var(--accent) 50%,var(--bg) 50%)}
-.pg-item.pg-planned>.pg-title,.pg-item.pg-planned>.pg-summary{opacity:.6}
+.pg-item.pg-planned>.pg-title{color:var(--ink-2)}
+.pg-item.pg-planned>.pg-summary{color:var(--ink-3)}
 .pg-title{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-weight:500}
 .pg-title b{font:500 .95rem/1.2 var(--mono);letter-spacing:-.02em}
 .pg-item.pg-next>.pg-title{color:var(--accent)}
@@ -555,6 +556,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
 .pg-meta{margin:6px 0 0;font-size:.8rem;color:var(--ink-3)}
 .pg-sub{margin-top:20px}
 .pg-sub .pg-item{padding-bottom:18px}
+.pg-sub .pg-item:last-child{padding-bottom:0}
+#progress{border-top:1px solid var(--line)}
 @media (max-width:860px){.pg-rail{grid-template-columns:repeat(2,1fr);row-gap:28px}.pg-rail li:nth-child(2n)::before{right:auto;width:16px}}
 @media (max-width:600px){.pg-bar{grid-template-columns:repeat(3,1fr)}.pg-item{padding-left:30px}}
 @media (prefers-reduced-motion:reduce){.pg-status .dot{animation:none}}
@@ -664,7 +667,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
 <ol class="pg-rail" aria-label="Milestones">
   <li class="pg-underway" title="What an agent needs to know before it writes Flutter code, and a deterministic check after."><b>M1</b><span>Knowledge + verification foundation</span><em>In progress</em></li>
   <li class="pg-planned" title="Plan, implement, review and verify with hard gates, driving the official agent CLIs; visual verification; a guided mode for beginners."><b>M2</b><span>Single-agent pipeline</span><em>Planned</em></li>
-  <li class="pg-planned" title="`appstein adopt` for existing projects; Riverpod and Bloc packs, community packs and a pack scaffold."><b>M3</b><span>Existing apps, more stacks</span><em>Planned</em></li>
+  <li class="pg-planned" title="appstein adopt for existing projects; Riverpod and Bloc packs, community packs and a pack scaffold."><b>M3</b><span>Existing apps, more stacks</span><em>Planned</em></li>
   <li class="pg-planned" title="A Flutter desktop app with several agents at once; web, Windows, macOS and Linux packs; then a web UI."><b>M4</b><span>Desktop app, every platform</span><em>Planned</em></li>
 </ol>
 <div class="pg-milestone">

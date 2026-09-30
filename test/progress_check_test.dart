@@ -146,6 +146,15 @@ void main() {
     ]);
   });
 
+  test('a notes heading inside a code fence does not count', () {
+    writeFile(
+      repo,
+      '$plansFolder/2026-09-30-slice-1b1.md',
+      '# 1b.1\n\n```text\n## Notes from execution (2026-10-01)\n```\n',
+    );
+    expect(check(), isEmpty);
+  });
+
   test('a §18 slice missing from the record is a problem', () {
     writeFile(
       repo,
