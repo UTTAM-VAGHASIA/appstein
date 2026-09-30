@@ -13,6 +13,10 @@ graphify-out/
 .graphify_root
 .graphify_python
 
+# Python bytecode (tool/check_graph.py is imported by its own tests)
+__pycache__/
+*.pyc
+
 # Impeccable local state and screenshots
 .impeccable/config.local.json
 .impeccable/review/
