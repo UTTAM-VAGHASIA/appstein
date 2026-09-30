@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../host/file_errors.dart';
+
 /// Thrown when an SDK folder exists but Flutter hasn't run in it yet, so its
 /// version files aren't there. FVM lists such versions as "Need setup".
 final class SdkNotSetUpException implements Exception {
@@ -51,7 +53,7 @@ FlutterSdkVersions readSdkVersions(String sdkRoot) {
     data = jsonDecode(text.startsWith('\uFEFF') ? text.substring(1) : text);
   } on FileSystemException catch (error) {
     throw FormatException(
-      'Could not read ${file.path}: ${error.osError?.message ?? error.message}',
+      'Could not read ${file.path}: ${fileErrorReason(error)}',
     );
   } on FormatException catch (error) {
     throw FormatException('${file.path} is not valid JSON: ${error.message}');

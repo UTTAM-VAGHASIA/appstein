@@ -75,3 +75,7 @@ The lookups need it because tools are often installed as links: FVM's `.fvm/flut
 ## Testing code that uses these
 
 Tests pass a `fakeEnvironment` and a `FakeProcessRunner` instead of the real ones, and use real temporary folders for files. The runner itself is tested with real processes, including a script whose child keeps the pipes open. [testing](testing.md) explains the helpers.
+
+## `fileErrorReason`
+
+[`file_errors.dart`](../../packages/appstein_engine/lib/src/host/file_errors.dart) turns a `FileSystemException` into the reason a message should show: the operating system's own words when it gave any, such as "Access is denied." for a locked file on Windows or "Permission denied" elsewhere, or else Dart's message, such as the one for a file that isn't valid UTF-8, where there is no OS error. Every file error the engine reports goes through it: `appstein.yaml`, `pubspec.yaml`, the FVM pin and settings, and Flutter's version file. It is used only inside the engine, so the barrel doesn't export it.

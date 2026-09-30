@@ -4,6 +4,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import '../host/file_errors.dart';
 import '../text/edit_distance.dart';
 
 /// The name of Appstein's project configuration file.
@@ -66,7 +67,7 @@ AppsteinConfig? loadConfig(String projectRoot) {
   } on FileSystemException catch (error) {
     // For example a file that isn't UTF-8, or one that is locked.
     throw ConfigException(
-      'Could not read $configFileName: ${error.message}',
+      'Could not read $configFileName: ${fileErrorReason(error)}',
       sourcePath: file.path,
     );
   }

@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../host/file_errors.dart';
+
 /// A Flutter version a project pins with FVM, and the file that pins it.
 final class FvmPin {
   /// Creates a pin.
@@ -73,7 +75,7 @@ String _read(File file, String key) {
     data = jsonDecode(_stripBom(file.readAsStringSync()));
   } on FileSystemException catch (error) {
     throw FormatException(
-      'Could not read ${file.path}: ${error.osError?.message ?? error.message}',
+      'Could not read ${file.path}: ${fileErrorReason(error)}',
     );
   } on FormatException catch (error) {
     throw FormatException('${file.path} is not valid JSON: ${error.message}');

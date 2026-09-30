@@ -4,6 +4,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
 import '../../config/config_loader.dart';
+import '../../host/file_errors.dart';
 import '../../sdk/language_version.dart';
 import '../doctor_check.dart';
 
@@ -31,7 +32,7 @@ final class ProjectCheck implements DoctorCheck {
         language = languageVersionFromPubspec(pubspec.readAsStringSync());
       } on FileSystemException catch (error) {
         return CheckResult.error(
-          'Could not read pubspec.yaml: ${error.message}',
+          'Could not read pubspec.yaml: ${fileErrorReason(error)}',
           details: [pubspec.path],
           fixHint: 'Make sure pubspec.yaml is a readable UTF-8 text file.',
         );
@@ -48,9 +49,11 @@ final class ProjectCheck implements DoctorCheck {
       return CheckResult.error(
         'appstein.yaml is invalid: $error',
         details: [root],
-        fixHint:
-            'Fix appstein.yaml at the position shown. Every key and '
-            'its default are listed in section 7 of the Appstein spec.',
+        // Without a line, the file couldn't be read at all.
+        fixHint: error.line == null
+            ? 'Make sure appstein.yaml is a readable UTF-8 text file.'
+            : 'Fix appstein.yaml at the position shown. Every key and '
+                  'its default are listed in section 7 of the Appstein spec.',
       );
     }
     if (config == null) {

@@ -30,7 +30,7 @@ A folder counts as an SDK when it has `bin/flutter` (`bin/flutter.bat` on Window
 
 - **Two file formats:** `.fvmrc` (FVM 3, the `flutter` key) or `.fvm/fvm_config.json` (FVM 2, the `flutterSdkVersion` key). In one folder, `.fvmrc` wins.
 - **Parent folders too:** it looks in the project folder, then each parent up to the drive root, as FVM does. The nearest folder with a pin wins, so a project inside a monorepo uses the repo's pin.
-- **An unreadable pin is an error,** not "no pin": the lookup stops with "Could not read the FVM pin".
+- **An unreadable pin is an error,** not "no pin": the lookup stops with "Could not read the FVM pin", and the message gives the reason, in the OS's words when it gave any.
 
 Then the SDK for the pin, in `_locateFvm`:
 
