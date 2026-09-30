@@ -876,7 +876,7 @@ The benchmark lives in `benchmark/`.
 
 ### 19.1 Tooling
 
-- **graphify from the first commit.** The graph covers code, this spec, the research report and docs. It is rebuilt by git hooks on each commit, checkout, merge and rebase (structure only), plus a full semantic update at the end of each slice, so agent sessions start from the graph instead of rediscovering the repo.
+- **graphify from the first commit.** The graph covers code, this spec, the research report and docs. Git hooks rebuild its code structure on each commit, checkout, merge and rebase. What the docs mean (the semantic layer) needs an LLM, so `/graphify . --update` refreshes it, and a hook warns whenever a doc's current content isn't in the graph (§19.6). Agent sessions start from the graph instead of rediscovering the repo, and update it first when it is behind.
 - **`CLAUDE.md` / `AGENTS.md`** are short: commands, architecture at a glance, rules and "critical gotchas" (Twenty's style). No duplicated architecture prose that can drift; they point to this spec, to graphify and to the developer guide (§19.6).
 - **Dependency hygiene** in our own repo: `dependency_validator` in CI (the Dart equivalent of Twenty's `knip`).
 
@@ -901,7 +901,7 @@ The benchmark lives in `benchmark/`.
 ### 19.4 Git and process
 
 - **Git:** agents may run read-only git. Commits happen only with owner approval, and nothing is pushed unless asked. Commits may include the Co-Authored-By trailer.
-- **Per slice:** spec → implementation plan → TDD implementation → verify → docs (API doc comments, the guide pages for what the slice built, `gen_docs` and the guide check (§19.6), then a full graphify update) → owner review → commit.
+- **Per slice:** spec → implementation plan → TDD implementation → verify → docs (API doc comments, the guide pages for what the slice built, `gen_docs` and the guide check (§19.6), then `/graphify . --update` until the graph warning is silent) → owner review → commit. The warning must still be silent when a slice merges, because edits made after the update put the graph behind again.
 
 ### 19.5 Distribution and versioning
 
@@ -942,7 +942,7 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 - **Every source file has a page.** Each page starts with a hidden `<!-- covers: … -->` comment listing the paths it explains. Source means `packages/*/lib/`, `packages/*/bin/`, `tool/` and `.github/workflows/`. The guide check fails if any source file is covered by no page.
 - **Code changes come with their page.** In CI, the check fails when a change edits a covered file but none of the pages covering it. If the page is still right, a commit trailer `Docs-Checked: <page> - <reason>` says so and clears it. This is the idea behind `docs.stale` (§6.9), applied to our own repo.
 - **Facts the code already knows are generated, not typed.** `tool/gen_docs.dart` writes them between `<!-- generated:<name> -->` markers: the doctor checks, the CLI commands and exit codes, the CI jobs and the package dependency diagram. CI fails if regenerating would change a page.
-- **CI is the gate; a local hook warns early.** `tool/install_hooks.dart` installs the repo's git hooks: graphify's graph rebuild (on commit, checkout, merge and rebase), and a post-commit warning when a page is stale or a generated section is out of date.
+- **CI is the gate; local hooks warn early.** `tool/install_hooks.dart` installs the repo's git hooks: graphify's code rebuild (on commit, checkout, merge and rebase), a post-commit warning when a page is stale or a generated section is out of date, and a graph warning after each commit, merge and rebase naming every doc whose current content isn't in the graph (new, changed or deleted). CI can't check the graph because it doesn't have one, so the per-slice rule (§19.4) keeps that warning silent before a merge.
 - CI (`docs` job, §19.3) analyzes every Dart snippet in the guide, checks every link, and checks that every repo path the guide mentions exists, reusing the skills CI tooling (§11.3).
 - The guide never restates the spec. The spec is the *design*, what we decided and why; the guide is the *current system*, how it works. The guide links to the spec instead of repeating it.
 
