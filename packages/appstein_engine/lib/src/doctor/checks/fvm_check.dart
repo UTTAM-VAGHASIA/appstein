@@ -18,6 +18,14 @@ final class FvmCheck implements DoctorCheck {
   @override
   Future<CheckResult> run(DoctorContext context) async {
     final fvm = findExecutable('fvm', context.environment);
+    // The SDK lookup ignores a broken global settings file, but FVM itself
+    // stops on it, so it is named here.
+    final problem = readFvmGlobalConfig(context.environment)?.problem;
+    final settingsLines = [
+      if (problem != null)
+        "FVM's settings file can't be used, and FVM stops with an error "
+            'until it is fixed: $problem',
+    ];
     final root = context.projectRoot;
     FvmPin? pin;
     if (root != null) {
@@ -37,22 +45,22 @@ final class FvmCheck implements DoctorCheck {
           ? const CheckResult.skipped('Not used by this project.')
           : CheckResult.info(
               'FVM is installed; this project does not pin a Flutter version.',
-              details: ['fvm: $fvm'],
+              details: ['fvm: $fvm', ...settingsLines],
             );
     }
+    final pinned = describeFvmPin(pin.version);
     if (fvm == null) {
       return CheckResult.warning(
-        'The project pins Flutter ${pin.version} with FVM, but `fvm` is not '
-        'on PATH.',
-        details: ['pin file: ${pin.configPath}'],
+        'The project pins $pinned with FVM, but `fvm` is not on PATH.',
+        details: ['pin file: ${pin.configPath}', ...settingsLines],
         fixHint:
             'Install FVM (https://fvm.app) so `fvm flutter` and '
             '`fvm dart` work.',
       );
     }
     return CheckResult.ok(
-      'Project pins Flutter ${pin.version} (${p.basename(pin.configPath)})',
-      details: ['pin file: ${pin.configPath}', 'fvm: $fvm'],
+      'Project pins $pinned (${p.basename(pin.configPath)})',
+      details: ['pin file: ${pin.configPath}', 'fvm: $fvm', ...settingsLines],
     );
   }
 }

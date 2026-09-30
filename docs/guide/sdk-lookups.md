@@ -19,10 +19,12 @@ The JDK, Android SDK and settings-file lookups follow the rules of Flutter's own
 `FlutterSdkLocator.locate`, in [`flutter_sdk_locator.dart`](../../packages/appstein_engine/lib/src/sdk/flutter_sdk_locator.dart), tries three sources in order and records which one worked (`SdkSource`):
 
 1. **The project's FVM pin.**
-2. **The `FLUTTER_ROOT` environment variable.** It is used when it names an SDK folder, even when its version differs from the pin. The detector then reports the mismatch.
+2. **The `FLUTTER_ROOT` environment variable.** It is used when it names an SDK folder, even when its version differs from the pin. The detector then reports the mismatch. When it is set but isn't an SDK, it is skipped with a note that the Flutter check shows. Flutter's own launcher scripts set `FLUTTER_ROOT` from where they live, so a wrong value can't confuse Flutter; it could only confuse this lookup, which is why doctor names it.
 3. **`flutter` on PATH.** Its path is resolved through links, and the SDK is the folder two levels up. A snap, Homebrew or asdf shim doesn't resolve into an SDK folder, so it doesn't count.
 
 A folder counts as an SDK when it has `bin/flutter` (`bin/flutter.bat` on Windows) and the framework's package folder, `<sdk>/packages/flutter`.
+
+**When nothing is found,** the failure names each source it tried and what it found there, such as ``No Flutter SDK found. Tried: no FVM pin in the project, FLUTTER_ROOT (not set), `flutter` on PATH (not found).`` Outside a project the FVM part is left out. With a pin FVM doesn't have, it names the pin (``the project's FVM pin (Flutter 3.46.0, from <file>, not installed)``), and the fix is the pin's `fvm install` command.
 
 ### FVM pins
 
@@ -32,20 +34,37 @@ A folder counts as an SDK when it has `bin/flutter` (`bin/flutter.bat` on Window
 - **Parent folders too:** it looks in the project folder, then each parent up to the drive root, as FVM does. The nearest folder with a pin wins, so a project inside a monorepo uses the repo's pin.
 - **An unreadable pin is an error,** not "no pin": the lookup stops with "Could not read the FVM pin", and the message gives the reason, in the OS's words when it gave any.
 
+**What a pin names.** FVM accepts three kinds of value. `fvmPinChannel` and `fvmPinVersion` tell them apart:
+
+| Pin | Meaning | An SDK meets it when |
+|---|---|---|
+| `stable`, `beta`, `dev`, `master`, `main` | A channel. FVM 4 counts `main` as a channel; FVM 3 treats it as a release name, but installs it in the same place | It is on that channel (`main` and `master` are one channel) |
+| `3.24.0@beta` | A version on a channel | Its version is `3.24.0` |
+| Anything else, such as `3.47.5` or a commit hash | A version, or a git reference | Its version is the whole value |
+
+`describeFvmPin` puts a pin into words for messages ("Flutter 3.47.5", "the Flutter stable channel", "Flutter 3.24.0 on the beta channel"), and `fvmInstallHint` gives the fix: `fvm install <pin>`, and for a channel also `fvm use <channel>`.
+
 Then the SDK for the pin, in `_locateFvm`:
 
 1. **The `.fvm/flutter_sdk` link** in the folder that holds the pin, resolved to the real folder.
-2. **FVM's cache:** `versions/<pin>` inside `FVM_CACHE_PATH`, or inside `~/fvm` when that variable isn't set.
+2. **FVM's cache:** `versions/<pin>` inside FVM's cache folder, so `versions/stable` for a channel and `versions/3.24.0@beta` for a version on a channel. `fvmCacheFolder` finds the cache folder as FVM does, highest first:
+   1. `cachePath` in the pin file itself (a relative path is taken from the pin's folder);
+   2. `FVM_CACHE_PATH`;
+   3. `FVM_HOME`, FVM's older name for it;
+   4. `cachePath` in FVM's global settings file, which `fvm config --cache-path` writes: `%APPDATA%\fvm\.fvmrc` on Windows, `~/Library/Application Support/fvm/.fvmrc` on macOS, and `$XDG_CONFIG_HOME/fvm/.fvmrc` (or `~/.config/fvm/.fvmrc`) on Linux;
+   5. `fvm` in the home folder.
 
-**A stale link is skipped.** `.fvm/` is usually gitignored while the pin is committed, so after you pull a pin bump the link still points at the old version. When the link's SDK reports a version other than the pin, it is skipped and the cache is tried. The link is kept when its SDK can't be read yet (the detector then reports it as not set up), and when the pin names a channel such as `stable`, which can't be compared with a version.
+   A global settings file that can't be read or isn't valid JSON is ignored here. FVM itself stops with an error then, so the FVM check adds a line naming the file.
+
+**A stale link is skipped.** `.fvm/` is usually gitignored while the pin is committed, so after you pull a pin bump the link still points at the old version. When the link's SDK reports a version other than the pin, it is skipped and the cache is tried. The link is kept when its SDK can't be read yet (the detector then reports it as not set up), and when the pin has no version to compare: a bare channel such as `stable`, or a git reference.
 
 ### A pin FVM doesn't have
 
 A pin states which version the project needs; FVM is only one way to install it. So when FVM has no SDK for the pin, the lookup goes on to `FLUTTER_ROOT` and PATH, and the location it returns carries the pin in `SdkLocation.unmetFvmPin`.
 
-- **The version must equal the pin.** The detector compares them. A mismatch fails with "The project pins Flutter X with FVM, but FVM does not have it installed…" and the fix `fvm install X`.
-- **A match is accepted.** `SdkInfo.fvmVersion` is set to the pin, just as when FVM provides the SDK, and the Flutter check adds a detail line saying a matching Flutter is used in FVM's place.
-- **With no other SDK at all,** the lookup fails: the pinned version is not installed.
+- **The SDK must meet the pin.** The detector checks it, as in the table above: the version for a version pin, the channel (from `flutter.version.json`) for a channel pin. A mismatch fails with "The project pins Flutter X with FVM, but FVM does not have it installed…", or "…pins the Flutter stable channel…, and the Flutter found through PATH is on the beta channel", with the pin's `fvm install` fix.
+- **A match is accepted.** `SdkInfo.fvmVersion` is set to the pin, just as when FVM provides the SDK, and the Flutter check adds a detail line saying a matching Flutter (or, for a channel pin, a Flutter on that channel) is used in FVM's place.
+- **With no other SDK at all,** the lookup fails, naming the pin among the sources it tried.
 
 ### Links and junctions
 
@@ -124,7 +143,7 @@ This mirrors Flutter's `AndroidStudio.latestValid`:
 
 `locateAndroidSdk` in [`android_sdk_locator.dart`](../../packages/appstein_engine/lib/src/android/android_sdk_locator.dart) mirrors Flutter's `locateAndroidSdk`:
 
-1. **It takes the first *defined* of:** the `android-sdk` setting, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and the default folder (`%USERPROFILE%\AppData\Local\Android\sdk` on Windows, `~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux). *Defined* matters: a variable that is set but wrong does not fall through to the next one, because Flutter's doesn't either. An empty variable is the exception: Appstein treats it as unset, while Flutter treats it as defined (see the known gaps below).
+1. **It takes the first *defined* of:** the `android-sdk` setting, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and the default folder (`%USERPROFILE%\AppData\Local\Android\sdk` on Windows, `~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux). *Defined* matters: a variable that is set but wrong does not fall through to the next one, because Flutter's doesn't either. An empty variable is the exception: Appstein treats it as unset, while Flutter treats it as defined (see "Where Appstein differs from Flutter" below).
 2. **It accepts that folder or its `sdk` subfolder,** whichever is an SDK.
 3. **Otherwise it tries `aapt`, then `adb`, on PATH.** Every `aapt` in PATH order comes first, with the SDK three folders above it (`<sdk>/build-tools/<version>/aapt`), then every `adb`, with the SDK two folders above it (`<sdk>/platform-tools/adb`). Links are resolved first, and the first folder that is an SDK wins. A shim, such as a Scoop or Chocolatey `adb`, doesn't resolve into an SDK, so the next one is tried. `findAllExecutables` finds them all (see [running-tools](running-tools.md#findallexecutables)).
 
@@ -145,12 +164,14 @@ So on a machine with platforms up to `android-37.0` (level 37) and build-tools `
 
 Flutter also reports an error when the platform or the build-tools are older than its Gradle plugin needs. Those minimums are facts about each Flutter version, so they arrive with the toolchain knowledge in slice 1b.2.
 
-## Known gaps
+## Where Appstein differs from Flutter
 
-The lookups don't copy every corner of Flutter yet. The list is in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md). For example:
+The lookups give Flutter's answer, and where Flutter does something surprising, the check's details explain it. A few differences are deliberate, or wait for a later slice:
 
-- **A pin that names a channel** (`stable`) and that FVM doesn't have fails the version comparison with a confusing message.
-- FVM's own `cachePath` setting isn't read, and an invalid `FLUTTER_ROOT` is skipped silently.
 - **An empty `ANDROID_HOME`.** Flutter counts a variable that is set as defined, even when it is empty, and stops the search there. `HostEnvironment` treats an empty variable as unset everywhere, so Appstein goes on to `ANDROID_SDK_ROOT` and the default folder.
 - **`where` looks in the current folder first.** On Windows, Flutter finds `aapt` and `adb` with `where`, which searches the current folder before the PATH. `findAllExecutables` searches only the PATH.
 - **A configured Android Studio on Windows.** Flutter reads `android-studio-dir` only after it has listed `%LOCALAPPDATA%\Google`, and skips the setting when that folder is missing. That is a Flutter bug in a rare case, and Appstein doesn't copy it: it always uses the configured install, because the setting is the user's explicit choice.
+- **A configured Android Studio that doesn't exist.** Flutter stops every command with a tool error. The Java check reports it as an error, and the other checks still run.
+- **Minimum versions.** Flutter reports an error when the platform or the build-tools are older than its Gradle plugin needs. Those minimums change with each Flutter version, so they come with the toolchain knowledge in slice 1b.2.
+- **A broken FVM settings file.** FVM stops with an error when its global settings file isn't valid JSON. Appstein's lookup ignores the file, and the FVM check names it.
+- **Folder order.** Where Flutter's answer depends on the order the file system lists a folder in (ties between Android Studio installs, platforms or build-tools), Appstein sorts the names, which gives Flutter's answer on NTFS and APFS, where listings are alphabetical.

@@ -19,14 +19,21 @@ DoctorContext testContext({
   sdk: sdk ?? foundSdk(),
 );
 
-/// A successful SDK detection with the given versions.
+/// A successful SDK detection with the given versions, and the lookup's
+/// [notes].
 SdkDetection foundSdk({
   String flutter = '3.47.5',
   String channel = 'stable',
   String root = '/sdk',
   SdkSource source = SdkSource.path,
   String? unmetFvmPin,
+  List<String> notes = const [],
 }) => SdkDetection.found(
   SdkInfo(flutterVersion: flutter, dartVersion: '3.13.4', channel: channel),
-  SdkLocation(root: root, source: source, unmetFvmPin: unmetFvmPin),
+  SdkLocation(
+    root: root,
+    source: source,
+    unmetFvmPin: unmetFvmPin,
+    notes: notes,
+  ),
 );

@@ -42,6 +42,27 @@ void main() {
     );
   });
 
+  test('an SDK on the channel an unmet FVM pin names says why it is '
+      'used', () async {
+    final result = await check(foundSdk(unmetFvmPin: 'stable'));
+    expect(result.status, CheckStatus.ok);
+    expect(
+      result.details,
+      contains(
+        'The project pins the Flutter stable channel with FVM; FVM does not '
+        'have it, so this Flutter on that channel is used.',
+      ),
+    );
+  });
+
+  test("shows the SDK lookup's notes", () async {
+    const note =
+        'FLUTTER_ROOT is set to /nowhere, which is not a Flutter SDK, so it '
+        'was ignored.';
+    final result = await check(foundSdk(notes: const [note]));
+    expect(result.details, contains(note));
+  });
+
   test('a failed detection passes its problem and fix through', () async {
     final result = await check(const SdkDetection.failed('No SDK', 'Install'));
     expect(result.status, CheckStatus.error);

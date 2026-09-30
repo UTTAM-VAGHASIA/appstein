@@ -70,6 +70,96 @@ void main() {
     });
   });
 
+  group('when an FVM channel pin is not installed', () {
+    late Directory work;
+    late String project;
+
+    setUp(() {
+      work = tempDir();
+      project = p.join(work.path, 'my app');
+      Directory(project).createSync();
+      File(p.join(project, 'pubspec.yaml')).writeAsStringSync('name: a\n');
+    });
+
+    SdkDetection detect(String pin, String sdk) {
+      File(p.join(project, '.fvmrc')).writeAsStringSync('{"flutter": "$pin"}');
+      return SdkDetector(
+        fakeEnvironment({
+          'FVM_CACHE_PATH': p.join(work.path, 'empty'),
+          'FLUTTER_ROOT': sdk,
+        }),
+      ).detect(projectRoot: project);
+    }
+
+    test('an SDK on that channel meets it', () {
+      final detection = detect(
+        'stable',
+        createFakeSdk(p.join(work.path, 'sdk')),
+      );
+      expect(detection.info!.fvmVersion, 'stable');
+    });
+
+    test('main and master are one channel', () {
+      final detection = detect(
+        'main',
+        createFakeSdk(
+          p.join(work.path, 'sdk'),
+          flutter: '3.48.0-1.0.pre',
+          channel: 'master',
+        ),
+      );
+      expect(detection.info, isNotNull);
+    });
+
+    test('an SDK on another channel fails, naming both channels', () {
+      final detection = detect(
+        'stable',
+        createFakeSdk(p.join(work.path, 'sdk'), channel: 'beta'),
+      );
+      expect(
+        detection.problem,
+        'The project pins the Flutter stable channel with FVM, but FVM does '
+        'not have it installed, and the Flutter found through FLUTTER_ROOT '
+        'is on the beta channel.',
+      );
+      expect(
+        detection.fixHint,
+        'Run `fvm install stable` or `fvm use stable` in the project folder.',
+      );
+    });
+
+    // Review Focus 4.
+    test('a version@channel pin compares the version', () {
+      final met = detect(
+        '3.24.0@beta',
+        createFakeSdk(
+          p.join(work.path, 'a'),
+          flutter: '3.24.0',
+          channel: 'beta',
+        ),
+      );
+      expect(met.info, isNotNull);
+      final unmet = detect(
+        '3.24.0@beta',
+        createFakeSdk(
+          p.join(work.path, 'b'),
+          flutter: '3.24.1',
+          channel: 'beta',
+        ),
+      );
+      expect(
+        unmet.problem,
+        'The project pins Flutter 3.24.0 on the beta channel with FVM, but '
+        'FVM does not have it installed, and the Flutter found through '
+        'FLUTTER_ROOT is 3.24.1.',
+      );
+      expect(
+        unmet.fixHint,
+        'Run `fvm install 3.24.0@beta` in the project folder.',
+      );
+    });
+  });
+
   test('an SDK that was never run explains how to set it up', () {
     final sdk = createFakeSdk(p.join(tempDir().path, 'sdk'), setUp: false);
     final detection = SdkDetector(

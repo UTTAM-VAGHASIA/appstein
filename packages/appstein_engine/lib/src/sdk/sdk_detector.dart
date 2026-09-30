@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../host/host_environment.dart';
 import 'flutter_sdk_locator.dart';
 import 'flutter_sdk_reader.dart';
+import 'fvm_pin.dart';
 import 'language_version.dart';
 
 /// What Appstein knows about a project's Flutter SDK: facts when detection
@@ -73,12 +74,15 @@ final class SdkDetector {
       );
     }
     final unmetPin = location.unmetFvmPin;
-    if (unmetPin != null && versions.flutter != unmetPin) {
+    if (unmetPin != null && !_meetsPin(unmetPin, versions)) {
+      final found = fvmPinVersion(unmetPin) == null
+          ? 'on the ${versions.channel} channel'
+          : versions.flutter;
       return SdkDetection.failed(
-        'The project pins Flutter $unmetPin with FVM, but FVM does not have '
-            'it installed, and the Flutter found through '
-            '${location.source.label} is ${versions.flutter}.',
-        'Run `fvm install $unmetPin` in the project folder.',
+        'The project pins ${describeFvmPin(unmetPin)} with FVM, but FVM does '
+        'not have it installed, and the Flutter found through '
+        '${location.source.label} is $found.',
+        fvmInstallHint(unmetPin),
         location: location,
       );
     }
@@ -105,5 +109,17 @@ final class SdkDetector {
       ),
       location,
     );
+  }
+
+  /// Whether an SDK with [versions] meets the FVM [pin]: the pin's version
+  /// for a version pin, or its channel for a bare channel pin (`main` and
+  /// `master` are one channel).
+  static bool _meetsPin(String pin, FlutterSdkVersions versions) {
+    final version = fvmPinVersion(pin);
+    if (version != null) return versions.flutter == version;
+    final channel = fvmPinChannel(pin)!;
+    const trunk = {'main', 'master'};
+    return versions.channel == channel ||
+        (trunk.contains(channel) && trunk.contains(versions.channel));
   }
 }

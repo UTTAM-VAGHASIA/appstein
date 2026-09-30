@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 
 import '../../support/doctor_support.dart';
 import '../../support/fake_process_runner.dart';
+import '../../support/fake_sdk.dart';
 import '../../support/temp.dart';
 
 void main() {
@@ -96,6 +97,55 @@ void main() {
     expect(
       result.details,
       contains('pin file: ${p.join(project.path, '.fvmrc')}'),
+    );
+  });
+
+  test('a channel pin is described as a channel', () async {
+    File(
+      p.join(project.path, '.fvmrc'),
+    ).writeAsStringSync('{"flutter": "stable"}');
+    fakeExecutable(tools, 'fvm');
+    final result = await const FvmCheck().run(
+      testContext(
+        projectRoot: project.path,
+        environment: fakeEnvironment({
+          'PATH': tools.path,
+          'PATHEXT': defaultPathExt,
+        }),
+      ),
+    );
+    expect(result.status, CheckStatus.ok);
+    expect(result.summary, 'Project pins the Flutter stable channel (.fvmrc)');
+  });
+
+  // Review Focus 3.
+  test('a broken FVM settings file is named, since FVM itself will '
+      'fail', () async {
+    final home = tempDir().path;
+    File(fvmSettingsFile(home))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('{oops');
+    File(
+      p.join(project.path, '.fvmrc'),
+    ).writeAsStringSync('{"flutter": "3.47.5"}');
+    fakeExecutable(tools, 'fvm');
+    final result = await const FvmCheck().run(
+      testContext(
+        projectRoot: project.path,
+        environment: fakeEnvironment({
+          ...fvmHomeVars(home),
+          'PATH': tools.path,
+          'PATHEXT': defaultPathExt,
+        }),
+      ),
+    );
+    expect(result.status, CheckStatus.ok);
+    expect(
+      result.details.last,
+      startsWith(
+        "FVM's settings file can't be used, and FVM stops with an error "
+        'until it is fixed: ${fvmSettingsFile(home)} is not valid JSON: ',
+      ),
     );
   });
 }
