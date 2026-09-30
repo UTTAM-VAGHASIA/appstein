@@ -74,4 +74,48 @@ void main() {
       p.join('packages', 'appstein_cli', 'README.md'),
     ]);
   });
+
+  group('checkLinked', () {
+    void page(String path, String text) => File(p.join(repo.path, path))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(text);
+
+    test('guidePages lists guide pages with forward slashes', () {
+      page('docs/guide/README.md', '# Start\n');
+      page('docs/guide/how-to/b.md', '# B\n');
+      expect(guidePages(repo.path), [
+        'docs/guide/README.md',
+        'docs/guide/how-to/b.md',
+      ]);
+    });
+
+    test('reports pages that no chain of links reaches from the start '
+        'page', () {
+      page(
+        'docs/guide/README.md',
+        '[A](a.md#top) and [B](how-to/b.md) and [web](https://dart.dev)\n',
+      );
+      page('docs/guide/a.md', '# A\n');
+      page('docs/guide/how-to/b.md', 'See [C](../c.md).\n');
+      page('docs/guide/c.md', '# C\n');
+      page('docs/guide/d.md', '# D, linked from nowhere\n');
+      page('docs/guide/e.md', '# E\n');
+      page('docs/guide/f.md', '```text\n[E](e.md) is only an example\n```\n');
+      const notLinked =
+          'Not linked from the guide. Link it from docs/guide/README.md or '
+          'from a page linked there.';
+      expect(checkLinked(repo.path, guidePages(repo.path)).map((x) => '$x'), [
+        'docs/guide/d.md: $notLinked',
+        'docs/guide/e.md: $notLinked',
+        'docs/guide/f.md: $notLinked',
+      ]);
+    });
+
+    test('reports a missing start page', () {
+      page('docs/guide/a.md', '# A\n');
+      expect(checkLinked(repo.path, guidePages(repo.path)).map((x) => '$x'), [
+        'docs/guide/README.md: The guide has no start page.',
+      ]);
+    });
+  });
 }
