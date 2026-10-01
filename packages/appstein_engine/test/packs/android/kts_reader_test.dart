@@ -359,6 +359,72 @@ android {
     expect(minify.value, isA<KtsBool>());
   });
 
+  test('round 2: let/also on a plain value never hide the key behind its '
+      'name; apply on a DSL receiver keeps its path', () {
+    final script = readKts('''
+android {
+    defaultConfig {
+        envMin?.let { minSdk = it }
+        envCode.also { versionCode = it }
+        flag.run { targetSdk = 1 }
+    }
+    defaultConfig.apply { applicationId = "a" }
+}
+''');
+    for (final key in ['minSdk', 'versionCode', 'targetSdk']) {
+      final found = script.assignmentsTo(['android', 'defaultConfig', key]);
+      expect(found, isNotEmpty, reason: key);
+      expect(found.every((a) => a.conditional), isTrue, reason: key);
+      expect(
+        found.any(
+          (a) => a.path.contains('envMin') || a.path.contains('envCode'),
+        ),
+        isFalse,
+        reason: key,
+      );
+    }
+    final id = only(script, ['android', 'defaultConfig', 'applicationId']);
+    expect(id.path, ['android', 'defaultConfig', '?', 'applicationId']);
+  });
+
+  test(
+    'round 2: collection callbacks are a ? entry, not an entry named all',
+    () {
+      for (final inner in [
+        'all { applicationIdSuffix = ".x" }',
+        'forEach { }',
+        'configureEach { }',
+        'whenObjectAdded { }',
+        'matching { it.name == "a" }.all { }',
+        'withType<Flavor> { }',
+      ]) {
+        final script = readKts('''
+android {
+    productFlavors {
+        create("dev") { }
+        $inner
+    }
+}
+''');
+        final names = [
+          for (final block in script.blocksIn(['android', 'productFlavors']))
+            block.path.last,
+        ];
+        expect(names, contains(ktsOpaque), reason: inner);
+        expect(names, isNot(contains('all')), reason: inner);
+        expect(names, isNot(contains('forEach')), reason: inner);
+        expect(names, isNot(contains('withType')), reason: inner);
+      }
+    },
+  );
+
+  test('round 2: a call statement after a generic type is not swallowed', () {
+    final script = readKts(
+      'lateinit var names: List<String>\ninclude(":app")\n',
+    );
+    expect(script.callsTo([], 'include'), hasLength(1));
+  });
+
   test('I3: entries declared in an if, a lambda, by creating or '
       'afterEvaluate leave a ? block', () {
     for (final inner in [

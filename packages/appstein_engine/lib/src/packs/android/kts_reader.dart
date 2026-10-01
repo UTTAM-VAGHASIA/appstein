@@ -538,17 +538,42 @@ const _continuesAfter = {
 /// (`import a.*`, `List<String>`).
 const _weakContinuers = {'*', '<', '>', ':'};
 
-/// Scope and configure functions: their block runs on some other receiver,
-/// so what it sets is read under [ktsOpaque].
-const _scopeFunctions = {'apply', 'run', 'also', 'let', 'with', 'configure'};
+/// Scope and configure functions whose block runs on their receiver, so
+/// what it sets is read under [ktsOpaque]. The receiver may be a DSL block
+/// (`defaultConfig.apply { }`) or a plain value (`flag.run { }`): see
+/// `_Parser._scopeBody`.
+const _receiverScopes = {'apply', 'run', 'with', 'configure'};
+
+/// Scope functions whose receiver is `it`: what they set goes to the outer
+/// receiver, whatever they are called on.
+const _itScopes = {'let', 'also'};
+
+/// Collection callbacks: their body runs for entries Appstein can't name,
+/// so it is read under [ktsOpaque] and never taken as an entry.
+const _callbacks = {
+  'all', 'forEach', 'configureEach', 'whenObjectAdded', 'whenObjectRemoved', //
+  'matching', 'withType', 'filter', 'map', 'onEach', 'forEachIndexed', //
+  'whenPluginAdded', 'withGroovyBuilder',
+};
 
 /// Symbols that, starting a line, continue the statement before.
 const _continuesBefore = {'.', '?.', '?:', '&&', '||'};
 
 final class _Parser {
-  _Parser(this._tokens);
+  _Parser(this._tokens) {
+    for (var k = 0; k + 1 < _tokens.length; k++) {
+      if ((_tokens[k].isName('val') || _tokens[k].isName('var')) &&
+          _tokens[k + 1].kind == _Kind.name) {
+        _locals.add(_tokens[k + 1].text);
+      }
+    }
+  }
 
   final List<_Token> _tokens;
+
+  /// Names declared with `val`/`var` anywhere in the script: plain values,
+  /// never DSL receivers.
+  final _locals = <String>{};
   var _pos = 0;
   final assignments = <KtsAssignment>[];
   final calls = <KtsCall>[];
@@ -649,7 +674,18 @@ final class _Parser {
       );
     } else if (next.isSymbol('{')) {
       _pos++;
-      if (_scopeFunctions.contains(names.last)) {
+      final function = names.last;
+      if (_receiverScopes.contains(function)) {
+        final receiver = names.sublist(0, names.length - 1);
+        _scopeBody(path, next, [...prefix, ktsOpaque], receiver);
+        return;
+      }
+      if (_itScopes.contains(function)) {
+        // The receiver is `it`; assignments go to the outer receiver.
+        _opaqueBody(path, next);
+        return;
+      }
+      if (_callbacks.contains(function)) {
         _opaqueBody(path, next, inside: [...prefix, ktsOpaque]);
         return;
       }
@@ -670,7 +706,11 @@ final class _Parser {
                     if (token.kind == _Kind.name) token.text,
                 ]
               : const <String>[];
-          _opaqueBody(path, open, inside: [...prefix, ktsOpaque, ...receiver]);
+          _scopeBody(path, open, [...prefix, ktsOpaque, ...receiver], receiver);
+          return;
+        }
+        if (_callbacks.contains(names.last)) {
+          _opaqueBody(path, open, inside: [...prefix, ktsOpaque]);
           return;
         }
         final name = _containerCalls.contains(names.last)
@@ -811,6 +851,33 @@ final class _Parser {
     body(blockPath, openLine: open.line);
   }
 
+  /// Reads the body of `receiver.apply { … }` (and `run`, `with`,
+  /// `configure`). The reader can't tell a DSL receiver (`defaultConfig`)
+  /// from a plain value (`flag`), so unless the receiver is a declared
+  /// local it reads the body twice: once as inside the receiver ([inside],
+  /// so `android.defaultConfig.apply { targetSdk = 1 }` is at
+  /// `[android, defaultConfig, ?, targetSdk]`) and once as inside the outer
+  /// block (`[…, ?, targetSdk]`). Either way a key is under a `?`, never
+  /// hidden behind a variable name; the second reading adds only
+  /// assignments and blocks, not calls.
+  void _scopeBody(
+    List<String> path,
+    _Token open,
+    List<String> inside,
+    List<String> receiver,
+  ) {
+    if (receiver.isEmpty || _locals.contains(receiver.first)) {
+      _opaqueBody(path, open);
+      return;
+    }
+    final start = _pos;
+    _opaqueBody(path, open, inside: inside);
+    final callCount = calls.length;
+    _pos = start;
+    _opaqueBody(path, open);
+    calls.removeRange(callCount, calls.length);
+  }
+
   /// Consumes `( … )` and returns the tokens inside, without newlines. A
   /// lambda inside is read under [ktsOpaque] and stands as `{…}`.
   List<_Token> _parenthesized(List<String> path) {
@@ -946,11 +1013,15 @@ final class _Parser {
         if (depth == 0) break;
       }
     }
+    // A call statement: `{`, or the line's end, follows its parentheses.
     j++;
-    while (j < _tokens.length && _tokens[j].kind == _Kind.newline) {
-      j++;
-    }
-    return j < _tokens.length && _tokens[j].isSymbol('{');
+    if (j >= _tokens.length) return true;
+    final after = _tokens[j];
+    return after.isSymbol('{') ||
+        after.isSymbol(';') ||
+        after.isSymbol('}') ||
+        after.kind == _Kind.newline ||
+        after.kind == _Kind.end;
   }
 
   KtsValue _classify(List<_Token> tokens) {
