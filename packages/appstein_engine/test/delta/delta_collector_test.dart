@@ -33,12 +33,14 @@ Object box() => NewBox(size: 1);
     expect(kit(facts.deprecated), [
       'package:delta_kit Mode.b [use] Use a.',
       'package:delta_kit NewBox.colour= [use] (no message)',
-      'package:delta_kit NewBox.draw [use] Use paint instead.',
+      'package:delta_kit NewBox.draw [use] Use paint instead. '
+          "| Rename 'draw' to 'paint'",
       'package:delta_kit NewBox.new(label) [optional] Pass a label; it '
           'becomes required in 2.0.',
       "package:delta_kit NewBox.new(width) [use] Use size instead. "
           "| Migrate 'width' to 'size'",
-      'package:delta_kit NewBox.surface [use] Use area instead.',
+      'package:delta_kit NewBox.surface [use] Use area instead. '
+          "| Rename 'surface' to 'area'",
       "package:delta_kit OldBox [use] Use NewBox instead. This feature was "
           "deprecated after v1.2.0-3.0.pre. | Migrate to 'NewBox'",
       'package:delta_kit Panel.show [use] Use open instead.',
@@ -46,7 +48,8 @@ Object box() => NewBox(size: 1);
       'package:delta_kit Shape [implement] Extend Shape instead.',
       'package:delta_kit drawAll [use] Use `paint()` instead of drawing '
           '*by hand*.',
-      'package:delta_kit legacyLevel [use] Use Mode.a instead.',
+      'package:delta_kit legacyLevel [use] Use Mode.a instead. '
+          "| Rename 'legacyLevel'",
       'package:delta_kit legacyMode= [use] Use Mode instead.',
       'package:delta_kit legacyName [use] Use Mode.b instead.',
     ]);
@@ -68,6 +71,37 @@ Object box() => NewBox(size: 1);
       "package:delta_kit NewBox.new changed Migrate from 'height'",
       "package:delta_kit NewBox.render removed Rename to 'paint'",
     ]);
+  });
+
+  test('a migration whose element only an unimported listed library exports '
+      'is left out: not removed, not deprecated', () async {
+    final text = (await collect(mainDart)).toString();
+    expect(text, isNot(contains('Gadget')));
+  });
+
+  test('the element counts when any listed library the project imports '
+      'exports it', () async {
+    const both = '''
+import 'package:delta_kit/delta_kit.dart';
+import 'package:delta_kit/extra.dart';
+import 'package:delta_kit/more.dart';
+
+Object box() => NewBox(size: 1);
+''';
+    final facts = await collect(both);
+    // extra.dart is listed first for `draw` and doesn't export it.
+    expect(
+      kit(facts.deprecated),
+      contains(
+        'package:delta_kit NewBox.draw [use] Use paint instead. '
+        "| Rename 'draw' to 'paint'",
+      ),
+    );
+    // more.dart is imported now, so Gadget is in the namespace.
+    expect(
+      kit(facts.migrated),
+      contains("package:delta_kit Gadget changed Rename 'Gadget'"),
+    );
   });
 
   test('a library migration is a moved library when the app imports '

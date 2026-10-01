@@ -61,6 +61,48 @@ transforms:
       - kind: 'rename'
         newName: 'Extra2'
 
+  # `surface` is a getter, but dart fix matches a property-style use whatever
+  # kind the migration names.
+  - title: "Rename 'surface' to 'area'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      method: 'surface'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'rename'
+        newName: 'area'
+
+  - title: "Rename 'legacyLevel'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      function: 'legacyLevel'
+    changes:
+      - kind: 'rename'
+        newName: 'Mode.a'
+
+  # The first library listed doesn't export the element; the second does.
+  - title: "Rename 'draw' to 'paint'"
+    date: 2026-01-01
+    element:
+      uris: [ 'extra.dart', 'delta_kit.dart' ]
+      method: 'draw'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'rename'
+        newName: 'paint'
+
+  # Only more.dart exports Gadget, and the project doesn't import it.
+  - title: "Rename 'Gadget'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart', 'more.dart' ]
+      class: 'Gadget'
+    changes:
+      - kind: 'rename'
+        newName: 'Widget2'
+
   - title: 'Migrate from delta_kit to delta_kit_v2.'
     date: 2026-01-01
     library: 'package:delta_kit/delta_kit.dart'

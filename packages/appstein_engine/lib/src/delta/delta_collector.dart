@@ -58,6 +58,34 @@ final class _Collector {
   /// Each deprecation found, by its element and kind.
   final _found = <(Element, DeprecationKind), _Found>{};
 
+  /// Every library reachable through imports and exports from the ones the
+  /// project imports, by URI (the analyzer loads them with their importer),
+  /// built the first time it is needed.
+  late final Map<Uri, LibraryElement> _loaded = _loadReachable();
+
+  Map<Uri, LibraryElement> _loadReachable() {
+    final all = <Uri, LibraryElement>{..._imported};
+    final queue = [..._imported.values];
+    while (queue.isNotEmpty) {
+      final library = queue.removeLast();
+      for (
+        LibraryFragment? fragment = library.firstFragment;
+        fragment != null;
+        fragment = fragment.nextFragment
+      ) {
+        for (final next in [
+          for (final import in fragment.libraryImports) import.importedLibrary,
+          for (final export in fragment.libraryExports) export.exportedLibrary,
+        ]) {
+          if (next == null || all.containsKey(next.uri)) continue;
+          all[next.uri] = next;
+          queue.add(next);
+        }
+      }
+    }
+    return all;
+  }
+
   /// The group of the public library being walked: a deprecation declared in
   /// a private `dart:` library (`dart:_internal`) is listed under it.
   String? _through;
@@ -392,41 +420,44 @@ final class _Collector {
     if (scope.isEmpty) return;
     final name = _migrationName(transform);
     final group = _group(scope.first.$1);
+    // The migration counts because the project imports one of its libraries
+    // (the scope). The element exists when ANY library the migration lists
+    // exports it: `dart fix` accepts any of them.
+    // - Exported by a library the project imports: it is in the namespace
+    //   the walk covered, so it is classified below.
+    // - Exported only by a listed library the project doesn't import (found
+    //   through the libraries the analysis has loaded): it exists, so it is
+    //   not removed, but the project can't reach it, so the delta leaves it
+    //   out.
+    // - Exported by none: removed.
     Element? target;
     for (final (_, library) in scope) {
       target = _lookUp(library, transform);
       if (target != null) break;
     }
     if (target == null) {
+      for (final uri in transform.uris) {
+        final library = _loaded[uri];
+        if (library == null || _imported.containsKey(uri)) continue;
+        if (_lookUp(library, transform) != null) return;
+      }
       migrated.add((group, name, MigrationStatus.removed, transform.title));
       return;
     }
-    final candidates = <(Element, String)>[
-      (target, name),
+    final candidates = <Element>[
+      target,
       if (target is ExecutableElement)
         for (final parameter in target.formalParameters)
-          if (parameter.name case final parameterName?
-              when transform.oldParameters.contains(parameterName))
-            (parameter, '$name($parameterName)'),
+          if (transform.oldParameters.contains(parameter.name)) parameter,
     ];
     var attached = false;
-    for (final (element, display) in candidates) {
+    for (final element in candidates) {
       if (!element.metadata.annotations.any((a) => a.isDeprecated)) continue;
-      final entries = [
-        for (final MapEntry(:key, :value) in _found.entries)
-          if (key.$1 == element) value,
-      ];
-      if (entries.isEmpty) {
-        // Not reached by the walk: note it under the migration's name.
-        _through = group;
-        _note(element, display);
-        entries.addAll([
-          for (final MapEntry(:key, :value) in _found.entries)
-            if (key.$1 == element) value,
-        ]);
-      }
-      for (final entry in entries) {
-        entry.migrations.add(transform.title);
+      // The walk noted every deprecation the project can reach; one it did
+      // not note is not the project's to list.
+      for (final MapEntry(:key, :value) in _found.entries) {
+        if (key.$1 != element) continue;
+        value.migrations.add(transform.title);
         attached = true;
       }
     }
@@ -442,7 +473,13 @@ final class _Collector {
     final name = transform.name!;
     final container = transform.container;
     if (container == null) {
-      final top = names[name] ?? names['$name='];
+      // `dart fix` matches a top-level function, getter, setter, variable
+      // or constant by use, not by the kind the migration names, so any of
+      // them finds any of them; the exact kind wins when several exist.
+      // Other kinds (classes and so on) look up as before.
+      final top = transform.kind == 'setter'
+          ? names['$name='] ?? names[name]
+          : names[name] ?? names['$name='];
       return top == null ? null : _declared(top);
     }
     final owner = names[container];
@@ -458,19 +495,40 @@ final class _Collector {
       if (owner is InterfaceElement)
         for (final supertype in owner.allSupertypes) supertype.element,
     ];
+    // `dart fix` matches a property-style use against a migration of kind
+    // constant, field, getter, method (a tear-off) or setter, so a member is
+    // found under any of those kinds. The migration's own kind is tried
+    // first within each type.
+    final properties = <Element>[];
+    final methods = <Element>[];
+    final setters = <Element>[];
     for (final type in types) {
-      final members = switch (transform.kind) {
-        'method' => <Element>[...type.methods],
-        'setter' => <Element>[...type.setters],
-        _ => <Element>[...type.fields, ...type.getters],
+      properties
+        ..clear()
+        ..addAll(type.fields)
+        ..addAll(type.getters);
+      methods
+        ..clear()
+        ..addAll(type.methods);
+      setters
+        ..clear()
+        ..addAll(type.setters);
+      final order = switch (transform.kind) {
+        'method' => [methods, properties, setters],
+        'setter' => [setters, properties, methods],
+        _ => [properties, methods, setters],
       };
-      for (final member in members) {
-        final memberName = member.name;
-        if (memberName == null) continue;
-        final plain = memberName.endsWith('=')
-            ? memberName.substring(0, memberName.length - 1)
-            : memberName;
-        if (plain == name) return member;
+      for (final members in order) {
+        for (final member in members) {
+          final memberName = member.name;
+          if (memberName == null) continue;
+          final plain = memberName.endsWith('=')
+              ? memberName.substring(0, memberName.length - 1)
+              : memberName;
+          // A synthetic field, getter or setter stands for the declaration
+          // that induced it, which is what carries the annotations.
+          if (plain == name) return member.nonSynthetic;
+        }
       }
     }
     return null;
