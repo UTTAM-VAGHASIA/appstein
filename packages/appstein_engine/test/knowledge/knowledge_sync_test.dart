@@ -184,6 +184,74 @@ void main() {
     );
   });
 
+  test('a corrupted pubspec.lock skips the map and keeps the old deps.json, '
+      'saying why', () async {
+    final app = copyFixtureApp();
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final depsFile = File(p.join(app, '.appstein', 'map', 'deps.json'));
+    final before = depsFile.readAsStringSync();
+    // Newer than pubspec.yaml, so the packages still count as fresh.
+    File(
+      p.join(app, 'pubspec.lock'),
+    ).writeAsStringSync('packages:\n<<<<<<< HEAD\n  a: 1\n=======\n');
+    final report = await sync().run(app, dartSdkPath: testDartSdk);
+    expect(report.files.keys, ['platform/sdk.json', 'platform/toolchain.json']);
+    expect(report.map!.skipped, contains('pubspec.lock is not valid YAML'));
+    expect(report.map!.skipped, contains('flutter pub get'));
+    expect(depsFile.readAsStringSync(), before);
+    expect(readMapBody(app, 'deps.json')['packages'], isNotEmpty);
+  });
+
+  test('a failed fetch after a good sync leaves the old map files and lists '
+      'only the platform files in state.json', () async {
+    final app = copyFixtureApp();
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final mapDir = Directory(p.join(app, '.appstein', 'map'));
+    final before = {
+      for (final file in mapDir.listSync().whereType<File>())
+        file.path: file.readAsStringSync(),
+    };
+    expect(before, hasLength(5));
+    File(
+      p.join(app, 'pubspec.yaml'),
+    ).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 1)));
+    runner.when(flutter(), [
+      'pub',
+      'get',
+    ], const RunResult(exitCode: 69, stderr: 'Could not reach pub.dev.'));
+    final report = await sync().run(app, dartSdkPath: testDartSdk);
+    expect(report.map!.packages, PackagesAction.fetchFailed);
+    expect({
+      for (final file in mapDir.listSync().whereType<File>())
+        file.path: file.readAsStringSync(),
+    }, before);
+    expect((state(app)['files']! as Map).keys, [
+      'platform/sdk.json',
+      'platform/toolchain.json',
+    ]);
+  });
+
+  test('editing a source file changes every map file\'s input hash, and '
+      'state.json agrees with each file', () async {
+    final app = copyFixtureApp();
+    String? hashOf(String path) =>
+        ((jsonDecode(File(p.join(app, '.appstein', path)).readAsStringSync())
+                    as Map<String, Object?>)['meta']!
+                as Map<String, Object?>)['inputHash']
+            as String?;
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final first = {for (final path in MapFiles.all) path: hashOf(path)};
+    final source = File(p.join(app, 'lib', 'utils', 'result.dart'));
+    source.writeAsStringSync('${source.readAsStringSync()}\n// edited\n');
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final files = state(app)['files']! as Map;
+    for (final path in MapFiles.all) {
+      final hash = hashOf(path);
+      expect(hash, isNot(first[path]), reason: path);
+      expect(files[path], hash, reason: path);
+    }
+  });
+
   test('without packs, only the generic map files are written, with no '
       'layers', () async {
     final app = copyFixtureApp();

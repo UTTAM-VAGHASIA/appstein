@@ -87,12 +87,65 @@ void main() {
     expect(deps.packages['collection']!.constraint, '1.19.0');
   });
 
-  test('a missing lock file gives no packages', () async {
+  test('a missing lock file is an error, not an empty result', () async {
     final app = copyFixtureApp();
-    final deps = buildDeps(
-      await analyze(app),
-      lockFile: p.join(app, 'nowhere.lock'),
+    final analysis = await analyze(app);
+    expect(
+      () => buildDeps(analysis, lockFile: p.join(app, 'nowhere.lock')),
+      throwsA(
+        isA<DependenciesException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('nowhere.lock'), contains('could not be read')),
+        ),
+      ),
     );
-    expect(deps.packages, isEmpty);
+  });
+
+  test('a lock file with merge-conflict markers throws, naming the '
+      'line', () async {
+    final app = copyFixtureApp();
+    final analysis = await analyze(app);
+    final lock = File(p.join(app, 'pubspec.lock'));
+    final lines = lock.readAsLinesSync();
+    lines.insertAll(2, ['<<<<<<< HEAD']);
+    lock.writeAsStringSync('${lines.join('\n')}\n');
+    expect(
+      () => buildDeps(analysis, lockFile: lock.path),
+      throwsA(
+        isA<DependenciesException>().having(
+          (e) => e.message,
+          'message',
+          matches(RegExp(r'^pubspec\.lock is not valid YAML \(line \d+\)')),
+        ),
+      ),
+    );
+  });
+
+  test('a lock file that is not valid UTF-8 throws', () async {
+    final app = copyFixtureApp();
+    final analysis = await analyze(app);
+    final lock = File(p.join(app, 'pubspec.lock'))
+      ..writeAsBytesSync([0xff, 0xfe, 0xfd]);
+    expect(
+      () => buildDeps(analysis, lockFile: lock.path),
+      throwsA(isA<DependenciesException>()),
+    );
+  });
+
+  test('a pubspec.yaml that is not a map throws', () async {
+    final app = copyFixtureApp();
+    final analysis = await analyze(app);
+    File(p.join(app, 'pubspec.yaml')).writeAsStringSync('- just\n- a list\n');
+    expect(
+      () => buildDeps(analysis, lockFile: p.join(app, 'pubspec.lock')),
+      throwsA(
+        isA<DependenciesException>().having(
+          (e) => e.message,
+          'message',
+          'pubspec.yaml is not a YAML map',
+        ),
+      ),
+    );
   });
 }

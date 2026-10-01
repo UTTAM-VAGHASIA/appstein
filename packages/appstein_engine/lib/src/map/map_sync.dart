@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
+import '../host/file_errors.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../knowledge/generated_file.dart';
@@ -91,8 +92,10 @@ final class MapSync {
   /// [flutterVersion] at [flutterRoot]. `dart:` libraries are read from
   /// [dartSdkPath], by default the Flutter SDK's `bin/cache/dart-sdk`.
   ///
-  /// It never throws for the project's own problems: a failed fetch or an
-  /// incomplete SDK is reported in [MapBuild.report], with no files.
+  /// It never throws for the project's own problems: a failed fetch, an
+  /// incomplete SDK, a damaged `pubspec.lock` or `pubspec.yaml`, or an
+  /// unreadable project file is reported in [MapBuild.report], with no
+  /// files.
   Future<MapBuild> build(
     String projectRoot, {
     required String flutterVersion,
@@ -183,6 +186,26 @@ final class MapSync {
             GeneratedFile(path: path, body: bodies[path]!, inputHash: hash),
         ],
         report: MapReport(packages: action, packagesReason: reason),
+      );
+    } on DependenciesException catch (error) {
+      return MapBuild(
+        files: const [],
+        report: MapReport(
+          packages: action,
+          packagesReason: reason,
+          skipped: '${error.message}; run `flutter pub get`',
+        ),
+      );
+    } on FileSystemException catch (error) {
+      return MapBuild(
+        files: const [],
+        report: MapReport(
+          packages: action,
+          packagesReason: reason,
+          skipped:
+              'the project files could not be read '
+              '(${fileErrorReason(error)})',
+        ),
       );
     } finally {
       await analysis.dispose();
