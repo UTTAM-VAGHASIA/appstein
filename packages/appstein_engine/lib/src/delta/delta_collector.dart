@@ -58,6 +58,10 @@ final class _Collector {
   /// Each deprecation found, by its element and kind.
   final _found = <(Element, DeprecationKind), _Found>{};
 
+  /// The group of the public library being walked: a deprecation declared in
+  /// a private `dart:` library (`dart:_internal`) is listed under it.
+  String? _through;
+
   final _visited = <Element>{};
   final _visitedTypes = <(InstanceElement, String)>{};
 
@@ -79,6 +83,7 @@ final class _Collector {
     }
     final uris = _imported.keys.toList()..sort((a, b) => '$a'.compareTo('$b'));
     for (final uri in uris) {
+      _through = _group(uri);
       for (final element
           in _imported[uri]!.exportNamespace.definedNames2.values) {
         _visit(element);
@@ -146,18 +151,47 @@ final class _Collector {
     );
   }
 
+  /// Imports [library] unless it is the project's own, or is a file that is
+  /// not (no machine path may reach the delta).
   void _import(LibraryElement? library) {
-    if (library != null && !_isProjects(library)) {
-      _imported[library.uri] = library;
-    }
+    if (library == null || _isProjects(library)) return;
+    if (library.uri.scheme == 'file') return;
+    _imported[library.uri] = library;
   }
 
-  bool _isProjects(LibraryElement library) =>
-      analysis.relativePath(library.firstFragment.source.fullName) != null;
+  /// Whether [library] is the project's own, decided by its URI and never by
+  /// where its files sit: `package:<the project's name>/…`, or a `file:` URI
+  /// under the project folder. A path dependency in a subfolder, or a pub
+  /// cache inside the project, is therefore not the project's own.
+  bool _isProjects(LibraryElement library) {
+    final uri = library.uri;
+    if (uri.scheme == 'package') {
+      return uri.pathSegments.isNotEmpty &&
+          uri.pathSegments.first == analysis.packageName;
+    }
+    return uri.scheme == 'file' &&
+        analysis.relativePath(library.firstFragment.source.fullName) != null;
+  }
+
+  /// The variable behind a getter or setter that the analyzer made up for a
+  /// top-level variable (the namespace holds those, and they carry no
+  /// annotations); [element] itself for anything else.
+  Element _declared(Element element) =>
+      element is PropertyAccessorElement &&
+          !identical(element.nonSynthetic, element)
+      ? element.variable
+      : element;
 
   /// Notes [element], a name a library exports, with its members and
   /// parameters.
   void _visit(Element element) {
+    // A top-level variable shows up as a synthetic getter, and a synthetic
+    // setter when it isn't final: note the variable once, by the getter.
+    if (element is PropertyAccessorElement &&
+        !identical(element.nonSynthetic, element)) {
+      if (element is GetterElement) _visit(element.variable);
+      return;
+    }
     if (!_visited.add(element)) return;
     var name = element.name;
     if (name == null || name.startsWith('_')) return;
@@ -238,7 +272,7 @@ final class _Collector {
       final found = _found[(element, kind)];
       if (found == null) {
         _found[(element, kind)] = _Found(
-          _group(library.uri),
+          _groupOf(library.uri),
           display,
           kind,
           _messageOf(annotation),
@@ -247,6 +281,17 @@ final class _Collector {
         found.display = display;
       }
     }
+  }
+
+  /// [_group] of the library that declares something, except that a private
+  /// `dart:` library (`dart:_internal`, `dart:_http`) is named by the public
+  /// one the walk reached it through, which is what code can import.
+  String _groupOf(Uri declared) {
+    if (declared.scheme == 'dart' &&
+        declared.path.split('/').first.startsWith('_')) {
+      return _through ?? _group(declared);
+    }
+    return _group(declared);
   }
 
   List<_MigrationFile> _migrationFiles(List<UnreadMigrations> unread) {
@@ -367,12 +412,22 @@ final class _Collector {
     var attached = false;
     for (final (element, display) in candidates) {
       if (!element.metadata.annotations.any((a) => a.isDeprecated)) continue;
-      _note(element, display);
-      for (final MapEntry(:key, :value) in _found.entries) {
-        if (key.$1 == element) {
-          value.migrations.add(transform.title);
-          attached = true;
-        }
+      final entries = [
+        for (final MapEntry(:key, :value) in _found.entries)
+          if (key.$1 == element) value,
+      ];
+      if (entries.isEmpty) {
+        // Not reached by the walk: note it under the migration's name.
+        _through = group;
+        _note(element, display);
+        entries.addAll([
+          for (final MapEntry(:key, :value) in _found.entries)
+            if (key.$1 == element) value,
+        ]);
+      }
+      for (final entry in entries) {
+        entry.migrations.add(transform.title);
+        attached = true;
       }
     }
     if (!attached) {
@@ -386,7 +441,10 @@ final class _Collector {
     final names = library.exportNamespace.definedNames2;
     final name = transform.name!;
     final container = transform.container;
-    if (container == null) return names[name] ?? names['$name='];
+    if (container == null) {
+      final top = names[name] ?? names['$name='];
+      return top == null ? null : _declared(top);
+    }
     final owner = names[container];
     if (owner is! InstanceElement) return null;
     if (transform.kind == 'constructor') {

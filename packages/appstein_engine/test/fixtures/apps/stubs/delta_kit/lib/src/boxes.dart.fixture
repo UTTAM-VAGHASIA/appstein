@@ -41,5 +41,11 @@ enum Mode {
 @Deprecated('Use `paint()` instead of drawing *by hand*.')
 void drawAll() {}
 
+@Deprecated('Use Mode.a instead.')
+int legacyLevel = 0;
+
+@Deprecated('Use Mode.b instead.')
+const legacyName = 'b';
+
 @Deprecated('Use Mode instead.')
 set legacyMode(int value) {}

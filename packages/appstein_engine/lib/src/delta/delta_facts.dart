@@ -77,12 +77,13 @@ final class DeprecatedApi {
       '${migrations.isEmpty ? '' : ' | ${migrations.join(' | ')}'}';
 }
 
-/// Whether an API in a migration is gone, or is still there in a new form.
+/// Whether an API in a migration is gone, or is still there.
 enum MigrationStatus {
   /// The element is gone.
   removed,
 
-  /// The element is there, but an old parameter or form is gone.
+  /// The element is still there, and `dart fix` migrates uses of it; the
+  /// migration's title says what changed.
   changed,
 }
 
