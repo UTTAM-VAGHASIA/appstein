@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:appstein_engine/android.dart';
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/ios.dart';
 import 'package:appstein_engine/official_mvvm.dart';
 import 'package:path/path.dart' as p;
 
@@ -23,7 +25,7 @@ Future<void> main() async {
     final sync = KnowledgeSync(
       environment: HostEnvironment.current(),
       appsteinVersion: 'measure',
-      packs: const [OfficialMvvmPack()],
+      packs: const [OfficialMvvmPack(), AndroidPack(), IosPack()],
     );
     final first = Stopwatch()..start();
     final report = await sync.run(app);
@@ -75,7 +77,8 @@ Future<void> main() async {
 }
 
 /// Writes an official_mvvm app: [features] features with a view model and a
-/// screen each, a router with one route per feature, and `main.dart`.
+/// screen each, a router with one route per feature, and `main.dart`. The
+/// app also has a new app's `android/` and `ios/` files.
 void _generateApp(String app, {required int features}) {
   void write(String relative, String content) => File(p.join(app, relative))
     ..createSync(recursive: true)
@@ -133,4 +136,25 @@ void _generateApp(String app, {required int features}) {
     "import 'routing/router.dart';\n\n/// Starts the app.\n"
         'void main() => router();\n',
   );
+  // The native files of a new Flutter app, from the engine's test fixture
+  // (the tool runs from the repo root).
+  final template = p.join(
+    'packages',
+    'appstein_engine',
+    'test',
+    'fixtures',
+    'native',
+    'template_app',
+  );
+  for (final file in Directory(template).listSync(recursive: true)) {
+    if (file is! File || !file.path.endsWith('.fixture')) continue;
+    final relative = p.relative(file.path, from: template);
+    if (!relative.startsWith('android') && !relative.startsWith('ios')) {
+      continue;
+    }
+    write(
+      relative.substring(0, relative.length - '.fixture'.length),
+      file.readAsStringSync(),
+    );
+  }
 }

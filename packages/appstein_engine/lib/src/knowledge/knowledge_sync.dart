@@ -6,6 +6,8 @@ import '../delta/delta_document.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../map/map_sync.dart';
+import '../native/native_extractor.dart';
+import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
 import '../packs/pack.dart';
 import '../sdk/sdk_detector.dart';
@@ -15,7 +17,7 @@ import 'knowledge_store.dart';
 import 'platform_sync.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2): the platform layer,
-/// the version delta and the project map. All are built first, then written
+/// the version delta, the project map and the native config. All are built first, then written
 /// under one lock, with a `state.json` that lists them.
 final class KnowledgeSync {
   /// Creates the sync. [packs] are the project's packs (the CLI chooses
@@ -70,6 +72,10 @@ final class KnowledgeSync {
   /// packages can't be fetched or the Dart SDK is incomplete. The platform
   /// layer and a notes-only `delta.md` are still written.
   ///
+  /// `map/native.json` is written either way: the platform packs read the
+  /// native files without the analysis. A platform pack that fails costs only
+  /// its own section, and the error is in [SyncReport.native].
+  ///
   /// When only collecting the delta's facts fails (an Appstein bug), the
   /// map and the platform layer are written, `delta.md` holds only the
   /// notes and names the error's type, and the error is in
@@ -102,19 +108,33 @@ final class KnowledgeSync {
           flutterRoot: platform.location.root,
           dartSdkPath: dartSdkPath,
         );
+    // Native config needs no analysis, so it is built even when the map was
+    // skipped. It runs after MapSync because a `flutter pub get` the map ran
+    // rewrites the generated Package.swift it reads.
+    final native = NativeSync(appsteinVersion: appsteinVersion, packs: packs)
+        .build(
+          NativeContext(
+            projectRoot: projectRoot,
+            flutterVersion: platform.sdk.flutterVersion,
+            channel: platform.sdk.channel,
+            environment: environment,
+            android: platform.toolchain.android,
+          ),
+        );
     final delta = _delta(platform, map);
     final store = KnowledgeStore(projectRoot, clock: _clock);
     return store.locked(
       () async => SyncReport(
         sdk: platform.sdk,
         files: await store.writeAll(
-          [...platform.files, delta, ...map.files],
+          [...platform.files, delta, ...map.files, ?native.file],
           appsteinVersion: appsteinVersion,
           sdkVersion: platform.sdk.flutterVersion,
         ),
         newestNotes: platform.newestNotes,
         fallbacks: platform.fallbacks,
         map: map.report,
+        native: native.report,
       ),
       timeout: lockTimeout,
     );
