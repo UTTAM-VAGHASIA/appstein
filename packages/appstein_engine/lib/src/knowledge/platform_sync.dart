@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../host/host_environment.dart';
+import '../map/map_sync.dart';
 import '../notes/curated_notes.dart';
+import '../sdk/flutter_sdk_locator.dart';
 import '../sdk/sdk_detector.dart';
 import '../toolchain/toolchain_reader.dart';
 import 'canonical_json.dart';
+import 'generated_file.dart';
 import 'input_hash.dart';
 import 'knowledge_store.dart';
 
@@ -34,7 +37,12 @@ final class SyncReport {
     required this.files,
     required this.newestNotes,
     required this.fallbacks,
+    this.map,
   });
+
+  /// What the project-map part of the sync did; null when only the platform
+  /// layer was synced ([PlatformSync.run]).
+  final MapReport? map;
 
   /// The SDK facts written to `sdk.json`.
   final SdkInfo sdk;
@@ -48,6 +56,33 @@ final class SyncReport {
 
   /// Why parts of the toolchain came from the notes or are unknown
   /// (`toolchain.fallback`, spec §12).
+  final List<String> fallbacks;
+}
+
+/// The platform layer, built but not yet written.
+final class PlatformBuild {
+  /// Creates the build.
+  const PlatformBuild({
+    required this.sdk,
+    required this.location,
+    required this.files,
+    required this.newestNotes,
+    required this.fallbacks,
+  });
+
+  /// The SDK facts, with the notes coverage.
+  final SdkInfo sdk;
+
+  /// Where the Flutter SDK is.
+  final SdkLocation location;
+
+  /// `platform/sdk.json` and `platform/toolchain.json`.
+  final List<GeneratedFile> files;
+
+  /// The newest Flutter minor version the curated notes cover.
+  final String newestNotes;
+
+  /// Why parts of the toolchain came from the notes or are unknown.
   final List<String> fallbacks;
 }
 
@@ -84,13 +119,12 @@ final class PlatformSync {
 
   final DateTime Function()? _clock;
 
-  /// Syncs the platform layer of the project at [projectRoot]. [sdk] is the
-  /// SDK detection to use; by default, the SDK is detected for the project.
+  /// Builds the platform layer of the project at [projectRoot] without
+  /// writing it. [sdk] is the SDK detection to use; by default, the SDK is
+  /// detected for the project.
   ///
-  /// Throws [SyncException] when no usable SDK is found, a
-  /// `KnowledgeLockTimeout` when another writer holds the lock too long,
-  /// and a `KnowledgeWriteException` when a file can't be written.
-  Future<SyncReport> run(String projectRoot, {SdkDetection? sdk}) async {
+  /// Throws [SyncException] when no usable SDK is found.
+  PlatformBuild build(String projectRoot, {SdkDetection? sdk}) {
     final detection =
         sdk ?? SdkDetector(environment).detect(projectRoot: projectRoot);
     final info = detection.info;
@@ -125,35 +159,48 @@ final class PlatformSync {
       }),
     };
 
-    final store = KnowledgeStore(projectRoot, clock: _clock);
-    return store.locked(() async {
-      final written = <String, bool>{};
-      for (final MapEntry(key: path, value: body) in {
-        sdkPath: sdkBody,
-        toolchainPath: toolchainBody,
-      }.entries) {
-        written[path] = await store.writeGenerated(
-          path,
-          body,
-          inputHash: hashes[path]!,
-          appsteinVersion: appsteinVersion,
-          sdkVersion: info.flutterVersion,
-        );
-      }
-      await store.writeState(
-        KnowledgeState(
-          formatVersion: knowledgeFormatVersion,
-          appsteinVersion: appsteinVersion,
-          lastSync: store.now(),
-          files: hashes,
+    return PlatformBuild(
+      sdk: sdkInfo,
+      location: location,
+      files: [
+        GeneratedFile(
+          path: sdkPath,
+          body: sdkBody,
+          inputHash: hashes[sdkPath]!,
         ),
-      );
-      return SyncReport(
-        sdk: sdkInfo,
-        files: written,
-        newestNotes: notes.newestMinor,
-        fallbacks: reading.toolchain.fallbacks,
-      );
-    }, timeout: lockTimeout);
+        GeneratedFile(
+          path: toolchainPath,
+          body: toolchainBody,
+          inputHash: hashes[toolchainPath]!,
+        ),
+      ],
+      newestNotes: notes.newestMinor,
+      fallbacks: reading.toolchain.fallbacks,
+    );
+  }
+
+  /// Syncs only the platform layer of the project at [projectRoot]; `appstein
+  /// sync` uses `KnowledgeSync`, which adds the project map. [sdk] is the SDK
+  /// detection to use.
+  ///
+  /// Throws [SyncException] when no usable SDK is found, a
+  /// `KnowledgeLockTimeout` when another writer holds the lock too long,
+  /// and a `KnowledgeWriteException` when a file can't be written.
+  Future<SyncReport> run(String projectRoot, {SdkDetection? sdk}) async {
+    final layer = build(projectRoot, sdk: sdk);
+    final store = KnowledgeStore(projectRoot, clock: _clock);
+    return store.locked(
+      () async => SyncReport(
+        sdk: layer.sdk,
+        files: await store.writeAll(
+          layer.files,
+          appsteinVersion: appsteinVersion,
+          sdkVersion: layer.sdk.flutterVersion,
+        ),
+        newestNotes: layer.newestNotes,
+        fallbacks: layer.fallbacks,
+      ),
+      timeout: lockTimeout,
+    );
   }
 }

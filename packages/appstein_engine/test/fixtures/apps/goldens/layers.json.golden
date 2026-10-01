@@ -1,0 +1,242 @@
+{
+  "files": {
+    "lib/config/dependencies.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/repositories/auth/auth_repository.dart",
+        "lib/data/repositories/auth/auth_repository_remote.dart",
+        "lib/data/repositories/booking/booking_repository.dart",
+        "lib/data/repositories/booking/booking_repository_remote.dart",
+        "lib/data/services/analytics_service.dart",
+        "lib/data/services/api/api_client.dart",
+        "lib/domain/use_cases/booking_create_use_case.dart"
+      ],
+      "layer": "config"
+    },
+    "lib/data/model/booking_api_model.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "data.model"
+    },
+    "lib/data/repositories/auth/auth_repository.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "data.repository"
+    },
+    "lib/data/repositories/auth/auth_repository_remote.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/repositories/auth/auth_repository.dart",
+        "lib/data/services/api/api_client.dart"
+      ],
+      "layer": "data.repository"
+    },
+    "lib/data/repositories/booking/booking_repository.dart": {
+      "feature": null,
+      "imports": [
+        "lib/domain/models/booking.dart"
+      ],
+      "layer": "data.repository"
+    },
+    "lib/data/repositories/booking/booking_repository_remote.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/repositories/booking/booking_repository.dart",
+        "lib/data/services/api/api_client.dart",
+        "lib/domain/models/booking.dart"
+      ],
+      "layer": "data.repository"
+    },
+    "lib/data/services/analytics_service.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "data.service"
+    },
+    "lib/data/services/api/api_client.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/model/booking_api_model.dart"
+      ],
+      "layer": "data.service"
+    },
+    "lib/domain/models/booking.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "domain"
+    },
+    "lib/domain/models/user.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "domain"
+    },
+    "lib/domain/use_cases/booking_create_use_case.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/repositories/booking/booking_repository.dart",
+        "lib/domain/models/booking.dart"
+      ],
+      "layer": "domain"
+    },
+    "lib/main.dart": {
+      "feature": null,
+      "imports": [
+        "lib/config/dependencies.dart",
+        "lib/routing/router.dart"
+      ],
+      "layer": null
+    },
+    "lib/routing/router.dart": {
+      "feature": null,
+      "imports": [
+        "lib/config/dependencies.dart",
+        "lib/routing/routes.dart",
+        "lib/ui/auth/login/view_models/login_viewmodel.dart",
+        "lib/ui/auth/login/widgets/login_screen.dart",
+        "lib/ui/booking/view_models/booking_viewmodel.dart",
+        "lib/ui/booking/widgets/booking_screen.dart",
+        "lib/ui/home/view_models/home_viewmodel.dart",
+        "lib/ui/home/widgets/home_screen.dart",
+        "lib/ui/profile/widgets/profile_screen.dart",
+        "lib/ui/settings/widgets/settings_screen.dart"
+      ],
+      "layer": "routing"
+    },
+    "lib/routing/routes.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "routing"
+    },
+    "lib/ui/auth/login/view_models/login_viewmodel.dart": {
+      "feature": "auth/login",
+      "imports": [
+        "lib/data/repositories/auth/auth_repository.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/auth/login/widgets/login_screen.dart": {
+      "feature": "auth/login",
+      "imports": [
+        "lib/ui/auth/login/view_models/login_viewmodel.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/booking/view_models/base_view_model.dart": {
+      "feature": "booking",
+      "imports": [],
+      "layer": "ui"
+    },
+    "lib/ui/booking/view_models/booking_viewmodel.dart": {
+      "feature": "booking",
+      "imports": [
+        "lib/data/repositories/booking/booking_repository.dart",
+        "lib/domain/models/booking.dart",
+        "lib/domain/use_cases/booking_create_use_case.dart",
+        "lib/ui/booking/view_models/base_view_model.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/booking/widgets/booking_screen.dart": {
+      "feature": "booking",
+      "imports": [
+        "lib/data/repositories/booking/booking_repository_remote.dart",
+        "lib/ui/booking/view_models/booking_viewmodel.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/core/themes/colors.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "ui"
+    },
+    "lib/ui/core/ui/app_button.dart": {
+      "feature": null,
+      "imports": [
+        "lib/ui/core/themes/colors.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/home/view_models/home_viewmodel.dart": {
+      "feature": "home",
+      "imports": [
+        "lib/data/repositories/booking/booking_repository.dart",
+        "lib/data/services/analytics_service.dart",
+        "lib/domain/models/booking.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/home/widgets/booking_tile.dart": {
+      "feature": "home",
+      "imports": [
+        "lib/domain/models/booking.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/home/widgets/home_screen.dart": {
+      "feature": "home",
+      "imports": [
+        "lib/routing/routes.dart",
+        "lib/ui/home/view_models/home_viewmodel.dart",
+        "lib/ui/home/widgets/booking_tile.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/ui/profile/widgets/profile_screen.dart": {
+      "feature": "profile",
+      "imports": [],
+      "layer": "ui"
+    },
+    "lib/ui/settings/widgets/settings_screen.dart": {
+      "feature": "settings",
+      "imports": [
+        "lib/ui/core/ui/app_button.dart"
+      ],
+      "layer": "ui"
+    },
+    "lib/utils/result.dart": {
+      "feature": null,
+      "imports": [],
+      "layer": "utils"
+    },
+    "test/data/booking_repository_test.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/repositories/booking/booking_repository_remote.dart",
+        "lib/data/services/api/api_client.dart"
+      ],
+      "layer": "test"
+    },
+    "test/ui/booking/view_models/booking_viewmodel_test.dart": {
+      "feature": "booking",
+      "imports": [
+        "lib/domain/use_cases/booking_create_use_case.dart",
+        "lib/ui/booking/view_models/booking_viewmodel.dart",
+        "testing/fakes/fake_booking_repository.dart"
+      ],
+      "layer": "test"
+    },
+    "test/ui/home/widgets/home_screen_test.dart": {
+      "feature": "home",
+      "imports": [
+        "lib/ui/home/widgets/home_screen.dart"
+      ],
+      "layer": "test"
+    },
+    "testing/fakes/fake_booking_repository.dart": {
+      "feature": null,
+      "imports": [
+        "lib/data/repositories/booking/booking_repository.dart",
+        "lib/domain/models/booking.dart"
+      ],
+      "layer": "test"
+    }
+  },
+  "violations": [
+    {
+      "file": "lib/ui/booking/widgets/booking_screen.dart",
+      "from": "ui",
+      "import": "lib/data/repositories/booking/booking_repository_remote.dart",
+      "line": 5,
+      "to": "data.repository"
+    }
+  ]
+}

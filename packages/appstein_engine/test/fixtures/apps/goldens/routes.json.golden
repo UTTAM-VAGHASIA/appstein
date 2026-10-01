@@ -1,0 +1,114 @@
+{
+  "routers": [
+    {
+      "file": "lib/routing/router.dart",
+      "line": 17,
+      "redirect": true
+    }
+  ],
+  "routes": [
+    {
+      "file": "lib/routing/router.dart",
+      "line": 22,
+      "name": "login",
+      "parent": null,
+      "path": "/login",
+      "reason": null,
+      "redirect": false,
+      "screen": {
+        "file": "lib/ui/auth/login/widgets/login_screen.dart",
+        "name": "LoginScreen"
+      },
+      "unresolved": false
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 33,
+      "name": null,
+      "parent": null,
+      "path": "/",
+      "reason": null,
+      "redirect": false,
+      "screen": {
+        "file": "lib/ui/home/widgets/home_screen.dart",
+        "name": "HomeScreen"
+      },
+      "unresolved": false
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 43,
+      "name": null,
+      "parent": "/",
+      "path": "/booking",
+      "reason": null,
+      "redirect": false,
+      "screen": {
+        "file": "lib/ui/booking/widgets/booking_screen.dart",
+        "name": "BookingScreen"
+      },
+      "unresolved": false
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 52,
+      "name": null,
+      "parent": "/booking",
+      "path": "/booking/:id",
+      "reason": null,
+      "redirect": true,
+      "screen": null,
+      "unresolved": false
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 58,
+      "name": null,
+      "parent": "/",
+      "path": null,
+      "reason": "the path is not a constant string",
+      "redirect": false,
+      "screen": {
+        "file": "lib/ui/settings/widgets/settings_screen.dart",
+        "name": "SettingsScreen"
+      },
+      "unresolved": true
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 67,
+      "name": null,
+      "parent": null,
+      "path": "/settings",
+      "reason": "the builder is not a single plain return",
+      "redirect": false,
+      "screen": null,
+      "unresolved": true
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 83,
+      "name": null,
+      "parent": null,
+      "path": "/profile",
+      "reason": null,
+      "redirect": false,
+      "screen": {
+        "file": "lib/ui/profile/widgets/profile_screen.dart",
+        "name": "ProfileScreen"
+      },
+      "unresolved": false
+    },
+    {
+      "file": "lib/routing/router.dart",
+      "line": 91,
+      "name": null,
+      "parent": null,
+      "path": "/about",
+      "reason": "the builder returns Text, which is not declared in this project",
+      "redirect": false,
+      "screen": null,
+      "unresolved": true
+    }
+  ]
+}

@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 import 'temp.dart';
 
@@ -121,4 +123,48 @@ int lineOf(String project, String file, String text) {
   final index = lines.indexWhere((line) => line.contains(text));
   if (index < 0) throw StateError('"$text" is not in $file');
   return index + 1;
+}
+
+/// The body of `.appstein/map/<name>` in [project], without its `meta`.
+Map<String, Object?> readMapBody(String project, String name) =>
+    (jsonDecode(
+            File(p.join(project, '.appstein', 'map', name)).readAsStringSync(),
+          )
+          as Map<String, Object?>)
+      ..remove('meta');
+
+/// The text of the golden for the map file [name].
+String goldenText(String name) => File(
+  p.join(fixtureAppsDir, 'goldens', '$name.golden'),
+).readAsStringSync().replaceAll('\r\n', '\n');
+
+/// Checks [body] (a map file without its `meta`) against the golden file
+/// `test/fixtures/apps/goldens/<name>.golden`.
+///
+/// With the environment variable `APPSTEIN_UPDATE_GOLDENS=1` it writes the
+/// golden instead. That is the one time a test writes into the repo: review
+/// the diff before committing it (see the developer guide's testing page).
+void expectGolden(String name, Map<String, Object?> body) {
+  final golden = File(p.join(fixtureAppsDir, 'goldens', '$name.golden'));
+  final actual = canonicalJson(body);
+  if (Platform.environment['APPSTEIN_UPDATE_GOLDENS'] == '1') {
+    golden
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(actual);
+    return;
+  }
+  expect(
+    golden.existsSync(),
+    isTrue,
+    reason:
+        'No golden at ${golden.path}. Run the test with '
+        'APPSTEIN_UPDATE_GOLDENS=1 to create it, then review it.',
+  );
+  expect(
+    actual,
+    goldenText(name),
+    reason:
+        'The map differs from ${golden.path}. If the change is intended, '
+        'rerun with APPSTEIN_UPDATE_GOLDENS=1 and review the diff.',
+  );
 }

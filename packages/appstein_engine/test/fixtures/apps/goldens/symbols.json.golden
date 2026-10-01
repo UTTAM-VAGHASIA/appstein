@@ -1,0 +1,328 @@
+{
+  "symbols": [
+    {
+      "feature": null,
+      "file": "lib/config/dependencies.dart",
+      "kind": "class",
+      "layer": "config",
+      "line": 10,
+      "name": "Dependencies",
+      "summary": "Builds the app's repositories, services and use cases once."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/model/booking_api_model.dart",
+      "kind": "class",
+      "layer": "data.model",
+      "line": 2,
+      "name": "BookingApiModel",
+      "summary": "A booking as the server sends it."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/repositories/auth/auth_repository.dart",
+      "kind": "class",
+      "layer": "data.repository",
+      "line": 2,
+      "name": "AuthRepository",
+      "summary": "Signs the user in and out."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/repositories/auth/auth_repository_remote.dart",
+      "kind": "class",
+      "layer": "data.repository",
+      "line": 5,
+      "name": "AuthRepositoryRemote",
+      "summary": "Signs the user in and out through the booking server."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/repositories/booking/booking_repository.dart",
+      "kind": "class",
+      "layer": "data.repository",
+      "line": 4,
+      "name": "BookingRepository",
+      "summary": "Reads and writes the user's bookings."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/repositories/booking/booking_repository_remote.dart",
+      "kind": "class",
+      "layer": "data.repository",
+      "line": 6,
+      "name": "BookingRepositoryRemote",
+      "summary": "Reads and writes bookings on the booking server."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/services/analytics_service.dart",
+      "kind": "class",
+      "layer": "data.service",
+      "line": 2,
+      "name": "AnalyticsService",
+      "summary": "Records what the user does in the app."
+    },
+    {
+      "feature": null,
+      "file": "lib/data/services/api/api_client.dart",
+      "kind": "class",
+      "layer": "data.service",
+      "line": 4,
+      "name": "ApiClient",
+      "summary": "Talks to the booking server."
+    },
+    {
+      "feature": null,
+      "file": "lib/domain/models/booking.dart",
+      "kind": "class",
+      "layer": "domain",
+      "line": 5,
+      "name": "Booking",
+      "summary": "A trip the user has booked."
+    },
+    {
+      "feature": null,
+      "file": "lib/domain/models/user.dart",
+      "kind": "class",
+      "layer": "domain",
+      "line": 2,
+      "name": "User",
+      "summary": "The signed-in user"
+    },
+    {
+      "feature": null,
+      "file": "lib/domain/use_cases/booking_create_use_case.dart",
+      "kind": "class",
+      "layer": "domain",
+      "line": 5,
+      "name": "BookingCreateUseCase",
+      "summary": "Creates a booking and saves it."
+    },
+    {
+      "feature": null,
+      "file": "lib/main.dart",
+      "kind": "function",
+      "layer": null,
+      "line": 5,
+      "name": "main",
+      "summary": "Starts the fixture app: builds its dependencies and its router."
+    },
+    {
+      "feature": null,
+      "file": "lib/routing/router.dart",
+      "kind": "function",
+      "layer": "routing",
+      "line": 17,
+      "name": "router",
+      "summary": "The app's router: login, home with its booking pages, settings in a shell, and profile in a tab."
+    },
+    {
+      "feature": null,
+      "file": "lib/routing/routes.dart",
+      "kind": "class",
+      "layer": "routing",
+      "line": 2,
+      "name": "Routes",
+      "summary": "The app's route paths."
+    },
+    {
+      "feature": "auth/login",
+      "file": "lib/ui/auth/login/view_models/login_viewmodel.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 6,
+      "name": "LoginViewModel",
+      "summary": "Signs the user in."
+    },
+    {
+      "feature": "auth/login",
+      "file": "lib/ui/auth/login/widgets/login_screen.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 6,
+      "name": "LoginScreen",
+      "summary": "Asks for the user's email and password."
+    },
+    {
+      "feature": "booking",
+      "file": "lib/ui/booking/view_models/base_view_model.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 4,
+      "name": "BaseViewModel",
+      "summary": "What every booking view model shares: a busy flag."
+    },
+    {
+      "feature": "booking",
+      "file": "lib/ui/booking/view_models/booking_viewmodel.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 7,
+      "name": "BookingViewModel",
+      "summary": "Books a trip and shows the result."
+    },
+    {
+      "feature": "booking",
+      "file": "lib/ui/booking/widgets/booking_screen.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 9,
+      "name": "BookingScreen",
+      "summary": "Shows a new booking."
+    },
+    {
+      "feature": null,
+      "file": "lib/ui/core/themes/colors.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 2,
+      "name": "AppColors",
+      "summary": "The app's colours, as ARGB values."
+    },
+    {
+      "feature": null,
+      "file": "lib/ui/core/ui/app_button.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 6,
+      "name": "AppButton",
+      "summary": "The app's button."
+    },
+    {
+      "feature": "home",
+      "file": "lib/ui/home/view_models/home_viewmodel.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 8,
+      "name": "HomeViewModel",
+      "summary": "Loads the user's bookings for the home screen."
+    },
+    {
+      "feature": "home",
+      "file": "lib/ui/home/widgets/booking_tile.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 6,
+      "name": "BookingTile",
+      "summary": "One booking in the home screen's list."
+    },
+    {
+      "feature": "home",
+      "file": "lib/ui/home/widgets/home_screen.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 8,
+      "name": "HomeScreen",
+      "summary": "Lists the user's bookings."
+    },
+    {
+      "feature": "profile",
+      "file": "lib/ui/profile/widgets/profile_screen.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 4,
+      "name": "ProfileScreen",
+      "summary": "The user's profile."
+    },
+    {
+      "feature": "settings",
+      "file": "lib/ui/settings/widgets/settings_screen.dart",
+      "kind": "class",
+      "layer": "ui",
+      "line": 6,
+      "name": "SettingsScreen",
+      "summary": "The app's settings."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "class",
+      "layer": "utils",
+      "line": 2,
+      "name": "Result",
+      "summary": "The result of an operation that can fail."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "class",
+      "layer": "utils",
+      "line": 7,
+      "name": "Ok",
+      "summary": "A result with a value."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "class",
+      "layer": "utils",
+      "line": 16,
+      "name": "Failure",
+      "summary": "A result with an error."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "mixin",
+      "layer": "utils",
+      "line": 25,
+      "name": "Loggable",
+      "summary": "Logs what a class does."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "enum",
+      "layer": "utils",
+      "line": 31,
+      "name": "BookingStatus",
+      "summary": "Where a booking stands."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "extension",
+      "layer": "utils",
+      "line": 40,
+      "name": "StatusWords",
+      "summary": "Turns a booking status into words."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "extensionType",
+      "layer": "utils",
+      "line": 46,
+      "name": "BookingId",
+      "summary": "A booking's id, kept apart from other integers."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "typedef",
+      "layer": "utils",
+      "line": 49,
+      "name": "Json",
+      "summary": "A decoded JSON object."
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "function",
+      "layer": "utils",
+      "line": 52,
+      "name": "describe",
+      "summary": "Describes [status] for the user!"
+    },
+    {
+      "feature": null,
+      "file": "lib/utils/result.dart",
+      "kind": "function",
+      "layer": "utils",
+      "line": 64,
+      "name": "useHidden",
+      "summary": "Uses the private declarations, so they aren't unused."
+    }
+  ]
+}

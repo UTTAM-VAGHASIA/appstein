@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../host/file_errors.dart';
 import 'canonical_json.dart';
+import 'generated_file.dart';
 import 'knowledge_lock.dart';
 import 'knowledge_write_exception.dart';
 
@@ -88,6 +89,35 @@ final class KnowledgeStore {
   /// Writes `state.json`. Call it inside [locked], like [writeGenerated].
   Future<void> writeState(KnowledgeState state) =>
       replaceFile(_pathOf('state.json'), canonicalJson(state.toJson()));
+
+  /// Writes each of [files] with [writeGenerated], then `state.json` listing
+  /// exactly these files' input hashes. Returns whether each file was
+  /// written, in the order given. Call it inside [locked].
+  Future<Map<String, bool>> writeAll(
+    List<GeneratedFile> files, {
+    required String appsteinVersion,
+    required String sdkVersion,
+  }) async {
+    final written = <String, bool>{};
+    for (final file in files) {
+      written[file.path] = await writeGenerated(
+        file.path,
+        file.body,
+        inputHash: file.inputHash,
+        appsteinVersion: appsteinVersion,
+        sdkVersion: sdkVersion,
+      );
+    }
+    await writeState(
+      KnowledgeState(
+        formatVersion: knowledgeFormatVersion,
+        appsteinVersion: appsteinVersion,
+        lastSync: now(),
+        files: {for (final file in files) file.path: file.inputHash},
+      ),
+    );
+    return written;
+  }
 
   String _pathOf(String path) => p.joinAll([folder, ...path.split('/')]);
 
