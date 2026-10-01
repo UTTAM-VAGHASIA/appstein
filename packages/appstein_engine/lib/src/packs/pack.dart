@@ -1,6 +1,7 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../map/map_extractor.dart';
+import '../native/native_extractor.dart';
 
 /// Whether a pack describes how an app is built (its architecture) or a
 /// platform it runs on (spec §10).
@@ -31,6 +32,10 @@ abstract interface class Pack {
 
   /// What it adds to `.appstein/map/`.
   List<MapExtractor> get extractors;
+
+  /// What it adds to `map/native.json` (spec §6.5); null for a stack pack.
+  /// Platform packs arrive in slice 1b.4.
+  NativeExtractor? get nativeExtractor;
 
   /// The layer rules a stack pack declares (spec §9.6), or null.
   LayerRules? get layerRules;

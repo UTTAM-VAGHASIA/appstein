@@ -2,6 +2,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../../map/map_extractor.dart';
 import '../../map/project_analysis.dart';
+import '../../native/native_extractor.dart';
 import '../pack.dart';
 import 'features.dart';
 import 'layer_rules.dart';
@@ -27,6 +28,9 @@ final class OfficialMvvmPack implements Pack {
 
   @override
   LayerRules get layerRules => officialMvvmLayerRules;
+
+  @override
+  NativeExtractor? get nativeExtractor => null;
 }
 
 /// Writes official_mvvm's part of the map: `routes.json` and
