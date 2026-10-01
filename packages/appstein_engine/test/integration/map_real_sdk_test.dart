@@ -2,10 +2,12 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_engine/official_mvvm.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/fixture_app.dart';
@@ -57,6 +59,56 @@ void main() {
       expect(real.usages, stand.usages, reason: name);
     }
     expect(deps.packages['go_router']!.version, startsWith('18.'));
+
+    // The version delta, from the real Flutter, Dart and go_router.
+    final delta = File(
+      p.join(app, '.appstein', 'platform', 'delta.md'),
+    ).readAsStringSync();
+    expect(delta, contains('### package:flutter'));
+    expect(
+      delta,
+      contains(
+        '- `WillPopScope`: Use PopScope instead. The Android predictive back '
+        'feature will not work with WillPopScope. This feature was deprecated '
+        'after v3.12.0-1.0.pre.',
+      ),
+    );
+    expect(
+      delta,
+      contains("- `Stack.overflow`: removed. Migrate to 'clipBehavior'."),
+    );
+    // Stack's constructor is still there; only its `overflow` is gone.
+    expect(
+      delta,
+      contains("- `Stack.new(overflow)`: removed. Migrate to 'clipBehavior'."),
+    );
+    expect(delta, isNot(contains('- `Stack.new`: changed.')));
+    expect(
+      delta,
+      contains(
+        "- `GoRouterState.location`: removed. Replaces 'location' in "
+        "'GoRouterState' with `uri.toString()`.",
+      ),
+    );
+    // The app imports widgets, not cupertino: no Cupertino entries. (A
+    // curated note may still mention a Cupertino class, so this checks
+    // entry lines, not any occurrence.)
+    expect(delta, isNot(contains('- `Cupertino')));
+    // Deprecations in private dart: libraries are grouped under the public
+    // one.
+    expect(delta, isNot(contains('### dart:_')));
+    // D11: everything Flutter and Dart mark fits in 1,500 lines today, so
+    // more means duplicates.
+    final lines = delta.split('\n');
+    expect(lines.length, lessThanOrEqualTo(1500));
+    final entries = [
+      for (final line in lines)
+        if (line.startsWith('- `')) line,
+    ];
+    expect(entries.toSet().length, entries.length, reason: 'duplicate lines');
+    printOnFailure(
+      'delta.md: ${lines.length} lines, ${entries.length} entries',
+    );
 
     // The fetch left fresh packages, so the next sync runs nothing and
     // changes nothing.

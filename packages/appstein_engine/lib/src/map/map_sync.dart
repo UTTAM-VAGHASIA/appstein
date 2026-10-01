@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
+import '../delta/delta_collector.dart';
+import '../delta/delta_facts.dart';
 import '../host/file_errors.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
@@ -35,6 +37,8 @@ final class MapReport {
     required this.packages,
     required this.packagesReason,
     this.skipped,
+    this.deltaError,
+    this.deltaErrorType,
   });
 
   /// What was done about the packages.
@@ -46,18 +50,49 @@ final class MapReport {
 
   /// Why the map wasn't written; null when it was.
   final String? skipped;
+
+  /// The error that stopped the version delta's facts being collected
+  /// although the map was written (an Appstein bug), in full, for the
+  /// person running the sync; null otherwise. Never set when [skipped] is.
+  /// It may hold a machine path, so it never goes into a generated file.
+  final String? deltaError;
+
+  /// The type of [deltaError], such as `StateError`: what `delta.md` says
+  /// and hashes, since it holds no machine path. Set exactly when
+  /// [deltaError] is.
+  final String? deltaErrorType;
 }
+
+/// Collects the version delta's facts from an open analysis; [collectDelta]
+/// is the real one. A seam for tests.
+typedef DeltaCollector =
+    Future<DeltaFacts> Function(
+      ProjectAnalysis analysis, {
+      required String dartSdkPath,
+    });
 
 /// The project map, built but not yet written.
 final class MapBuild {
   /// Creates the build.
-  const MapBuild({required this.files, required this.report});
+  const MapBuild({
+    required this.files,
+    required this.report,
+    this.inputHash,
+    this.delta,
+  });
 
   /// The map files; empty when the map was skipped.
   final List<GeneratedFile> files;
 
   /// What happened.
   final MapReport report;
+
+  /// The input hash every map file shares; null when the map was skipped.
+  final String? inputHash;
+
+  /// The deprecated, removed and moved APIs the project can reach, for the
+  /// version delta (spec §6.4); null when the map was skipped.
+  final DeltaFacts? delta;
 }
 
 /// Builds the project map (spec §6.5).
@@ -66,15 +101,22 @@ final class MapBuild {
 /// it resolves the project, runs the packs' extractors (official_mvvm's
 /// features and routes), and builds the generic files: symbols, layers and
 /// deps.
+///
+/// While the analysis is open, it also collects the version delta's facts
+/// ([collectDelta]); `KnowledgeSync` renders them into `delta.md`. If that
+/// fails for any reason, the map is still returned, with the error in
+/// [MapReport.deltaError]: a sync never fails because of the delta.
 final class MapSync {
   /// Creates the sync. [runner] runs `flutter pub get` (a real process by
-  /// default).
+  /// default); [deltaCollector] is [collectDelta] by default.
   MapSync({
     required this.environment,
     required this.appsteinVersion,
     required this.packs,
     ProcessRunner? runner,
-  }) : runner = runner ?? const SystemProcessRunner();
+    DeltaCollector? deltaCollector,
+  }) : runner = runner ?? const SystemProcessRunner(),
+       deltaCollector = deltaCollector ?? collectDelta;
 
   /// The machine.
   final HostEnvironment environment;
@@ -87,6 +129,9 @@ final class MapSync {
 
   /// Runs `flutter pub get`.
   final ProcessRunner runner;
+
+  /// Collects the version delta's facts.
+  final DeltaCollector deltaCollector;
 
   /// Builds the map of the project at [projectRoot], for Flutter
   /// [flutterVersion] at [flutterRoot]. `dart:` libraries are read from
@@ -127,13 +172,10 @@ final class MapSync {
       status = checkPackages(projectRoot, flutterVersion: flutterVersion);
     }
 
+    final sdk = dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk');
     final ProjectAnalysis analysis;
     try {
-      analysis = await ProjectAnalysis.analyze(
-        projectRoot,
-        dartSdkPath:
-            dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk'),
-      );
+      analysis = await ProjectAnalysis.analyze(projectRoot, dartSdkPath: sdk);
     } on ProjectAnalysisException catch (error) {
       return MapBuild(
         files: const [],
@@ -173,6 +215,21 @@ final class MapSync {
         featureOf: featureOf,
       ).toJson();
       bodies[MapFiles.deps] = buildDeps(analysis, lockFile: lockFile).toJson();
+      // While the analysis is still open: the delta walks what the imports
+      // expose.
+      // Any failure here (an analyzer internal, a bug) must not cost the
+      // map: it is reported instead. `on Object` is deliberate; the lints in
+      // use have no rule against catching Errors.
+      DeltaFacts? delta;
+      String? deltaError;
+      String? deltaErrorType;
+      try {
+        delta = await deltaCollector(analysis, dartSdkPath: sdk);
+      } on Object catch (error) {
+        delta = null;
+        deltaError = '$error';
+        deltaErrorType = '${error.runtimeType}';
+      }
 
       final hash = _inputHash(
         projectRoot,
@@ -185,7 +242,14 @@ final class MapSync {
           for (final path in paths)
             GeneratedFile(path: path, body: bodies[path]!, inputHash: hash),
         ],
-        report: MapReport(packages: action, packagesReason: reason),
+        report: MapReport(
+          packages: action,
+          packagesReason: reason,
+          deltaError: deltaError,
+          deltaErrorType: deltaErrorType,
+        ),
+        inputHash: hash,
+        delta: delta,
       );
     } on DependenciesException catch (error) {
       return MapBuild(

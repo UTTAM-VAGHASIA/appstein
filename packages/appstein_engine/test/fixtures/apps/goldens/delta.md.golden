@@ -1,0 +1,67 @@
+# Version delta: Flutter 3.47.5, Dart language 3.12
+
+What changed in Flutter, Dart and this project's packages that matters for the code you write. `appstein sync` generates this file from the installed SDK, the project's packages and Appstein's curated notes; don't edit it.
+
+## Notes
+
+Appstein's curated notes since Flutter 3.16, most important first (priority 1 to 3).
+
+- **popscope-not-willpopscope** (priority 1, since 3.16): PopScope replaces WillPopScope.
+  - Use: `PopScope` with `canPop` and `onPopInvokedWithResult`.
+  - Avoid: `WillPopScope`.
+  - Source: https://docs.flutter.dev/release/breaking-changes/android-predictive-back
+- **dot-shorthands** (priority 2, since 3.38, language 3.10): Dot shorthands omit the type name.
+  - Use: `mainAxisAlignment: .center`.
+  - Avoid: Shorthands below language version 3.10.
+  - Source: https://dart.dev/language/dot-shorthands
+
+## Needs a newer language version
+
+The project's language version is 3.12, the lower bound of `environment: sdk:` in `pubspec.yaml`. These notes need a newer one: raise that bound to use them.
+
+- **dart-primary-constructors** (priority 2, since 3.47, language 3.13): Primary constructors declare fields in the class header.
+  - Use: `class Point(final int x, final int y);`.
+  - Avoid: Primary constructors below language version 3.13.
+  - Source: https://dart.dev/language/constructors
+
+## Deprecated
+
+APIs the project's imports expose that are deprecated, with each library's own message. `dart analyze` reports each use.
+
+### dart:core
+
+- `RegExp`: don't implement it. This class will become 'final' in a future release. 'Pattern' may be a more appropriate interface to implement.
+
+### package:flutter
+
+- `Text.new(textScaleFactor)`: deprecated, with no message.
+- `WillPopScope`: Use PopScope instead. This feature was deprecated after v3.12.0-1.0.pre. `dart fix` migrates it: Migrate to 'PopScope'.
+
+### package:go_router
+
+- `GoRouter.new(label)`: always pass this argument: it will become required.
+
+## Removed
+
+APIs from the migration lists (`fix_data`) of the SDKs and the packages, each with its migration's title; `dart fix` applies each migration. `removed`: gone; code that uses it doesn't compile. `changed`: it still exists, and `dart fix` changes how it's used; the migration's title says how.
+
+### package:flutter
+
+- `Stack.new(overflow)`: removed. Migrate to 'clipBehavior'.
+- `Stack.overflow`: removed. Migrate to 'clipBehavior'.
+
+### package:go_router
+
+- `GoRouterState.location`: removed. Replaces 'location' in 'GoRouterState' with `uri.toString()`.
+
+## Moved libraries
+
+Libraries a migration (`fix_data`) moves elsewhere. Check the notes above before switching.
+
+- `package:flutter/material.dart` → `package:material_ui/material_ui.dart`: Migrate from flutter/material.dart to material_ui/material_ui.dart.
+
+## Not read
+
+Migration files Appstein couldn't read, so their migrations are missing above.
+
+- `package:delta_kit/fix_data/fix_broken.yaml`: line 2: A transform needs an "element" map or a "library".

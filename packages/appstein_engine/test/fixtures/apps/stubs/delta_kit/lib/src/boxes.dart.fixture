@@ -1,0 +1,51 @@
+@Deprecated(
+  'Use NewBox instead.\n'
+  '    This feature was deprecated after v1.2.0-3.0.pre.',
+)
+class OldBox {}
+
+class NewBox {
+  NewBox({
+    @Deprecated('Use size instead.') int? width,
+    int? size,
+    @Deprecated.optional('Pass a label; it becomes required in 2.0.')
+    String? label,
+  });
+
+  @Deprecated('Use paint instead.')
+  void draw() {}
+
+  void paint() {}
+
+  @Deprecated('Use area instead.')
+  int get surface => 0;
+
+  int get area => 0;
+
+  @deprecated
+  set colour(int value) {}
+}
+
+@Deprecated.implement('Extend Shape instead.')
+abstract class Shape {}
+
+@Deprecated.extend()
+class Sealing {}
+
+enum Mode {
+  a,
+  @Deprecated('Use a.')
+  b,
+}
+
+@Deprecated('Use `paint()` instead of drawing *by hand*.')
+void drawAll() {}
+
+@Deprecated('Use Mode.a instead.')
+int legacyLevel = 0;
+
+@Deprecated('Use Mode.b instead.')
+const legacyName = 'b';
+
+@Deprecated('Use Mode instead.')
+set legacyMode(int value) {}

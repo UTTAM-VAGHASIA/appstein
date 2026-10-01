@@ -1,0 +1,15 @@
+# Copied from go_router 18.0.2's lib/fix_data.yaml: its migration for the
+# removed GoRouterState.location (the stand-in has no `location` either).
+version: 1
+transforms:
+  - title: "Replaces 'location' in 'GoRouterState' with `uri.toString()`"
+    date: 2023-07-06
+    bulkApply: true
+    element:
+      # TODO(ahmednfwela): Workaround for https://github.com/dart-lang/sdk/issues/52233
+      uris: [ 'go_router.dart', 'package:go_router/go_router.dart' ]
+      field: 'location'
+      inClass: 'GoRouterState'
+    changes:
+      - kind: 'rename'
+        newName: 'uri.toString()'

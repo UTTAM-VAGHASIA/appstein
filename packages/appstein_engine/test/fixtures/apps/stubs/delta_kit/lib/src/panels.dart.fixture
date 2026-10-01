@@ -1,0 +1,11 @@
+class _PanelBase {
+  @Deprecated('Use open instead.')
+  void show() {}
+
+  void open() {}
+}
+
+class Panel extends _PanelBase {}
+
+@Deprecated('Not exported, so not in the delta.')
+class Hidden {}

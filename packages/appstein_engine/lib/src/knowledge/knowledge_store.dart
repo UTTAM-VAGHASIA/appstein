@@ -9,13 +9,14 @@ import 'canonical_json.dart';
 import 'generated_file.dart';
 import 'knowledge_lock.dart';
 import 'knowledge_write_exception.dart';
+import 'markdown_front_matter.dart';
 
 /// A project's `.appstein/` folder (spec §6.2).
 ///
-/// It writes generated files as canonical JSON with their metadata, skips a
-/// file whose content wouldn't change (so its bytes, `generatedAt` included,
-/// stay the same; a hand-edited file is put back), and replaces files in one
-/// step.
+/// It writes generated files, JSON with a `meta` key or Markdown with
+/// front matter, skips a file whose content wouldn't change (so its bytes,
+/// `generatedAt` included, stay the same; a hand-edited file is put back),
+/// and replaces files in one step.
 final class KnowledgeStore {
   /// The store of the project at [projectRoot]. [clock] gives the time to
   /// record (the real time by default).
@@ -86,11 +87,47 @@ final class KnowledgeStore {
     return true;
   }
 
+  /// Writes the Markdown [markdown] to [path] (inside `.appstein/`, with `/`
+  /// separators), after a front matter block with its metadata
+  /// ([markdownWithFrontMatter]). It follows the same rule as
+  /// [writeGenerated]: it rebuilds the text with the `generatedAt` already in
+  /// the file and skips the write only when the bytes would be the same.
+  /// Returns whether it wrote.
+  ///
+  /// Throws a [KnowledgeWriteException] when the file can't be written. Call
+  /// it inside [locked].
+  Future<bool> writeGeneratedMarkdown(
+    String path,
+    String markdown, {
+    required String inputHash,
+    required String appsteinVersion,
+    required String sdkVersion,
+  }) async {
+    final target = _pathOf(path);
+    String textWith(String generatedAt) => markdownWithFrontMatter(
+      markdown,
+      KnowledgeMeta(
+        generatedAt: generatedAt,
+        appsteinVersion: appsteinVersion,
+        formatVersion: knowledgeFormatVersion,
+        sdkVersion: sdkVersion,
+        inputHash: inputHash,
+      ),
+    );
+    final stored = _storedMarkdownGeneratedAt(target);
+    if (stored != null && stored.text == textWith(stored.generatedAt)) {
+      return false;
+    }
+    await replaceFile(target, textWith(now()));
+    return true;
+  }
+
   /// Writes `state.json`. Call it inside [locked], like [writeGenerated].
   Future<void> writeState(KnowledgeState state) =>
       replaceFile(_pathOf('state.json'), canonicalJson(state.toJson()));
 
-  /// Writes each of [files] with [writeGenerated], then `state.json` listing
+  /// Writes each of [files] (JSON with [writeGenerated], Markdown with
+  /// [writeGeneratedMarkdown]), then `state.json` listing
   /// exactly these files' input hashes. Returns whether each file was
   /// written, in the order given. Call it inside [locked].
   Future<Map<String, bool>> writeAll(
@@ -100,13 +137,23 @@ final class KnowledgeStore {
   }) async {
     final written = <String, bool>{};
     for (final file in files) {
-      written[file.path] = await writeGenerated(
-        file.path,
-        file.body,
-        inputHash: file.inputHash,
-        appsteinVersion: appsteinVersion,
-        sdkVersion: sdkVersion,
-      );
+      if (file.body case final body?) {
+        written[file.path] = await writeGenerated(
+          file.path,
+          body,
+          inputHash: file.inputHash,
+          appsteinVersion: appsteinVersion,
+          sdkVersion: sdkVersion,
+        );
+      } else {
+        written[file.path] = await writeGeneratedMarkdown(
+          file.path,
+          file.markdown!,
+          inputHash: file.inputHash,
+          appsteinVersion: appsteinVersion,
+          sdkVersion: sdkVersion,
+        );
+      }
     }
     await writeState(
       KnowledgeState(
@@ -134,6 +181,22 @@ final class KnowledgeStore {
       return generatedAt is String
           ? (text: text, generatedAt: generatedAt)
           : null;
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// The text of the Markdown file at [path] and the `generatedAt` in its
+  /// front matter, or null when the file is missing, unreadable or damaged.
+  static ({String text, String generatedAt})? _storedMarkdownGeneratedAt(
+    String path,
+  ) {
+    try {
+      final text = File(path).readAsStringSync();
+      final meta = readFrontMatter(text);
+      return meta == null ? null : (text: text, generatedAt: meta.generatedAt);
     } on FileSystemException {
       return null;
     } on FormatException {

@@ -12,7 +12,8 @@ import 'version.dart';
 
 /// `appstein sync`: regenerates the knowledge Appstein keeps in
 /// `.appstein/` (spec §5.3). It writes the platform layer (`sdk.json`,
-/// `toolchain.json`) and the project map (`map/*.json`), then `state.json`.
+/// `toolchain.json`), the version delta (`delta.md`) and the project map
+/// (`map/*.json`), then `state.json`.
 final class SyncCommand extends Command<int> {
   /// Creates the command.
   SyncCommand({
@@ -67,6 +68,7 @@ final class SyncCommand extends Command<int> {
         environment: environment,
         appsteinVersion: appsteinVersion,
         packs: packsFor(config),
+        baseline: config.delta.baseline,
       ).run(projectRoot);
       out.write(formatSyncReport(report));
       return ExitCodes.ok;
@@ -139,7 +141,20 @@ String formatSyncReport(SyncReport report) {
         );
     }
   }
-  if (sdk.notesCoverage == NotesCoverage.partial) {
+  if (map?.deltaError case final error?) {
+    // An Appstein bug the user can't fix: ask for a report, with the whole
+    // error (delta.md names only its type).
+    buffer.writeln(
+      'Version delta: deprecated and removed APIs are missing because of an '
+      'internal error in Appstein. Please report it, with this error:',
+    );
+    for (final line in const LineSplitter().convert(error)) {
+      buffer.writeln('  $line');
+    }
+  }
+  // Coverage is "complete" only when known; unknown counts as partial, the
+  // same as in delta.md.
+  if (sdk.notesCoverage != NotesCoverage.complete) {
     final minor = flutterMinorOf(sdk.flutterVersion);
     final version = minor == null
         ? sdk.flutterVersion

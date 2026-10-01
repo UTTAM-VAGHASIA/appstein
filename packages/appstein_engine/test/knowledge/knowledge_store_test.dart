@@ -146,6 +146,127 @@ void main() {
     );
   });
 
+  group('Markdown files', () {
+    File deltaFile() =>
+        File(p.join(project, '.appstein', 'platform', 'delta.md'));
+
+    Future<bool> writeMarkdown(
+      KnowledgeStore store,
+      String hash, {
+      String text = '# Delta\n\nBody.\n',
+    }) => store.writeGeneratedMarkdown(
+      'platform/delta.md',
+      text,
+      inputHash: hash,
+      appsteinVersion: '0.1.0-dev',
+      sdkVersion: '3.47.5',
+    );
+
+    test('writes the text after front matter, creating folders', () async {
+      final wrote = await writeMarkdown(
+        storeAt(DateTime.utc(2026, 10, 1, 9, 30, 5)),
+        'h1',
+      );
+      expect(wrote, isTrue);
+      expect(
+        deltaFile().readAsStringSync(),
+        '---\n'
+        'appsteinVersion: "0.1.0-dev"\n'
+        'formatVersion: 1\n'
+        'generatedAt: "2026-10-01T09:30:05Z"\n'
+        'inputHash: "h1"\n'
+        'sdkVersion: "3.47.5"\n'
+        '---\n'
+        '\n'
+        '# Delta\n'
+        '\n'
+        'Body.\n',
+      );
+    });
+
+    test('skips unchanged Markdown, so no byte changes', () async {
+      await writeMarkdown(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+      final before = deltaFile().readAsStringSync();
+      final wrote = await writeMarkdown(
+        storeAt(DateTime.utc(2026, 10, 2)),
+        'h1',
+      );
+      expect(wrote, isFalse);
+      expect(deltaFile().readAsStringSync(), before);
+    });
+
+    test('rewrites Markdown whose input hash changed', () async {
+      await writeMarkdown(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+      final wrote = await writeMarkdown(
+        storeAt(DateTime.utc(2026, 10, 2)),
+        'h2',
+      );
+      expect(wrote, isTrue);
+      expect(deltaFile().readAsStringSync(), contains('inputHash: "h2"'));
+      expect(deltaFile().readAsStringSync(), contains('2026-10-02T00:00:00Z'));
+    });
+
+    test(
+      'puts back hand-edited Markdown whose front matter is intact',
+      () async {
+        await writeMarkdown(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+        final original = deltaFile().readAsStringSync();
+        deltaFile().writeAsStringSync(
+          original.replaceFirst('Body.', 'Edited.'),
+        );
+        final wrote = await writeMarkdown(
+          storeAt(DateTime.utc(2026, 10, 2)),
+          'h1',
+        );
+        expect(wrote, isTrue);
+        expect(
+          deltaFile().readAsStringSync(),
+          original.replaceFirst('2026-10-01T', '2026-10-02T'),
+        );
+      },
+    );
+
+    for (final damaged in ['no front matter\n', '---\n---\n', '']) {
+      test('rewrites a damaged Markdown file: ${damaged.trim()}', () async {
+        deltaFile()
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(damaged);
+        expect(
+          await writeMarkdown(storeAt(DateTime.utc(2026, 10, 1)), 'h1'),
+          isTrue,
+        );
+        expect(deltaFile().readAsStringSync(), contains('inputHash: "h1"'));
+      });
+    }
+
+    test('writeAll writes JSON and Markdown files and lists both in '
+        'state.json', () async {
+      final store = storeAt(DateTime.utc(2026, 10, 1));
+      final written = await store.writeAll(
+        const [
+          GeneratedFile(
+            path: 'platform/sdk.json',
+            body: {'flutter': '3.47.5'},
+            inputHash: 'h1',
+          ),
+          GeneratedFile.markdown(
+            path: 'platform/delta.md',
+            markdown: '# Delta\n',
+            inputHash: 'h2',
+          ),
+        ],
+        appsteinVersion: '0.1.0-dev',
+        sdkVersion: '3.47.5',
+      );
+      expect(written, {'platform/sdk.json': true, 'platform/delta.md': true});
+      expect(readFrontMatter(deltaFile().readAsStringSync())!.inputHash, 'h2');
+      expect(
+        File(p.join(project, '.appstein', 'state.json')).readAsStringSync(),
+        contains('"platform/delta.md": "h2"'),
+      );
+    });
+  });
+
   test('locked() runs the action under the lock and releases it', () async {
     final store = storeAt(DateTime.utc(2026));
     expect(await store.locked(() async => 42), 42);

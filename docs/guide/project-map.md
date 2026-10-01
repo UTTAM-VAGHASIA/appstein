@@ -39,6 +39,9 @@ KnowledgeSync.run
   |     3. pack extractors   routes.json, features.json
   |     4. generic files     symbols.json, layers.json, deps.json
   |     5. one input hash    shared by every map file
+  |     6. delta facts       collectDelta, while the analysis is open (version-delta.md)
+  |
+  |-- renderDelta           platform/delta.md                  (no writing yet)
   |
   `-- KnowledgeStore.locked
         writeAll             every file, then state.json last
@@ -47,7 +50,7 @@ KnowledgeSync.run
 Two things to notice.
 
 - **Building happens outside the lock, writing happens inside it.** The analysis takes seconds, and holding the lock that long would make any other writer wait. [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) takes the platform files and the map files together and writes `state.json` last, so `state.json` only ever lists files that were written. The consequence: two syncs that run at the same moment are last-writer-wins. Each write is consistent inside itself, and its input hash shows if it was built from something that has since changed.
-- **The map can be skipped without failing the sync.** When the packages can't be fetched, or the project files can't be read, [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns no files and a reason. The platform layer is still written. See [A failed fetch](#a-failed-fetch).
+- **The map can be skipped without failing the sync.** When the packages can't be fetched, or the project files can't be read, [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns no files and a reason. The platform layer is still written, and so is `delta.md`, with only the notes. A failure while collecting the delta facts (step 6) is kept apart: the map is still written, and `delta.md` says its API lists are missing because of an internal error, which the user should report (see [version-delta](version-delta.md#how-sync-builds-it)). See [A failed fetch](#a-failed-fetch).
 
 ## Packages first
 
@@ -90,7 +93,7 @@ If `flutter pub get` fails (no network, a version conflict, a timeout after 5 mi
 
 - sync prints `Could not fetch the packages:` with the last ten lines Flutter printed, then `Project map skipped: the packages could not be fetched.`;
 - the exit code is **0**. The platform layer was written, and a project whose packages can't be fetched is a project problem, not an Appstein failure (see [cli](cli.md#appstein-sync));
-- the old map files are **not deleted**. They are stale, but they were true once, and the new `state.json` lists only the platform files, so a reader can see that the map files are not current.
+- the old map files are **not deleted**. They are stale, but they were true once, and the new `state.json` lists only the platform files and `delta.md`, so a reader can see that the map files are not current.
 
 ### Where Appstein differs from Flutter
 

@@ -1,0 +1,180 @@
+# Migrations for the version-delta tests, in Flutter's format.
+version: 1
+transforms:
+  - title: "Rename to 'NewBox'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      class: 'GoneBox'
+    changes:
+      - kind: 'rename'
+        newName: 'NewBox'
+
+  - title: "Rename to 'paint'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      method: 'render'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'rename'
+        newName: 'paint'
+
+  - title: "Migrate to 'NewBox'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      class: 'OldBox'
+    changes:
+      - kind: 'rename'
+        newName: 'NewBox'
+
+  - title: "Migrate 'width' to 'size'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      constructor: ''
+      inClass: 'NewBox'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'width'
+        newName: 'size'
+
+  - title: "Migrate from 'height'"
+    date: 2026-01-01
+    element:
+      uris: [ 'package:delta_kit/delta_kit.dart' ]
+      constructor: ''
+      inClass: 'NewBox'
+    # Like Flutter's ThemeData migrations, an option also drops a live
+    # parameter (`size`); only the gone `height` is listed.
+    oneOf:
+      - if: "height != ''"
+        changes:
+          - kind: 'removeParameter'
+            name: 'height'
+      - if: "height != '' && size != ''"
+        changes:
+          - kind: 'removeParameter'
+            name: 'height'
+          - kind: 'removeParameter'
+            name: 'size'
+
+  - title: "Rename to 'Extra2'"
+    date: 2026-01-01
+    element:
+      uris: [ 'extra.dart' ]
+      class: 'Extra'
+    changes:
+      - kind: 'rename'
+        newName: 'Extra2'
+
+  # `surface` is a getter, but dart fix matches a property-style use whatever
+  # kind the migration names.
+  - title: "Rename 'surface' to 'area'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      method: 'surface'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'rename'
+        newName: 'area'
+
+  - title: "Rename 'legacyLevel'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      function: 'legacyLevel'
+    changes:
+      - kind: 'rename'
+        newName: 'Mode.a'
+
+  # The first library listed doesn't export the element; the second does.
+  - title: "Rename 'draw' to 'paint'"
+    date: 2026-01-01
+    element:
+      uris: [ 'extra.dart', 'delta_kit.dart' ]
+      method: 'draw'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'rename'
+        newName: 'paint'
+
+  # Only more.dart exports Gadget, and no import of the project reaches it.
+  - title: "Rename 'Gadget'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart', 'more.dart' ]
+      class: 'Gadget'
+    changes:
+      - kind: 'rename'
+        newName: 'Widget2'
+
+  # No listed library exports Vanished, and each of them exists.
+  - title: "Rename 'Vanished'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart', 'more.dart' ]
+      class: 'Vanished'
+    changes:
+      - kind: 'rename'
+        newName: 'Gadget'
+
+  # missing_kit isn't one of the project's packages, so whether Phantom
+  # exists can't be told.
+  - title: "Rename 'Phantom'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart', 'package:missing_kit/missing_kit.dart' ]
+      class: 'Phantom'
+    changes:
+      - kind: 'rename'
+        newName: 'Gadget'
+
+  # missing_kit can't be resolved, but more.dart exports Gizmo.
+  - title: "Rename 'Gizmo'"
+    date: 2026-01-01
+    element:
+      uris:
+        - 'delta_kit.dart'
+        - 'package:missing_kit/missing_kit.dart'
+        - 'more.dart'
+      class: 'Gizmo'
+    changes:
+      - kind: 'rename'
+        newName: 'Gadget'
+
+  # Neither migration names a parameter that is gone or deprecated: `size`
+  # is still there, and `paint` changes without one.
+  - title: "Rename 'size' to 'extent'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      constructor: ''
+      inClass: 'NewBox'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'size'
+        newName: 'extent'
+
+  - title: "Add 'canvas' to 'paint'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      method: 'paint'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'addParameter'
+        index: 0
+        name: 'canvas'
+        style: required_positional
+        argumentValue:
+          expression: 'null'
+
+  - title: 'Migrate from delta_kit to delta_kit_v2.'
+    date: 2026-01-01
+    library: 'package:delta_kit/delta_kit.dart'
+    changes:
+      - kind: 'replacedBy'
+        newLibrary: 'package:delta_kit_v2/delta_kit_v2.dart'

@@ -38,4 +38,22 @@ void main() {
       expect(text, endsWith('\n'));
     }
   });
+
+  test('no unquoted note value holds " #", which YAML reads as a comment', () {
+    // An unquoted value is cut at " #": "issue #192167" would end the text.
+    final unquoted = RegExp(r'''^\s*(?:- )?[\w-]+: +([^"'|>\s].*)$''');
+    for (final MapEntry(key: file, value: text) in readNotesSources(
+      Directory.current.path,
+    ).entries) {
+      final lines = text.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        final value = unquoted.firstMatch(lines[i])?.group(1);
+        expect(
+          value == null || !value.contains(' #'),
+          isTrue,
+          reason: '$file:${i + 1}: quote the value',
+        );
+      }
+    }
+  });
 }

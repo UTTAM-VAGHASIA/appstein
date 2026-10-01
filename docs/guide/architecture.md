@@ -15,7 +15,7 @@ Appstein is currently:
 - an engine behind it, which holds all the logic;
 - shared data models;
 - an analyzer plugin with one lint rule, `layer_imports`;
-- the knowledge Appstein writes into a project's `.appstein/`: the platform layer and the project map of the app's Dart code (see [project-map](project-map.md));
+- the knowledge Appstein writes into a project's `.appstein/`: the platform layer, the version delta (see [version-delta](version-delta.md)) and the project map of the app's Dart code (see [project-map](project-map.md));
 - one pack, `official_mvvm`, which knows Flutter's recommended app architecture.
 
 Native config, the verifier, more packs and the MCP server come in later slices ([spec §18](../superpowers/specs/2026-09-29-appstein-design.md#18-milestones)).
@@ -79,7 +79,7 @@ flowchart TD
 11. `formatDoctorReport` turns the report into plain text. See [cli](cli.md).
 12. The exit code is `1` if any check found an error, and `0` otherwise. See [cli](cli.md).
 
-`appstein sync` follows the same shape: the CLI's `SyncCommand` loads `appstein.yaml`, chooses the packs with `packsFor`, and calls the engine's `KnowledgeSync`. That builds the platform layer (`PlatformSync`: SDK detection, `readToolchain`, `CuratedNotes`) and the project map (`MapSync`: packages, analysis, the packs' extractors), and hands both to `KnowledgeStore`, which writes the files in `.appstein/`. See [knowledge-store](knowledge-store.md) and [project-map](project-map.md).
+`appstein sync` follows the same shape: the CLI's `SyncCommand` loads `appstein.yaml`, chooses the packs with `packsFor`, and calls the engine's `KnowledgeSync`. That builds the platform layer (`PlatformSync`: SDK detection, `readToolchain`, `CuratedNotes`) and the project map (`MapSync`: packages, analysis, the packs' extractors), and the version delta (`collectDelta` inside `MapSync`, then `renderDelta`), and hands all of them to `KnowledgeStore`, which writes the files in `.appstein/`. See [knowledge-store](knowledge-store.md) and [project-map](project-map.md).
 
 ### How a pack reaches the engine
 
@@ -98,6 +98,7 @@ The engine's core (everything outside `lib/src/packs/official_mvvm/` and `lib/of
 | `project/` | Finds the project folder | [doctor](doctor.md) |
 | `knowledge/` | The `.appstein/` store: canonical JSON, input hashes, the lock, `sync` | [knowledge-store](knowledge-store.md) |
 | `map/` | The project map: packages, analysis, symbols, layers, deps | [project-map](project-map.md) |
+| `delta/` | The version delta: `fix_data` migrations, the deprecations the imports expose, the Markdown | [version-delta](version-delta.md) |
 | `packs/` | The `Pack` interface, and `official_mvvm/`: its layer rules, features and routes | [project-map](project-map.md) |
 | `notes/` | The curated notes, parsed and compiled in | [knowledge-store](knowledge-store.md) |
 | `toolchain/` | Reads the native toolchain matrix from the Flutter SDK | [toolchain](toolchain.md) |

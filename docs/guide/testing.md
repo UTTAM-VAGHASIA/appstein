@@ -83,6 +83,8 @@ The [project map](project-map.md) is tested on one small app, kept in `packages/
 
 **Stand-in packages.** Real `flutter` and `go_router` would need a Flutter SDK and the network in every unit test. So `fixtures/apps/stubs/` holds small packages, `flutter` (`widgets.dart`, `foundation.dart`), `flutter_test` and `go_router`, with just the classes the app uses (`GoRoute`, `ShellRoute`, `ChangeNotifier`, `StatelessWidget`, and so on), and a **hand-written `pubspec.lock`** that says what pub would have written for the app. [`writeStubPackages`](../../packages/appstein_engine/test/support/fixture_app.dart) then writes `.dart_tool/package_config.json` (mapping each package to the stand-in), `.dart_tool/version` and times on the files, so the packages count as **fresh** by Flutter's own rule. The analyzer resolves the app like a real one, offline.
 
+`stubs/delta_kit/` is different: it's a package made for the version-delta tests, not a stand-in for a real one. It has one of each kind of deprecation and migration files in Flutter's format (see [version-delta](version-delta.md#tests)). `stubs/go_router/lib/fix_data.yaml` is go_router 18.0.2's real `location` migration. `analyzeDeltaApp` analyzes a small app that imports `delta_kit`.
+
 **The helpers**, all in [`fixture_app.dart`](../../packages/appstein_engine/test/support/fixture_app.dart):
 
 | Helper | What it does |
@@ -95,7 +97,7 @@ The [project map](project-map.md) is tested on one small app, kept in `packages/
 
 ### Goldens
 
-A **golden** is a file holding the exact output a test expects: `symbols.json.golden`, `layers.json.golden` and the other three in `fixtures/apps/goldens/`. A golden test runs the real sync on the fixture app (`knowledge_sync_test.dart` with the stand-ins, `map_real_sdk_test.dart` with the real packages) and compares the canonical JSON, byte for byte, with the file. It catches the changes no one meant: an extra symbol, a route that lost its screen, an order that changed.
+A **golden** is a file holding the exact output a test expects: `symbols.json.golden`, `layers.json.golden` and the other three in `fixtures/apps/goldens/`. `delta.md.golden` is the version-delta renderer's output, compared with `expectTextGolden`. A golden test runs the real sync on the fixture app (`knowledge_sync_test.dart` with the stand-ins, `map_real_sdk_test.dart` with the real packages) and compares the canonical JSON, byte for byte, with the file. It catches the changes no one meant: an extra symbol, a route that lost its screen, an order that changed.
 
 **To update goldens safely:**
 

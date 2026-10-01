@@ -73,14 +73,19 @@ milestones:
             plan: 2026-10-01-slice-1b3-project-map.md
             pr: 8
             finished: 2026-10-01
+          # 1b.5 is built before 1b.4 (owner decision, 2026-10-01): the delta
+          # serves success criterion #1. The ids keep their spec numbering.
+          - id: 1b.5
+            title: Version delta
+            summary: "`delta.md`: every deprecated or removed API the project's imports expose, from the deprecations and `fix_data` of the SDKs and packages, plus the curated notes since the baseline."
+            status: done
+            plan: 2026-10-01-slice-1b5-version-delta.md
+            pr: 9
+            finished: 2026-10-02
           - id: 1b.4
             title: Native config map
             summary: "`native.json` from the platform packs: Android Gradle and manifest settings, iOS plist, build settings, Podfile and SwiftPM state, each value with where it was found."
             status: next
-          - id: 1b.5
-            title: Version delta
-            summary: "`delta.md`: what changed since the baseline for this SDK and language version, from `fix_data`, the SDK's deprecations and the curated notes, filtered to the APIs the project uses."
-            status: planned
           - id: 1b.6
             title: Incremental sync, INDEX.md and package skills
             summary: Sync that rebuilds only what changed, the always-in-view `INDEX.md`, and the package skills refresh.

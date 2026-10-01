@@ -57,6 +57,7 @@ void main() {
     );
     expect(text, contains(row('platform/sdk.json', 'written')));
     expect(text, contains(row('platform/toolchain.json', 'written')));
+    expect(text, contains(row('platform/delta.md', 'written')));
     expect(text, contains('Curated notes cover Flutter 3.47 and earlier.'));
     expect(
       text,
@@ -74,6 +75,7 @@ void main() {
     for (final path in [
       'platform/sdk.json',
       'platform/toolchain.json',
+      'platform/delta.md',
       'state.json',
     ]) {
       expect(
@@ -151,6 +153,18 @@ void main() {
     expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
   });
 
+  test("the delta's baseline comes from appstein.yaml", () async {
+    File(
+      p.join(project, 'appstein.yaml'),
+    ).writeAsStringSync('delta:\n  baseline: "3.47"\n');
+    expect(await run(['sync']), ExitCodes.ok, reason: '$err');
+    final text = File(
+      p.join(project, '.appstein', 'platform', 'delta.md'),
+    ).readAsStringSync();
+    expect(text, contains('since Flutter 3.47'));
+    expect(text, isNot(contains('popscope-not-willpopscope')));
+  });
+
   SyncReport reportWith(MapReport map) => SyncReport(
     sdk: const SdkInfo(
       flutterVersion: '3.47.5',
@@ -219,6 +233,50 @@ void main() {
     );
     expect(text, contains('lib/core/core.dart.\nFix that, then run'));
     expect(text, isNot(contains('core.dart..')));
+  });
+
+  test('a delta that could not be collected is reported as an internal '
+      'error, with the whole error once', () {
+    final text = formatSyncReport(
+      reportWith(
+        const MapReport(
+          packages: PackagesAction.upToDate,
+          packagesReason: 'they are up to date',
+          deltaError: 'Bad state: x\nat line 2',
+          deltaErrorType: 'StateError',
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'Version delta: deprecated and removed APIs are missing because of '
+        'an internal error in Appstein. Please report it, with this error:\n'
+        '  Bad state: x\n'
+        '  at line 2\n',
+      ),
+    );
+    expect('version delta'.allMatches(text.toLowerCase()), hasLength(1));
+    expect('Bad state: x'.allMatches(text), hasLength(1));
+    expect(text, isNot(contains('Fix that')));
+    expect(text, isNot(contains('Project map skipped')));
+  });
+
+  test('unknown notes coverage is reported as possibly incomplete', () {
+    const report = SyncReport(
+      sdk: SdkInfo(
+        flutterVersion: '3.47.5',
+        dartVersion: '3.13.4',
+        channel: 'stable',
+      ),
+      files: {'platform/sdk.json': true},
+      newestNotes: '3.47',
+      fallbacks: [],
+    );
+    expect(
+      formatSyncReport(report),
+      contains('Curated notes may be incomplete for Flutter 3.47'),
+    );
   });
 
   test('a partial coverage line names the minor version', () {

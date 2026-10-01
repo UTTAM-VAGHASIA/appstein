@@ -1,0 +1,5 @@
+// No library the delta test app imports reaches this one: a library a
+// migration lists that the project's imports don't reach at all.
+class Gadget {}
+
+class Gizmo {}

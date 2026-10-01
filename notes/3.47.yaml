@@ -81,7 +81,7 @@ notes:
     since: "3.47"
     priority: 2
     area: android
-    summary: Flutter 3.47 allows `android.builtInKotlin=true`, but on 3.47.x stable the Kotlin version check rejects AGP's bundled Kotlin 2.2.10 (issue #192167, closed by PR #192206 on master; the fix is in 3.49 beta, not in any 3.47.x stable).
+    summary: "Flutter 3.47 allows `android.builtInKotlin=true`, but on 3.47.x stable the Kotlin version check rejects AGP's bundled Kotlin 2.2.10 (issue #192167, closed by PR #192206 on master; the fix is in 3.49 beta, not in any 3.47.x stable)."
     use: "On 3.47.x keep the template's `android.builtInKotlin=false`; if you must enable built-in Kotlin, build with `--android-skip-build-dependency-validation`."
     avoid: "Setting `android.builtInKotlin=true` and removing `org.jetbrains.kotlin.android` on 3.47.x, then expecting the build to pass Flutter's KGP check."
     source: https://github.com/flutter/flutter/issues/192167
