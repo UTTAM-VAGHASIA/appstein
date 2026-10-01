@@ -3549,3 +3549,53 @@ Run `/graphify . --update` until `tool/check_graph.py` reports nothing, with at 
   - `show`/`hide` on imports aren't applied to deprecations (D1);
   - a package's `fix_data` that names another package's libraries isn't read (D3);
   - an unknown Flutter version gets no notes (D7).
+
+## Notes from execution (2026-10-02)
+
+Executed in quick subagent-driven mode, with at most 3 subagents at once. There was a task review after each task, then a final whole-branch review on Opus, one fix wave, and a scoped re-review. PR #9.
+
+**Pre-flight scan.** A read-only agent ran this plan's own code on Dart 3.13.4 and analyzer 14.4 before Task 1. The expected lists, error lines and golden all matched. Six conflicts were ruled on before dispatch:
+- **C1:** `case` isn't allowed in a conditional expression, so `writeAll` uses if-case.
+- **C2, C3:** two analyzer infos fail `--fatal-infos`.
+- **C4:** `state.json` keys are sorted, so `delta.md` comes first in it.
+- **C5:** the real-SDK test checks `` - `Cupertino ``, because a curated note mentions `CupertinoRadio`.
+- **C6:** `DeltaFacts` gets `==`.
+- **Minor rulings:** the `DeltaConfig.baseline` doc now says it limits notes. A full stop is added before "`dart fix` migrates it". A top-level setter keeps its `=`.
+
+**What reviews changed** (each is recorded as a ruling in the execution ledger):
+- **Collector:**
+  - deprecated top-level variables and constants were missed, because their exported getter is synthetic;
+  - `dart:io` re-exports landed under `dart:_internal`/`dart:_http`, and are now grouped under the public library;
+  - "own" code was decided by where files sit on disk, which would have dropped Flutter for a `pub get` run through `.fvm/flutter_sdk`; it's now decided by URI;
+  - a subclass's migration could rename an entry;
+  - libraries reached by an outside `file:` URI are skipped.
+- **Renderer:** migration titles, unread reasons and skip reasons are put on one line.
+- **Sync:** an unexpected error in the collector crashed all of `sync` (exit 3, nothing written). Now the map is still written, `delta.md` says its API lists are missing because of an internal error (the error's type only, never a path), and the sync output shows the full error.
+
+**Reading the real output found what reviews and tests missed.** The real Flutter 3.47.5 `delta.md` called existing APIs "removed":
+- **`Color.opacity` and `Color.value`:** Flutter's `fix_data` names them `method`, but they're getters. Element kinds now match loosely, as `dart fix`'s `ElementMatcher` does.
+- **`ReorderableListView.new` and `.builder`:** the class was looked up only in the library the app imports.
+- **Lookup through the analysis session:** the final review then showed that a widgets-only app with no `test/` still got 13 false "removed" lines. So a migration's listed libraries are now looked up through the analysis session. Present only in a library the project doesn't import: the migration is left out (decision 2). Present nowhere: removed.
+- **Per-parameter lines:** the final review also found that `changed` entries contradicted the "doesn't compile" intro. Migrations are now listed per gone parameter (`Navigator.of(nullOk)`: removed). A parameter a migration also adds back (`Tooltip`'s `constraints`) isn't an old one. A live one dropped on the side (`ThemeData`'s `primarySwatch`) isn't listed.
+- **Check:** the re-review confirmed every `removed` line in a material app by compiling a use of each (272 lines).
+
+**Owner-approved during execution.** The `android-builtin-kotlin-version-check` summary in `notes/3.47.yaml` was cut off at " #192167", because YAML reads that as a comment. It is now quoted, and a test catches any unquoted note value holding " #".
+
+**Numbers.**
+- **Real Flutter 3.47.5:** 669 lines, no duplicate entries. Full sync takes 10.5 s; the target is 30 s.
+- **Compiled CLI on a scratch material app,** which found Flutter 3.38.6 on PATH:
+  - run 1 wrote 8 files in 18.8 s;
+  - run 2 left all of them unchanged (5.4 s);
+  - 848 lines, with no 3.41-only deprecation listed.
+- **Tests:** engine 487, CLI 31, protocol 48, lints 19, repo tools 212, integration 6.
+
+**Parked (minor):**
+- some test names repeat;
+- a little duplication between the JSON and Markdown write paths;
+- a `changes:` that is a map is ignored;
+- the invalid-URI error has no line number;
+- an empty migration title renders as ".";
+- a migration whose container is now a typedef;
+- `removeParameter` by `index:`.
+
+The input hash still ignores path dependencies' sources (carried to 1b.6, above).
