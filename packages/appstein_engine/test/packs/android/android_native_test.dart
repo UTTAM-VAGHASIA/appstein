@@ -379,7 +379,7 @@ android {
       });
       expect(
         value(read(app), ['app', 'flavors']).reason,
-        'a flavor is created with a computed name',
+        startsWith('a flavor is created with a computed name'),
       );
     });
 
@@ -474,5 +474,172 @@ android {
         expect(value(section, ['manifests', 'main', 'label']).value, 'Other');
       },
     );
+
+    group('never guess (review round 1)', () {
+      void gradle(String text) =>
+          writeProjectFiles(app, {'android/app/build.gradle.kts': text});
+
+      test('a damaged pubspec.yaml makes flutter.version* unknown', () {
+        gradle(
+          'android { defaultConfig {\n'
+          '  versionCode = flutter.versionCode\n'
+          '  versionName = flutter.versionName\n'
+          '} }\n',
+        );
+        for (final bytes in [
+          <int>[0xFF, 0xFE, 0x41],
+          utf8.encode('name: [broken\n'),
+          utf8.encode('- a\n- b\n'),
+        ]) {
+          File(p.join(app, 'pubspec.yaml')).writeAsBytesSync(bytes);
+          final section = read(app);
+          for (final key in ['versionCode', 'versionName']) {
+            final v = value(section, ['app', key]);
+            expect(v.status, NativeStatus.unknown, reason: '$bytes $key');
+            expect(v.reason, startsWith('pubspec.yaml could not be read'));
+            expect(v.at, 'pubspec.yaml');
+          }
+        }
+      });
+
+      test('plugins declared with alias(...) or a computed id are unknown', () {
+        writeProjectFiles(app, {
+          'android/settings.gradle.kts':
+              'plugins {\n'
+              '  alias(libs.plugins.android.application) apply false\n'
+              '}\n',
+          'android/build.gradle.kts':
+              'plugins {\n  id(kgpId) version "2.0.0"\n}\n',
+        });
+        final section = read(app);
+        for (final key in ['agp', 'kgp', 'flutterPluginLoader']) {
+          final v = value(section, ['settings', key]);
+          expect(v.status, NativeStatus.unknown, reason: key);
+          expect(v.reason, contains("Appstein can't name or evaluate"));
+        }
+        // Found plainly elsewhere still wins.
+        writeProjectFiles(app, {
+          'android/build.gradle.kts':
+              'plugins {\n  id("com.android.application") version "8.1.0"\n}\n',
+        });
+        expect(read(app).node, isA<NativeGroup>());
+        expect(value(read(app), ['settings', 'agp']).value, '8.1.0');
+      });
+
+      test('a classpath that is not a string is unknown, not absent', () {
+        writeProjectFiles(app, {
+          'android/build.gradle.kts':
+              'buildscript { dependencies { classpath(libs.agp) } }\n',
+        });
+        expect(
+          value(read(app), ['settings', 'agp']).status,
+          NativeStatus.unknown,
+        );
+      });
+
+      test('a version in a call chain is never "declared without a version"', () {
+        writeProjectFiles(app, {
+          'android/settings.gradle.kts':
+              'plugins {\n  id("com.android.application").version("8.1.0")\n}\n',
+        });
+        final agp = value(read(app), ['settings', 'agp']);
+        expect(agp.status, NativeStatus.unknown);
+        expect(agp.at, 'android/settings.gradle.kts:2');
+      });
+
+      test('flavors made with calls, and old names in flavors', () {
+        gradle(
+          'android {\n'
+          '  productFlavors {\n'
+          '    create("free")\n'
+          '    register("paid")\n'
+          '    create("dev") { minSdkVersion(26); targetSdkVersion(30) }\n'
+          '  }\n'
+          '}\n',
+        );
+        final flavors =
+            NativeConfig({
+                  'android': read(app).node,
+                }).lookup(['android', 'app', 'flavors'])!.toJson()
+                as List<Object?>;
+        final byName = {
+          for (final f in flavors.cast<Map<String, Object?>>())
+            f['name']! as String: f,
+        };
+        expect(byName.keys, containsAll(['free', 'paid', 'dev']));
+        expect(byName['free'], {
+          'name': 'free',
+          'at': 'android/app/build.gradle.kts:3',
+        });
+        final dev = byName['dev']!;
+        expect(
+          (dev['minSdk']! as Map)['reason'],
+          'set with the old name `minSdkVersion` (line 5)',
+        );
+        expect((dev['targetSdk']! as Map)['status'], 'unknown');
+      });
+
+      test(
+        'flavors and signing configs the reader can not name are unknown',
+        () {
+          for (final body in [
+            'if (ci) { create("ci") {} }',
+            'val staging by creating { }',
+            'create("qa").apply { }',
+            'if (ci) { create("ci") }',
+          ]) {
+            gradle('android { productFlavors { $body } }\n');
+            final v = value(read(app), ['app', 'flavors']);
+            expect(v.status, NativeStatus.unknown, reason: body);
+            expect(
+              v.reason,
+              contains("in a way Appstein doesn't follow"),
+              reason: body,
+            );
+          }
+          gradle('android { productFlavors { create(name) } }\n');
+          expect(
+            value(read(app), ['app', 'flavors']).reason,
+            'a flavor is created with a computed name',
+          );
+          gradle(
+            'afterEvaluate { android { productFlavors { create("x") {} } } }\n',
+          );
+          expect(
+            value(read(app), ['app', 'flavors']).status,
+            NativeStatus.unknown,
+          );
+          gradle('android { signingConfigs { if (ci) { create("r") {} } } }\n');
+          expect(
+            value(read(app), ['app', 'signingConfigs']).status,
+            NativeStatus.unknown,
+          );
+        },
+      );
+
+      test('a value set where the reader can not place it is unknown', () {
+        gradle(
+          'android { }\n'
+          'tasks.withType<KotlinCompile>().configureEach {\n'
+          '  kotlinOptions { jvmTarget = "17" }\n'
+          '}\n',
+        );
+        final jvm = value(read(app), ['app', 'kotlinJvmTarget']);
+        expect(jvm.status, NativeStatus.unknown);
+        expect(jvm.reason, startsWith("set where Appstein doesn't follow"));
+        expect(jvm.at, 'android/app/build.gradle.kts:3');
+        gradle(
+          'android { defaultConfig { } }\n'
+          'project.afterEvaluate { android.defaultConfig.apply { minSdk = 30 } }\n',
+        );
+        expect(
+          value(read(app), ['app', 'minSdk']).status,
+          NativeStatus.unknown,
+        );
+        // A flavor's own minSdk is not defaultConfig's.
+        gradle('android { productFlavors { create("a") { minSdk = 26 } } }\n');
+        expect(value(read(app), ['app', 'minSdk']).status, NativeStatus.absent);
+      });
+    });
   });
 }

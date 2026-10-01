@@ -184,6 +184,12 @@ NativeValue _setting(
   }
   final found = script.assignmentsTo(path);
   if (found.isEmpty) {
+    if (_setElsewhere(script, path) case final line?) {
+      return NativeValue.unknown(
+        "set where Appstein doesn't follow (line $line)",
+        at: file.kts.at(line),
+      );
+    }
     return NativeValue.absent(
       absent ?? '`${path.last}` is not set in ${file.kts.path}',
     );
@@ -213,6 +219,29 @@ NativeValue _setting(
   return convert(assignment.value, at);
 }
 
+/// The 1-based line of the first assignment or call in [script] that sets
+/// [path]'s key somewhere the reader can't place at [path] itself (inside
+/// `tasks.withType<…>().configureEach { }`, a scope function, a different
+/// wrapper block), or null when there is none. It matches the key and the
+/// block just above it, so a flavor's own `minSdk` isn't taken for
+/// `defaultConfig`'s. Used so a value is never reported `absent` when it
+/// may be set in a place Appstein doesn't follow.
+int? _setElsewhere(KtsScript script, List<String> path) {
+  bool matches(List<String> full) {
+    if (full.isEmpty || full.last != path.last) return false;
+    if (full.length == 1 || path.length == 1) return true;
+    return full[full.length - 2] == path[path.length - 2];
+  }
+
+  final lines = [
+    for (final assignment in script.assignments)
+      if (matches(assignment.plainPath)) assignment.line,
+    for (final call in script.calls)
+      if (matches([...call.plainPath, call.name])) call.line,
+  ]..sort();
+  return lines.isEmpty ? null : lines.first;
+}
+
 NativeValue _buildLanguage(List<_GradleFile> files) {
   final languages = {for (final file in files) ?file.language};
   if (languages.isEmpty) {
@@ -239,22 +268,27 @@ NativeValue _pluginVersion(
     }
   }
   final found = <({KtsValue? version, String at, bool conditional})>[];
+  // Declarations Appstein can't name (`alias(…)`, `id(someVal)`).
+  final unnamed = <({String what, String at})>[];
   for (final file in [settings, rootBuild]) {
     final script = file.script;
     if (script == null) continue;
-    for (final call in [
-      ...script.callsTo(['plugins'], 'id'),
-      ...script.callsTo(['plugins'], 'kotlin'),
-    ]) {
+    for (final call in script.calls) {
+      if (call.plainPath.isEmpty || call.plainPath.last != 'plugins') continue;
+      final at = file.kts.at(call.line);
       final called = switch ((call.name, call.argument)) {
         ('id', KtsString(:final value)) => value,
         ('kotlin', KtsString(:final value)) => 'org.jetbrains.kotlin.$value',
         _ => null,
       };
+      if (called == null) {
+        unnamed.add((what: '${call.name}(${call.arguments})', at: at));
+        continue;
+      }
       if (called != id) continue;
       found.add((
         version: call.infix['version'],
-        at: file.kts.at(call.line),
+        at: at,
         conditional: call.conditional || !ktsPathIs(call.path, ['plugins']),
       ));
     }
@@ -264,13 +298,19 @@ NativeValue _pluginVersion(
       'buildscript',
       'dependencies',
     ], 'classpath')) {
-      if (!call.arguments.contains(prefix)) continue;
+      final at = file.kts.at(call.line);
       final argument = call.argument;
+      if (!call.arguments.contains(prefix)) {
+        if (argument is! KtsString) {
+          unnamed.add((what: 'classpath(${call.arguments})', at: at));
+        }
+        continue;
+      }
       found.add((
         version: argument is KtsString && argument.value.startsWith(prefix)
             ? KtsString(argument.value.substring(prefix.length), argument.text)
             : KtsComputed(call.arguments),
-        at: file.kts.at(call.line),
+        at: at,
         conditional:
             call.conditional ||
             !ktsPathIs(call.path, ['buildscript', 'dependencies']),
@@ -278,6 +318,13 @@ NativeValue _pluginVersion(
     }
   }
   if (found.isEmpty) {
+    if (unnamed.isNotEmpty) {
+      return NativeValue.unknown(
+        'declared with `${unnamed.first.what}`, a plugin or dependency '
+        "Appstein can't name or evaluate",
+        at: unnamed.first.at,
+      );
+    }
     return const NativeValue.absent(
       'not declared in android/settings.gradle.kts or '
       'android/build.gradle.kts',
@@ -295,7 +342,13 @@ NativeValue _pluginVersion(
   }
   return switch (only.version) {
     KtsString(:final value) => NativeValue.found(value, at: only.at),
-    null => NativeValue.absent('declared without a version', at: only.at),
+    // The reader doesn't see a `.version("…")` call chain, so a declaration
+    // with no plain `version "…"` is never reported as having none.
+    null => NativeValue.unknown(
+      'declared without a plain `version "…"` (a `.version(…)` call chain '
+      "isn't read)",
+      at: only.at,
+    ),
     final other => _computed(other, only.at),
   };
 }
@@ -460,6 +513,14 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
       if (script.assignmentsTo(path).isNotEmpty) path,
   ];
   if (set.isEmpty) {
+    for (final path in paths) {
+      if (_setElsewhere(script, path) case final line?) {
+        return NativeValue.unknown(
+          "set where Appstein doesn't follow (line $line)",
+          at: app.kts.at(line),
+        );
+      }
+    }
     return NativeValue.absent('no Kotlin jvmTarget in ${app.kts.path}');
   }
   if (set.length > 1) {
@@ -487,6 +548,15 @@ NativeValue _appliedPlugins(_GradleFile app) {
     for (final call in app.script!.calls)
       if (ktsPathIs(call.plainPath, ['plugins'])) call,
   ];
+  for (final call in app.script!.calls) {
+    if (call.name == 'apply') {
+      return NativeValue.unknown(
+        'a plugin is applied with `apply(${call.arguments})`, which '
+        "Appstein doesn't evaluate",
+        at: app.kts.at(call.line),
+      );
+    }
+  }
   if (calls.isEmpty) {
     return NativeValue.absent('no plugin is applied in ${app.kts.path}');
   }
@@ -513,70 +583,103 @@ NativeValue _appliedPlugins(_GradleFile app) {
   return NativeValue.found(ids, at: app.kts.at(calls.first.line));
 }
 
-NativeValue _signingConfigs(_GradleFile app) {
+/// The entries of the Gradle container at [parent] (`signingConfigs`,
+/// `productFlavors`), each with the first line it appears on: from
+/// `create("x") { }` blocks and from `create("x")`, `register("x")`,
+/// `getByName("x")`… calls. Or the unknown value when something is declared
+/// there that Appstein can't name, or doesn't follow (a computed name, an
+/// `if`, a lambda, `afterEvaluate { }`, `val x by creating`).
+({Map<String, int>? entries, NativeValue? unknown}) _containerEntries(
+  _GradleFile app,
+  List<String> parent,
+  String what,
+) {
   final script = app.script!;
-  const parent = ['android', 'signingConfigs'];
-  final names = <String>{};
-  final lines = <int>[];
+  final entries = <String, int>{};
+  final generic =
+      '$what is declared in a way Appstein '
+      "doesn't follow (`if`, lambda, `afterEvaluate { }`, `val x by creating`)";
+  final computed = '$what is created with a computed name';
+  NativeValue unknown(String reason, int line) =>
+      NativeValue.unknown(reason, at: app.kts.at(line));
+  bool computedCall(KtsCall call) =>
+      _containerCalls.contains(call.name) &&
+      ktsPathIs(call.path, parent) &&
+      call.argument is! KtsString;
   for (final block in script.blocksIn(parent)) {
     if (block.path.last == ktsOpaque) {
-      return NativeValue.unknown(
-        'a signing config is created with a computed name',
-        at: app.kts.at(block.line),
+      // The reader can't tell `create(name) { }` from an `if { }` body.
+      return (
+        entries: null,
+        unknown: unknown('$computed, or $generic', block.line),
       );
     }
-    names.add(block.path.last);
-    lines.add(block.line);
+    entries.update(
+      block.path.last,
+      (line) => line < block.line ? line : block.line,
+      ifAbsent: () => block.line,
+    );
   }
-  for (final call in script.calls) {
-    if (!ktsPathIs(call.path, parent) || !_containerCalls.contains(call.name)) {
-      continue;
-    }
-    final argument = call.argument;
-    if (argument is! KtsString) {
-      return NativeValue.unknown(
-        'a signing config is created with a computed name',
-        at: app.kts.at(call.line),
+  for (final name in _containerCalls) {
+    for (final call in script.callsTo(parent, name)) {
+      final argument = call.argument;
+      if (!ktsPathIs(call.path, parent) || argument is! KtsString) {
+        return (
+          entries: null,
+          unknown: unknown(computedCall(call) ? computed : generic, call.line),
+        );
+      }
+      entries.update(
+        argument.value,
+        (line) => line < call.line ? line : call.line,
+        ifAbsent: () => call.line,
       );
     }
-    names.add(argument.value);
-    lines.add(call.line);
   }
-  if (names.isEmpty) {
+  return (entries: entries, unknown: null);
+}
+
+NativeValue _signingConfigs(_GradleFile app) {
+  final result = _containerEntries(app, const [
+    'android',
+    'signingConfigs',
+  ], 'a signing config');
+  if (result.unknown case final unknown?) return unknown;
+  final entries = result.entries!;
+  if (entries.isEmpty) {
     return NativeValue.absent('no signing configs in ${app.kts.path}');
   }
-  lines.sort();
-  return NativeValue.found(names.toList()..sort(), at: app.kts.at(lines.first));
+  return NativeValue.found(
+    entries.keys.toList()..sort(),
+    at: app.kts.at(entries.values.reduce((a, b) => a < b ? a : b)),
+  );
 }
 
 NativeNode _flavors(_GradleFile app, _Convert text, _Convert number) {
   const parent = ['android', 'productFlavors'];
-  final firstLines = <String, int>{};
-  for (final block in app.script!.blocksIn(parent)) {
-    if (block.path.last == ktsOpaque) {
-      return NativeValue.unknown(
-        'a flavor is created with a computed name',
-        at: app.kts.at(block.line),
-      );
-    }
-    firstLines.putIfAbsent(block.path.last, () => block.line);
-  }
-  final keys = <String, _Convert>{
-    'applicationId': text,
-    'applicationIdSuffix': text,
-    'versionNameSuffix': text,
-    'dimension': text,
-    'versionName': text,
-    'minSdk': number,
-    'targetSdk': number,
-    'versionCode': number,
+  final result = _containerEntries(app, parent, 'a flavor');
+  if (result.unknown case final unknown?) return unknown;
+  final keys = <String, ({_Convert convert, List<String> oldNames})>{
+    'applicationId': (convert: text, oldNames: const []),
+    'applicationIdSuffix': (convert: text, oldNames: const []),
+    'versionNameSuffix': (convert: text, oldNames: const []),
+    'dimension': (convert: text, oldNames: const []),
+    'versionName': (convert: text, oldNames: const []),
+    'minSdk': (convert: number, oldNames: const ['minSdkVersion']),
+    'targetSdk': (convert: number, oldNames: const ['targetSdkVersion']),
+    'versionCode': (convert: number, oldNames: const []),
   };
   return NativeList([
-    for (final MapEntry(key: name, value: line) in firstLines.entries)
+    for (final MapEntry(key: name, value: line) in result.entries!.entries)
       NativeEntry(name, {
-        for (final MapEntry(key: key, value: convert) in keys.entries)
-          if (_setting(app, [...parent, name, key], convert) case final value
-              when value.status != NativeStatus.absent)
+        for (final MapEntry(key: key, value: spec) in keys.entries)
+          if (_setting(
+                app,
+                [...parent, name, key],
+                spec.convert,
+                oldNames: spec.oldNames,
+              )
+              case final value when value.status != NativeStatus.absent)
             key: value,
       }, at: app.kts.at(line)),
   ]);
@@ -679,6 +782,22 @@ final class _FlutterValues {
     );
   }
 
+  /// Why `pubspec.yaml` can't give [name] its value (missing, unreadable,
+  /// not UTF-8, not a YAML map), or null when it can be read. Never a
+  /// default: Flutter's defaults apply only to a pubspec that was read.
+  NativeValue? _pubspecProblem(String name) {
+    if (loadPubspec(pubspec) != null) return null;
+    final why = !pubspec.exists
+        ? "doesn't exist"
+        : pubspec.error != null
+        ? 'could not be read: ${pubspec.error}'
+        : 'could not be read: not a valid YAML map';
+    return NativeValue.unknown(
+      'pubspec.yaml $why (needed for `$name`)',
+      at: pubspec.path,
+    );
+  }
+
   /// `pubspec.yaml`'s `version:` as Flutter reads it
   /// (`FlutterManifest.appVersion`): null when missing or not a valid
   /// version.
@@ -710,6 +829,9 @@ final class _FlutterValues {
   /// (`validatedBuildNumberForPlatform`); without one, Flutter's Gradle
   /// plugin uses 1 (`FlutterPlugin.kt`).
   NativeValue _versionCode(String at) {
+    if (_pubspecProblem('flutter.versionCode') case final problem?) {
+      return problem;
+    }
     final read = _version();
     final version = read.version;
     if (version == null || !version.contains('+')) {
@@ -734,6 +856,9 @@ final class _FlutterValues {
   /// The part before `+`; without a valid version, Flutter's Gradle plugin
   /// uses `1.0` (`FlutterPlugin.kt`).
   NativeValue _versionName(String at) {
+    if (_pubspecProblem('flutter.versionName') case final problem?) {
+      return problem;
+    }
     final read = _version();
     final version = read.version;
     if (version == null) {
