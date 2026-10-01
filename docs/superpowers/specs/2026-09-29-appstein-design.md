@@ -326,7 +326,7 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
   - **view models:** the classes in its `view_models/` that extend `ChangeNotifier`, directly or through other classes;
   - **screens:** the widgets in its `widgets/` that routes build. Without routes, no widget is called a screen; screens are never guessed from names;
   - **repositories and services:** the types its view models' constructors take, sorted by the layer of the file that declares each type;
-  - **models:** the public classes in `domain` files that the feature's files import;
+  - **models:** the public classes in `domain` files that the feature's files import, except use cases (`lib/domain/use_cases/`);
   - **tests and files:** its tests under `test/ui/<feature>/`, and all of its files.
 - **Symbols:** public top-level classes, mixins, enums, extensions, extension types, typedefs and functions in `lib/`. Each has its file, line, layer, feature and **summary**: the first sentence of the first paragraph of its `///` doc comment, if it has one. The summary feeds the human docs (§6.9) and gives `where_is` results a one-line description.
 - **Routes:** `GoRoute(path:, builder:/pageBuilder:)` entries reachable from every `GoRouter(...)` in `lib/`.

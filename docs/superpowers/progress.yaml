@@ -70,6 +70,7 @@ milestones:
             title: Project map (Dart code)
             summary: "The map of the user's Dart code through `official_mvvm`: features, symbols with doc-comment summaries, routes, layers and dependencies, from the resolved AST; `sync` runs `flutter pub get` when Flutter would."
             status: next
+            plan: 2026-10-01-slice-1b3-project-map.md
           - id: 1b.4
             title: Native config map
             summary: "`native.json` from the platform packs: Android Gradle and manifest settings, iOS plist, build settings, Podfile and SwiftPM state, each value with where it was found."
