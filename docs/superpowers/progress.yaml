@@ -79,6 +79,7 @@ milestones:
             title: Version delta
             summary: "`delta.md`: every deprecated or removed API the project's imports expose, from the deprecations and `fix_data` of the SDKs and packages, plus the curated notes since the baseline."
             status: next
+            plan: 2026-10-01-slice-1b5-version-delta.md
           - id: 1b.4
             title: Native config map
             summary: "`native.json` from the platform packs: Android Gradle and manifest settings, iOS plist, build settings, Podfile and SwiftPM state, each value with where it was found."
