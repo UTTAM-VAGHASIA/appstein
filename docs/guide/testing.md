@@ -61,6 +61,20 @@ Fakes can only answer the way we expect Flutter to. Some tests therefore run aga
 - **In-process runs.** `runAppstein` takes output sinks, an environment, a runner and the doctor's checks as parameters. `runner_test.dart` passes `StringBuffer`s, an environment with no variables and made-up checks, then checks the text and the returned code. An extra command that throws on purpose tests the crash path.
 - **The async crash path.** `runGuarded` changes the process's own exit code, and it exists to catch an error that escapes every future. That can't be tested inside the test runner's process. So `run_guarded_test.dart` starts [`async_error_harness.dart`](../../packages/appstein_cli/test/support/async_error_harness.dart) as a separate Dart process. The harness throws from a timer, outside the awaited future, and the test expects exit code 3 and the crash message on stderr.
 
+## Flutter's own files as fixtures
+
+`packages/appstein_engine/test/fixtures/flutter_sdk/<version>/` holds Flutter's toolchain files for 3.44.9 and 3.47.5, each ending in `.fixture`. [`flutter_fixtures.dart`](../../packages/appstein_engine/test/support/flutter_fixtures.dart) reads them (`fixtureText`) or copies them into a fake SDK under their real names (`addToolchainFiles`). Tests that need CRLF files convert the text in the test, because the repo stores everything with LF. See [toolchain](toolchain.md#tests-and-fixtures).
+
+## A second process, for locks
+
+`knowledge_lock_test.dart` starts [`lock_holder.dart`](../../packages/appstein_engine/test/knowledge/support/lock_holder.dart) as a separate `dart` process, the way `process_runner_test.dart` starts `timeout_harness.dart`. POSIX file locks belong to a process, so two handles in one test process can't stand for two writers. The holder exits without unlocking, to prove a crashed writer never leaves the lock stuck.
+
+Two details about helper processes:
+- **Finding the helper.** The lock tests locate `lock_holder.dart` with `Isolate.resolvePackageUri`, not a path relative to the working folder. `process_runner_test.dart` changes `Directory.current`, which is process-wide, while test files run concurrently, so a relative path could point at the wrong place.
+- **Keep helpers small.** A helper process imports only the engine files it uses (`timeout_harness.dart` and `lock_holder.dart` do). Importing all of `appstein_engine` pulls in `package:analyzer`, which adds seconds of JIT start-up. It once broke `process_runner_test.dart`'s 8 s budget.
+
+The CLI tests build their own minimal Flutter SDK with [`fake_flutter_sdk.dart`](../../packages/appstein_cli/test/support/fake_flutter_sdk.dart), because a package's tests can't import another package's test support.
+
 ## Lint tests
 
 The rule's tests use `package:analyzer_testing` with `package:test_reflective_loader`, the setup the Dart team uses for analyzer rules:

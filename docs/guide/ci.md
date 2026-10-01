@@ -116,6 +116,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 - **Compile:** `dart compile exe` builds the AOT binary on each OS. Agent hooks will start this binary, not `dart run` ([spec §19.5](../superpowers/specs/2026-09-29-appstein-design.md#195-distribution-and-versioning): "Hooks use the compiled executable").
 - **Start-up budget:** [`tool/startup_check.dart`](../../tool/startup_check.dart) runs `appstein --version` seven times and fails if the median is over 200 ms (spec §15). A hook that starts slowly slows down every agent action.
 - **Run doctor (report only):** the binary runs `doctor` for real. Exit 0 or 1 is fine, because a CI runner may be missing tools such as the Android SDK. Exit 3 or 255 means Appstein crashed, and the step fails.
+- **Run sync in a scratch project:** the binary runs `appstein sync`, and the step fails if any part of `toolchain.json` came from the notes. That proves the analyzer-based toolchain parser works in the AOT binary, not only under `dart run`.
 - The binaries are uploaded as build artifacts.
 
 ### docs
@@ -136,7 +137,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 
 - It uses `FLUTTER_MIN`, the oldest supported Flutter (3.44.x, spec §22 item 14).
 - **No `--enforce-lockfile`:** an older SDK may need older versions of some dependencies, and finding that out is the point of this job.
-- It runs `dart analyze --fatal-infos`, which also loads our analyzer plugin on the old SDK, and each package's unit tests.
+- It runs `dart analyze --fatal-infos`, which also loads our analyzer plugin on the old SDK, and each package's unit tests. It then runs `sync_real_environment_test.dart` against the real Flutter 3.44, which proves the toolchain parsers on the oldest supported SDK (spec §22 risk 6). See [toolchain](toolchain.md).
 
 ### measure
 

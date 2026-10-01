@@ -22,10 +22,11 @@ On Windows, everything works in PowerShell, including paths with spaces.
 | Folder | What it holds |
 |---|---|
 | `packages/appstein_protocol/` | Shared data models ([README](../../packages/appstein_protocol/README.md)) |
-| `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor ([README](../../packages/appstein_engine/README.md)) |
+| `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor, the knowledge store and `sync` ([README](../../packages/appstein_engine/README.md)) |
 | `packages/appstein_cli/` | The `appstein` command, a thin layer over the engine ([README](../../packages/appstein_cli/README.md)) |
 | `packages/appstein_lints/` | The analyzer plugin with our lint rules ([README](../../packages/appstein_lints/README.md)) |
-| `tool/` | Repo scripts: start-up check, analyze measurement, the guide check, the docs generator and the hooks installer |
+| `notes/` | The curated notes, compiled into Appstein ([knowledge-store](knowledge-store.md#the-curated-notes)) |
+| `tool/` | Repo scripts: start-up check, analyze measurement, the guide check, the docs generator, the hooks installer and the curated notes generator |
 | `docs/` | Spec, plans, research and this guide |
 
 The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces): one `pubspec.lock` and one `analysis_options.yaml` at the root. The packages may only depend on each other in one direction (spec §5.1), and the `layer_imports` rule enforces that. See [architecture](architecture.md).
@@ -38,6 +39,8 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [cli](cli.md) | How the `appstein` command starts, parses options, prints and exits |
 | [doctor](doctor.md) | How `appstein doctor` runs its checks, and what each one looks at |
 | [sdk-lookups](sdk-lookups.md) | How Appstein finds the Flutter SDK, the JDK and the Android SDK |
+| [knowledge-store](knowledge-store.md) | How `appstein sync` writes `.appstein/`: metadata, input hashes, the lock, and the curated notes |
+| [toolchain](toolchain.md) | How the native toolchain matrix is read from the Flutter SDK, and when it falls back to the notes |
 | [running-tools](running-tools.md) | How the engine reads the environment and runs external tools safely |
 | [config](config.md) | How `appstein.yaml` is loaded and validated |
 | [lints](lints.md) | How the analyzer plugin and the `layer_imports` rule work |
@@ -47,6 +50,7 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [debugging](debugging.md) | What to do when something goes wrong |
 | [How to: add a doctor check](how-to/add-a-doctor-check.md) | The steps to add a check to `appstein doctor` |
 | [How to: add a lint rule](how-to/add-a-lint-rule.md) | The steps to add a rule to the analyzer plugin |
+| [How to: add a curated note](how-to/add-a-curated-note.md) | The steps to add or change a curated note |
 | [How to: add a guide page](how-to/add-a-guide-page.md) | The steps to add a page to this guide |
 
 ## Build and run the CLI from source

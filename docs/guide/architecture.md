@@ -11,7 +11,7 @@ This is the overview. It shows the parts and how they connect, then points to th
 
 Appstein is currently:
 
-- a command line, `appstein`, with `--version` and one command, `doctor`;
+- a command line, `appstein`, with `--version` and two commands, `doctor` and `sync`;
 - an engine behind it, which holds all the logic;
 - shared data models;
 - an analyzer plugin with one lint rule, `layer_imports`.
@@ -34,7 +34,7 @@ An arrow means "depends on". Read from each package's `pubspec.yaml`; dev depend
 
 <!-- /generated:package-graph -->
 
-- **protocol** holds data only: `SdkInfo`, `AppsteinConfig` (with one class per section of `appstein.yaml`), `LayerRules`, `Severity` and the `protocolVersion` constant. It imports nothing that touches the machine. See [`appstein_protocol.dart`](../../packages/appstein_protocol/lib/appstein_protocol.dart).
+- **protocol** holds data only: `SdkInfo`, `AppsteinConfig` (with one class per section of `appstein.yaml`), `LayerRules`, `Severity` and the `protocolVersion` constant. It imports nothing that touches the machine. See [`appstein_protocol.dart`](../../packages/appstein_protocol/lib/appstein_protocol.dart). Since slice 1b.2 it also defines the `.appstein/` file formats (`KnowledgeMeta`, `KnowledgeState`, `SdkInfo` with notes coverage, `CuratedNote`, `Toolchain`), so the CLI, the future MCP server and the UIs read one format (spec §4 principle 4).
 - **engine** holds all behaviour. Environment variables and processes go through two small types in `packages/appstein_engine/lib/src/host/`:
   - `HostEnvironment` for environment variables, the PATH and the OS;
   - `ProcessRunner` for running tools.
@@ -77,6 +77,8 @@ flowchart TD
 11. `formatDoctorReport` turns the report into plain text. See [cli](cli.md).
 12. The exit code is `1` if any check found an error, and `0` otherwise. See [cli](cli.md).
 
+`appstein sync` follows the same shape: the CLI's `SyncCommand` calls the engine's `PlatformSync`, which uses SDK detection, `readToolchain` and `CuratedNotes`, and hands the results to `KnowledgeStore`, which writes the files in `.appstein/`. See [knowledge-store](knowledge-store.md).
+
 ## Where each part is explained
 
 | Engine folder | What it does | Guide page |
@@ -88,6 +90,9 @@ flowchart TD
 | `android/` | Finds the JDK Flutter uses and the Android SDK | [sdk-lookups](sdk-lookups.md) |
 | `doctor/` | The doctor and its checks | [doctor](doctor.md) |
 | `project/` | Finds the project folder | [doctor](doctor.md) |
+| `knowledge/` | The `.appstein/` store: canonical JSON, input hashes, the lock, `sync` | [knowledge-store](knowledge-store.md) |
+| `notes/` | The curated notes, parsed and compiled in | [knowledge-store](knowledge-store.md) |
+| `toolchain/` | Reads the native toolchain matrix from the Flutter SDK | [toolchain](toolchain.md) |
 
 Outside the engine:
 

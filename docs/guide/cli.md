@@ -24,6 +24,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`run_guarded.dart`](../../packages/appstein_cli/lib/src/run_guarded.dart) | `runGuarded`: crash safety and the process exit code |
 | [`runner.dart`](../../packages/appstein_cli/lib/src/runner.dart) | `runAppstein`, the command runner and `reportCrash` |
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
+| [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |
 | [`version.dart`](../../packages/appstein_cli/lib/src/version.dart) | `appsteinVersion` and `versionText` |
@@ -68,6 +69,10 @@ The runner defines two global options:
 - a summary line with the counts of errors and warnings, or `No problems found.`
 
 The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. Symbols such as ✓ or ✗ come out garbled on Windows consoles that use an older code page. ASCII reads correctly in any of them.
+
+## `appstein sync`
+
+[`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) finds the project (`--project` or the nearest `pubspec.yaml`), runs the engine's `PlatformSync` and prints `formatSyncReport`. That is one line for the SDK, one per file (`written` or `unchanged`), the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. Every failure it expects (no project, no SDK, the lock, a write) is an environment problem, so it prints a message and exits 3. How the files are written is in [knowledge-store](knowledge-store.md).
 
 ## Help text
 
