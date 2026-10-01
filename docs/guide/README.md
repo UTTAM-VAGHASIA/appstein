@@ -41,6 +41,7 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [sdk-lookups](sdk-lookups.md) | How Appstein finds the Flutter SDK, the JDK and the Android SDK |
 | [knowledge-store](knowledge-store.md) | How `appstein sync` writes `.appstein/`: metadata, input hashes, the lock, and the curated notes |
 | [project-map](project-map.md) | How `appstein sync` builds the project map: packages, symbols, layers, deps, and the official_mvvm pack's features and routes |
+| [version-delta](version-delta.md) | How `appstein sync` builds `delta.md`: the deprecations, removed and moved APIs the project can reach, and the curated notes |
 | [toolchain](toolchain.md) | How the native toolchain matrix is read from the Flutter SDK, and when it falls back to the notes |
 | [running-tools](running-tools.md) | How the engine reads the environment and runs external tools safely |
 | [config](config.md) | How `appstein.yaml` is loaded and validated |

@@ -76,8 +76,8 @@ The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. 
 [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) does four things:
 
 1. **Finds the project** (`--project` or the nearest `pubspec.yaml`).
-2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which stack pack the project uses. [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` into a list of packs: today `official_mvvm` gives `OfficialMvvmPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
-3. **Runs the engine's `KnowledgeSync`** with those packs. It writes the platform layer and the project map.
+2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which stack pack the project uses and the delta's baseline (`delta.baseline`). [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` into a list of packs: today `official_mvvm` gives `OfficialMvvmPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
+3. **Runs the engine's `KnowledgeSync`** with those packs and that baseline. It writes the platform layer, the version delta and the project map.
 4. **Prints `formatSyncReport`.**
 
 The report is one line for the SDK, one per file (`written` or `unchanged`, the map files included), then the lines about the packages and the map, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened:
@@ -97,6 +97,12 @@ Run `flutter pub get` in the project to see the whole error, then `appstein sync
 ```text
 Project map skipped: pubspec.lock is not valid YAML (line 4); run `flutter pub get`.
 Fix that, then run `appstein sync` again.
+```
+
+When the map was written but the version delta's API lists couldn't be collected, one more line says why (the sync still exits 0, and `delta.md` holds the notes only; see [version-delta](version-delta.md#how-sync-builds-it)):
+
+```text
+Version delta: deprecated and removed APIs are missing: the version delta couldn't be collected: <the first line of the error>.
 ```
 
 **Exit codes.**

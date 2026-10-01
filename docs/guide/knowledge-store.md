@@ -7,7 +7,7 @@ tool/src/notes_bundle.dart
 
 # The knowledge store and `appstein sync`
 
-`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. Slice 1b.3 added the **project map** of the app's Dart code, which has [its own page](project-map.md). Native config (1b.4), the version delta (`delta.md`, 1b.5), and `INDEX.md` and incremental sync (1b.6) come in later slices.
+`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. Slice 1b.3 added the **project map** of the app's Dart code, which has [its own page](project-map.md). Slice 1b.5 added the **version delta**, `delta.md`, which has [its own page](version-delta.md). Native config (1b.4), and `INDEX.md` and incremental sync (1b.6), come in later slices.
 
 ## What `sync` writes now
 
@@ -17,9 +17,10 @@ Every row is also rewritten when the file was hand-edited or damaged, because th
 |---|---|---|
 | `.appstein/platform/sdk.json` | Flutter, Dart, channel, the project's language version, the FVM pin, and how well the curated notes cover this SDK | the detected facts change, or the file was hand-edited or damaged |
 | `.appstein/platform/toolchain.json` | The native toolchain matrix (see [toolchain](toolchain.md)), the stores' build minimums, and the Android, iOS and tooling notes for this SDK | an SDK toolchain file, the notes or the Flutter version changes, or the file was hand-edited or damaged |
+| `.appstein/platform/delta.md` | The version delta: curated notes, then the deprecated, removed and moved APIs the project can reach (see [version-delta](version-delta.md)) | any map input, the notes, the baseline or the language version changes, or the file was hand-edited or damaged |
 | `.appstein/map/symbols.json`, `layers.json`, `deps.json` | The generic project map: public declarations, layers and imports, packages (see [project-map](project-map.md)) | any map input changes (a `.dart` file under `lib/`, `test/` or `testing/`, `pubspec.yaml`, `pubspec.lock`, `analysis_options.yaml`, the Flutter version, or a pack's id or version), or the file was hand-edited or damaged |
 | `.appstein/map/features.json`, `routes.json` | What the stack pack reads: features, screens and routes | the same inputs as the rows above, or the file was hand-edited or damaged |
-| `.appstein/state.json` | When `sync` last ran, and each generated file's input hash. When the map was skipped, it lists only the platform files | every sync |
+| `.appstein/state.json` | When `sync` last ran, and each generated file's input hash. When the map was skipped, it lists only the platform files and `delta.md` | every sync |
 | `.appstein/.lock` | Nothing: it exists to be locked | never |
 
 All of it is generated and meant to be git-ignored (spec §6.2). `integrate` (slice 1e) writes the `.gitignore` entries, so until then a project shows `.appstein/` as untracked.
@@ -31,13 +32,15 @@ flowchart LR
   cli["SyncCommand (CLI)"] --> run["KnowledgeSync.run"]
   run --> platform["PlatformSync.build:<br/>SDK, notes, toolchain"]
   run --> map["MapSync.build:<br/>packages, analysis, map"]
+  run --> delta["renderDelta:<br/>delta.md"]
   run --> store["KnowledgeStore.locked:<br/>writeAll"]
 ```
 
-1. [`KnowledgeSync.run`](../../packages/appstein_engine/lib/src/knowledge/knowledge_sync.dart) is what `appstein sync` calls. It first builds the platform layer, then the project map, and writes both under one lock.
+1. [`KnowledgeSync.run`](../../packages/appstein_engine/lib/src/knowledge/knowledge_sync.dart) is what `appstein sync` calls. It first builds the platform layer, then the project map, then the version delta, and writes all of them under one lock.
 2. [`PlatformSync.build`](../../packages/appstein_engine/lib/src/knowledge/platform_sync.dart) detects the Flutter SDK, with the same detection `appstein doctor` uses. No usable SDK is a `SyncException`, which the CLI prints with its fix before exiting 3. It reads the SDK facts, the notes coverage and the toolchain, and returns a `PlatformBuild`: the facts plus two `GeneratedFile`s (a path, a body and an input hash), not yet written. `PlatformSync.run` is the platform layer alone, without the map.
 3. [`MapSync.build`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns the map's `GeneratedFile`s, or none and a reason when the map is skipped. See [project-map](project-map.md#how-sync-builds-it).
-4. Under the lock, [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) writes each `GeneratedFile` with `writeGenerated`, then `state.json` last, listing exactly the files it was given. A reader that finds `state.json` can trust the files it names.
+4. [`renderDelta`](../../packages/appstein_engine/lib/src/delta/delta_document.dart) turns the curated notes and the map's delta facts into `delta.md`, a `GeneratedFile.markdown`. When the map was skipped, or collecting the facts failed, it holds only the notes and says why the rest is missing. See [version-delta](version-delta.md).
+5. Under the lock, [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) writes each `GeneratedFile` (JSON with `writeGenerated`, Markdown with `writeGeneratedMarkdown`), in the order: platform files, `delta.md`, map files, then `state.json` last, listing exactly the files it was given. A reader that finds `state.json` can trust the files it names.
 
 Everything is built **before** taking the lock. Parsing and analysis take seconds, and holding the lock only while writing keeps another writer's wait to milliseconds.
 
@@ -45,7 +48,9 @@ Everything is built **before** taking the lock. Parsing and analysis take second
 
 ## Three rules every generated file follows
 
-**Canonical JSON.** [`canonicalJson`](../../packages/appstein_engine/lib/src/knowledge/canonical_json.dart) sorts keys at every level, indents two spaces and ends with a newline. The same value always gives the same bytes, on every OS (spec §15).
+**Canonical JSON, or Markdown with front matter.** [`canonicalJson`](../../packages/appstein_engine/lib/src/knowledge/canonical_json.dart) sorts keys at every level, indents two spaces and ends with a newline. The same value always gives the same bytes, on every OS (spec §15).
+
+A Markdown file (`delta.md`) carries the same metadata in a front matter block, written by [`markdownWithFrontMatter`](../../packages/appstein_engine/lib/src/knowledge/markdown_front_matter.dart): `---`, one `key: value` line per field in key order, each value as JSON (valid YAML, and the quotes keep `generatedAt` a string), `---`, a blank line, then the text with `\n` line ends. `readFrontMatter` reads it back. `writeGeneratedMarkdown` follows the same rewrite-only-on-change rule.
 
 **Metadata and an input hash.** Every generated file has a `meta` key with `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and `inputHash` (spec §6.2).
 - [`inputHash`](../../packages/appstein_engine/lib/src/knowledge/input_hash.dart) is a SHA-256 over a sorted list of *named* inputs, such as `sdk:` plus a Flutter file's path, or `notes:3.47.yaml`, together with the Appstein and format versions.
