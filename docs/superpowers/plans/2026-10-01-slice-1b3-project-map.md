@@ -7191,3 +7191,64 @@ git commit -m "docs: the project map, the official_mvvm pack and the fixture app
   - `sync` rewrites that section when the pack changes, using `yaml_edit` so the user's comments survive.
 - **Unassigned:** reading go_router_builder's typed routes (today one unresolved entry).
 - **Still carried from 1b.2:** `notes_parser`'s TypeError on a `0.x` version; the deferred minors listed there; the Android toolchain findings and FVM edge cases from 1b.1.
+
+## Notes from execution
+
+Built subagent-driven in quick mode on 2026-10-01, with PR #8.
+
+- **How it ran:**
+  - Tasks 1 and 2 were batched.
+  - Each task's review ran alongside the next implementer when their files didn't overlap.
+  - Opus reviewed the risky tasks (3, 8 and 10) and the whole branch. Task 13's review was folded into the final review.
+  - The goldens were generated in Task 10 and checked against Tasks 5–9 by hand. They matched the real SDK unchanged in Task 12.
+- **Owner rulings:**
+  - Native config became its own slice.
+  - Sync runs `flutter pub get` the way Flutter does.
+  - Layer rules match Flutter, with an `interfaces` key.
+  - The spec edits were approved before the plan.
+  - P4 (use cases aren't feature models) was delegated to the controller and amended into §6.5.
+- **Controller rulings during execution:**
+  - **Routes tests (Task 8):** five of the fourteen unresolved reasons had no test in the plan, including the whole `StatefulShellRoute` error group. Tests were added for them, plus `pageBuilder` together with `builder`, a project class named `GoRoute`, and a `ShellRoute` under a `GoRoute`.
+  - **`null` arguments:** an explicit `null` argument counts as absent, as in go_router. `redirect: null` is no redirect, and `pageBuilder: null` no longer hides a working `builder:`.
+  - **A broken `pubspec.lock` or `pubspec.yaml` (Task 10):** a missing, unreadable, non-YAML or non-map file throws `DependenciesException`. The map is skipped with that reason and "run `flutter pub get`", and the old map files stay (P10).
+    - Before, a merge-conflicted lock, which is newer than `pubspec.yaml` and so "fresh", gave a `deps.json` claiming no packages.
+    - An unreadable folder while hashing the inputs is reported the same way.
+    - Tests now pin P10's second half (a failed fetch keeps the old map) and P9 (editing a `lib/` file changes every map file's `meta.inputHash`, and `state.json` agrees).
+  - **Final review:**
+    - `ProjectAnalysis` now skips only part files. Any other library the analyzer can't resolve, or one outside the project, skips the map with a reason instead of vanishing. This path has no test, because no real project reaches it.
+    - The map's input hash also covers the project's `analysis_options.yaml`, because its `exclude:` changes which files are in the map (P5, P9).
+    - Guide text that said the lint and `layers.json` disagree on conditional imports was wrong: both read the main URI.
+    - `PlatformSync.run` gets a doc note instead of `@visibleForTesting`, so there is no new dependency.
+  - **Deferred:** an unexpected exception in the map build (an analyzer bug, say) still aborts the whole sync, platform layer included. A catch-all needs its own design.
+- **Lessons:**
+  - **Plans' test lists need a coverage check against their own tables.** Task 8's reason table had 14 rows, but its tests pinned 9.
+  - **Ask the implementer what the code does at a seam the plan glossed over.** Asking where `flutterVersion` came from and what a malformed lock did surfaced the silent empty `deps.json`.
+  - **Flutter's `pub.dart` is stricter than it looks.** Equal timestamps count as stale, and invalid `workspace_ref.json` JSON crashes `flutter`; Appstein falls back instead.
+- **Verification:**
+  - **Windows development machine:** engine 403 (3 integration tests skipped by default), CLI 28, lints 19, protocol 48, repo tools 211. The real-SDK map test passed with go_router 18.0.2 fetched from pub.dev, matching the goldens.
+  - **Checks:** `analyze --fatal-infos`, format, `dependency_validator` and `check_guide` are all clean.
+  - **`appstein sync` by hand:** on a bare Dart package in a folder with a space, it wrote all five map files and both platform files, with `"fallbacks": []`.
+  - **`tool/measure_sync.dart`:** a full sync of a 200-file app took 9.5 s and 11.4 s on two runs, against 30 s. A first sync that also ran `flutter pub get` took 15 s to 33 s, depending on the network.
+- **Still to prove in CI:**
+  - the goldens on Linux and macOS;
+  - go_router 18 resolving on Flutter 3.44 in the min-sdk job (if it doesn't, relax the fixture's constraint);
+  - the build job's AOT sync writing `map/symbols.json` on all three OSes.
+- **Carried to later slices** (from the task and final reviews, beyond the list above):
+  - **1b.4:** duplicate extractor output paths become a `StateError` when a second pack arrives.
+  - **1b.6:**
+    - the linear scans in `FeaturesMap.featureOf` and `readFeatures`;
+    - the missing `checkPackages` tests (an unreadable file, a reference without `workspaceRoot`, a fetch in a workspace member);
+    - path-dependency sources in the input hash.
+  - **1c:** `fromJson` failure tests for every map file.
+  - **1d:** checking conditional imports' alternative URIs, in both the lint and `layers.json`.
+  - **1e:**
+    - validating an `interfaces` entry for a tag with no `allow` entry;
+    - the lint is silent in a user's app until 1e writes the `appstein_lints:` section.
+  - **Hooks slice:** a shorter `pub get` budget when offline at session start; an AOT cold measurement of sync.
+  - **Unassigned:**
+    - `docSummary` stops at "e.g.";
+    - repositories in generic constructor types (`List<FooRepository>`);
+    - a `routes:` list held in a variable;
+    - a failed fetch dropping the reason it fetched;
+    - `ast_values` unit tests;
+    - a shared case table for the two `isInterfaceLibrary` copies.
