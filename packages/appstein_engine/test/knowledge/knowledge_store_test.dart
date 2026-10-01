@@ -1,0 +1,172 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_protocol/appstein_protocol.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+
+import '../support/temp.dart';
+
+void main() {
+  late String project;
+  late File sdkJson;
+
+  setUp(() {
+    project = tempDir().path;
+    sdkJson = File(p.join(project, '.appstein', 'platform', 'sdk.json'));
+  });
+
+  KnowledgeStore storeAt(DateTime time) =>
+      KnowledgeStore(project, clock: () => time);
+
+  Future<bool> write(KnowledgeStore store, String hash) => store.writeGenerated(
+    'platform/sdk.json',
+    {'flutter': '3.47.5'},
+    inputHash: hash,
+    appsteinVersion: '0.1.0-dev',
+    sdkVersion: '3.47.5',
+  );
+
+  test('writes canonical JSON with its meta, creating folders', () async {
+    final wrote = await write(
+      storeAt(DateTime.utc(2026, 10, 1, 9, 30, 5)),
+      'h1',
+    );
+    expect(wrote, isTrue);
+    expect(
+      sdkJson.readAsStringSync(),
+      '{\n'
+      '  "flutter": "3.47.5",\n'
+      '  "meta": {\n'
+      '    "appsteinVersion": "0.1.0-dev",\n'
+      '    "formatVersion": 1,\n'
+      '    "generatedAt": "2026-10-01T09:30:05Z",\n'
+      '    "inputHash": "h1",\n'
+      '    "sdkVersion": "3.47.5"\n'
+      '  }\n'
+      '}\n',
+    );
+    expect(File('${sdkJson.path}.tmp').existsSync(), isFalse);
+  });
+
+  test('skips a file whose input hash is unchanged, so no byte changes '
+      '(spec §6.2)', () async {
+    await write(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+    final before = sdkJson.readAsStringSync();
+    final wrote = await write(storeAt(DateTime.utc(2026, 10, 2)), 'h1');
+    expect(wrote, isFalse);
+    expect(sdkJson.readAsStringSync(), before);
+  });
+
+  test('rewrites a file whose input hash changed', () async {
+    await write(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+    final wrote = await write(storeAt(DateTime.utc(2026, 10, 2)), 'h2');
+    expect(wrote, isTrue);
+    expect(sdkJson.readAsStringSync(), contains('"inputHash": "h2"'));
+    expect(sdkJson.readAsStringSync(), contains('2026-10-02T00:00:00Z'));
+  });
+
+  for (final damaged in ['not json', '[]', '{"flutter": 1}', '{"meta": 3}']) {
+    test('rewrites a damaged file: $damaged', () async {
+      sdkJson.parent.createSync(recursive: true);
+      sdkJson.writeAsStringSync(damaged);
+      expect(await write(storeAt(DateTime.utc(2026, 10, 1)), 'h1'), isTrue);
+      expect(sdkJson.readAsStringSync(), contains('"inputHash": "h1"'));
+    });
+  }
+
+  test('a body may not carry its own meta', () {
+    expect(
+      () => storeAt(DateTime.utc(2026)).writeGenerated(
+        'platform/sdk.json',
+        {'meta': 1},
+        inputHash: 'h',
+        appsteinVersion: 'v',
+        sdkVersion: 's',
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('writes state.json as canonical JSON', () async {
+    await storeAt(DateTime.utc(2026)).writeState(
+      const KnowledgeState(
+        formatVersion: 1,
+        appsteinVersion: '0.1.0-dev',
+        lastSync: '2026-10-01T00:00:00Z',
+        files: {'platform/sdk.json': 'h1'},
+      ),
+    );
+    expect(
+      File(p.join(project, '.appstein', 'state.json')).readAsStringSync(),
+      '{\n'
+      '  "appsteinVersion": "0.1.0-dev",\n'
+      '  "files": {\n'
+      '    "platform/sdk.json": "h1"\n'
+      '  },\n'
+      '  "formatVersion": 1,\n'
+      '  "lastSync": "2026-10-01T00:00:00Z"\n'
+      '}\n',
+    );
+  });
+
+  test('now() is the clock in the .appstein/ time format', () {
+    expect(
+      storeAt(DateTime.utc(2026, 10, 1, 9, 30, 5)).now(),
+      '2026-10-01T09:30:05Z',
+    );
+  });
+
+  test('locked() runs the action under the lock and releases it', () async {
+    final store = storeAt(DateTime.utc(2026));
+    expect(await store.locked(() async => 42), 42);
+    final lock = await KnowledgeLock.acquire(
+      store.folder,
+      timeout: const Duration(seconds: 1),
+    );
+    lock.release();
+  });
+
+  group('replaceFile', () {
+    test('replaces a file another handle has open once it is closed '
+        '(Windows refuses while it is open)', () async {
+      final target = File(p.join(project, 'target.json'))
+        ..writeAsStringSync('old');
+      final reader = target.openSync();
+      Timer(const Duration(milliseconds: 300), reader.closeSync);
+      await replaceFile(target.path, 'new');
+      expect(target.readAsStringSync(), 'new');
+    });
+
+    test('gives up after retryFor with a clear message', () async {
+      final target = File(p.join(project, 'target.json'))
+        ..writeAsStringSync('old');
+      final reader = target.openSync();
+      addTearDown(reader.closeSync);
+      await expectLater(
+        replaceFile(
+          target.path,
+          'new',
+          retryFor: const Duration(milliseconds: 100),
+        ),
+        throwsA(
+          isA<KnowledgeWriteException>().having(
+            (e) => e.toString(),
+            'message',
+            allOf(contains(target.path), contains('open')),
+          ),
+        ),
+      );
+      expect(File('${target.path}.tmp').existsSync(), isFalse);
+    }, testOn: 'windows');
+
+    test('reports a parent that is a file', () async {
+      File(p.join(project, 'blocker')).writeAsStringSync('');
+      await expectLater(
+        replaceFile(p.join(project, 'blocker', 'x.json'), '{}'),
+        throwsA(isA<KnowledgeWriteException>()),
+      );
+    });
+  });
+}
