@@ -29,6 +29,8 @@ export 'src/knowledge/knowledge_lock.dart';
 export 'src/knowledge/knowledge_store.dart';
 export 'src/knowledge/knowledge_write_exception.dart';
 export 'src/knowledge/platform_sync.dart';
+export 'src/map/interface_library.dart';
+export 'src/map/layers.dart';
 export 'src/map/map_extractor.dart';
 export 'src/map/project_analysis.dart';
 export 'src/map/project_packages.dart';
