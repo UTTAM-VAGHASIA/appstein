@@ -41,9 +41,11 @@ The list never reaches *newer* than the installed SDK: it is read from the user'
 - **The project's own libraries are left out, decided by URI.** A library is the project's own when its URI is `package:<the app's name>/…`, or a `file:` URI under the project folder. Where its files sit is not the test. A package inside the project folder (a path dependency, a project-local pub cache, or a `pub get` that went through `.fvm/flutter_sdk`) still counts as a package and is covered. A library reached by any other `file:` URI is skipped, so that no machine path reaches `delta.md`.
 - **Migrations:**
   - a migration counts when the project imports one of its libraries **directly**: the rule `dart fix` uses (`ElementMatcher` in the Dart SDK's analysis server);
-  - its element is then looked up: missing means `removed`;
-  - present and deprecated, or an old parameter that is deprecated, means the migration is attached to that deprecation line ("`dart fix` migrates it: …"). This holds even when the element was not reached by the walk, and the attachment never renames an entry;
-  - present but not deprecated means `changed`. The title says what changed, because the migration may touch no parameter at all.
+  - its element is then looked up in **every** library the migration lists, and its kind is matched loosely, as `dart fix` does: for a member, `constant`, `field`, `getter`, `method` and `setter` all match (Flutter's own file calls the getter `Color.opacity` a `method`); top-level kinds match the same way. Classes, constructors and the other kinds match exactly;
+  - no listed library has it: `removed`;
+  - only a listed library the project doesn't import has it: the migration is left out. It isn't removed, and the delta lists only what the imports expose; importing that library rebuilds the delta;
+  - the project's imports have it, deprecated or with a deprecated old parameter: the migration is attached to that deprecation line ("`dart fix` migrates it: …"). The attachment never renames an entry;
+  - the project's imports have it, not deprecated: `changed`. The title says what changed, because the migration may touch no parameter at all.
 
 Dart has seven kinds of deprecation (`dart:core`'s `Deprecated` constructors). The delta words each one:
 
