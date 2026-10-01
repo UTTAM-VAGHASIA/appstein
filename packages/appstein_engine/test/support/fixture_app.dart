@@ -113,6 +113,26 @@ void writeStubPackages(
   config.setLastModifiedSync(now);
 }
 
+/// Analyzes a new app in a temp folder whose `lib/main.dart` is [mainDart],
+/// with the `delta_kit` stand-in as its one package (see
+/// `fixtures/apps/stubs/delta_kit/`). The analysis is disposed when the
+/// test ends.
+Future<ProjectAnalysis> analyzeDeltaApp(String mainDart) async {
+  final work = tempDir().path;
+  copyFixtureTree(p.join(fixtureAppsDir, 'stubs'), p.join(work, 'stubs'));
+  final app = p.join(work, 'delta app');
+  File(p.join(app, 'pubspec.yaml'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync('name: delta_app\nenvironment:\n  sdk: ^3.12.0\n');
+  File(p.join(app, 'lib', 'main.dart'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(mainDart);
+  writeStubPackages(app, packages: const ['delta_kit']);
+  final analysis = await ProjectAnalysis.analyze(app, dartSdkPath: testDartSdk);
+  addTearDown(analysis.dispose);
+  return analysis;
+}
+
 /// The 1-based line of the first line of [file] (relative to [project],
 /// with `/`) that contains [text]. Tests use it instead of hard-coding line
 /// numbers.

@@ -1,0 +1,69 @@
+# Migrations for the version-delta tests, in Flutter's format.
+version: 1
+transforms:
+  - title: "Rename to 'NewBox'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      class: 'GoneBox'
+    changes:
+      - kind: 'rename'
+        newName: 'NewBox'
+
+  - title: "Rename to 'paint'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      method: 'render'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'rename'
+        newName: 'paint'
+
+  - title: "Migrate to 'NewBox'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      class: 'OldBox'
+    changes:
+      - kind: 'rename'
+        newName: 'NewBox'
+
+  - title: "Migrate 'width' to 'size'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      constructor: ''
+      inClass: 'NewBox'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'width'
+        newName: 'size'
+
+  - title: "Migrate from 'height'"
+    date: 2026-01-01
+    element:
+      uris: [ 'package:delta_kit/delta_kit.dart' ]
+      constructor: ''
+      inClass: 'NewBox'
+    oneOf:
+      - if: "height != ''"
+        changes:
+          - kind: 'removeParameter'
+            name: 'height'
+
+  - title: "Rename to 'Extra2'"
+    date: 2026-01-01
+    element:
+      uris: [ 'extra.dart' ]
+      class: 'Extra'
+    changes:
+      - kind: 'rename'
+        newName: 'Extra2'
+
+  - title: 'Migrate from delta_kit to delta_kit_v2.'
+    date: 2026-01-01
+    library: 'package:delta_kit/delta_kit.dart'
+    changes:
+      - kind: 'replacedBy'
+        newLibrary: 'package:delta_kit_v2/delta_kit_v2.dart'

@@ -1,0 +1,4 @@
+// A package made for the version-delta tests, not a stand-in for a real
+// one: one of each kind of deprecation, and migrations in lib/fix_data/.
+export 'src/boxes.dart';
+export 'src/panels.dart' show Panel;
