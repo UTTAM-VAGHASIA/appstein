@@ -143,4 +143,50 @@ appstein_lints:
       lint(0, 0, messageContainsAll: ['invalid']),
     ]);
   }
+
+  static const _interfaceLayers = '''
+appstein_lints:
+  layers:
+    ui: [lib/ui/**]
+    data: [lib/data/**]
+  allow:
+    ui: []
+  interfaces:
+    ui: [data]
+''';
+
+  Future<void> test_interfaceFileIsAllowed() async {
+    _options(_interfaceLayers);
+    newFile(
+      '$testPackageLibPath/data/api.dart',
+      'abstract class Api {}\nabstract interface class Other {}\n',
+    );
+    newFile(_ui, "import '../data/api.dart';\nApi? a;\n");
+    await assertNoDiagnosticsInFile(_ui);
+  }
+
+  Future<void> test_implementationFileIsNotAllowed() async {
+    _options(_interfaceLayers);
+    newFile(_ui, "import '../data/repo.dart';\nRepo? r;\n");
+    await assertDiagnosticsInFile(_ui, [
+      lint(7, 19, messageContainsAll: ["'ui' layer can't import"]),
+    ]);
+  }
+
+  Future<void> test_fileWithAConcreteClassIsNotAnInterface() async {
+    _options(_interfaceLayers);
+    newFile(
+      '$testPackageLibPath/data/mixed.dart',
+      'abstract class Api {}\nclass ApiImpl implements Api {}\n',
+    );
+    newFile(_ui, "import '../data/mixed.dart';\nApi? a;\n");
+    await assertDiagnosticsInFile(_ui, [lint(7, 20)]);
+  }
+
+  Future<void> test_fileWithNoClassesIsNotAnInterface() async {
+    _options(_interfaceLayers);
+    newFile('$testPackageLibPath/data/helpers.dart', 'int one() => 1;\n');
+    newFile(_ui, "import '../data/helpers.dart';\nint x = one();\n");
+    await assertDiagnosticsInFile(_ui, [lint(7, 22)]);
+  }
 }

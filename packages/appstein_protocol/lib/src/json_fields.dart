@@ -67,6 +67,41 @@ final class JsonFields {
     throw _wrong(key, 'an object of strings');
   }
 
+  /// The boolean at [key].
+  bool boolean(String key) => switch (json[key]) {
+    final bool value => value,
+    _ => throw _wrong(key, 'true or false'),
+  };
+
+  /// The integer at [key], or null when it is missing or null.
+  int? optionalInteger(String key) => switch (json[key]) {
+    null => null,
+    final int value => value,
+    _ => throw _wrong(key, 'an integer or null'),
+  };
+
+  /// The list of strings at [key].
+  List<String> strings(String key) {
+    final value = json[key];
+    if (value is List<Object?> && value.every((item) => item is String)) {
+      return value.cast<String>();
+    }
+    throw _wrong(key, 'a list of strings');
+  }
+
+  /// The object of objects at [key], by key.
+  Map<String, JsonFields> objectMap(String key) {
+    final value = json[key];
+    if (value is Map<String, Object?> &&
+        value.values.every((item) => item is Map<String, Object?>)) {
+      return {
+        for (final MapEntry(key: name, value: item) in value.entries)
+          name: JsonFields(file, item! as Map<String, Object?>),
+      };
+    }
+    throw _wrong(key, 'an object of objects');
+  }
+
   FormatException _wrong(String key, String expected) =>
       FormatException('$file: "$key" must be $expected.');
 }

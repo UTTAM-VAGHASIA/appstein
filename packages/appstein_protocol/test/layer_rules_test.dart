@@ -101,4 +101,78 @@ void main() {
   test('a non-map section is a FormatException', () {
     expect(() => LayerRules.fromJson(['ui']), throwsA(isA<FormatException>()));
   });
+
+  final withInterfaces = {
+    ...valid,
+    'interfaces': {
+      'ui': ['data.repository'],
+    },
+  };
+
+  test('a layer may import interface files of the tags under its '
+      'interfaces', () {
+    final rules = LayerRules.fromJson(withInterfaces);
+    expect(rules.mayImport('ui', 'data.repository'), isFalse);
+    expect(
+      rules.mayImport('ui', 'data.repository', interfaceOnly: true),
+      isTrue,
+    );
+    expect(
+      rules.mayImport('domain', 'data.repository', interfaceOnly: true),
+      isFalse,
+    );
+  });
+
+  test('describes what a layer may import', () {
+    final rules = LayerRules.fromJson(withInterfaces);
+    expect(
+      rules.describeAllowed('ui'),
+      'ui, domain, and the interfaces of data.repository',
+    );
+    expect(rules.describeAllowed('domain'), 'domain');
+    expect(rules.describeAllowed('data.repository'), 'any layer');
+  });
+
+  test('rejects an interfaces entry that names an undeclared tag', () {
+    expect(
+      () => LayerRules.fromJson({
+        ...valid,
+        'interfaces': {
+          'ui': ['nowhere'],
+        },
+      }),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          'interfaces: "ui" lists "nowhere", which is not declared under '
+              'layers.',
+        ),
+      ),
+    );
+  });
+
+  test('toJson leaves out an empty interfaces section', () {
+    expect(
+      LayerRules.fromJson(valid).toJson().containsKey('interfaces'),
+      isFalse,
+    );
+    expect(LayerRules.fromJson(withInterfaces).toJson()['interfaces'], {
+      'ui': ['data.repository'],
+    });
+  });
+
+  test('the unknown-key message lists interfaces', () {
+    expect(
+      () =>
+          LayerRules.fromJson(<String, Object?>{'layer': <String, Object?>{}}),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('Allowed: layers, allow, interfaces.'),
+        ),
+      ),
+    );
+  });
 }

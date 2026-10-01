@@ -1,24 +1,33 @@
 /// Which layer may import which, as declared by a stack pack (spec §9.6).
 ///
 /// It is written into a project's `analysis_options.yaml` as a top-level
-/// `appstein_lints:` section, and read by the `layer_imports` lint rule:
+/// `appstein_lints:` section and read by the `layer_imports` lint rule.
+/// `appstein sync` applies the same rules to `.appstein/map/layers.json`.
 ///
 /// ```yaml
 /// appstein_lints:
 ///   layers:          # tag: path globs, relative to analysis_options.yaml
 ///     ui: [lib/ui/**]
 ///     domain: [lib/domain/**]
+///     data.repository: [lib/data/repositories/**]
 ///   allow:           # tag: the other tags it may import
 ///     ui: [domain]
 ///     domain: []
+///   interfaces:      # tag: the tags whose interface files it may import
+///     ui: [data.repository]
 /// ```
 ///
 /// A file gets the first tag, in declaration order, whose globs match it. A
 /// layer may always import itself. A tag with no `allow` entry is
-/// unrestricted.
+/// unrestricted. An interface file is one whose classes are all abstract,
+/// such as a repository's interface; its implementation is not one.
 final class LayerRules {
   /// Creates layer rules. Prefer [LayerRules.fromJson], which validates.
-  const LayerRules({required this.layers, required this.allow});
+  const LayerRules({
+    required this.layers,
+    required this.allow,
+    this.interfaces = const {},
+  });
 
   /// Parses and validates an `appstein_lints:` section.
   ///
@@ -31,9 +40,10 @@ final class LayerRules {
       );
     }
     for (final key in json.keys) {
-      if (key != 'layers' && key != 'allow') {
+      if (key != 'layers' && key != 'allow' && key != 'interfaces') {
         throw FormatException(
-          'Unknown key "$key" in appstein_lints. Allowed: layers, allow.',
+          'Unknown key "$key" in appstein_lints. '
+          'Allowed: layers, allow, interfaces.',
         );
       }
     }
@@ -49,24 +59,38 @@ final class LayerRules {
         throw FormatException('Layer "$tag" needs at least one path glob.');
       }
     }
-    final allow = _stringListMap(json['allow'], 'allow');
-    for (final MapEntry(key: tag, value: targets) in allow.entries) {
+    return LayerRules(
+      layers: layers,
+      allow: _targets(json['allow'], 'allow', layers),
+      interfaces: _targets(json['interfaces'], 'interfaces', layers),
+    );
+  }
+
+  static final _tagPattern = RegExp(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$');
+
+  /// Reads an `allow`- or `interfaces`-shaped section: every key and every
+  /// listed tag must be declared under [layers].
+  static Map<String, List<String>> _targets(
+    Object? value,
+    String name,
+    Map<String, List<String>> layers,
+  ) {
+    final targets = _stringListMap(value, name);
+    for (final MapEntry(key: tag, value: listed) in targets.entries) {
       if (!layers.containsKey(tag)) {
-        throw FormatException('allow: "$tag" is not declared under layers.');
+        throw FormatException('$name: "$tag" is not declared under layers.');
       }
-      for (final target in targets) {
+      for (final target in listed) {
         if (!layers.containsKey(target)) {
           throw FormatException(
-            'allow: "$tag" lists "$target", which is '
+            '$name: "$tag" lists "$target", which is '
             'not declared under layers.',
           );
         }
       }
     }
-    return LayerRules(layers: layers, allow: allow);
+    return targets;
   }
-
-  static final _tagPattern = RegExp(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$');
 
   static Map<String, List<String>> _stringListMap(Object? value, String name) {
     if (value == null) return const {};
@@ -97,13 +121,37 @@ final class LayerRules {
   /// Layer tag → the other tags it may import.
   final Map<String, List<String>> allow;
 
-  /// Whether code in [fromTag] may import code in [toTag].
-  bool mayImport(String fromTag, String toTag) {
+  /// Layer tag → the tags whose interface files it may import, though it
+  /// may not import their other files.
+  final Map<String, List<String>> interfaces;
+
+  /// Whether code in [fromTag] may import a file in [toTag].
+  /// [interfaceOnly] says whether that file is an interface file (all of
+  /// its classes are abstract), which [interfaces] may allow.
+  bool mayImport(String fromTag, String toTag, {bool interfaceOnly = false}) {
     if (fromTag == toTag) return true;
     final allowed = allow[fromTag];
-    return allowed == null || allowed.contains(toTag);
+    if (allowed == null || allowed.contains(toTag)) return true;
+    return interfaceOnly && (interfaces[fromTag]?.contains(toTag) ?? false);
   }
 
-  /// The JSON form, which is also the YAML form.
-  Map<String, Object?> toJson() => {'layers': layers, 'allow': allow};
+  /// What [fromTag] may import, in words, for messages: "ui, domain, and
+  /// the interfaces of data.repository", or "any layer".
+  String describeAllowed(String fromTag) {
+    final allowed = allow[fromTag];
+    if (allowed == null) return 'any layer';
+    final tags = [fromTag, ...allowed].join(', ');
+    final viaInterfaces = interfaces[fromTag] ?? const [];
+    return viaInterfaces.isEmpty
+        ? tags
+        : '$tags, and the interfaces of ${viaInterfaces.join(', ')}';
+  }
+
+  /// The JSON form, which is also the YAML form. An empty [interfaces]
+  /// section is left out.
+  Map<String, Object?> toJson() => {
+    'layers': layers,
+    'allow': allow,
+    if (interfaces.isNotEmpty) 'interfaces': interfaces,
+  };
 }

@@ -1,13 +1,17 @@
-import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
 
+import 'layer_rules.dart';
+
 /// Gives files their layer tag using the globs in [LayerRules].
 ///
-/// Paths are relative to the folder of the `analysis_options.yaml` that
-/// declares the rules, and use `/` on every OS.
+/// The `layer_imports` lint and `appstein sync` (for `layers.json`) both
+/// use it, so a file gets the same tag in the editor and in the map. Paths
+/// are relative to the folder whose rules apply (the `analysis_options.yaml`
+/// folder for the lint, the project folder for sync), with `/` on every OS.
 final class LayerMatcher {
-  /// Creates a matcher for [rules].
+  /// Creates a matcher for [rules]. Throws a [FormatException] for an
+  /// invalid glob.
   LayerMatcher(this.rules)
     : _globs = {
         for (final MapEntry(key: tag, value: patterns) in rules.layers.entries)
