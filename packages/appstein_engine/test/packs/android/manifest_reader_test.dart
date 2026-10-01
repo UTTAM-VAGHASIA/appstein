@@ -55,15 +55,19 @@ void main() {
   test('broken XML is a ManifestFormatException with the line', () {
     expect(
       () => readManifest('<manifest>\n  <application>\n</manifest>\n'),
-      throwsA(isA<ManifestFormatException>()),
+      throwsA(isA<ManifestFormatException>().having((e) => e.line, 'line', 3)),
+    );
+    expect(
+      () => readManifest('<manifest>\n  <a>\n  </b>\n</manifest>\n'),
+      throwsA(isA<ManifestFormatException>().having((e) => e.line, 'line', 3)),
     );
     expect(
       () => readManifest('<manifest>\n  <application a="1>\n</manifest>\n'),
       throwsA(isA<ManifestFormatException>().having((e) => e.line, 'line', 2)),
     );
     expect(
-      () => readManifest('<resources/>\n'),
-      throwsA(isA<ManifestFormatException>()),
+      () => readManifest('\n<resources/>\n'),
+      throwsA(isA<ManifestFormatException>().having((e) => e.line, 'line', 2)),
     );
   });
 }

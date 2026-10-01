@@ -60,6 +60,45 @@ void main() {
     expect(entries['key with space']!.value, '1');
   });
 
+  test(r'\uXXXX escapes are decoded', () {
+    final entries = readProperties(
+      'u=\\u0041\\u00e9\n'
+      'k\\u0041=1\n',
+    );
+    expect(entries['u']!.value, 'Aé');
+    expect(entries['kA']!.value, '1');
+  });
+
+  test('an even number of trailing backslashes does not continue the line', () {
+    final entries = readProperties('a=x\\\\\nb=1\n');
+    expect(entries['a']!.value, r'x\');
+    expect(entries['b']!.value, '1');
+    expect(entries['b']!.line, 2);
+  });
+
+  test('an odd number of trailing backslashes continues the line', () {
+    final entries = readProperties('a=x\\\\\\\ny\nb=1\n');
+    expect(entries['a']!.value, r'x\y');
+    expect(entries['b']!.line, 3);
+  });
+
+  test(r'\t, \n and \: escapes', () {
+    final entries = readProperties(
+      'a=1\\t2\\n3\n'
+      'url=http\\://x\n'
+      'k\\:ey=v\n',
+    );
+    expect(entries['a']!.value, '1\t2\n3');
+    expect(entries['url']!.value, 'http://x');
+    expect(entries['k:ey']!.value, 'v');
+  });
+
+  test('# and ! comment lines are skipped, even indented', () {
+    final entries = readProperties('# a=1\n   ! b=2\nc=3\n');
+    expect(entries.keys, ['c']);
+    expect(entries['c']!.line, 3);
+  });
+
   test('a key set twice keeps its last value, as in Java', () {
     final entries = readProperties('a=1\nb=2\na=3\n');
     expect(entries['a']!.value, '3');
