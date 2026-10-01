@@ -1,0 +1,12 @@
+import 'package:flutter/widgets.dart';
+
+import '../../core/ui/app_button.dart';
+
+/// The app's settings.
+class SettingsScreen extends StatelessWidget {
+  /// Creates the screen.
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => const AppButton(label: 'Sign out');
+}

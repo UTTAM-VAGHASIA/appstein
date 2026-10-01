@@ -1,0 +1,5 @@
+/// The app's colours, as ARGB values.
+abstract final class AppColors {
+  /// The main colour.
+  static const primary = 0xFF00897B;
+}

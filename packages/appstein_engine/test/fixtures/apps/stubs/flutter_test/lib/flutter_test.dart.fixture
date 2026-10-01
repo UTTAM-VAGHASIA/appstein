@@ -1,0 +1,14 @@
+// A stand-in for package:flutter_test.
+abstract class WidgetTester {}
+
+typedef WidgetTesterCallback = Future<void> Function(WidgetTester tester);
+
+void testWidgets(String description, WidgetTesterCallback callback) {}
+
+void test(Object? description, dynamic Function() body) {}
+
+void expect(Object? actual, Object? matcher) {}
+
+const Object isNotNull = 'isNotNull';
+
+const Object isEmpty = 'isEmpty';

@@ -1,0 +1,32 @@
+export 'foundation.dart';
+
+import 'foundation.dart';
+
+abstract class BuildContext {}
+
+abstract class Widget {
+  const Widget({this.key});
+
+  final Key? key;
+}
+
+abstract class StatelessWidget extends Widget {
+  const StatelessWidget({super.key});
+
+  Widget build(BuildContext context);
+}
+
+class Text extends StatelessWidget {
+  const Text(this.data, {super.key});
+
+  final String data;
+
+  @override
+  Widget build(BuildContext context) => this;
+}
+
+abstract class Page<T> {
+  const Page({this.key});
+
+  final Key? key;
+}

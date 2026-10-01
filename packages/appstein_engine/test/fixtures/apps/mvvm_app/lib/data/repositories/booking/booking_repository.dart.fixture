@@ -1,0 +1,10 @@
+import '../../../domain/models/booking.dart';
+
+/// Reads and writes the user's bookings.
+abstract interface class BookingRepository {
+  /// The user's bookings, newest first.
+  Future<List<Booking>> getBookings();
+
+  /// Saves [booking].
+  Future<void> createBooking(Booking booking);
+}

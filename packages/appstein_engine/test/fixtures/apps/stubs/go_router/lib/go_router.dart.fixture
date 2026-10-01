@@ -1,0 +1,93 @@
+// A stand-in for package:go_router 18, with the constructors the fixture
+// app uses. Same names and parameters as the real package.
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+
+abstract class GoRouterState {}
+
+typedef GoRouterWidgetBuilder =
+    Widget Function(BuildContext context, GoRouterState state);
+typedef GoRouterPageBuilder =
+    Page<dynamic> Function(BuildContext context, GoRouterState state);
+typedef GoRouterRedirect =
+    FutureOr<String?> Function(BuildContext context, GoRouterState state);
+typedef ShellRouteBuilder =
+    Widget Function(BuildContext context, GoRouterState state, Widget child);
+typedef StatefulShellRouteBuilder =
+    Widget Function(
+      BuildContext context,
+      GoRouterState state,
+      StatefulNavigationShell navigationShell,
+    );
+
+abstract class RouteBase {
+  const RouteBase({this.routes = const []});
+
+  final List<RouteBase> routes;
+}
+
+class GoRoute extends RouteBase {
+  const GoRoute({
+    required this.path,
+    this.name,
+    this.builder,
+    this.pageBuilder,
+    this.redirect,
+    super.routes,
+  });
+
+  final String path;
+  final String? name;
+  final GoRouterWidgetBuilder? builder;
+  final GoRouterPageBuilder? pageBuilder;
+  final GoRouterRedirect? redirect;
+}
+
+class ShellRoute extends RouteBase {
+  const ShellRoute({this.builder, required super.routes});
+
+  final ShellRouteBuilder? builder;
+}
+
+class StatefulNavigationShell extends StatelessWidget {
+  const StatefulNavigationShell({super.key});
+
+  @override
+  Widget build(BuildContext context) => this;
+}
+
+class StatefulShellBranch {
+  const StatefulShellBranch({required this.routes});
+
+  final List<RouteBase> routes;
+}
+
+class StatefulShellRoute extends RouteBase {
+  const StatefulShellRoute.indexedStack({required this.branches, this.builder});
+
+  final List<StatefulShellBranch> branches;
+  final StatefulShellRouteBuilder? builder;
+}
+
+class NoTransitionPage<T> extends Page<T> {
+  const NoTransitionPage({required this.child, super.key});
+
+  final Widget child;
+}
+
+class RoutingConfig {
+  const RoutingConfig({required this.routes});
+
+  final List<RouteBase> routes;
+}
+
+class GoRouter {
+  GoRouter({
+    required List<RouteBase> routes,
+    String? initialLocation,
+    GoRouterRedirect? redirect,
+  });
+
+  GoRouter.routingConfig({required Object routingConfig});
+}

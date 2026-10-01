@@ -1,0 +1,5 @@
+/// Records what the user does in the app.
+abstract interface class AnalyticsService {
+  /// Records [event].
+  void record(String event);
+}

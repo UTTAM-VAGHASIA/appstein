@@ -1,0 +1,7 @@
+import 'package:flutter/foundation.dart';
+
+/// What every booking view model shares: a busy flag.
+abstract class BaseViewModel extends ChangeNotifier {
+  /// Whether the view model is waiting for data.
+  bool busy = false;
+}

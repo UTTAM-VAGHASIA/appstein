@@ -1,0 +1,15 @@
+name: fixture_app
+description: The app Appstein's project-map tests read.
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  go_router: ^18.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

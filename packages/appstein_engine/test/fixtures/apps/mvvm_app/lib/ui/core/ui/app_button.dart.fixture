@@ -1,0 +1,15 @@
+import 'package:flutter/widgets.dart';
+
+import '../themes/colors.dart';
+
+/// The app's button.
+class AppButton extends StatelessWidget {
+  /// Creates a button that shows [label].
+  const AppButton({super.key, required this.label});
+
+  /// The button's text.
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text('$label ${AppColors.primary}');
+}

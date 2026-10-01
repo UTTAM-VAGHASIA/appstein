@@ -1,0 +1,17 @@
+import 'package:fixture_app/domain/use_cases/booking_create_use_case.dart';
+import 'package:fixture_app/ui/booking/view_models/booking_viewmodel.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../testing/fakes/fake_booking_repository.dart';
+
+void main() {
+  test('books a trip', () async {
+    final repository = FakeBookingRepository();
+    final viewModel = BookingViewModel(
+      createBooking: BookingCreateUseCase(bookingRepository: repository),
+      bookingRepository: repository,
+    );
+    await viewModel.book('Lisbon');
+    expect(viewModel.booking, isNotNull);
+  });
+}
