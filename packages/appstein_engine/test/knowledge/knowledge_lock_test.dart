@@ -33,9 +33,23 @@ Future<Process> holdLock(String folder, int ms) async {
   final errors = StringBuffer();
   process.stderr.transform(utf8.decoder).listen(errors.write);
   addTearDown(() async {
-    process.kill();
-    // Wait for it to exit, so the temp folder it locked can be deleted.
-    await process.exitCode;
+    // Ask the holder to exit by closing its stdin, then wait, so the temp
+    // folder it locked can be deleted. Killing it is not enough on Windows:
+    // `dart` runs the script in a child dartvm process, which holds the
+    // lock, and the kill reports `dart` exited while that child still has
+    // the file open. On a normal exit the child ends first.
+    try {
+      await process.stdin.close();
+    } on Object {
+      // The holder already exited (its hold time ran out).
+    }
+    await process.exitCode.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        process.kill();
+        return process.exitCode;
+      },
+    );
   });
   try {
     await process.stdout

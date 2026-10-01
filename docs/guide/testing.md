@@ -69,7 +69,8 @@ Fakes can only answer the way we expect Flutter to. Some tests therefore run aga
 
 `knowledge_lock_test.dart` starts [`lock_holder.dart`](../../packages/appstein_engine/test/knowledge/support/lock_holder.dart) as a separate `dart` process, the way `process_runner_test.dart` starts `timeout_harness.dart`. POSIX file locks belong to a process, so two handles in one test process can't stand for two writers. The holder exits without unlocking, to prove a crashed writer never leaves the lock stuck.
 
-Two details about helper processes:
+Three details about helper processes:
+- **Stopping the holder.** Teardown closes the holder's stdin, and the holder exits by itself. It does not kill the holder. On Windows, `dart <script>` runs the script in a child `dartvm.exe`, and that child holds the lock. Killing `dart.exe` reports the exit while the child still has `.lock` open, so deleting the temp folder failed on CI ("being used by another process"). On a normal exit, the child ends first.
 - **Finding the helper.** The lock tests locate `lock_holder.dart` with `Isolate.resolvePackageUri`, not a path relative to the working folder. `process_runner_test.dart` changes `Directory.current`, which is process-wide, while test files run concurrently, so a relative path could point at the wrong place.
 - **Keep helpers small.** A helper process imports only the engine files it uses (`timeout_harness.dart` and `lock_holder.dart` do). Importing all of `appstein_engine` pulls in `package:analyzer`, which adds seconds of JIT start-up. It once broke `process_runner_test.dart`'s 8 s budget.
 
