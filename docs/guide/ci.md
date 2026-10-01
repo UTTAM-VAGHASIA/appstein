@@ -62,7 +62,8 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 4. Compile appstein
 5. Start-up budget (spec §15)
 6. Run doctor (report only)
-7. `actions/upload-artifact@v4`
+7. Run sync in a scratch project (the AOT binary reads the SDK)
+8. `actions/upload-artifact@v4`
 
 **`docs`** runs on `ubuntu-latest`:
 
@@ -80,6 +81,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 4. `dart pub get`
 5. Analyze, which also loads our analyzer plugin on the old SDK
 6. Unit tests
+7. Read the toolchain from this real SDK (spec §12, risk 6)
 
 **`measure`** runs on `ubuntu-latest`, `windows-latest`:
 

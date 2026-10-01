@@ -88,6 +88,7 @@ Global options:
 
 Available commands:
   doctor   Check your environment and explain how to fix problems.
+  sync     Regenerate the knowledge Appstein keeps in .appstein/.
 
 Run "appstein help <command>" for more information about a command.
 ```
@@ -97,6 +98,16 @@ $ appstein help doctor
 Check your environment and explain how to fix problems.
 
 Usage: appstein doctor [arguments]
+-h, --help    Print this usage information.
+
+Run "appstein help" to see global options.
+```
+
+```text
+$ appstein help sync
+Regenerate the knowledge Appstein keeps in .appstein/.
+
+Usage: appstein sync [arguments]
 -h, --help    Print this usage information.
 
 Run "appstein help" to see global options.
