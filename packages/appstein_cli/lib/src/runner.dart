@@ -6,6 +6,7 @@ import 'package:args/command_runner.dart';
 
 import 'doctor_command.dart';
 import 'exit_codes.dart';
+import 'sync_command.dart';
 import 'version.dart';
 
 /// Runs the `appstein` command line and returns the process exit code
@@ -31,16 +32,18 @@ Future<int> runAppstein(
   // Everything, including setup, runs inside the try, so no failure can
   // escape with the VM's own exit code.
   try {
+    final machine =
+        environment ?? (environmentFactory ?? HostEnvironment.current)();
     final runner = _AppsteinCommandRunner(output)
       ..addCommand(
         DoctorCommand(
           out: output,
-          environment:
-              environment ?? (environmentFactory ?? HostEnvironment.current)(),
+          environment: machine,
           processRunner: processRunner ?? const SystemProcessRunner(),
           checks: doctorChecks,
         ),
-      );
+      )
+      ..addCommand(SyncCommand(out: output, err: errors, environment: machine));
     extraCommands.forEach(runner.addCommand);
     return await runner.run(arguments) ?? ExitCodes.ok;
   } on UsageException catch (error) {
