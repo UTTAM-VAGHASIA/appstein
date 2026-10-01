@@ -42,5 +42,18 @@ let package = Package(
     final bare = readPodfile('platform :ios\n');
     expect(bare.line, 1);
     expect(bare.version, isNull);
+    expect(bare.isExpression, isFalse);
+  });
+
+  test('a Podfile version set by a Ruby expression is not "no version"', () {
+    for (final line in [
+      r'platform :ios, $iOSVersion',
+      "platform :ios, ENV['IOS_VER']",
+    ]) {
+      final facts = readPodfile('$line\n');
+      expect(facts.version, isNull, reason: line);
+      expect(facts.line, 1, reason: line);
+      expect(facts.isExpression, isTrue, reason: line);
+    }
   });
 }

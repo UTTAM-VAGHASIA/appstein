@@ -41,7 +41,11 @@ GeneratedPackageFacts readGeneratedPackage(String text) {
 /// What `native.json` records from a `Podfile`.
 final class PodfileFacts {
   /// Creates the facts.
-  const PodfileFacts({this.version, this.line});
+  const PodfileFacts({this.version, this.line, this.isExpression = false});
+
+  /// Whether the line has a version argument that is not a quoted literal,
+  /// such as `$iOSVersion`: the version is set by a Ruby expression.
+  final bool isExpression;
 
   /// The version of its `platform :ios, '…'` line; null when the line has
   /// none, or there is no such line.
@@ -54,12 +58,18 @@ final class PodfileFacts {
 /// Reads a `Podfile`'s `platform :ios` line. Commented lines don't count.
 PodfileFacts readPodfile(String text) {
   final platform = RegExp(
-    r'''^platform\s+:ios\b\s*(?:,\s*['"]([^'"]+)['"])?''',
+    r'''^platform\s+:ios\b\s*(?:(,)\s*(?:['"]([^'"]+)['"])?)?''',
   );
   final lines = text.split('\n');
   for (var i = 0; i < lines.length; i++) {
     final match = platform.firstMatch(lines[i].trim());
-    if (match != null) return PodfileFacts(version: match[1], line: i + 1);
+    if (match != null) {
+      return PodfileFacts(
+        version: match[2],
+        line: i + 1,
+        isExpression: match[1] != null && match[2] == null,
+      );
+    }
   }
   return const PodfileFacts();
 }

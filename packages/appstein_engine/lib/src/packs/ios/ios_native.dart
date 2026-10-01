@@ -51,20 +51,28 @@ NativeSection readIosNative(NativeContext context) {
   inputs['env:$swiftPackageManagerVariable'] = variable == null
       ? null
       : utf8.encode(variable);
-  return NativeSection(
-    NativeGroup({
-      'infoPlist': _infoPlist(read(_infoPlistPath)),
-      'xcode': _xcode(read(_pbxprojPath)),
-      'swiftPackageManager': NativeGroup({
-        'enabled': swiftPackageManagerEnabled(
-          pubspec: loadPubspec(pubspec),
+  final loaded = loadPubspec(pubspec);
+  // pubspec.yaml's `flutter: config:` decides first, so a pubspec that
+  // exists but can't be loaded leaves the decision unknown.
+  final enabled = pubspec.exists && loaded == null
+      ? const NativeValue.unknown(
+          "pubspec.yaml can't be read, and its `flutter: config:` decides "
+          'first',
+          at: 'pubspec.yaml',
+        )
+      : swiftPackageManagerEnabled(
+          pubspec: loaded,
           global: global,
           variable: variable,
           flutterVersion: context.flutterVersion,
           channel: context.channel,
-        ),
-      }),
-      'generatedPackage': _generatedPackage(read(_packagePath)),
+        );
+  return NativeSection(
+    NativeGroup({
+      'infoPlist': _infoPlist(read(_infoPlistPath)),
+      'xcode': _xcode(read(_pbxprojPath)),
+      'swiftPackageManager': NativeGroup({'enabled': enabled}),
+      'generatedPackage': _generatedPackage(read(_packagePath), enabled),
       'podfile': _podfile(read('ios/Podfile'), read('ios/Podfile.lock')),
     }),
     inputs,
@@ -147,8 +155,10 @@ NativeValue _sceneDelegate(PlistDict? scene, NativeFile file) {
   if (delegate is PlistString) {
     return NativeValue.found(delegate.value, at: file.at(delegate.line));
   }
-  return const NativeValue.absent(
-    'no UISceneDelegateClassName in the scene manifest',
+  return NativeValue.absent(
+    scene == null
+        ? 'no scene manifest in ${file.path}'
+        : 'no UISceneDelegateClassName in the scene manifest',
   );
 }
 
@@ -213,6 +223,13 @@ NativeNode _configurations(PlistDict root, NativeFile file) {
     return NativeValue.unknown(
       'project.pbxproj has no Runner target',
       at: file.path,
+    );
+  }
+  final runnerList = object(runner.first.entries['buildConfigurationList']);
+  if (runnerList?.entries['buildConfigurations'] is! PlistArray) {
+    return NativeValue.unknown(
+      'the Runner target has no build configuration list',
+      at: file.at(runner.first.line),
     );
   }
   final projectConfigurations = configurationsOf(project);
@@ -295,11 +312,13 @@ NativeValue _team(PlistDict target, PlistDict? project, NativeFile file) {
   );
 }
 
-NativeNode _generatedPackage(NativeFile file) {
+NativeNode _generatedPackage(NativeFile file, NativeValue enabled) {
   if (!file.exists) {
-    return const NativeValue.absent(
-      'not generated yet: `flutter pub get` writes it',
-    );
+    return NativeValue.absent(switch (enabled.value) {
+      true => 'not generated yet: `flutter pub get` writes it',
+      false => "SwiftPM is off, so Flutter doesn't generate it",
+      _ => '`flutter pub get` writes it when SwiftPM is on',
+    });
   }
   final text = file.text;
   if (text == null) return _unreadable(file);
@@ -333,6 +352,10 @@ NativeNode _podfile(NativeFile file, NativeFile lock) {
     'platform': switch ((facts.version, facts.line)) {
       (final version?, final line?) => NativeValue.found(
         version,
+        at: file.at(line),
+      ),
+      (null, final line?) when facts.isExpression => NativeValue.unknown(
+        'set by a Ruby expression',
         at: file.at(line),
       ),
       (null, final line?) => NativeValue.absent(

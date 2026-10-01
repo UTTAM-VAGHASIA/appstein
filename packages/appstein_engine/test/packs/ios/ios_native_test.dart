@@ -261,6 +261,89 @@ void main() {
       expect(jsonEncode(section.node.toJson()), isNot(contains('ABC123XYZ')));
     });
 
+    test('a Podfile version from a Ruby expression is unknown', () {
+      writeProjectFiles(app, {
+        'ios/Podfile':
+            r'platform :ios, $iOSVersion'
+            '\n',
+      });
+      expect(value(read(), ['podfile', 'platform']).toJson(), {
+        'status': 'unknown',
+        'reason': 'set by a Ruby expression',
+        'at': 'ios/Podfile:1',
+      });
+      writeProjectFiles(app, {'ios/Podfile': 'platform :ios\n'});
+      expect(
+        value(read(), ['podfile', 'platform']).status,
+        NativeStatus.absent,
+      );
+    });
+
+    test('an unreadable pubspec.yaml leaves SwiftPM unknown; a missing one '
+        'falls through', () {
+      writeProjectFiles(app, {
+        'ios/Runner/Info.plist': '<plist><dict/></plist>',
+        'pubspec.yaml': 'name: [broken\n',
+      });
+      expect(value(read(), ['swiftPackageManager', 'enabled']).toJson(), {
+        'status': 'unknown',
+        'reason':
+            "pubspec.yaml can't be read, and its `flutter: config:` decides "
+            'first',
+        'at': 'pubspec.yaml',
+      });
+      File(p.join(app, 'pubspec.yaml')).deleteSync();
+      expect(
+        value(read(), ['swiftPackageManager', 'enabled']).status,
+        NativeStatus.found,
+      );
+    });
+
+    test('the generated package reason follows the SwiftPM decision', () {
+      writeProjectFiles(app, {
+        'ios/Runner/Info.plist': '<plist><dict/></plist>',
+        'pubspec.yaml':
+            'name: other\nflutter:\n  config:\n    enable-swift-package-manager: false\n',
+      });
+      expect(
+        value(read(), ['generatedPackage']).reason,
+        "SwiftPM is off, so Flutter doesn't generate it",
+      );
+      writeProjectFiles(app, {'pubspec.yaml': 'name: [broken\n'});
+      expect(
+        value(read(), ['generatedPackage']).reason,
+        '`flutter pub get` writes it when SwiftPM is on',
+      );
+    });
+
+    test('no scene manifest at all says so', () {
+      writeProjectFiles(app, {
+        'ios/Runner/Info.plist': '<plist><dict/></plist>',
+      });
+      expect(
+        value(read(), ['infoPlist', 'sceneDelegate']).reason,
+        'no scene manifest in ios/Runner/Info.plist',
+      );
+    });
+
+    test('a Runner target with no build configuration list is unknown', () {
+      writeProjectFiles(app, {
+        'ios/Runner.xcodeproj/project.pbxproj': '''
+{
+	objects = {
+		T1 = { isa = PBXNativeTarget; name = Runner; buildConfigurationList = GONE; };
+		P = { isa = PBXProject; targets = ( T1, ); };
+	};
+	rootObject = P;
+}
+''',
+      });
+      expect(
+        value(read(), ['xcode', 'configurations']).reason,
+        'the Runner target has no build configuration list',
+      );
+    });
+
     test('a Podfile with its lock, and plugins in the generated package', () {
       writeProjectFiles(app, {
         'ios/Podfile': "platform :ios, '13.0'\n",
