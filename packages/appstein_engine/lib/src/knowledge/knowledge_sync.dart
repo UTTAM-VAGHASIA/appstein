@@ -17,8 +17,8 @@ import 'knowledge_store.dart';
 import 'platform_sync.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2): the platform layer,
-/// the version delta, the project map and the native config. All are built first, then written
-/// under one lock, with a `state.json` that lists them.
+/// the version delta, the project map and the native config. All are built
+/// first, then written under one lock, with a `state.json` that lists them.
 final class KnowledgeSync {
   /// Creates the sync. [packs] are the project's packs (the CLI chooses
   /// them from `appstein.yaml`), [notes] default to the compiled-in curated

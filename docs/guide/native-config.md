@@ -31,7 +31,7 @@ One section per platform pack: `android`, written by the `android` pack, and `io
 |---|---|---|
 | `infoPlist` | the bundle id, names, version strings, whether the app uses scenes and its scene delegate, and `usageDescriptions` (a list: the permission texts such as `NSCameraUsageDescription`) | `ios/Runner/Info.plist` |
 | `xcode` | `swiftPackageIntegrated`, and `configurations` (a list: `Debug`, `Profile`, `Release`), each with its bundle id, deployment target, Swift version and whether a development team is set | `ios/Runner.xcodeproj/project.pbxproj` |
-| `swiftPackageManager` | `enabled`: whether Flutter builds the plugins with Swift Package Manager (SwiftPM) | decided as Flutter decides it, see [below](#swiftpm-decided-as-flutter-decides) |
+| `swiftPackageManager` | `enabled`: Flutter's SwiftPM feature setting (Swift Package Manager). It is the setting, not a promise that the plugins build with SwiftPM: Flutter also needs Xcode 15 or later and an app that isn't an add-to-app module (`compatibleWithSwiftPackageManager` in Flutter's `xcode_project.dart`) | decided as Flutter decides it, see [below](#swiftpm-decided-as-flutter-decides) |
 | `generatedPackage` | `iosVersion` and the `plugins` that Flutter's generated package lists | `ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift` |
 | `podfile` | `platform` (the iOS version) and `lockPresent` (whether `Podfile.lock` exists) | `ios/Podfile`, `ios/Podfile.lock` |
 
@@ -77,7 +77,7 @@ Four examples, shortened from the real file ([`native.json.golden`](../../packag
 "android": { "status": "error", "errorType": "StateError" }      error: a whole section
 ```
 
-**Why `unknown` is never a guess.** An agent that is told `minSdk` is 21 will write code for 21. If Appstein guessed, and the real value was 26, the code would be wrong and nobody would know why. `unknown` with a reason ("set more than once (lines 12, 40)") sends the agent to the file, which is the right move. This is spec §6.5: never guess. So a value is `found` only when the file states it plainly, and everything else says what stopped Appstein. An `unknown` is also better than an `absent` when something might set the value somewhere Appstein doesn't look: it is `absent` only when nothing in the file could set it.
+**Why `unknown` is never a guess.** An agent that is told `minSdk` is 21 will write code for 21. If Appstein guessed, and the real value was 26, the code would be wrong and nobody would know why. `unknown` with a reason ("set more than once (lines 12, 40)") sends the agent to the file, which is the right move. This is spec §6.5: never guess. So a value is `found` only when the file states it plainly, and everything else says what stopped Appstein. An `unknown` is also better than an `absent` when something might set the value somewhere Appstein doesn't look: it is `absent` only when nothing in the file could set it. "Nothing could set it" means no assignment, call or block that the reader sees names the key. What it still misses is a key set through a variable receiver (`val dc = android.defaultConfig; dc.minSdk = 21`), because the reader doesn't follow variables.
 
 **Why the project's own names are list entries.** Flavors, permissions, usage descriptions and Xcode configurations are names the project chose. If they were JSON keys, a flavor named `status`, the key that marks a value, would break the file. So each is an entry of a list, `{"name": "dev", "at": "...", ...}`, sorted by name, and the parts of the entry sit next to its `name`. `NativeConfig.lookup(['android', 'app', 'flavors', 'dev', 'minSdk'])` still finds a part by path, with the entry's name as one step.
 
@@ -97,6 +97,8 @@ Instead, [`readKts`](../../packages/appstein_engine/lib/src/packs/android/kts_re
 - assignments (`=`, `+=`, `-=`), and call statements such as `id("x") version "1.0"`;
 - container entries, `create("dev") { }`, `register(...)`, `getByName(...)`, `named(...)` and `maybeCreate(...)`, which name a flavor or a signing config.
 
+A scope function's body (`defaultConfig.apply { }`) is read twice, as inside the receiver and as inside the outer block, because the reader can't tell a DSL receiver from a plain value. Only the outermost scope body is read twice; a scope function nested in another is read once, so the cost grows with the depth, not as 2 to the power of it.
+
 **What it does not follow.** The inside of an `if`, `when`, loop or `try`, a lambda passed to a call, a scope function (`apply`, `run`, `with`, `configure`, `let`, `also`) and a collection callback (`all`, `forEach`, `configureEach`, `withType`, `matching`, `filter`, ...) is still read, but under a path segment `?`. So a value set there is seen and reported as conditional. It is never missed, and never taken for a plain setting. A `?` in a path means "somewhere Appstein doesn't follow".
 
 **What becomes `unknown`:**
@@ -106,8 +108,8 @@ Instead, [`readKts`](../../packages/appstein_engine/lib/src/packs/android/kts_re
 | `minSdk = maxOf(flutter.minSdkVersion, 26)`, or any value that isn't a string, a number or a name | `computed in Gradle code: ...` |
 | the same key set twice | `set more than once (lines 12, 40)` |
 | a key set inside an `if`, a loop, a lambda or `afterEvaluate { }` | `set conditionally ...` |
-| a key set inside a scope function, a callback or a block such as `tasks.withType<...>().configureEach { }` that Appstein doesn't follow | `set where Appstein doesn't follow (line N)` |
-| the old forms: `minSdkVersion(21)`, `minSdkVersion = 21` | `set with the old name ...` |
+| a key set inside a scope function (also through `it` or `this`), a callback or a block such as `tasks.withType<...>().configureEach { }` that Appstein doesn't follow; or AGP's block form, `compileSdk { version = release(36) }`, `minSdk { ... }`, `targetSdk { ... }`; or an old setter such as `setNamespace("x")` | `set where Appstein doesn't follow (line N)` |
+| the old forms: `minSdkVersion(21)`, `minSdkVersion = 21`, `setMinSdkVersion(21)` | `set with the old name ...` |
 | a plugin declared with `alias(libs.plugins.x)`, a variable, or a version added with a `.version(...)` call chain | `declared with ...`, or `declared without a plain version` |
 | signing set by a flavor, or release signing that comes from `defaultConfig` with something Appstein can't read | `release sets no signing config, and flavors set their own ...` |
 | `jvmToolchain(17)` or `java { toolchain { } }` instead of `jvmTarget` | `set by jvmToolchain(...)`, `set by a Java toolchain` |
@@ -141,16 +143,16 @@ So `versionCode` and `versionName` say what the project's files say. The build m
 ## iOS files
 
 **Two property-list readers, because Xcode writes two formats.**
-- [`readXmlPlist`](../../packages/appstein_engine/lib/src/packs/ios/info_plist_reader.dart) reads `Info.plist`, which is XML. A binary property list, or XML that is broken, is `unknown` with the line, never a crash.
+- [`readXmlPlist`](../../packages/appstein_engine/lib/src/packs/ios/info_plist_reader.dart) reads `Info.plist`, which is XML. A binary property list, or XML that is broken, is `unknown` with the line, never a crash. As XML requires, `\r\n` and a lone `\r` become `\n` before reading, so a multi-line usage description is the same under any checkout.
 - [`readPbxproj`](../../packages/appstein_engine/lib/src/packs/ios/pbxproj_reader.dart) reads `project.pbxproj`, which is in the old "OpenStep" format, curly braces and semicolons, not XML. Xcode can read a JSON project, but never writes one, so Appstein doesn't read it.
 
 Both give the same [`PlistValue`](../../packages/appstein_engine/lib/src/packs/ios/plist_value.dart) tree, with each value's line, so every `at` is exact.
 
-**The Runner target, and settings inherited from the project.** An Xcode project holds settings at two levels: the Runner target's configuration (`Debug`, `Profile`, `Release`), and the project's configuration of the same name. A setting the target doesn't set comes from the project. So for each setting Appstein looks in the target first. If it isn't there, it takes the project's, and adds the note `set at project level`. If it is in neither, it is `unknown`: "may come from an .xcconfig file". A value with `$(...)` in it is kept as written, with the note `uses Xcode build variables`. The golden's `deploymentTarget: 15.0` is `set at project level`. A development team's ID is never recorded, only whether one is set (`developmentTeamSet`).
+**The Runner target, and settings inherited from the project.** An Xcode project holds settings at two levels: the Runner target's configuration (`Debug`, `Profile`, `Release`), and the project's configuration of the same name. A setting the target doesn't set comes from the project. So for each setting Appstein looks in the target first. If it isn't there, it takes the project's, and adds the note `set at project level`. Xcode ranks the Runner configuration's own `.xcconfig` file (its `baseConfigurationReference`, such as `Flutter/Release.xcconfig`) above the project's settings, so when the configuration has one, the note says `set at project level; the target's .xcconfig file can override it`. If the value is in neither level, it is `unknown`: "may come from an .xcconfig file". A value with `$(...)` in it is kept as written, with the note `uses Xcode build variables`; the same note goes on `Info.plist` values with `$(...)`, such as the bundle id and the scene delegate. The golden's `deploymentTarget: 15.0` is `set at project level`, with the `.xcconfig` note. A development team's ID is never recorded, only whether one is set (`developmentTeamSet`); a team that isn't a single value is `unknown`.
 
 **`Package.swift` exists on Windows too.** `flutter pub get` writes `ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift` when SwiftPM is on, on any OS. Appstein reads it from the files, so a Windows developer gets `generatedPackage` too. When it isn't there, `absent` says why: "not generated yet: `flutter pub get` writes it", or "SwiftPM is off, so Flutter doesn't generate it". Only the plugins' names are recorded. The file also holds their paths, which are machine paths, and those are never read.
 
-**There is usually no Podfile.** Flutter creates `ios/Podfile` only when a plugin needs CocoaPods, so a new app has none, and `podfile` is `absent` ("no ios/Podfile: Flutter creates one only when a plugin needs CocoaPods"). When there is one, `platform` is the version of its `platform :ios, '...'` line. A version written as a Ruby expression (`platform :ios, $iOSVersion`) is `unknown`: `set by a Ruby expression`. A commented-out line doesn't count. `Podfile.lock` is not read; only whether it exists is recorded.
+**There is usually no Podfile.** Flutter creates `ios/Podfile` only when a plugin needs CocoaPods, so a new app has none, and `podfile` is `absent` ("no ios/Podfile: Flutter creates one only when a plugin needs CocoaPods"). When there is one, `platform` is the version of its `platform :ios, '...'` line. The reader doesn't run Ruby, so a line it can't trust is `unknown` with the reason: a version written as a Ruby expression (`platform :ios, $iOSVersion`), an interpolated string (`"#{ver}"`), an `if` or `unless` modifier, a line inside an `if`, `unless`, `case`, `while`, `begin` or `do` block (it only counts those openers against `end`), or more than one `platform :ios` line (CocoaPods uses the last, so the first isn't reported). A commented-out line doesn't count. `Podfile.lock` is not read; only whether it exists is recorded.
 
 ## SwiftPM, decided as Flutter decides
 
@@ -216,6 +218,9 @@ So an edited `build.gradle.kts`, a changed `flutter config`, a new Flutter and a
 ## Known limits
 
 - **Values set only in `.xcconfig` files, or by Gradle code, are `unknown`.** Appstein never reads an `.xcconfig`, and never evaluates Gradle.
+- **A project-level Xcode value may be overridden** by the Runner target's own `.xcconfig` file, which Appstein doesn't read. The note says so.
+- **A Gradle key set through a variable** (`val dc = android.defaultConfig; dc.minSdk = 21`) isn't seen, so it can still read `absent`.
+- **Podfile blocks are only counted**, not understood: Ruby that decides at run time is `unknown` only when it uses a block opener or a modifier the reader knows.
 - **Build-time and machine-level changes are invisible.** `--build-number` and `--build-name`, a `~/.gradle/gradle.properties` override, and a stale `flutter.versionCode` in `local.properties` can change the real values. See [Flutter's own values](#flutters-own-values).
 - **A flavor created by a call is listed**, but only what its own block sets plainly is recorded.
 - **Groovy build files aren't read yet.** A future item (spec §18 M3).

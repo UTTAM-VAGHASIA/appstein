@@ -106,6 +106,7 @@ NativeNode _infoPlist(NativeFile file) {
     PlistString(:final value, :final line) => NativeValue.found(
       value,
       at: file.at(line),
+      note: _variablesNote(value),
     ),
     null => NativeValue.absent('no $key in ${file.path}'),
     final other => NativeValue.unknown(
@@ -135,6 +136,7 @@ NativeNode _infoPlist(NativeFile file) {
                 ? NativeValue.found(
                     description.value,
                     at: file.at(description.line),
+                    note: _variablesNote(description.value),
                   )
                 : NativeValue.unknown(
                     "isn't a string",
@@ -153,7 +155,11 @@ NativeValue _sceneDelegate(PlistDict? scene, NativeFile file) {
       : null;
   final delegate = first?.entries['UISceneDelegateClassName'];
   if (delegate is PlistString) {
-    return NativeValue.found(delegate.value, at: file.at(delegate.line));
+    return NativeValue.found(
+      delegate.value,
+      at: file.at(delegate.line),
+      note: _variablesNote(delegate.value),
+    );
   }
   return NativeValue.absent(
     scene == null
@@ -291,8 +297,8 @@ NativeValue _buildSetting(
     return NativeValue.unknown("$key isn't a single value", at: at);
   }
   final notes = [
-    if (inherited) 'set at project level',
-    if (value.value.contains(r'$(')) 'uses Xcode build variables',
+    ?(inherited ? _projectLevelNote(target) : null),
+    ?_variablesNote(value.value),
   ];
   return NativeValue.found(
     value.value,
@@ -301,14 +307,32 @@ NativeValue _buildSetting(
   );
 }
 
+/// The note for a value that comes from the project's build settings.
+/// Xcode ranks the Runner target's own `.xcconfig` file
+/// (`baseConfigurationReference`, such as `Flutter/Release.xcconfig`) above
+/// the project's settings, so when there is one, it may override the value.
+String _projectLevelNote(PlistDict target) =>
+    target.entries['baseConfigurationReference'] == null
+    ? 'set at project level'
+    : "set at project level; the target's .xcconfig file can override it";
+
+/// The note for a [value] that names Xcode build variables, such as
+/// `$(PRODUCT_BUNDLE_IDENTIFIER)`: the text isn't the final value.
+String? _variablesNote(String value) =>
+    value.contains(r'$(') ? 'uses Xcode build variables' : null;
+
 /// Whether a development team is set; the team's ID is never recorded.
 NativeValue _team(PlistDict target, PlistDict? project, NativeFile file) {
   final (:value, :inherited) = _lookup(target, project, 'DEVELOPMENT_TEAM');
   if (value == null) return _notInProject('DEVELOPMENT_TEAM', file);
+  final at = file.at(value.line);
+  if (value is! PlistString) {
+    return NativeValue.unknown("DEVELOPMENT_TEAM isn't a single value", at: at);
+  }
   return NativeValue.found(
-    value is PlistString && value.value.isNotEmpty,
-    at: file.at(value.line),
-    note: inherited ? 'set at project level' : null,
+    value.value.isNotEmpty,
+    at: at,
+    note: inherited ? _projectLevelNote(target) : null,
   );
 }
 
@@ -350,6 +374,10 @@ NativeNode _podfile(NativeFile file, NativeFile lock) {
   final facts = readPodfile(text);
   return NativeGroup({
     'platform': switch ((facts.version, facts.line)) {
+      (_, final line?) when facts.uncertain != null => NativeValue.unknown(
+        facts.uncertain!,
+        at: file.at(line),
+      ),
       (final version?, final line?) => NativeValue.found(
         version,
         at: file.at(line),

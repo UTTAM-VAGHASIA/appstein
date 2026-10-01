@@ -34,7 +34,6 @@ abstract interface class Pack {
   List<MapExtractor> get extractors;
 
   /// What it adds to `map/native.json` (spec §6.5); null for a stack pack.
-  /// Platform packs arrive in slice 1b.4.
   NativeExtractor? get nativeExtractor;
 
   /// The layer rules a stack pack declares (spec §9.6), or null.

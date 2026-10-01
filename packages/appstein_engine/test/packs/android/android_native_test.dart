@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:appstein_engine/src/native/native_extractor.dart';
 import 'package:appstein_engine/src/packs/android/android_native.dart';
+import 'package:appstein_engine/src/packs/android/kts_reader.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -767,6 +768,114 @@ android {
         final v = value(read(app), ['app', 'kotlinJvmTarget']);
         expect(v.status, NativeStatus.unknown);
         expect(v.reason, 'set by jvmToolchain(17) (line 1)');
+      });
+
+      test(
+        "AGP's block form of compileSdk, minSdk and targetSdk is unknown",
+        () {
+          gradle(
+            'android {\n'
+            '  compileSdk { version = release(36) }\n'
+            '  defaultConfig {\n'
+            '    minSdk { version = release(24) }\n'
+            '    targetSdk { version = release(36) }\n'
+            '  }\n'
+            '}\n',
+          );
+          final section = read(app);
+          final lines = {'compileSdk': 2, 'minSdk': 4, 'targetSdk': 5};
+          for (final MapEntry(key: key, value: line) in lines.entries) {
+            final v = value(section, ['app', key]);
+            expect(v.status, NativeStatus.unknown, reason: key);
+            expect(v.at, 'android/app/build.gradle.kts:$line', reason: key);
+          }
+          // A block of another key is not this key's.
+          gradle('android { defaultConfig { versionCode { } } }\n');
+          expect(
+            value(read(app), ['app', 'minSdk']).status,
+            NativeStatus.absent,
+          );
+        },
+      );
+
+      test(
+        "a flavor's block-form minSdk is that flavor's, not defaultConfig's",
+        () {
+          gradle(
+            'android { productFlavors { create("a") {\n'
+            '  minSdk { version = release(26) }\n'
+            '} } }\n',
+          );
+          final section = read(app);
+          expect(value(section, ['app', 'minSdk']).status, NativeStatus.absent);
+          final flavors = NativeConfig({
+            'android': section.node,
+          }).lookup(['android', 'app', 'flavors'])!.toJson();
+          expect(flavors, [
+            {
+              'name': 'a',
+              'at': 'android/app/build.gradle.kts:1',
+              'minSdk': {
+                'status': 'unknown',
+                'reason': "set where Appstein doesn't follow (line 2)",
+                'at': 'android/app/build.gradle.kts:2',
+              },
+            },
+          ]);
+        },
+      );
+
+      test(
+        'it and this are the receiver: a key set through them is unknown',
+        () {
+          for (final body in [
+            'android { defaultConfig.let { it.minSdk = 21 } }\n',
+            'android { defaultConfig.apply { this.minSdk = 21 } }\n',
+            'android { defaultConfig { this.minSdk = 21 } }\n',
+          ]) {
+            gradle(body);
+            expect(
+              value(read(app), ['app', 'minSdk']).status,
+              NativeStatus.unknown,
+              reason: body,
+            );
+          }
+        },
+      );
+
+      test('an old setter call sets its key', () {
+        gradle('android { defaultConfig { setMinSdkVersion(21) } }\n');
+        final v = value(read(app), ['app', 'minSdk']);
+        expect(v.status, NativeStatus.unknown);
+        expect(v.reason, 'set with the old name `minSdkVersion` (line 1)');
+        gradle('android { setNamespace("x") }\n');
+        final namespace = value(read(app), ['app', 'namespace']);
+        expect(namespace.status, NativeStatus.unknown);
+        expect(
+          namespace.reason,
+          startsWith("set where Appstein doesn't follow"),
+        );
+      });
+
+      test('deeply nested scope functions stay linear, lines listed once', () {
+        const depth = 20;
+        final text = StringBuffer('android {\n  defaultConfig {\n');
+        for (var i = 0; i < depth; i++) {
+          text.writeln('a$i.apply {');
+        }
+        text.writeln('minSdk = 1');
+        text.writeln('minSdk = 2');
+        text.writeln('}' * depth);
+        text.writeln('  }\n}');
+        final script = readKts(text.toString());
+        expect(script.assignments.length, lessThan(10));
+        gradle(text.toString());
+        final v = value(read(app), ['app', 'minSdk']);
+        expect(v.status, NativeStatus.unknown);
+        expect(
+          v.reason,
+          'set more than once (lines ${depth + 3}, ${depth + 4})',
+        );
       });
     });
   });

@@ -25,6 +25,15 @@ void main() {
         value(section, ['infoPlist', 'bundleIdentifier']).value,
         r'$(PRODUCT_BUNDLE_IDENTIFIER)',
       );
+      expect(
+        value(section, ['infoPlist', 'bundleIdentifier']).note,
+        'uses Xcode build variables',
+      );
+      expect(
+        value(section, ['infoPlist', 'sceneDelegate']).note,
+        'uses Xcode build variables',
+      );
+      expect(value(section, ['infoPlist', 'displayName']).note, isNull);
       expect(value(section, ['infoPlist', 'displayName']).value, 'Probe App');
       expect(value(section, ['infoPlist', 'bundleName']).value, 'probe_app');
       expect(value(section, ['infoPlist', 'sceneManifest']).value, isTrue);
@@ -69,7 +78,11 @@ void main() {
         'deploymentTarget',
       ]);
       expect(target.value, '15.0');
-      expect(target.note, 'set at project level');
+      // The Runner configurations have a baseConfigurationReference.
+      expect(
+        target.note,
+        "set at project level; the target's .xcconfig file can override it",
+      );
       expect(
         value(section, [
           'xcode',
@@ -259,6 +272,79 @@ void main() {
         'uses Xcode build variables',
       );
       expect(jsonEncode(section.node.toJson()), isNot(contains('ABC123XYZ')));
+    });
+
+    test('a project-level value without a target .xcconfig has the short note, '
+        'and a team that is not a string is unknown', () {
+      String project(String team) =>
+          '''
+{
+	objects = {
+		C1 = {
+			isa = XCBuildConfiguration;
+			buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = x; };
+			name = Debug;
+		};
+		PC = {
+			isa = XCBuildConfiguration;
+			buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 16.0; DEVELOPMENT_TEAM = $team; };
+			name = Debug;
+		};
+		L1 = { isa = XCConfigurationList; buildConfigurations = ( C1, ); };
+		PL = { isa = XCConfigurationList; buildConfigurations = ( PC, ); };
+		T1 = { isa = PBXNativeTarget; name = Runner; buildConfigurationList = L1; };
+		P = { isa = PBXProject; targets = ( T1, ); buildConfigurationList = PL; };
+	};
+	rootObject = P;
+}
+''';
+      writeProjectFiles(app, {
+        'ios/Runner.xcodeproj/project.pbxproj': project('ABC'),
+      });
+      final debug = ['xcode', 'configurations', 'Debug'];
+      expect(
+        value(read(), [...debug, 'deploymentTarget']).note,
+        'set at project level',
+      );
+      expect(value(read(), [...debug, 'developmentTeamSet']).value, isTrue);
+      writeProjectFiles(app, {
+        'ios/Runner.xcodeproj/project.pbxproj': project('( A, B )'),
+      });
+      final team = value(read(), [...debug, 'developmentTeamSet']);
+      expect(team.status, NativeStatus.unknown);
+      expect(team.reason, "DEVELOPMENT_TEAM isn't a single value");
+    });
+
+    test('Podfile platform lines the reader can not trust are unknown', () {
+      void expectUnknown(String podfile, Matcher reason, int line) {
+        writeProjectFiles(app, {'ios/Podfile': podfile});
+        final v = value(read(), ['podfile', 'platform']);
+        expect(v.status, NativeStatus.unknown, reason: podfile);
+        expect(v.reason, reason, reason: podfile);
+        expect(v.at, 'ios/Podfile:$line', reason: podfile);
+      }
+
+      expectUnknown('platform :ios, "#{ver}"\n', contains('interpolated'), 1);
+      expectUnknown(
+        "platform :ios, '13.0' if ENV['X']\n",
+        contains('modifier'),
+        1,
+      );
+      expectUnknown(
+        "if ENV['X']\n  platform :ios, '13.0'\nend\n",
+        contains('inside a Ruby block'),
+        2,
+      );
+      expectUnknown(
+        "platform :ios, '12.0'\nplatform :ios, '13.0'\n",
+        equals('set more than once (lines 1, 2)'),
+        1,
+      );
+      // A block that was closed before the platform line doesn't count.
+      writeProjectFiles(app, {
+        'ios/Podfile': "def helper\n  1\nend\nplatform :ios, '13.0'\n",
+      });
+      expect(value(read(), ['podfile', 'platform']).value, '13.0');
     });
 
     test('a Podfile version from a Ruby expression is unknown', () {

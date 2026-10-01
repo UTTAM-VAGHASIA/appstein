@@ -19,10 +19,14 @@ PlistDict readXmlPlist(String text) {
       "a binary property list, which Appstein doesn't read",
     );
   }
-  final builder = _PlistBuilder(text);
+  // XML turns `\r\n` and a lone `\r` into `\n` before anything else (XML 1.0
+  // §2.11), so a multi-line value reads the same under any checkout
+  // (spec §15). A `&#13;` reference is still a `\r`: it is decoded later.
+  final xml = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  final builder = _PlistBuilder(xml);
   try {
     for (final event in parseEvents(
-      text,
+      xml,
       withLocation: true,
       validateNesting: true,
       validateDocument: true,

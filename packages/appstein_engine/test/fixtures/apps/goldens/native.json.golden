@@ -206,6 +206,7 @@
     "infoPlist": {
       "bundleIdentifier": {
         "at": "ios/Runner/Info.plist:14",
+        "note": "uses Xcode build variables",
         "status": "found",
         "value": "$(PRODUCT_BUNDLE_IDENTIFIER)"
       },
@@ -216,6 +217,7 @@
       },
       "bundleVersion": {
         "at": "ios/Runner/Info.plist:26",
+        "note": "uses Xcode build variables",
         "status": "found",
         "value": "$(FLUTTER_BUILD_NUMBER)"
       },
@@ -226,6 +228,7 @@
       },
       "sceneDelegate": {
         "at": "ios/Runner/Info.plist:43",
+        "note": "uses Xcode build variables",
         "status": "found",
         "value": "$(PRODUCT_MODULE_NAME).SceneDelegate"
       },
@@ -236,6 +239,7 @@
       },
       "shortVersionString": {
         "at": "ios/Runner/Info.plist:22",
+        "note": "uses Xcode build variables",
         "status": "found",
         "value": "$(FLUTTER_BUILD_NAME)"
       },
@@ -264,7 +268,7 @@
           },
           "deploymentTarget": {
             "at": "ios/Runner.xcodeproj/project.pbxproj:490",
-            "note": "set at project level",
+            "note": "set at project level; the target's .xcconfig file can override it",
             "status": "found",
             "value": "15.0"
           },
@@ -289,7 +293,7 @@
           },
           "deploymentTarget": {
             "at": "ios/Runner.xcodeproj/project.pbxproj:363",
-            "note": "set at project level",
+            "note": "set at project level; the target's .xcconfig file can override it",
             "status": "found",
             "value": "15.0"
           },
@@ -314,7 +318,7 @@
           },
           "deploymentTarget": {
             "at": "ios/Runner.xcodeproj/project.pbxproj:542",
-            "note": "set at project level",
+            "note": "set at project level; the target's .xcconfig file can override it",
             "status": "found",
             "value": "15.0"
           },

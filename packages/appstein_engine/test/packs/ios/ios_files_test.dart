@@ -45,6 +45,37 @@ let package = Package(
     expect(bare.isExpression, isFalse);
   });
 
+  test('a platform line that is not plain is uncertain, never a version', () {
+    final cases = {
+      'platform :ios, "#{ver}"\n': 'interpolated',
+      "platform :ios, '13.0' if ENV['X']\n": 'modifier',
+      "platform :ios, '13.0' unless CI # why\n": 'modifier',
+      "platform :ios, '13.0' + suffix\n": 'expression',
+      "if ENV['X']\n  platform :ios, '13.0'\nend\n": 'Ruby block',
+      "unless ci\n  platform :ios, '13.0'\nend\n": 'Ruby block',
+      "case x\nwhen 1\n  platform :ios, '13.0'\nend\n": 'Ruby block',
+      "target 'Runner' do\n  platform :ios, '13.0'\nend\n": 'Ruby block',
+      "platform :ios, '12.0'\nplatform :ios, '13.0'\n":
+          'set more than once (lines 1, 2)',
+    };
+    for (final MapEntry(key: podfile, value: why) in cases.entries) {
+      final facts = readPodfile(podfile);
+      expect(facts.version, isNull, reason: podfile);
+      expect(facts.uncertain, contains(why), reason: podfile);
+      expect(facts.line, isNotNull, reason: podfile);
+    }
+  });
+
+  test('a closed block, a comment and a modifier-free line stay plain', () {
+    final facts = readPodfile(
+      "def helper\n  1\nend\nif x then y end\n"
+      "platform :ios, '13.0' # if you change this\n",
+    );
+    expect(facts.uncertain, isNull);
+    expect(facts.version, '13.0');
+    expect(facts.line, 5);
+  });
+
   test('a Podfile version set by a Ruby expression is not "no version"', () {
     for (final line in [
       r'platform :ios, $iOSVersion',

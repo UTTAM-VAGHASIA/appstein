@@ -81,6 +81,27 @@ void main() {
     });
   }
 
+  test('a multi-line string reads the same with CRLF, CR or LF endings', () {
+    String read(String newline) {
+      final text = [
+        '<plist><dict>',
+        '<key>NSCameraUsageDescription</key>',
+        '<string>first',
+        'second&#13;</string>',
+        '<key>After</key><string>x</string>',
+        '</dict></plist>',
+      ].join(newline);
+      final dict = readXmlPlist(text);
+      expect(dict.keyLines['After'], 5, reason: 'line numbers are unchanged');
+      return (dict.entries['NSCameraUsageDescription']! as PlistString).value;
+    }
+
+    // `&#13;` is a real carriage return; the line breaks are not.
+    expect(read('\n'), 'first\nsecond\r');
+    expect(read('\r\n'), 'first\nsecond\r');
+    expect(read('\r'), 'first\nsecond\r');
+  });
+
   test('what is not a readable property list is a PlistFormatException', () {
     for (final (text, message) in [
       ('bplist00\u0000\u0001', 'binary'),

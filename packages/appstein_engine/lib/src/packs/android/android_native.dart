@@ -170,11 +170,13 @@ NativeValue _setting(
   final script = file.script!;
   final parent = path.sublist(0, path.length - 1);
   for (final old in oldNames) {
-    final lines = [
+    final lines = <int>{
       for (final assignment in script.assignmentsTo([...parent, old]))
         assignment.line,
       for (final call in script.callsTo(parent, old)) call.line,
-    ]..sort();
+      // The old setter form: `setMinSdkVersion(21)`.
+      for (final call in script.callsTo(parent, _setter(old))) call.line,
+    }.toList()..sort();
     if (lines.isNotEmpty) {
       return NativeValue.unknown(
         'set with the old name `$old` (line ${lines.join(', ')})',
@@ -182,7 +184,13 @@ NativeValue _setting(
       );
     }
   }
-  final found = script.assignmentsTo(path);
+  // A body the reader reads twice (see `kts_reader.dart`) gives the same
+  // line twice: keep one assignment per line.
+  final seenLines = <int>{};
+  final found = [
+    for (final assignment in script.assignmentsTo(path))
+      if (seenLines.add(assignment.line)) assignment,
+  ];
   if (found.isEmpty) {
     if (_setElsewhere(script, path) case final line?) {
       return NativeValue.unknown(
@@ -219,26 +227,43 @@ NativeValue _setting(
   return convert(assignment.value, at);
 }
 
-/// The 1-based line of the first assignment or call in [script] that sets
-/// [path]'s key somewhere the reader can't place at [path] itself (inside
-/// `tasks.withType<…>().configureEach { }`, a scope function, a different
-/// wrapper block), or null when there is none. It matches the key and the
-/// block just above it, so a flavor's own `minSdk` isn't taken for
-/// `defaultConfig`'s. Used so a value is never reported `absent` when it
-/// may be set in a place Appstein doesn't follow.
+/// The old setter form of [name]: `minSdkVersion` is `setMinSdkVersion`.
+String _setter(String name) =>
+    'set${name[0].toUpperCase()}${name.substring(1)}';
+
+/// The property a setter call such as `setNamespace("x")` sets (`namespace`),
+/// or [name] itself when it isn't one.
+String _setterKey(String name) =>
+    name.length > 3 &&
+        name.startsWith('set') &&
+        name[3] == name[3].toUpperCase() &&
+        name[3] != name[3].toLowerCase()
+    ? '${name[3].toLowerCase()}${name.substring(4)}'
+    : name;
+
+/// The 1-based line of the first assignment, call or block in [script] that
+/// sets [path]'s key somewhere the reader can't place at [path] itself
+/// (inside `tasks.withType<…>().configureEach { }`, a scope function, a
+/// different wrapper block, AGP's `minSdk { version = release(24) }` block
+/// form, an old `setNamespace("x")` call), or null when there is none. It
+/// matches the key and the block just above it, so a flavor's own `minSdk`
+/// isn't taken for `defaultConfig`'s. Used so a value is never reported
+/// `absent` when it may be set in a place Appstein doesn't follow.
 int? _setElsewhere(KtsScript script, List<String> path) {
   // [raw] keeps the `?` segments (a body the reader can't place); a
   // conditional one also matches when the segment above the key is `?` or
   // any block of [path] (`getByName("release").apply { signingConfig = … }`).
+  // `it` and `this` are the receiver itself, so they are transparent.
   bool matches(List<String> raw) {
     final full = [
       for (final segment in raw)
-        if (segment != ktsOpaque) segment,
+        if (segment != ktsOpaque && segment != 'it' && segment != 'this')
+          segment,
     ];
     if (full.isEmpty || full.last != path.last) return false;
     if (full.length == 1 || path.length == 1) return true;
     if (full[full.length - 2] == path[path.length - 2]) return true;
-    if (raw.length < 2 || raw.length == full.length) return false;
+    if (raw.length < 2 || !raw.contains(ktsOpaque)) return false;
     // Conditional: the block that holds the key (ignoring `?`) must be one
     // of [path]'s, so a sibling block's own key isn't taken for this one's.
     return path.contains(full[full.length - 2]);
@@ -248,13 +273,17 @@ int? _setElsewhere(KtsScript script, List<String> path) {
     for (final assignment in script.assignments)
       if (matches(assignment.path)) assignment.line,
     for (final call in script.calls)
-      // `jvmTarget.set(x)` sets `jvmTarget`; any other call is its own name.
+      // `jvmTarget.set(x)` sets `jvmTarget`; `setNamespace(x)` sets
+      // `namespace`; any other call is its own name.
       if (matches(
         call.name == 'set' || call.name == 'assign'
             ? call.path
-            : [...call.path, call.name],
+            : [...call.path, _setterKey(call.name)],
       ))
         call.line,
+    // `compileSdk { version = release(36) }`.
+    for (final block in script.blocks)
+      if (matches(block.path)) block.line,
   ]..sort();
   return lines.isEmpty ? null : lines.first;
 }
@@ -594,19 +623,26 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
     const ['JvmTarget.', 'org.jetbrains.kotlin.gradle.dsl.JvmTarget.'],
   );
   // `jvmTarget = x` and `jvmTarget.set(x)` / `jvmTarget.assign(x)`.
-  final settings = <({List<String> path, int line, KtsCall? call, bool plain})>[
-    for (final path in paths) ...[
-      for (final assignment in script.assignmentsTo(path))
-        (path: path, line: assignment.line, call: null, plain: true),
-      for (final name in const ['set', 'assign'])
-        for (final call in script.callsTo(path, name))
-          (
-            path: path,
-            line: call.line,
-            call: call,
-            plain: ktsPathIs(call.path, path),
-          ),
-    ],
+  final everySetting =
+      <({List<String> path, int line, KtsCall? call, bool plain})>[
+        for (final path in paths) ...[
+          for (final assignment in script.assignmentsTo(path))
+            (path: path, line: assignment.line, call: null, plain: true),
+          for (final name in const ['set', 'assign'])
+            for (final call in script.callsTo(path, name))
+              (
+                path: path,
+                line: call.line,
+                call: call,
+                plain: ktsPathIs(call.path, path),
+              ),
+        ],
+      ];
+  // A body the reader reads twice gives the same line twice.
+  final seenLines = <int>{};
+  final settings = [
+    for (final setting in everySetting)
+      if (seenLines.add(setting.line)) setting,
   ];
   if (settings.isEmpty) {
     for (final call in script.calls) {

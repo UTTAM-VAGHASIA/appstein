@@ -575,6 +575,9 @@ final class _Parser {
   /// never DSL receivers.
   final _locals = <String>{};
   var _pos = 0;
+
+  /// How many scope-function bodies ([_scopeBody]) the parser is inside.
+  var _inScope = 0;
   final assignments = <KtsAssignment>[];
   final calls = <KtsCall>[];
   final blocks = <KtsBlock>[];
@@ -866,16 +869,21 @@ final class _Parser {
     List<String> inside,
     List<String> receiver,
   ) {
-    if (receiver.isEmpty || _locals.contains(receiver.first)) {
+    // Only the outermost scope body is read twice: every level reading its
+    // body twice would cost 2^depth. A nested one is read once, as inside
+    // the outer block, so its keys are still under a `?`.
+    if (receiver.isEmpty || _locals.contains(receiver.first) || _inScope > 0) {
       _opaqueBody(path, open);
       return;
     }
     final start = _pos;
+    _inScope++;
     _opaqueBody(path, open, inside: inside);
     final callCount = calls.length;
     _pos = start;
     _opaqueBody(path, open);
     calls.removeRange(callCount, calls.length);
+    _inScope--;
   }
 
   /// Consumes `( … )` and returns the tokens inside, without newlines. A

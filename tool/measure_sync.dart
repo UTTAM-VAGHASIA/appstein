@@ -37,6 +37,13 @@ Future<void> main() async {
       exitCode = 1;
       return;
     }
+    // The 30 s evidence must include the native work: a section that was
+    // absent or failed would make the timing cheaper than a real sync.
+    if (_nativeProblem(report) case final problem?) {
+      stderr.writeln('The first sync did not read native.json: $problem');
+      exitCode = 1;
+      return;
+    }
     Directory(p.join(app, '.appstein')).deleteSync(recursive: true);
     final full = Stopwatch()..start();
     final fullReport = await sync.run(app);
@@ -47,6 +54,14 @@ Future<void> main() async {
       exitCode = 1;
       return;
     }
+    if (_nativeProblem(fullReport) case final problem?) {
+      stderr.writeln('The timed sync did not read native.json: $problem');
+      exitCode = 1;
+      return;
+    }
+    final native = fullReport.native!.sections.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join(', ');
     final files = Directory(p.join(app, 'lib'))
         .listSync(recursive: true)
         .whereType<File>()
@@ -57,6 +72,8 @@ Future<void> main() async {
 |---|---|
 | First sync, including `flutter pub get` | ${first.elapsedMilliseconds} ms |
 | **Full sync with fresh packages (target under 30 s)** | **${full.elapsedMilliseconds} ms** |
+
+Native config in the timed sync (every section must be `read`): $native
 ''');
     if (full.elapsed >= const Duration(seconds: 30)) {
       stderr.writeln(
@@ -74,6 +91,19 @@ Future<void> main() async {
       );
     }
   }
+}
+
+/// Why [report] doesn't show every native section as `read`, or null when
+/// it does. A sync with no native report, no sections, or an `absent: …` or
+/// `internal error (…)` outcome measured less than a real one.
+String? _nativeProblem(SyncReport report) {
+  final sections = report.native?.sections;
+  if (sections == null || sections.isEmpty) return 'no native report';
+  final bad = [
+    for (final MapEntry(:key, :value) in sections.entries)
+      if (value != 'read') '$key is "$value"',
+  ];
+  return bad.isEmpty ? null : bad.join(', ');
 }
 
 /// Writes an official_mvvm app: [features] features with a view model and a
