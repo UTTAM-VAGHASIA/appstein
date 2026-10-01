@@ -211,6 +211,128 @@ String _dynamic() => '/dynamic';
     expect(routes.routers.where((r) => r.file == extra), hasLength(5));
   });
 
+  test(
+    'the remaining reasons, both builders, shells and explicit nulls',
+    () async {
+      final app = copyFixtureApp();
+      const more = 'lib/routing/more_routes.dart';
+      File(p.join(app, 'lib', 'routing', 'more_routes.dart')).writeAsStringSync(
+        r'''
+import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart';
+
+import '../ui/profile/widgets/profile_screen.dart';
+import 'own_route.dart' as own;
+
+final List<StatefulShellBranch> _branches = [];
+
+Widget _build(BuildContext context, GoRouterState state) =>
+    const ProfileScreen();
+
+Widget _screen() => const ProfileScreen();
+
+GoRouter moreRouter() => GoRouter(
+  redirect: null,
+  routes: [
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) => navigationShell,
+      branches: _branches,
+    ),
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) => navigationShell,
+      branches: [Object()],
+    ),
+    GoRoute(path: '/a', builder: _build),
+    GoRoute(path: '/b', pageBuilder: (context, state) => Object()),
+    GoRoute(path: '/c', builder: (context, state) => _screen()),
+    GoRoute(
+      path: '/d',
+      pageBuilder: (context, state) =>
+          NoTransitionPage(child: const ProfileScreen()),
+      builder: (context, state) => const Text('ignored'),
+    ),
+    GoRoute(
+      path: '/e',
+      pageBuilder: null,
+      redirect: null,
+      builder: (context, state) => const ProfileScreen(),
+    ),
+    own.GoRoute(path: '/own'),
+    GoRoute(
+      path: '/p',
+      routes: [
+        ShellRoute(
+          routes: [
+            GoRoute(
+              path: 'q',
+              builder: (context, state) => const ProfileScreen(),
+            ),
+          ],
+        ),
+      ],
+    ),
+  ],
+);
+''',
+      );
+      File(p.join(app, 'lib', 'routing', 'own_route.dart')).writeAsStringSync(
+        'class GoRoute {\n'
+        '  const GoRoute({required String path});\n'
+        '}\n',
+      );
+      final routes = await routesOf(app);
+      final rows = [
+        for (final r in routes.routes)
+          if (r.file == more)
+            (r.path, r.reason, r.screen?.name, r.redirect, r.parent),
+      ];
+      expect(rows, [
+        (null, 'the branches are not a list literal', null, false, null),
+        (
+          null,
+          'the branch is not a StatefulShellBranch constructor call',
+          null,
+          false,
+          null,
+        ),
+        ('/a', 'the builder is not a function literal', null, false, null),
+        (
+          '/b',
+          "the page builder doesn't return a page with a child: argument",
+          null,
+          false,
+          null,
+        ),
+        (
+          '/c',
+          "the builder doesn't return a widget constructor call",
+          null,
+          false,
+          null,
+        ),
+        ('/d', null, 'ProfileScreen', false, null),
+        ('/e', null, 'ProfileScreen', false, null),
+        (
+          null,
+          'the route is not a GoRoute, ShellRoute or StatefulShellRoute '
+              'constructor call',
+          null,
+          false,
+          null,
+        ),
+        ('/p', null, null, false, null),
+        ('/p/q', null, 'ProfileScreen', false, '/p'),
+      ]);
+      expect(
+        [
+          for (final r in routes.routers)
+            if (r.file == more) r.redirect,
+        ],
+        [false],
+      );
+    },
+  );
+
   test('a CRLF router gives the same routes', () async {
     final lf = await routesOf(copyFixtureApp());
     final crlfApp = copyFixtureApp();

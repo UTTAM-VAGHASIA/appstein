@@ -84,13 +84,15 @@ final class _ReturnFinder extends RecursiveAstVisitor<void> {
   }
 }
 
-/// The named arguments of a call, by name.
+/// The named arguments of a call, by name. An argument written as a literal
+/// `null` counts as not passed, as it does for the callee's default.
 final class NamedArguments {
   /// Reads the named arguments in [list].
   NamedArguments(ArgumentList list)
     : _values = {
         for (final argument in list.arguments.whereType<NamedArgument>())
-          argument.name.lexeme: argument.argumentExpression,
+          if (argument.argumentExpression is! NullLiteral)
+            argument.name.lexeme: argument.argumentExpression,
       };
 
   final Map<String, Expression> _values;
