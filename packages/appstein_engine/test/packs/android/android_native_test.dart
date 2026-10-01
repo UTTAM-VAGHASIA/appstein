@@ -640,6 +640,70 @@ android {
         gradle('android { productFlavors { create("a") { minSdk = 26 } } }\n');
         expect(value(read(app), ['app', 'minSdk']).status, NativeStatus.absent);
       });
+
+      test('release signing set through getByName("release").apply { }', () {
+        for (final body in [
+          'android { buildTypes { getByName("release").apply {\n'
+              '  signingConfig = signingConfigs.getByName("release")\n'
+              '} } }\n',
+          'android { buildTypes.getByName("release").apply {\n'
+              '  signingConfig = signingConfigs.getByName("release")\n'
+              '} }\n',
+        ]) {
+          gradle(body);
+          final v = value(read(app), ['app', 'releaseSigningConfig']);
+          expect(v.status, NativeStatus.unknown, reason: body);
+        }
+      });
+
+      test('kotlin jvmTarget.set(...) is read; elsewhere it is unknown', () {
+        gradle(
+          'kotlin {\n  compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }\n}\n',
+        );
+        expect(json(value(read(app), ['app', 'kotlinJvmTarget'])), {
+          'status': 'found',
+          'value': 'JvmTarget.JVM_17',
+          'at': 'android/app/build.gradle.kts:2',
+        });
+        gradle(
+          'tasks.withType<KotlinCompile>().configureEach {\n'
+          '  compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }\n'
+          '}\n',
+        );
+        expect(
+          value(read(app), ['app', 'kotlinJvmTarget']).status,
+          NativeStatus.unknown,
+        );
+      });
+
+      test('release uses the signing config set in defaultConfig', () {
+        gradle(
+          'android { defaultConfig {\n'
+          '  signingConfig = signingConfigs.getByName("shared")\n'
+          '} }\n',
+        );
+        final v = value(read(app), ['app', 'releaseSigningConfig']);
+        expect(v.status, NativeStatus.found);
+        expect(v.value, 'shared');
+        expect(v.at, 'android/app/build.gradle.kts:2');
+        expect(v.note, contains('defaultConfig'));
+        gradle(
+          'android { defaultConfig {\n'
+          '  signingConfig = mySigning\n'
+          '} }\n',
+        );
+        expect(
+          value(read(app), ['app', 'releaseSigningConfig']).status,
+          NativeStatus.unknown,
+        );
+      });
+
+      test('kotlin jvmToolchain(...) sets the target implicitly', () {
+        gradle('kotlin { jvmToolchain(17) }\n');
+        final v = value(read(app), ['app', 'kotlinJvmTarget']);
+        expect(v.status, NativeStatus.unknown);
+        expect(v.reason, 'set by jvmToolchain(17) (line 1)');
+      });
     });
   });
 }

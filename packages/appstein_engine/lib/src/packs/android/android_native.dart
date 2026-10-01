@@ -227,17 +227,33 @@ NativeValue _setting(
 /// `defaultConfig`'s. Used so a value is never reported `absent` when it
 /// may be set in a place Appstein doesn't follow.
 int? _setElsewhere(KtsScript script, List<String> path) {
-  bool matches(List<String> full) {
+  // [raw] keeps the `?` segments (a body the reader can't place); a
+  // conditional one also matches when the segment above the key is `?` or
+  // any block of [path] (`getByName("release").apply { signingConfig = … }`).
+  bool matches(List<String> raw) {
+    final full = [
+      for (final segment in raw)
+        if (segment != ktsOpaque) segment,
+    ];
     if (full.isEmpty || full.last != path.last) return false;
     if (full.length == 1 || path.length == 1) return true;
-    return full[full.length - 2] == path[path.length - 2];
+    if (full[full.length - 2] == path[path.length - 2]) return true;
+    if (raw.length < 2 || raw.length == full.length) return false;
+    final above = raw[raw.length - 2];
+    return above == ktsOpaque || path.contains(above);
   }
 
   final lines = [
     for (final assignment in script.assignments)
-      if (matches(assignment.plainPath)) assignment.line,
+      if (matches(assignment.path)) assignment.line,
     for (final call in script.calls)
-      if (matches([...call.plainPath, call.name])) call.line,
+      // `jvmTarget.set(x)` sets `jvmTarget`; any other call is its own name.
+      if (matches(
+        call.name == 'set' || call.name == 'assign'
+            ? call.path
+            : [...call.path, call.name],
+      ))
+        call.line,
   ]..sort();
   return lines.isEmpty ? null : lines.first;
 }
@@ -474,10 +490,13 @@ NativeNode _app(_GradleFile app, _FlutterValues flutter) {
       'targetCompatibility',
     ], javaVersion),
     'kotlinJvmTarget': _kotlinJvmTarget(app),
-    'releaseSigningConfig': setting(
-      ['android', 'buildTypes', 'release', 'signingConfig'],
-      _signing,
-      absent: 'the release build type sets no signing config',
+    'releaseSigningConfig': _releaseSigning(
+      setting(
+        ['android', 'buildTypes', 'release', 'signingConfig'],
+        _signing,
+        absent: 'the release build type sets no signing config',
+      ),
+      setting(['android', 'defaultConfig', 'signingConfig'], _signing),
     ),
     'signingConfigs': _signingConfigs(app),
     'flavors': _flavors(app, text, number),
@@ -494,6 +513,29 @@ NativeValue _constant(KtsValue written, String at, List<String> prefixes) =>
       _ => _computed(written, at),
     };
 
+/// The release signing config: the release build type's, or, when it sets
+/// none, `defaultConfig`'s (AGP gives it to every build type that sets no
+/// signing config of its own).
+NativeValue _releaseSigning(NativeValue release, NativeValue fromDefault) {
+  if (release.status != NativeStatus.absent) return release;
+  return switch (fromDefault.status) {
+    NativeStatus.found => NativeValue.found(
+      fromDefault.value!,
+      at: fromDefault.at,
+      expression: fromDefault.expression,
+      note:
+          'set in defaultConfig; the release build type sets none, so it '
+          'uses this one',
+    ),
+    NativeStatus.unknown => NativeValue.unknown(
+      'release sets no signing config, and defaultConfig sets one that '
+      "Appstein can't read: ${fromDefault.reason}",
+      at: fromDefault.at,
+    ),
+    _ => release,
+  };
+}
+
 NativeValue _signing(KtsValue written, String at) => switch (written) {
   KtsCallValue(:final name, :final argument)
       when name == 'signingConfigs.getByName' ||
@@ -508,11 +550,35 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
     ['kotlin', 'compilerOptions', 'jvmTarget'],
     ['android', 'kotlinOptions', 'jvmTarget'],
   ];
-  final set = [
-    for (final path in paths)
-      if (script.assignmentsTo(path).isNotEmpty) path,
+  NativeValue convert(KtsValue written, String at) => _constant(
+    written,
+    at,
+    const ['JvmTarget.', 'org.jetbrains.kotlin.gradle.dsl.JvmTarget.'],
+  );
+  // `jvmTarget = x` and `jvmTarget.set(x)` / `jvmTarget.assign(x)`.
+  final settings = <({List<String> path, int line, KtsCall? call, bool plain})>[
+    for (final path in paths) ...[
+      for (final assignment in script.assignmentsTo(path))
+        (path: path, line: assignment.line, call: null, plain: true),
+      for (final name in const ['set', 'assign'])
+        for (final call in script.callsTo(path, name))
+          (
+            path: path,
+            line: call.line,
+            call: call,
+            plain: ktsPathIs(call.path, path),
+          ),
+    ],
   ];
-  if (set.isEmpty) {
+  if (settings.isEmpty) {
+    for (final call in script.calls) {
+      if (call.name == 'jvmToolchain') {
+        return NativeValue.unknown(
+          'set by jvmToolchain(${call.arguments}) (line ${call.line})',
+          at: app.kts.at(call.line),
+        );
+      }
+    }
     for (final path in paths) {
       if (_setElsewhere(script, path) case final line?) {
         return NativeValue.unknown(
@@ -523,24 +589,24 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
     }
     return NativeValue.absent('no Kotlin jvmTarget in ${app.kts.path}');
   }
-  if (set.length > 1) {
-    final lines = [
-      for (final path in set)
-        for (final assignment in script.assignmentsTo(path)) assignment.line,
-    ]..sort();
+  if (settings.length > 1) {
+    final lines = [for (final setting in settings) setting.line]..sort();
     return NativeValue.unknown(
       'set more than once (lines ${lines.join(', ')})',
       at: app.kts.at(lines.first),
     );
   }
-  return _setting(
-    app,
-    set.single,
-    (written, at) => _constant(written, at, const [
-      'JvmTarget.',
-      'org.jetbrains.kotlin.gradle.dsl.JvmTarget.',
-    ]),
-  );
+  final only = settings.single;
+  final call = only.call;
+  if (call == null) return _setting(app, only.path, convert);
+  final at = app.kts.at(only.line);
+  if (!only.plain || call.conditional) {
+    return NativeValue.unknown(
+      "set where Appstein doesn't follow (line ${only.line})",
+      at: at,
+    );
+  }
+  return convert(call.argument ?? KtsComputed(call.arguments), at);
 }
 
 NativeValue _appliedPlugins(_GradleFile app) {
