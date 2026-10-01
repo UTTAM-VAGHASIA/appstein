@@ -41,10 +41,11 @@ final class DeltaInputs {
   final List<CuratedNote> notes;
 
   /// The deprecated, removed and moved APIs; null when the project map was
-  /// skipped.
+  /// skipped or collecting them failed.
   final DeltaFacts? facts;
 
-  /// Why [facts] is null: the project map's skip reason.
+  /// Why [facts] is null: the project map's skip reason, or why collecting
+  /// the facts failed.
   final String? skipped;
 }
 
@@ -96,8 +97,8 @@ String renderDelta(DeltaInputs inputs) {
   final facts = inputs.facts;
   if (facts == null) {
     paragraph(
-      'Deprecated and removed APIs are missing because the project map was '
-      'skipped: ${_withFullStop(inputs.skipped ?? 'no reason was given')} '
+      'Deprecated and removed APIs are missing: '
+      "${_withFullStop(inputs.skipped ?? 'no reason was given')} "
       'Fix that, then run `appstein sync` again.',
     );
   }

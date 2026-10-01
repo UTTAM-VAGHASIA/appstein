@@ -31,6 +31,7 @@ final class KnowledgeSync {
     this._clock,
     this.lockTimeout = const Duration(seconds: 10),
     this.baseline = '3.16',
+    this.deltaCollector,
   }) : notes = notes ?? CuratedNotes.bundled(),
        runner = runner ?? const SystemProcessRunner();
 
@@ -55,6 +56,9 @@ final class KnowledgeSync {
   /// How far back the delta's curated notes reach (spec §6.4, §7); `3.16`
   /// is the default of `delta.baseline`.
   final String baseline;
+
+  /// Collects the delta's facts; [collectDelta] when null. For tests.
+  final DeltaCollector? deltaCollector;
 
   final DateTime Function()? _clock;
 
@@ -86,6 +90,7 @@ final class KnowledgeSync {
           appsteinVersion: appsteinVersion,
           packs: packs,
           runner: runner,
+          deltaCollector: deltaCollector,
         ).build(
           projectRoot,
           flutterVersion: platform.sdk.flutterVersion,
@@ -110,11 +115,14 @@ final class KnowledgeSync {
     );
   }
 
-  /// `delta.md`: the notes, and the map's delta facts when it ran. Its
-  /// input hash covers the map's own hash (so the project's code, packages
-  /// and Flutter version), the notes, the baseline and the language version.
+  /// `delta.md`: the notes, and the delta facts when they were collected.
+  /// Its input hash covers the map's own hash (so the project's code,
+  /// packages and Flutter version) or, with no facts, the reason they are
+  /// missing, plus the notes, the baseline and the language version.
   GeneratedFile _delta(PlatformBuild platform, MapBuild map) {
     final sdk = platform.sdk;
+    final skipped = map.report.skipped ?? map.report.deltaSkipped;
+    final facts = map.delta;
     final markdown = renderDelta(
       DeltaInputs(
         flutterVersion: sdk.flutterVersion,
@@ -127,8 +135,8 @@ final class KnowledgeSync {
           flutterVersion: sdk.flutterVersion,
           baseline: baseline,
         ),
-        facts: map.delta,
-        skipped: map.report.skipped,
+        facts: facts,
+        skipped: skipped,
       ),
     );
     return GeneratedFile.markdown(
@@ -136,7 +144,10 @@ final class KnowledgeSync {
       markdown: markdown,
       inputHash: inputHash(
         {
-          'map': utf8.encode(map.inputHash ?? 'skipped: ${map.report.skipped}'),
+          // Facts exist only when the map ran, so then its hash is there.
+          'map': utf8.encode(
+            facts == null ? 'skipped: $skipped' : map.inputHash!,
+          ),
           ...notes.inputs,
           'baseline': utf8.encode(baseline),
           'languageVersion': utf8.encode(sdk.languageVersion ?? ''),

@@ -37,6 +37,7 @@ final class MapReport {
     required this.packages,
     required this.packagesReason,
     this.skipped,
+    this.deltaSkipped,
   });
 
   /// What was done about the packages.
@@ -48,7 +49,19 @@ final class MapReport {
 
   /// Why the map wasn't written; null when it was.
   final String? skipped;
+
+  /// Why the version delta's facts are missing although the map was written
+  /// (the collector failed); null otherwise. Never set when [skipped] is.
+  final String? deltaSkipped;
 }
+
+/// Collects the version delta's facts from an open analysis; [collectDelta]
+/// is the real one. A seam for tests.
+typedef DeltaCollector =
+    DeltaFacts Function(
+      ProjectAnalysis analysis, {
+      required String dartSdkPath,
+    });
 
 /// The project map, built but not yet written.
 final class MapBuild {
@@ -82,16 +95,20 @@ final class MapBuild {
 /// deps.
 ///
 /// While the analysis is open, it also collects the version delta's facts
-/// ([collectDelta]); `KnowledgeSync` renders them into `delta.md`.
+/// ([collectDelta]); `KnowledgeSync` renders them into `delta.md`. If that
+/// fails for any reason, the map is still returned, with the reason in
+/// [MapReport.deltaSkipped]: a sync never fails because of the delta.
 final class MapSync {
   /// Creates the sync. [runner] runs `flutter pub get` (a real process by
-  /// default).
+  /// default); [deltaCollector] is [collectDelta] by default.
   MapSync({
     required this.environment,
     required this.appsteinVersion,
     required this.packs,
     ProcessRunner? runner,
-  }) : runner = runner ?? const SystemProcessRunner();
+    DeltaCollector? deltaCollector,
+  }) : runner = runner ?? const SystemProcessRunner(),
+       deltaCollector = deltaCollector ?? collectDelta;
 
   /// The machine.
   final HostEnvironment environment;
@@ -104,6 +121,9 @@ final class MapSync {
 
   /// Runs `flutter pub get`.
   final ProcessRunner runner;
+
+  /// Collects the version delta's facts.
+  final DeltaCollector deltaCollector;
 
   /// Builds the map of the project at [projectRoot], for Flutter
   /// [flutterVersion] at [flutterRoot]. `dart:` libraries are read from
@@ -189,7 +209,19 @@ final class MapSync {
       bodies[MapFiles.deps] = buildDeps(analysis, lockFile: lockFile).toJson();
       // While the analysis is still open: the delta walks what the imports
       // expose.
-      final delta = collectDelta(analysis, dartSdkPath: sdk);
+      // Any failure here (an analyzer internal, a bug) must not cost the
+      // map: it is reported instead. `on Object` is deliberate; the lints in
+      // use have no rule against catching Errors.
+      DeltaFacts? delta;
+      String? deltaSkipped;
+      try {
+        delta = deltaCollector(analysis, dartSdkPath: sdk);
+      } on Object catch (error) {
+        delta = null;
+        deltaSkipped =
+            "the version delta couldn't be collected: "
+            '${error.toString().split('\n').first}';
+      }
 
       final hash = _inputHash(
         projectRoot,
@@ -202,7 +234,11 @@ final class MapSync {
           for (final path in paths)
             GeneratedFile(path: path, body: bodies[path]!, inputHash: hash),
         ],
-        report: MapReport(packages: action, packagesReason: reason),
+        report: MapReport(
+          packages: action,
+          packagesReason: reason,
+          deltaSkipped: deltaSkipped,
+        ),
         inputHash: hash,
         delta: delta,
       );

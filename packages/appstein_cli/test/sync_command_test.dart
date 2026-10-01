@@ -235,6 +235,44 @@ void main() {
     expect(text, isNot(contains('core.dart..')));
   });
 
+  test('a delta that could not be collected is reported, with a full stop '
+      'added once', () {
+    final text = formatSyncReport(
+      reportWith(
+        const MapReport(
+          packages: PackagesAction.upToDate,
+          packagesReason: 'they are up to date',
+          deltaSkipped: "the version delta couldn't be collected: Bad state: x",
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'Version delta: deprecated and removed APIs are missing: the version '
+        "delta couldn't be collected: Bad state: x.\n",
+      ),
+    );
+    expect(text, isNot(contains('Project map skipped')));
+  });
+
+  test('unknown notes coverage is reported as possibly incomplete', () {
+    const report = SyncReport(
+      sdk: SdkInfo(
+        flutterVersion: '3.47.5',
+        dartVersion: '3.13.4',
+        channel: 'stable',
+      ),
+      files: {'platform/sdk.json': true},
+      newestNotes: '3.47',
+      fallbacks: [],
+    );
+    expect(
+      formatSyncReport(report),
+      contains('Curated notes may be incomplete for Flutter 3.47'),
+    );
+  });
+
   test('a partial coverage line names the minor version', () {
     const report = SyncReport(
       sdk: SdkInfo(

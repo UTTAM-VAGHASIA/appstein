@@ -137,9 +137,8 @@ void main() {
     expect(
       text,
       contains(
-        'Deprecated and removed APIs are missing because the project map was '
-        'skipped: the packages could not be fetched. Fix that, then run '
-        '`appstein sync` again.',
+        'Deprecated and removed APIs are missing: the packages could not be '
+        'fetched. Fix that, then run `appstein sync` again.',
       ),
     );
     expect(text, contains('## Notes'));
@@ -157,7 +156,7 @@ void main() {
     final text = renderDelta(
       inputs(facts: null, skipped: 'pubspec.lock is not valid YAML.'),
     );
-    expect(text, contains('skipped: pubspec.lock is not valid YAML. Fix'));
+    expect(text, contains('missing: pubspec.lock is not valid YAML. Fix'));
   });
 
   test('empty facts say None, and leave out the optional sections', () {

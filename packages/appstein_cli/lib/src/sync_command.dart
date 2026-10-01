@@ -141,7 +141,15 @@ String formatSyncReport(SyncReport report) {
         );
     }
   }
-  if (sdk.notesCoverage == NotesCoverage.partial) {
+  if (map?.deltaSkipped case final skipped?) {
+    buffer.writeln(
+      'Version delta: deprecated and removed APIs are missing: '
+      '${skipped.endsWith('.') ? skipped.substring(0, skipped.length - 1) : skipped}.',
+    );
+  }
+  // Coverage is "complete" only when known; unknown counts as partial, the
+  // same as in delta.md.
+  if (sdk.notesCoverage != NotesCoverage.complete) {
     final minor = flutterMinorOf(sdk.flutterVersion);
     final version = minor == null
         ? sdk.flutterVersion

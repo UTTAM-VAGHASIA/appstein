@@ -29,7 +29,9 @@ void main() {
   KnowledgeSync sync({
     List<Pack> packs = const [OfficialMvvmPack()],
     String baseline = '3.16',
+    DeltaCollector? deltaCollector,
   }) => KnowledgeSync(
+    deltaCollector: deltaCollector,
     environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
     appsteinVersion: '0.1.0-dev',
     packs: packs,
@@ -348,8 +350,8 @@ void main() {
     expect(
       text,
       contains(
-        'project map was skipped: the packages could not be fetched. Fix '
-        'that, then run `appstein sync` again.',
+        'Deprecated and removed APIs are missing: the packages could not be '
+        'fetched. Fix that, then run `appstein sync` again.',
       ),
     );
     expect(text, contains('popscope-not-willpopscope'));
@@ -383,5 +385,65 @@ void main() {
     source.writeAsStringSync('${source.readAsStringSync()}\n// edited\n');
     await sync().run(app, dartSdkPath: testDartSdk);
     expect(readFrontMatter(delta(app))!.inputHash, isNot(before));
+  });
+
+  test(
+    'changing only the baseline rewrites delta.md and no map file',
+    () async {
+      final app = copyFixtureApp();
+      await sync().run(app, dartSdkPath: testDartSdk);
+      Map<String, String> mapBytes() => {
+        for (final file in Directory(
+          p.join(app, '.appstein', 'map'),
+        ).listSync().whereType<File>())
+          file.path: base64Encode(file.readAsBytesSync()),
+      };
+      final before = readFrontMatter(delta(app))!.inputHash;
+      final mapBefore = mapBytes();
+      final second = await sync(
+        baseline: '3.47',
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(second.files['platform/delta.md'], isTrue);
+      expect(readFrontMatter(delta(app))!.inputHash, isNot(before));
+      expect(mapBytes(), mapBefore);
+      for (final path in MapFiles.all) {
+        expect(second.files[path], isFalse, reason: path);
+      }
+    },
+  );
+
+  test('a collector that fails does not fail the sync: the map is written '
+      'and delta.md says why the APIs are missing', () async {
+    final app = copyFixtureApp();
+    final report = await sync(
+      deltaCollector: (analysis, {required dartSdkPath}) =>
+          throw StateError('boom'),
+    ).run(app, dartSdkPath: testDartSdk);
+    expect(report.map!.skipped, isNull);
+    expect(
+      report.map!.deltaSkipped,
+      "the version delta couldn't be collected: Bad state: boom",
+    );
+    expect(report.files.keys, containsAll(MapFiles.all));
+    for (final path in MapFiles.all) {
+      expectGolden(
+        p.posix.basename(path),
+        readMapBody(app, p.posix.basename(path)),
+      );
+    }
+    final text = delta(app);
+    expect(
+      text,
+      contains(
+        "Deprecated and removed APIs are missing: the version delta couldn't "
+        'be collected: Bad state: boom. Fix that, then run `appstein sync` '
+        'again.',
+      ),
+    );
+    expect(text, contains('popscope-not-willpopscope'));
+    expect(text, isNot(contains('## Deprecated')));
+    final healthy = await sync().run(app, dartSdkPath: testDartSdk);
+    expect(healthy.files['platform/delta.md'], isTrue);
+    expect(delta(app), contains('## Deprecated'));
   });
 }
