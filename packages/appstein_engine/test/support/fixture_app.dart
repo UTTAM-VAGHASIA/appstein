@@ -188,3 +188,29 @@ void expectGolden(String name, Map<String, Object?> body) {
         'rerun with APPSTEIN_UPDATE_GOLDENS=1 and review the diff.',
   );
 }
+
+/// Checks [actual] text against `test/fixtures/apps/goldens/<name>.golden`,
+/// with `APPSTEIN_UPDATE_GOLDENS=1` handled as in [expectGolden].
+void expectTextGolden(String name, String actual) {
+  final golden = File(p.join(fixtureAppsDir, 'goldens', '$name.golden'));
+  if (Platform.environment['APPSTEIN_UPDATE_GOLDENS'] == '1') {
+    golden
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(actual);
+    return;
+  }
+  expect(
+    golden.existsSync(),
+    isTrue,
+    reason:
+        'No golden at ${golden.path}. Run the test with '
+        'APPSTEIN_UPDATE_GOLDENS=1 to create it, then review it.',
+  );
+  expect(
+    actual,
+    goldenText(name),
+    reason:
+        'The text differs from ${golden.path}. If the change is intended, '
+        'rerun with APPSTEIN_UPDATE_GOLDENS=1 and review the diff.',
+  );
+}
