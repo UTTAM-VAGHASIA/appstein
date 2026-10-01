@@ -130,7 +130,7 @@ Rules are tested with `package:analyzer_testing`, which analyzes small in-memory
 
 ## Known gaps
 
-`layer_imports` doesn't check conditional imports or exports (`if (dart.library.io) '…'`). `layers.json` does read them, by their main URI, so the map can list a violation the lint doesn't report. This and the plugin's cost are listed in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md).
+`layer_imports` checks a conditional import or export (`if (dart.library.io) '…'`) only by its main URI, and never checks the `if (...)` alternatives. `layers.json` does the same, with the same expression, so the lint and the map agree. Checking the alternatives is a known gap, carried to slice 1d. This and the plugin's cost are listed in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md).
 
 ## Adding a rule
 

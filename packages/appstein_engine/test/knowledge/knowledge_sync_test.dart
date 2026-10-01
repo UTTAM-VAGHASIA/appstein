@@ -252,6 +252,25 @@ void main() {
     }
   });
 
+  test("editing the project's analysis_options.yaml changes every map file's "
+      'input hash', () async {
+    final app = copyFixtureApp();
+    String? hashOf(String path) =>
+        ((jsonDecode(File(p.join(app, '.appstein', path)).readAsStringSync())
+                    as Map<String, Object?>)['meta']!
+                as Map<String, Object?>)['inputHash']
+            as String?;
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final first = {for (final path in MapFiles.all) path: hashOf(path)};
+    File(
+      p.join(app, 'analysis_options.yaml'),
+    ).writeAsStringSync('analyzer:\n  exclude:\n    - lib/generated/**\n');
+    await sync().run(app, dartSdkPath: testDartSdk);
+    for (final path in MapFiles.all) {
+      expect(hashOf(path), isNot(first[path]), reason: path);
+    }
+  });
+
   test('without packs, only the generic map files are written, with no '
       'layers', () async {
     final app = copyFixtureApp();

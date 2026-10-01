@@ -190,6 +190,33 @@ void main() {
       );
     });
 
+    test('the timeout is worded in whole minutes or in seconds', () async {
+      final runner = FakeProcessRunner()
+        ..when(flutter, [
+          'pub',
+          'get',
+        ], const RunResult.timedOut(stdout: '', stderr: ''));
+      Future<String?> within(Duration timeout) => fetchPackages(
+        project,
+        flutterRoot: 'sdk',
+        os: HostOs.current,
+        runner: runner,
+        timeout: timeout,
+      );
+      expect(
+        await within(const Duration(seconds: 30)),
+        '`flutter pub get` did not finish within 30 seconds',
+      );
+      expect(
+        await within(const Duration(minutes: 1)),
+        '`flutter pub get` did not finish within 1 minute',
+      );
+      expect(
+        await within(const Duration(seconds: 90)),
+        '`flutter pub get` did not finish within 90 seconds',
+      );
+    });
+
     test('a pub get that leaves no package config is a failure', () async {
       final runner = FakeProcessRunner()
         ..when(flutter, ['pub', 'get'], const RunResult(exitCode: 0));

@@ -93,7 +93,9 @@ final class SyncCommand extends Command<int> {
 }
 
 /// The text `appstein sync` prints for [report]: the SDK, each file written
-/// or unchanged, the notes coverage, and any toolchain fallback.
+/// or unchanged, what happened to the project's packages (fetched, or why
+/// they could not be), the project map's skip reason and what to do about
+/// it, the notes coverage, and any toolchain fallback.
 String formatSyncReport(SyncReport report) {
   final sdk = report.sdk;
   final width = report.files.keys.map((path) => path.length).fold(0, max);

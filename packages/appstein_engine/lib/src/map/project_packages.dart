@@ -130,8 +130,7 @@ Future<String?> fetchPackages(
     return 'Flutter could not be started (${result.stderr.trim()})';
   }
   if (result.timedOut) {
-    return '`flutter pub get` did not finish within ${timeout.inMinutes} '
-        'minutes';
+    return '`flutter pub get` did not finish within ${_duration(timeout)}';
   }
   if (result.exitCode != 0) {
     final output = result.stderr.trim().isEmpty
@@ -150,6 +149,15 @@ Future<String?> fetchPackages(
   return null;
 }
 
+/// [duration] in words: whole minutes when it divides evenly, else seconds.
+String _duration(Duration duration) {
+  final seconds = duration.inSeconds;
+  final (count, unit) = seconds > 0 && seconds % 60 == 0
+      ? (seconds ~/ 60, 'minute')
+      : (seconds, 'second');
+  return '$count $unit${count == 1 ? '' : 's'}';
+}
+
 String _workspaceRoot(String projectRoot) {
   final reference = File(
     p.join(projectRoot, '.dart_tool', 'pub', 'workspace_ref.json'),
@@ -162,7 +170,9 @@ String _workspaceRoot(String projectRoot) {
       return p.normalize(p.join(reference.parent.path, root));
     }
   } on FormatException {
-    // A damaged reference: like Flutter, use the project's own files.
+    // Invalid JSON: unlike Flutter, whose pub.dart crashes on it, fall back
+    // to the project's own files. (Valid JSON of another shape is ignored by
+    // Flutter too.)
   } on FileSystemException {
     // Unreadable: the same.
   }

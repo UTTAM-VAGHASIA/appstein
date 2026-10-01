@@ -73,7 +73,8 @@ final class ProjectAnalysis {
   /// `bin/cache/dart-sdk`).
   ///
   /// Throws a [ProjectAnalysisException] when that SDK has no
-  /// `lib/core/core.dart`.
+  /// `lib/core/core.dart`, or when a Dart file of the project can't be
+  /// resolved as a library (only part files are skipped).
   static Future<ProjectAnalysis> analyze(
     String projectRoot, {
     required String dartSdkPath,
@@ -97,21 +98,36 @@ final class ProjectAnalysis {
       sdkPath: sdk,
     );
     final libraries = <String, AnalyzedLibrary>{};
-    for (final context in collection.contexts) {
-      final files =
-          context.contextRoot
-              .analyzedFiles()
-              .where((file) => file.endsWith('.dart'))
-              .toList()
-            ..sort();
-      for (final file in files) {
-        final result = await context.currentSession.getResolvedLibrary(file);
-        // A part file isn't a library: its library lists it in `units`.
-        if (result is! ResolvedLibraryResult) continue;
-        final path = _relative(root, file);
-        if (path == null) continue;
-        libraries[path] = AnalyzedLibrary(path, result);
+    try {
+      for (final context in collection.contexts) {
+        final files =
+            context.contextRoot
+                .analyzedFiles()
+                .where((file) => file.endsWith('.dart'))
+                .toList()
+              ..sort();
+        for (final file in files) {
+          final result = await context.currentSession.getResolvedLibrary(file);
+          // A part file isn't a library: its library lists it in `units`.
+          if (result is NotLibraryButPartResult) continue;
+          final path = _relative(root, file);
+          if (result is! ResolvedLibraryResult || path == null) {
+            // Never drop a file silently: a map with a hole in it would look
+            // complete.
+            final why = path == null
+                ? 'it is outside the project'
+                : 'the result was a ${result.runtimeType}';
+            throw ProjectAnalysisException(
+              'The analyzer could not resolve ${path ?? p.normalize(file)} '
+              '($why).',
+            );
+          }
+          libraries[path] = AnalyzedLibrary(path, result);
+        }
       }
+    } catch (_) {
+      await collection.dispose();
+      rethrow;
     }
     final sorted = libraries.keys.toList()..sort();
     return ProjectAnalysis._(root, name, [

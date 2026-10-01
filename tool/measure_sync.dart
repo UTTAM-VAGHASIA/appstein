@@ -37,8 +37,14 @@ Future<void> main() async {
     }
     Directory(p.join(app, '.appstein')).deleteSync(recursive: true);
     final full = Stopwatch()..start();
-    await sync.run(app);
+    final fullReport = await sync.run(app);
     full.stop();
+    // A skipped map is fast, so it would pass the budget without proving it.
+    if (fullReport.map?.skipped case final reason?) {
+      stderr.writeln('The timed sync skipped the map: $reason');
+      exitCode = 1;
+      return;
+    }
     final files = Directory(p.join(app, 'lib'))
         .listSync(recursive: true)
         .whereType<File>()

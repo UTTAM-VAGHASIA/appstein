@@ -179,9 +179,12 @@ final class PlatformSync {
     );
   }
 
-  /// Syncs only the platform layer of the project at [projectRoot]; `appstein
-  /// sync` uses `KnowledgeSync`, which adds the project map. [sdk] is the SDK
-  /// detection to use.
+  /// Builds and writes the platform layer of the project at [projectRoot]
+  /// alone. Production sync goes through `KnowledgeSync` (`appstein sync`
+  /// uses it), which adds the project map. Don't call this from production
+  /// code: it writes a `state.json` that lists only the platform files, so
+  /// it would make `state.json` forget the map files. Tests use it to cover
+  /// the platform layer by itself. [sdk] is the SDK detection to use.
   ///
   /// Throws [SyncException] when no usable SDK is found, a
   /// `KnowledgeLockTimeout` when another writer holds the lock too long,

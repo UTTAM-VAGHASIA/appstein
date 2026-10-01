@@ -213,8 +213,9 @@ final class MapSync {
   }
 
   /// One hash for every map file (P9): every `.dart` file under
-  /// [ProjectAnalysis.folders], `pubspec.yaml`, the lock file, the Flutter
-  /// version, and the packs' ids and versions.
+  /// [ProjectAnalysis.folders], `pubspec.yaml`, the lock file, the project's
+  /// `analysis_options.yaml`, the Flutter version, and the packs' ids and
+  /// versions.
   String _inputHash(
     String projectRoot, {
     required String lockFile,
@@ -223,6 +224,10 @@ final class MapSync {
     final inputs = <String, List<int>?>{
       'pubspec.yaml': _bytes(p.join(projectRoot, 'pubspec.yaml')),
       'pubspec.lock': _bytes(lockFile),
+      // Its `exclude:` changes which files the map covers.
+      'analysis_options.yaml': _bytes(
+        p.join(projectRoot, 'analysis_options.yaml'),
+      ),
       'flutter': utf8.encode(flutterVersion),
       'packs': utf8.encode(
         [for (final pack in packs) '${pack.id}@${pack.version}'].join(','),
