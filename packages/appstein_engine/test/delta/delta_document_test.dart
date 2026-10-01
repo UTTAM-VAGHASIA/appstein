@@ -215,6 +215,41 @@ void main() {
     expect(text, contains('- `Thing`: Use Other instead\n'));
   });
 
+  test('titles and reasons that span lines become one line each', () {
+    final text = renderDelta(
+      inputs(
+        facts: const DeltaFacts(
+          migrated: [
+            MigratedApi(
+              group: 'package:kit',
+              name: 'Gone',
+              status: MigrationStatus.removed,
+              title: 'Rename to\r\n  New',
+            ),
+          ],
+          unread: [
+            UnreadMigrations(
+              file: 'package:kit/fix_data.yaml',
+              reason: 'line 1: is not valid YAML:\nunexpected',
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(text, contains('- `Gone`: removed. Rename to New.\n'));
+    expect(
+      text,
+      contains(
+        '- `package:kit/fix_data.yaml`: line 1: is not valid YAML: '
+        'unexpected\n',
+      ),
+    );
+    expect(
+      renderDelta(inputs(facts: null, skipped: 'no\npackages')),
+      contains('no packages.'),
+    );
+  });
+
   test('no notes says None', () {
     expect(
       renderDelta(inputs(notes: const [])),

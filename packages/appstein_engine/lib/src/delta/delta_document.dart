@@ -167,7 +167,7 @@ String renderDelta(DeltaInputs inputs) {
     );
     out.writeln();
     for (final unread in facts.unread) {
-      out.writeln('- `${unread.file}`: ${unread.reason}');
+      out.writeln('- `${unread.file}`: ${_oneLine(unread.reason)}');
     }
   }
   return out.toString();
@@ -245,7 +245,14 @@ String _minorText(String version) {
   return minor == null ? version : '${minor.major}.${minor.minor}';
 }
 
-String _withFullStop(String text) =>
-    text.endsWith('.') || text.endsWith('!') || text.endsWith('?')
-    ? text
-    : '$text.';
+/// [text] on one line, ending in a full stop.
+String _withFullStop(String text) {
+  final line = _oneLine(text);
+  return line.endsWith('.') || line.endsWith('!') || line.endsWith('?')
+      ? line
+      : '$line.';
+}
+
+/// [text] with each run of white space, line breaks included, as one space,
+/// so a quoted title or reason can't break a Markdown list.
+String _oneLine(String text) => text.replaceAll(RegExp(r'\s+'), ' ').trim();
