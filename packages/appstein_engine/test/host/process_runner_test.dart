@@ -103,6 +103,27 @@ void main() {
     expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
   });
 
+  test('runs the tool in the working directory it is given', () async {
+    final dir = tempDir();
+    final work = Directory(p.join(dir.path, 'work folder'))..createSync();
+    final String script;
+    if (Platform.isWindows) {
+      script = p.join(dir.path, 'mark.bat');
+      File(script).writeAsStringSync('@echo off\r\necho here> marker.txt\r\n');
+    } else {
+      script = p.join(dir.path, 'mark');
+      File(script).writeAsStringSync('#!/bin/sh\necho here > marker.txt\n');
+      Process.runSync('chmod', ['+x', script]);
+    }
+    final result = await const SystemProcessRunner().run(
+      script,
+      const [],
+      workingDirectory: work.path,
+    );
+    expect(result.ok, isTrue, reason: result.stderr);
+    expect(File(p.join(work.path, 'marker.txt')).existsSync(), isTrue);
+  });
+
   test('decodes output that is not valid UTF-8 without throwing', () async {
     final script = File(p.join(tempDir().path, 'bytes.dart'))
       ..writeAsStringSync(

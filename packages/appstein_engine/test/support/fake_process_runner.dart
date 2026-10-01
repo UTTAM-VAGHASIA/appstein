@@ -10,6 +10,9 @@ final class FakeProcessRunner implements ProcessRunner {
   /// Every command run, as `executable arg1 arg2`.
   final List<String> calls = [];
 
+  /// The working directory of every command run, in the order of [calls].
+  final List<String?> workingDirectories = [];
+
   /// Makes [executable] with [arguments] return [result].
   void when(String executable, List<String> arguments, RunResult result) {
     _results[_key(executable, arguments)] = result;
@@ -21,9 +24,11 @@ final class FakeProcessRunner implements ProcessRunner {
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 20),
     Map<String, String>? environment,
+    String? workingDirectory,
   }) async {
     final key = _key(executable, arguments);
     calls.add(key);
+    workingDirectories.add(workingDirectory);
     return _results[key] ?? RunResult.notStarted('not faked: $key');
   }
 

@@ -52,11 +52,15 @@ abstract interface class ProcessRunner {
   /// On Windows, pass a `.bat` or `.cmd` tool (such as `fvm`) as the full path
   /// that `findExecutable` returns. A bare name only finds `.exe` files, so
   /// `run('fvm', ...)` reports "not started" even when `fvm.bat` is on PATH.
+  ///
+  /// The tool runs in [workingDirectory], or in Appstein's own working folder
+  /// when it is null.
   Future<RunResult> run(
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 20),
     Map<String, String>? environment,
+    String? workingDirectory,
   });
 }
 
@@ -74,6 +78,7 @@ final class SystemProcessRunner implements ProcessRunner {
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 20),
     Map<String, String>? environment,
+    String? workingDirectory,
   }) async {
     final Process process;
     try {
@@ -85,6 +90,7 @@ final class SystemProcessRunner implements ProcessRunner {
         executable,
         arguments,
         environment: environment,
+        workingDirectory: workingDirectory,
       );
     } on ProcessException catch (error) {
       return RunResult.notStarted(error.message);
