@@ -55,6 +55,7 @@ let package = Package(
       "unless ci\n  platform :ios, '13.0'\nend\n": 'Ruby block',
       "case x\nwhen 1\n  platform :ios, '13.0'\nend\n": 'Ruby block',
       "target 'Runner' do\n  platform :ios, '13.0'\nend\n": 'Ruby block',
+      "if ENV['X'] # why\r\n  platform :ios, '13.0'\r\nend\r\n": 'Ruby block',
       "platform :ios, '12.0'\nplatform :ios, '13.0'\n":
           'set more than once (lines 1, 2)',
     };
@@ -65,6 +66,112 @@ let package = Package(
       expect(facts.line, isNotNull, reason: podfile);
     }
   });
+
+  test('CRLF Podfiles read like LF ones, comments and blocks included', () {
+    for (final eol in ['\n', '\r\n']) {
+      String lines(List<String> parts) => parts.join(eol);
+      final trailing = readPodfile(lines(["platform :ios, '15.0' # min", '']));
+      expect(trailing.uncertain, isNull, reason: 'trailing comment');
+      expect(trailing.version, '15.0');
+      // An opener with a trailing comment is still counted.
+      final inBlock = readPodfile(
+        lines([
+          "target 'Runner' do # app",
+          "  platform :ios, '15.0'",
+          'end',
+          '',
+        ]),
+      );
+      expect(inBlock.uncertain, contains('Ruby block'));
+      final reason = inBlock.uncertain!;
+      expect(reason, contains("doesn't follow"));
+      expect(reason, isNot(contains('conditionally')));
+    }
+  });
+
+  group("Flutter 3.47.5's Podfile template (cocoapods/Podfile-ios)", () {
+    // The template, with the shape of its blocks kept.
+    String template(String platformAt) {
+      final head = [
+        '# Uncomment this line to define a global platform for your project',
+        platformAt == 'top'
+            ? "platform :ios, '15.0' # min"
+            : "# platform :ios, '15.0'",
+        '',
+        "ENV['COCOAPODS_DISABLE_STATS'] = 'true'",
+        '',
+        "project 'Runner', {",
+        "  'Debug' => :debug,",
+        "  'Release' => :release,",
+        '}',
+        '',
+        'def flutter_root',
+        "  path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)",
+        '  unless File.exist?(path)',
+        '    raise "#{path} must exist. If you\'re running pod install manually"',
+        '  end',
+        '',
+        '  File.foreach(path) do |line|',
+        '    matches = line.match(/FLUTTER_ROOT\\=(.*)/)',
+        '    return matches[1].strip if matches',
+        '  end',
+        '  raise "FLUTTER_ROOT not found in #{path}"',
+        'end',
+        '',
+        'flutter_ios_podfile_setup',
+        '',
+        "target 'Runner' do",
+        '  use_frameworks!',
+        "  target 'RunnerTests' do",
+        '    inherit! :search_paths',
+        '  end',
+        'end',
+        '',
+        'post_install do |installer|',
+        '  installer.pods_project.targets.each do |target|',
+        '    flutter_additional_ios_build_settings(target)',
+        '  end',
+        'end',
+      ];
+      if (platformAt == 'end') head.add("platform :ios, '15.0' # min");
+      return '${head.join('\n')}\n';
+    }
+
+    for (final eol in ['\n', '\r\n']) {
+      for (final at in ['top', 'end']) {
+        test(
+          'platform :ios uncommented at the $at, ${eol == '\n' ? 'LF' : 'CRLF'}',
+          () {
+            final facts = readPodfile(template(at).replaceAll('\n', eol));
+            expect(facts.uncertain, isNull);
+            expect(facts.version, '15.0');
+          },
+        );
+      }
+    }
+
+    test('commented out, it names no platform line', () {
+      expect(readPodfile(template('none')).line, isNull);
+    });
+  });
+
+  test(
+    'the generated package knows whether FlutterFramework is a dependency',
+    () {
+      expect(
+        readGeneratedPackage(
+          '.iOS("15.0")\ndependencies: [ ]\n',
+        ).hasFlutterFramework,
+        isFalse,
+      );
+      expect(
+        readGeneratedPackage(
+          '.package(name: "FlutterFramework", path: "../FlutterFramework")\n',
+        ).hasFlutterFramework,
+        isTrue,
+      );
+    },
+  );
 
   test('a closed block, a comment and a modifier-free line stay plain', () {
     final facts = readPodfile(

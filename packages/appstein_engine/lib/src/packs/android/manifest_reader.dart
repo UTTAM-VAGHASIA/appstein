@@ -53,7 +53,16 @@ final class ManifestPermission {
 /// What `native.json` records from one `AndroidManifest.xml`.
 final class ManifestFacts {
   /// Creates the facts.
-  const ManifestFacts({this.label, this.icon, required this.permissions});
+  const ManifestFacts({
+    this.label,
+    this.icon,
+    this.hasApplication = true,
+    required this.permissions,
+  });
+
+  /// Whether the manifest has an `<application>` element. The debug and
+  /// profile manifests of a new app have none.
+  final bool hasApplication;
 
   /// `<application android:label>`; null when unset.
   final ManifestAttribute? label;
@@ -91,6 +100,7 @@ ManifestFacts readManifest(String text) {
   final permissions = <ManifestPermission>[];
   var depth = 0;
   var sawRoot = false;
+  var hasApplication = false;
   try {
     for (final event in parseEvents(
       text,
@@ -115,6 +125,7 @@ ManifestFacts readManifest(String text) {
                 _attribute(text, event, androidNamespace, local);
             switch (event.localName) {
               case 'application':
+                hasApplication = true;
                 label = android('label');
                 icon = android('icon');
               case 'uses-permission' || 'uses-permission-sdk-23':
@@ -155,7 +166,12 @@ ManifestFacts readManifest(String text) {
   if (!sawRoot) {
     throw const ManifestFormatException('there is no <manifest> element');
   }
-  return ManifestFacts(label: label, icon: icon, permissions: permissions);
+  return ManifestFacts(
+    label: label,
+    icon: icon,
+    hasApplication: hasApplication,
+    permissions: permissions,
+  );
 }
 
 int? _line(int line) => line > 0 ? line : null;

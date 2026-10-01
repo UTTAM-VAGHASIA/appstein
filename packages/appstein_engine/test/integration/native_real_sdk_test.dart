@@ -1,6 +1,7 @@
 @Tags(['integration'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:appstein_engine/android.dart';
@@ -98,6 +99,28 @@ void main() {
     final swiftPm = value(['ios', 'swiftPackageManager', 'enabled']);
     expect(swiftPm.status, NativeStatus.found);
 
+    // `plugins` follows the generated file: only a file that depends on
+    // FlutterFramework (SwiftPM in effect) lists the plugins.
+    const packageAt =
+        'ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/'
+        'Package.swift';
+    final package = File(p.join(app, packageAt));
+    final hasFlutterFramework =
+        package.existsSync() &&
+        RegExp(
+          r'\.package\(\s*name:\s*"FlutterFramework"',
+        ).hasMatch(package.readAsStringSync());
+    final plugins = value(['ios', 'generatedPackage', 'plugins']);
+    if (hasFlutterFramework) {
+      expect(plugins.toJson(), {
+        'at': packageAt,
+        'status': 'found',
+        'value': <Object?>[],
+      });
+    } else {
+      expect(plugins.status, NativeStatus.unknown);
+    }
+
     if (sdk.info!.flutterVersion != '3.47.5') return;
     if (swiftPm.resolvedFrom != 'default') {
       markTestSkipped(
@@ -106,6 +129,25 @@ void main() {
       );
       return;
     }
-    expectGolden('native.json', body);
+
+    // The golden's Package.swift was written on Windows: no FlutterFramework,
+    // so `plugins` is unknown. A Mac with Xcode 15 or later writes it with
+    // FlutterFramework, and then `plugins` is a found, empty list (the app
+    // has no plugins). Which one applies is decided by the generated file.
+    if (!hasFlutterFramework) {
+      expectGolden('native.json', body);
+      return;
+    }
+    final golden =
+        jsonDecode(goldenText('native.json')) as Map<String, Object?>;
+    final generated = ((golden['ios']! as Map)['generatedPackage']! as Map)
+        .cast<String, Object?>();
+    expect(generated['plugins'], containsPair('status', 'unknown'));
+    generated['plugins'] = {
+      'at': packageAt,
+      'status': 'found',
+      'value': <Object?>[],
+    };
+    expect(canonicalJson(body), canonicalJson(golden));
   }, timeout: const Timeout(Duration(minutes: 6)));
 }

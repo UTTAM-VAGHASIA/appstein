@@ -184,12 +184,13 @@ NativeValue _setting(
       );
     }
   }
-  // A body the reader reads twice (see `kts_reader.dart`) gives the same
-  // line twice: keep one assignment per line.
-  final seenLines = <int>{};
+  // A body the reader reads more than once (see `kts_reader.dart`) gives an
+  // identical copy of each assignment: keep one per line and value, so two
+  // different assignments on one line (`minSdk = 21; minSdk = 23`) stay two.
+  final seen = <(int, String)>{};
   final found = [
     for (final assignment in script.assignmentsTo(path))
-      if (seenLines.add(assignment.line)) assignment,
+      if (seen.add((assignment.line, assignment.value.text))) assignment,
   ];
   if (found.isEmpty) {
     if (_setElsewhere(script, path) case final line?) {
@@ -624,10 +625,16 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
   );
   // `jvmTarget = x` and `jvmTarget.set(x)` / `jvmTarget.assign(x)`.
   final everySetting =
-      <({List<String> path, int line, KtsCall? call, bool plain})>[
+      <({List<String> path, int line, KtsCall? call, bool plain, String text})>[
         for (final path in paths) ...[
           for (final assignment in script.assignmentsTo(path))
-            (path: path, line: assignment.line, call: null, plain: true),
+            (
+              path: path,
+              line: assignment.line,
+              call: null,
+              plain: true,
+              text: assignment.value.text,
+            ),
           for (final name in const ['set', 'assign'])
             for (final call in script.callsTo(path, name))
               (
@@ -635,14 +642,16 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
                 line: call.line,
                 call: call,
                 plain: ktsPathIs(call.path, path),
+                text: call.arguments,
               ),
         ],
       ];
-  // A body the reader reads twice gives the same line twice.
-  final seenLines = <int>{};
+  // A body the reader reads more than once gives identical copies: keep one
+  // per line and value, so two settings on one line stay two.
+  final seen = <(int, String)>{};
   final settings = [
     for (final setting in everySetting)
-      if (seenLines.add(setting.line)) setting,
+      if (seen.add((setting.line, setting.text))) setting,
   ];
   if (settings.isEmpty) {
     for (final call in script.calls) {
@@ -869,7 +878,12 @@ NativeNode _manifest(NativeFile file) {
   }
   NativeValue attribute(ManifestAttribute? attribute, String name) =>
       attribute == null
-      ? NativeValue.absent('no android:$name on <application>', at: file.path)
+      ? NativeValue.absent(
+          facts.hasApplication
+              ? 'no android:$name on <application>'
+              : 'no <application> element in ${file.path}',
+          at: file.path,
+        )
       : NativeValue.found(attribute.value, at: file.at(attribute.line));
   final byName = <String, List<ManifestPermission>>{};
   for (final permission in facts.permissions) {

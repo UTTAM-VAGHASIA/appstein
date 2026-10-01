@@ -556,6 +556,10 @@ const _callbacks = {
   'whenPluginAdded', 'withGroovyBuilder',
 };
 
+/// How many nested scope-function bodies are read twice (see
+/// `_Parser._scopeBody`).
+const _maxScopeDepth = 3;
+
 /// Symbols that, starting a line, continue the statement before.
 const _continuesBefore = {'.', '?.', '?:', '&&', '||'};
 
@@ -869,10 +873,13 @@ final class _Parser {
     List<String> inside,
     List<String> receiver,
   ) {
-    // Only the outermost scope body is read twice: every level reading its
-    // body twice would cost 2^depth. A nested one is read once, as inside
-    // the outer block, so its keys are still under a `?`.
-    if (receiver.isEmpty || _locals.contains(receiver.first) || _inScope > 0) {
+    // Only the three outermost levels of scope bodies are read twice (at
+    // most 8 copies of the innermost body): every level reading its body
+    // twice would cost 2^depth. A deeper one is read once, as inside the
+    // outer block, so its keys are still under a `?`.
+    if (receiver.isEmpty ||
+        _locals.contains(receiver.first) ||
+        _inScope >= _maxScopeDepth) {
       _opaqueBody(path, open);
       return;
     }

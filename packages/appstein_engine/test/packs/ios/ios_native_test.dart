@@ -116,7 +116,12 @@ void main() {
             'ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/'
             'Package.swift:12',
       });
-      expect(value(section, ['generatedPackage', 'plugins']).value, isEmpty);
+      // The template's Package.swift was written on Windows: a placeholder
+      // without FlutterFramework, so it says nothing about the plugins.
+      expect(
+        value(section, ['generatedPackage', 'plugins']).status,
+        NativeStatus.unknown,
+      );
       expect(value(section, ['podfile']).reason, startsWith('no ios/Podfile'));
     });
 
@@ -430,12 +435,49 @@ void main() {
       );
     });
 
+    test(
+      'the generated package lists plugins only when SwiftPM was in effect',
+      () {
+        const path =
+            'ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/'
+            'Package.swift';
+        void write(String text) => writeProjectFiles(app, {path: text});
+        NativeValue plugins() => value(read(), ['generatedPackage', 'plugins']);
+
+        // The placeholder `flutter pub get` writes without Xcode, even for an
+        // app that has plugins.
+        write('.iOS("15.0")\ndependencies: [ ]\n');
+        final placeholder = plugins();
+        expect(placeholder.status, NativeStatus.unknown);
+        expect(placeholder.reason, contains('without Swift Package Manager'));
+        expect(placeholder.at, path);
+        expect(value(read(), ['generatedPackage', 'iosVersion']).value, '15.0');
+
+        write(
+          '.iOS("15.0")\n'
+          '.package(name: "FlutterFramework", path: "../FlutterFramework")\n'
+          '.package(name: "url_launcher_ios", path: "/x")\n'
+          '.package(name: "camera_avfoundation", path: "/y")\n',
+        );
+        expect(plugins().value, ['camera_avfoundation', 'url_launcher_ios']);
+
+        write(
+          '.iOS("15.0")\n'
+          '.package(name: "FlutterFramework", path: "../FlutterFramework")\n',
+        );
+        expect(plugins().status, NativeStatus.found);
+        expect(plugins().value, isEmpty);
+      },
+    );
+
     test('a Podfile with its lock, and plugins in the generated package', () {
       writeProjectFiles(app, {
         'ios/Podfile': "platform :ios, '13.0'\n",
         'ios/Podfile.lock': 'PODS:\n',
         'ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift':
-            '.iOS("15.0")\n.package(name: "camera_avfoundation", path: "/Users/me/x")\n',
+            '.iOS("15.0")\n'
+            '.package(name: "FlutterFramework", path: "../FlutterFramework")\n'
+            '.package(name: "camera_avfoundation", path: "/Users/me/x")\n',
       });
       final section = read();
       expect(value(section, ['podfile', 'platform']).toJson(), {

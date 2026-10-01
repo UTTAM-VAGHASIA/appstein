@@ -125,12 +125,12 @@
       "debug": {
         "icon": {
           "at": "android/app/src/debug/AndroidManifest.xml",
-          "reason": "no android:icon on <application>",
+          "reason": "no <application> element in android/app/src/debug/AndroidManifest.xml",
           "status": "absent"
         },
         "label": {
           "at": "android/app/src/debug/AndroidManifest.xml",
-          "reason": "no android:label on <application>",
+          "reason": "no <application> element in android/app/src/debug/AndroidManifest.xml",
           "status": "absent"
         },
         "permissions": [
@@ -156,12 +156,12 @@
       "profile": {
         "icon": {
           "at": "android/app/src/profile/AndroidManifest.xml",
-          "reason": "no android:icon on <application>",
+          "reason": "no <application> element in android/app/src/profile/AndroidManifest.xml",
           "status": "absent"
         },
         "label": {
           "at": "android/app/src/profile/AndroidManifest.xml",
-          "reason": "no android:label on <application>",
+          "reason": "no <application> element in android/app/src/profile/AndroidManifest.xml",
           "status": "absent"
         },
         "permissions": [
@@ -199,8 +199,8 @@
       },
       "plugins": {
         "at": "ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift",
-        "status": "found",
-        "value": []
+        "reason": "written without Swift Package Manager in effect: Flutter lists the plugins here only on a Mac with Xcode 15 or later",
+        "status": "unknown"
       }
     },
     "infoPlist": {

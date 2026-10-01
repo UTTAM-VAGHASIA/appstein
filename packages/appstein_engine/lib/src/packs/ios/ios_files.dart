@@ -8,7 +8,14 @@ final class GeneratedPackageFacts {
     required this.plugins,
     this.iosVersion,
     this.iosVersionLine,
+    this.hasFlutterFramework = false,
   });
+
+  /// Whether the file depends on `FlutterFramework`. Flutter adds it
+  /// whenever Swift Package Manager is in effect (a Mac with Xcode 15 or
+  /// later). Without it the file is an empty placeholder, written on other
+  /// machines even when the app has plugins, so [plugins] says nothing.
+  final bool hasFlutterFramework;
 
   /// The version in `.iOS("…")`, such as `15.0`; null when there is none.
   final String? iosVersion;
@@ -32,6 +39,9 @@ GeneratedPackageFacts readGeneratedPackage(String text) {
       if (match[1] != 'FlutterFramework') match[1]!,
   }.toList()..sort();
   return GeneratedPackageFacts(
+    hasFlutterFramework: RegExp(
+      r'\.package\(\s*name:\s*"FlutterFramework"',
+    ).hasMatch(text),
     plugins: plugins,
     iosVersion: ios?[1],
     iosVersionLine: ios == null ? null : lineAt(text, ios.start),
@@ -87,7 +97,7 @@ PodfileFacts readPodfile(String text) {
   final platform = RegExp(
     r'''^platform\s+:ios\b\s*(?:(,)\s*(?:['"]([^'"]+)['"])?)?''',
   );
-  final lines = text.split('\n');
+  final lines = text.split(RegExp(r'\r?\n'));
   final found = <({RegExpMatch match, int line, String rest, bool inBlock})>[];
   var depth = 0;
   for (var i = 0; i < lines.length; i++) {
@@ -122,8 +132,8 @@ PodfileFacts readPodfile(String text) {
   }
   if (first.inBlock) {
     return uncertain(
-      'set conditionally (inside a Ruby block; the reader only counts '
-      '`if`, `unless`, `case`, `while`, `begin` and `do` against `end`)',
+      'set inside a Ruby block (`target … do`, `if`, …), which Appstein '
+      "doesn't follow",
     );
   }
   if (RegExp(r'^(if|unless|while|until)\b').hasMatch(first.rest)) {

@@ -144,6 +144,15 @@ void main() {
           'at': 'android/app/src/debug/AndroidManifest.xml:6',
         },
       ]);
+      // The debug manifest has no <application>: say so.
+      expect(
+        value(section, ['manifests', 'debug', 'icon']).reason,
+        'no <application> element in android/app/src/debug/AndroidManifest.xml',
+      );
+      expect(
+        value(section, ['manifests', 'main', 'label']).status,
+        NativeStatus.found,
+      );
     });
 
     test('every file read is an input, and the Flutter values too', () {
@@ -857,6 +866,49 @@ android {
         );
       });
 
+      test('containers created inside nested scope functions are unknown', () {
+        gradle(
+          'android.apply { productFlavors.apply { create("dev") { } } }\n',
+        );
+        final section = read(app);
+        final flavors = NativeConfig({
+          'android': section.node,
+        }).lookup(['android', 'app', 'flavors'])!;
+        expect((flavors as NativeValue).status, NativeStatus.unknown);
+        gradle(
+          'android { }\n'
+          'with(android) { signingConfigs.apply { create("upload") { } } }\n',
+        );
+        expect(
+          value(read(app), ['app', 'signingConfigs']).status,
+          NativeStatus.unknown,
+        );
+      });
+
+      test('a key set twice on one line is set more than once', () {
+        gradle('android { defaultConfig { minSdk = 21; minSdk = 23 } }\n');
+        final v = value(read(app), ['app', 'minSdk']);
+        expect(v.status, NativeStatus.unknown);
+        expect(v.reason, startsWith('set more than once'));
+        gradle(
+          'android { productFlavors { create("a") { minSdk = 21; minSdk = 23 } } }\n',
+        );
+        final flavors = NativeConfig({
+          'android': read(app).node,
+        }).lookup(['android', 'app', 'flavors'])!.toJson();
+        final minSdk = (flavors as List).single['minSdk'] as Map;
+        expect(minSdk['status'], 'unknown');
+        expect(minSdk['reason'], startsWith('set more than once'));
+        gradle(
+          'android { }\n'
+          'kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_11; '
+          'jvmTarget = JvmTarget.JVM_17 } }\n',
+        );
+        final jvm = value(read(app), ['app', 'kotlinJvmTarget']);
+        expect(jvm.status, NativeStatus.unknown);
+        expect(jvm.reason, startsWith('set more than once'));
+      });
+
       test('deeply nested scope functions stay linear, lines listed once', () {
         const depth = 20;
         final text = StringBuffer('android {\n  defaultConfig {\n');
@@ -868,7 +920,8 @@ android {
         text.writeln('}' * depth);
         text.writeln('  }\n}');
         final script = readKts(text.toString());
-        expect(script.assignments.length, lessThan(10));
+        // 2 assignments, each read at most 2^3 times, not 2^20.
+        expect(script.assignments.length, lessThanOrEqualTo(16));
         gradle(text.toString());
         final v = value(read(app), ['app', 'minSdk']);
         expect(v.status, NativeStatus.unknown);

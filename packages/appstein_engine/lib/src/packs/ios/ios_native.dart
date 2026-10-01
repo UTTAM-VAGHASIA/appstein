@@ -358,7 +358,13 @@ NativeNode _generatedPackage(NativeFile file, NativeValue enabled) {
         at: file.path,
       ),
     },
-    'plugins': NativeValue.found(facts.plugins, at: file.path),
+    'plugins': facts.hasFlutterFramework
+        ? NativeValue.found(facts.plugins, at: file.path)
+        : NativeValue.unknown(
+            'written without Swift Package Manager in effect: Flutter lists '
+            'the plugins here only on a Mac with Xcode 15 or later',
+            at: file.path,
+          ),
   });
 }
 

@@ -544,9 +544,15 @@ void main() {
         'expression': 'flutter.minSdkVersion',
         'resolvedFrom': 'flutter',
       });
+      // The file is still read: the template's placeholder has no
+      // FlutterFramework, so it says nothing about the plugins.
       expect(
-        nativeValue(app, ['ios', 'generatedPackage', 'plugins']).value,
-        isEmpty,
+        nativeValue(app, ['ios', 'generatedPackage', 'plugins']).status,
+        NativeStatus.unknown,
+      );
+      expect(
+        nativeValue(app, ['ios', 'generatedPackage', 'iosVersion']).value,
+        '15.0',
       );
     });
 

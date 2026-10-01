@@ -50,6 +50,8 @@ void main() {
     expect(facts.permissions[2].sdk23, isTrue);
     expect(facts.permissions[3].removed, isTrue);
     expect(facts.label, isNull);
+    expect(facts.hasApplication, isTrue);
+    expect(readManifest('<manifest/>').hasApplication, isFalse);
   });
 
   test('broken XML is a ManifestFormatException with the line', () {
