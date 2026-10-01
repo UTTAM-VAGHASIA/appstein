@@ -23,6 +23,8 @@ export 'src/host/executable_finder.dart';
 export 'src/host/file_links.dart';
 export 'src/host/host_environment.dart';
 export 'src/host/process_runner.dart';
+export 'src/knowledge/canonical_json.dart';
+export 'src/knowledge/input_hash.dart';
 export 'src/project/project_locator.dart';
 export 'src/sdk/flutter_sdk_locator.dart';
 export 'src/sdk/flutter_sdk_reader.dart';
