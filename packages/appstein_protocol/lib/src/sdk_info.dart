@@ -1,7 +1,10 @@
+import 'knowledge/notes_coverage.dart';
+
 /// Facts about the Flutter SDK a project uses.
 ///
-/// This is the content of `.appstein/platform/sdk.json` (spec §6.2). Slice 1a
-/// detects these facts; slice 1b writes them to disk and adds notes coverage.
+/// This is the content of `.appstein/platform/sdk.json` (spec §6.2).
+/// Detection fills every field except [notesCoverage], which
+/// `appstein sync` adds from the curated notes before writing the file.
 final class SdkInfo {
   /// Creates SDK facts.
   const SdkInfo({
@@ -10,6 +13,7 @@ final class SdkInfo {
     required this.channel,
     this.languageVersion,
     this.fvmVersion,
+    this.notesCoverage,
   });
 
   /// Reads SDK facts from their JSON form.
@@ -29,12 +33,25 @@ final class SdkInfo {
       throw FormatException('sdk.json: "$key" must be a string or null.');
     }
 
+    NotesCoverage? readCoverage() {
+      final value = json['appsteinNotesCoverage'];
+      if (value == null) return null;
+      for (final coverage in NotesCoverage.values) {
+        if (coverage.name == value) return coverage;
+      }
+      throw const FormatException(
+        'sdk.json: "appsteinNotesCoverage" must be "complete", "partial" '
+        'or null.',
+      );
+    }
+
     return SdkInfo(
       flutterVersion: readString('flutter'),
       dartVersion: readString('dart'),
       channel: readString('channel'),
       languageVersion: readOptional('languageVersion'),
       fvmVersion: readOptional('fvm'),
+      notesCoverage: readCoverage(),
     );
   }
 
@@ -56,6 +73,20 @@ final class SdkInfo {
   /// The Flutter version the project pins with FVM, or null without FVM.
   final String? fvmVersion;
 
+  /// How well Appstein's curated notes cover this SDK (spec §6.4), or null
+  /// before `appstein sync` adds it.
+  final NotesCoverage? notesCoverage;
+
+  /// These facts with [coverage] as their [notesCoverage].
+  SdkInfo withNotesCoverage(NotesCoverage coverage) => SdkInfo(
+    flutterVersion: flutterVersion,
+    dartVersion: dartVersion,
+    channel: channel,
+    languageVersion: languageVersion,
+    fvmVersion: fvmVersion,
+    notesCoverage: coverage,
+  );
+
   /// The JSON form, with the key names used in `sdk.json`.
   Map<String, Object?> toJson() => {
     'flutter': flutterVersion,
@@ -63,6 +94,7 @@ final class SdkInfo {
     'channel': channel,
     'languageVersion': languageVersion,
     'fvm': fvmVersion,
+    'appsteinNotesCoverage': notesCoverage?.name,
   };
 
   @override
@@ -72,7 +104,8 @@ final class SdkInfo {
       other.dartVersion == dartVersion &&
       other.channel == channel &&
       other.languageVersion == languageVersion &&
-      other.fvmVersion == fvmVersion;
+      other.fvmVersion == fvmVersion &&
+      other.notesCoverage == notesCoverage;
 
   @override
   int get hashCode => Object.hash(
@@ -81,5 +114,6 @@ final class SdkInfo {
     channel,
     languageVersion,
     fvmVersion,
+    notesCoverage,
   );
 }

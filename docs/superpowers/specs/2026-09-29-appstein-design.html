@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1b.2</b> Knowledge store and platform layer</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1b.3</b> Project map</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -674,7 +674,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   <h3>M1 slices</h3>
   <div class="pg-bar">
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
-    <a class="pg-seg pg-underway" href="#pg-1b" style="--fill:25%"><b>1b</b><span>Knowledge layers 1–2</span><i>1 of 4 done</i></a>
+    <a class="pg-seg pg-underway" href="#pg-1b" style="--fill:40%"><b>1b</b><span>Knowledge layers 1–2</span><i>2 of 5 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1c" style="--fill:0%"><b>1c</b><span>MCP server</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
@@ -717,16 +717,21 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <p class="pg-summary">Build-tools and platforms, the aapt/adb fallback, macOS Android Studio discovery, FVM channel pins and cache, and file error reasons, on every OS.</p>
           <p class="pg-meta"><time datetime="2026-10-01">1 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/4">PR #4</a> · <a href="../plans/2026-09-30-slice-1b1-sdk-gaps.md">Plan</a></p>
         </li>
-        <li class="pg-item pg-next" id="pg-1b-2">
-          <p class="pg-title"><b>1b.2</b> Knowledge store and platform layer <span class="tag info">Next</span></p>
-          <p class="pg-summary">The <code>.appstein/</code> store with its lock and freshness state, <code>sdk.json</code>, curated notes for Flutter 3.44–3.47, <code>delta.md</code>, <code>toolchain.json</code> and <code>appstein sync</code>.</p>
+        <li class="pg-item pg-done" id="pg-1b-2">
+          <p class="pg-title"><b>1b.2</b> Knowledge store and platform layer <span class="tag ok">Done</span></p>
+          <p class="pg-summary">The <code>.appstein/</code> store with its lock and freshness state, <code>sdk.json</code>, curated notes for Flutter 3.44–3.47, <code>toolchain.json</code> and <code>appstein sync</code>.</p>
+          <p class="pg-meta"><time datetime="2026-10-01">1 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/7">PR #7</a> · <a href="../plans/2026-10-01-slice-1b2-knowledge-store.md">Plan</a></p>
         </li>
-        <li class="pg-item pg-planned" id="pg-1b-3">
-          <p class="pg-title"><b>1b.3</b> Project map <span class="tag neutral">Planned</span></p>
+        <li class="pg-item pg-next" id="pg-1b-3">
+          <p class="pg-title"><b>1b.3</b> Project map <span class="tag info">Next</span></p>
           <p class="pg-summary">The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through <code>official_mvvm</code> and the platform extractors.</p>
         </li>
         <li class="pg-item pg-planned" id="pg-1b-4">
-          <p class="pg-title"><b>1b.4</b> Incremental sync, INDEX.md and package skills <span class="tag neutral">Planned</span></p>
+          <p class="pg-title"><b>1b.4</b> Version delta <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary"><code>delta.md</code>: what changed since the baseline for this SDK and language version, from <code>fix_data</code>, the SDK's deprecations and the curated notes, filtered to the APIs the project uses.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1b-5">
+          <p class="pg-title"><b>1b.5</b> Incremental sync, INDEX.md and package skills <span class="tag neutral">Planned</span></p>
           <p class="pg-summary">Sync that rebuilds only what changed, the always-in-view <code>INDEX.md</code>, and the package skills refresh.</p>
         </li>
       </ol>
@@ -912,7 +917,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     </div>
 
     <div class="policy">
-      <div><b>Generated → git-ignored</b><p><code>INDEX.md</code>, <code>platform/</code>, <code>map/</code>, <code>state.json</code>. No merge conflicts, never committed stale.</p></div>
+      <div><b>Generated → git-ignored</b><p><code>INDEX.md</code>, <code>platform/</code>, <code>map/</code>, <code>state.json</code>, <code>.lock</code>. No merge conflicts, never committed stale.</p></div>
       <div><b>Written → committed</b><p><code>decisions/</code> and <code>memory/</code>: hand-written project knowledge.</p></div>
       <div><b>Agent setup → committed</b><p><code>.mcp.json</code>, hooks, skills and managed blocks, so every clone gets the same setup.</p></div>
     </div>
@@ -1137,7 +1142,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <p><b>Packs:</b> <code>official_mvvm</code> (stack), <code>android</code> and <code>ios</code> (platform) in M1. They start as folders and become packages when community packs arrive (M3+).</p>
         <p><b>Runs everywhere:</b> Windows, macOS and Linux; paths with spaces and non-ASCII characters.</p>
         <p><b>Offline and private:</b> everything but package existence and advisory checks works offline. No telemetry.</p>
-        <p><b>Deterministic:</b> the same inputs give byte-identical knowledge and human docs. A lock file stops two hooks corrupting it.</p>
+        <p><b>Deterministic:</b> the same inputs give byte-identical knowledge and human docs. An operating-system lock stops two hooks corrupting it, and a crashed writer never leaves it stuck.</p>
       </div>
     </details>
   </div>
@@ -1407,7 +1412,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
 
   /* Knowledge layers (§6.1, §6.2) */
   var L=[
-    {k:'Layer 1',h:'Platform',c:'SDK facts, the version delta (“use X, not Y”), and the native toolchain matrix.',s:'The installed SDK (fix_data, releases manifest, deprecations, gradle_utils.dart, iOS templates) plus Appstein’s curated notes.',f:'Rebuilt when the SDK version changes.',files:['platform/sdk.json','platform/delta.md','platform/toolchain.json']},
+    {k:'Layer 1',h:'Platform',c:'SDK facts, the version delta (“use X, not Y”), and the native toolchain matrix.',s:'The installed SDK (fix_data, releases manifest, deprecations, gradle_utils.dart and DependencyVersionChecker.kt, iOS and macOS templates) plus Appstein’s curated notes.',f:'Rebuilt when the SDK version changes.',files:['platform/sdk.json','platform/delta.md','platform/toolchain.json']},
     {k:'Layer 2',h:'Project map',c:'Features, files, routes, layers, dependencies and native config.',s:'The resolved Dart AST from package:analyzer, plus pack extractors.',f:'Rebuilt incrementally after every edit.',files:['map/features.json','map/symbols.json','map/routes.json','map/layers.json','map/deps.json','map/native.json']},
     {k:'Layer 3',h:'Decisions',c:'Architecture choice, state management, design tokens and conventions, each with its reason.',s:'Written by the user or by agents through record_decision.',f:'Checked against the code by the verifier; a mismatch is a decision.drift warning.',files:['decisions/NNNN-<slug>.md']},
     {k:'Layer 4',h:'Memory',c:'The current task, what was tried, and lessons learned.',s:'Written by agents through memory_write.',f:'When a task finishes, current.md is summarized into lessons.md. A long lessons.md gets a hint to consolidate; nothing is deleted automatically.',files:['memory/current.md','memory/lessons.md']}

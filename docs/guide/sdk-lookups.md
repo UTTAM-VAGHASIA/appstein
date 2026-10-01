@@ -88,9 +88,9 @@ The FVM link and `flutter` on PATH are often symbolic links, or junctions on Win
 | `newestKnownFlutterMinor` | 3.47 | A newer minor is info: it works, but version notes may be incomplete |
 | `minimumXcodeMajor` | 26 | Older is an error in the Xcode check |
 
-`appstein --version` prints the first two as the supported Flutter range.
+`appstein --version` prints the first two as the supported Flutter range. `newestKnownFlutterMinor` must equal the newest curated notes file; a test fails until both are bumped (see [toolchain](toolchain.md#when-a-new-flutter-stable-is-released)). The dated Xcode requirements live in `notes/stores.yaml`; `minimumXcodeMajor` is what doctor checks today, and is kept in step with the notes until doctor reads them (slice 1d).
 
-**`SdkInfo`**, in [`sdk_info.dart`](../../packages/appstein_protocol/lib/src/sdk_info.dart), carries the result: the Flutter, Dart and language versions, the channel and the FVM pin. It lives in the protocol package because later slices share it: slice 1b will write it to `.appstein/platform/sdk.json` ([spec §6.2](../superpowers/specs/2026-09-29-appstein-design.md#62-the-appstein-folder)). Today it is only built in memory.
+**`SdkInfo`**, in [`sdk_info.dart`](../../packages/appstein_protocol/lib/src/sdk_info.dart), carries the result: the Flutter, Dart and language versions, the channel and the FVM pin. It lives in the protocol package because later slices share it ([spec §6.2](../superpowers/specs/2026-09-29-appstein-design.md#62-the-appstein-folder)). Since slice 1b.2, `sync` writes it to `.appstein/platform/sdk.json` (see [knowledge-store](knowledge-store.md)). It also carries `notesCoverage` (JSON key `appsteinNotesCoverage`): whether the curated notes cover this Flutter version, `complete` or `partial`. `withNotesCoverage` returns a copy with it set, because the detector knows the SDK and the notes know their own coverage, and neither should need the other.
 
 ## Flutter's settings file
 
@@ -163,7 +163,7 @@ The Android SDK check reports the platform and build-tools Flutter will use, fou
 
 So on a machine with platforms up to `android-37.0` (level 37) and build-tools `35.0.0`, `36.1.0` and `37.0.0-rc2`, doctor says `platform android-37.0, build-tools 37.0.0-rc2`, the words `flutter doctor -v` prints. The check then looks for `zipalign` in those build-tools and for `platform-tools`. With no build-tools, or no platform with a level, it reports an error, as Flutter does.
 
-Flutter also reports an error when the platform or the build-tools are older than its Gradle plugin needs. Those minimums are facts about each Flutter version, so they arrive with the toolchain knowledge in slice 1b.2.
+Flutter also reports an error when the platform or the build-tools are older than its Gradle plugin needs. Those minimums are facts about each Flutter version, so they come from the toolchain knowledge of slice 1b.2, and the Android SDK check now compares with them (see [doctor](doctor.md) and [toolchain](toolchain.md)).
 
 ## Where Appstein differs from Flutter
 
@@ -173,10 +173,9 @@ The lookups give Flutter's answer, and where Flutter does something surprising, 
 - **`where` looks in the current folder first.** On Windows, Flutter finds `aapt` and `adb` with `where`, which searches the current folder before the PATH. `findAllExecutables` searches only the PATH.
 - **A configured Android Studio on Windows.** Flutter reads `android-studio-dir` only after it has listed `%LOCALAPPDATA%\Google`, and skips the setting when that folder is missing. That is a Flutter bug in a rare case, and Appstein doesn't copy it: it always uses the configured install, because the setting is the user's explicit choice.
 - **A configured Android Studio that doesn't exist.** Flutter stops every command with a tool error. The Java check reports it as an error, and the other checks still run.
-- **Minimum versions.** Flutter reports an error when the platform or the build-tools are older than its Gradle plugin needs. Those minimums change with each Flutter version, so they come with the toolchain knowledge in slice 1b.2.
 - **A broken FVM settings file.** FVM stops with an error when its global settings file isn't valid JSON. Appstein's lookup ignores the file, and the FVM check names it.
 - **Folder order is the file system's.** Where the answer depends on the order a folder is listed in (ties between Android Studio installs, platforms or build-tools), Appstein keeps that order, as Flutter does, so it gives Flutter's answer on the same machine. It is alphabetical on Windows (NTFS) but not on macOS (APFS) or Linux (ext4).
-- **Toolchain facts Flutter also checks.** The Android SDK check doesn't yet report what Flutter's Android toolchain check also reports: a missing `cmdline-tools` component (an error in Flutter), an SDK with only `licenses`, an SDK path with spaces, a missing `android.jar`, or an `aapt` that can't run in the paired platform and build-tools. These are planned with slice 1b.2's toolchain facts.
+- **Toolchain facts Flutter also checks.** The Android SDK check doesn't yet report what Flutter's Android toolchain check also reports: a missing `cmdline-tools` component (an error in Flutter), an SDK with only `licenses`, an SDK path with spaces, a missing `android.jar`, or an `aapt` that can't run in the paired platform and build-tools. These are carried to a later slice (see "Carried to later slices" in the slice 1b.2 plan).
 - **The "Multiple adb binaries found" hint.** Flutter shows it only when the SDK is otherwise well formed. Appstein always lists conflicting `adb` programs.
 - **An empty `FVM_CACHE_PATH` (or an empty global `cachePath`).** FVM uses it as a relative `versions` folder. Appstein treats it as unset.
 - **FVM 4 fork pins.** Pins such as `fork/3.24.0`, and a forked `x@channel` (which FVM caches without `@channel`), aren't understood.

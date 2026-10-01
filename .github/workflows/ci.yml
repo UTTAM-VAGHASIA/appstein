@@ -75,7 +75,7 @@ jobs:
         run: |
           dart test test
           for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
-      - name: Doctor against this real machine
+      - name: Doctor and sync against this real machine
         shell: bash
         working-directory: packages/appstein_engine
         run: dart test --run-skipped --tags integration
@@ -110,6 +110,15 @@ jobs:
           ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} doctor
           c=$?
           [ "$c" -le 1 ]
+      - name: Run sync in a scratch project (the AOT binary reads the SDK)
+        shell: bash
+        run: |
+          project="$RUNNER_TEMP/sync project"
+          mkdir -p "$project"
+          printf 'name: smoke\nenvironment:\n  sdk: ^3.12.0\n' > "$project/pubspec.yaml"
+          ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} --project "$project" sync
+          test -f "$project/.appstein/platform/toolchain.json"
+          grep -q '"fallbacks": \[\]' "$project/.appstein/platform/toolchain.json"
       - uses: actions/upload-artifact@v4
         with:
           name: appstein-${{ runner.os }}
@@ -170,6 +179,10 @@ jobs:
       - name: Unit tests
         shell: bash
         run: for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
+      - name: Read the toolchain from this real SDK (spec §12, risk 6)
+        shell: bash
+        working-directory: packages/appstein_engine
+        run: dart test --run-skipped --tags integration test/integration/sync_real_environment_test.dart
 
   measure:
     strategy:

@@ -1,0 +1,188 @@
+# Curated notes for Flutter 3.47 (spec §6.4): what changed in 3.45, 3.46 and
+# 3.47. 3.45 and 3.46 were never stable releases, so every note applies
+# from 3.47. Reviewed by the owner like spec text; every fact was checked
+# against its source on 2026-10-01. See docs/guide/how-to/add-a-curated-note.md.
+flutter: "3.47"
+released: 2026-08-12
+dart: "3.13"
+
+# The toolchain matrix of Flutter 3.47.5, used only when the installed SDK's
+# own files can't be read (spec §12). A test checks it against those files.
+toolchain:
+  android:
+    template: {gradle: "9.3.1", agp: "9.1.0", kgp: "2.4.0", ndk: "28.2.13676358", compileSdk: 36, targetSdk: 36, minSdk: 24}
+    flutterMinimums:
+      compileSdk: 36
+      buildTools: "28.0.3"
+      java: {warnBelow: "17.0.0", errorBelow: "17.0.0"}
+    buildChecks:
+      gradle: {warnBelow: "9.1.0", errorBelow: "8.14.0"}
+      agp: {warnBelow: "9.0.1", errorBelow: "8.11.1"}
+      kgp: {warnBelow: "2.3.20", errorBelow: "2.2.20"}
+      java: {warnBelow: "17", errorBelow: "17"}
+      minSdk: {warnBelow: "24", errorBelow: "23"}
+    maxKnown: {gradle: "9.3.1", kgp: "2.4.0", agp: "9.2", agpWithFullKotlinSupport: "9.1.0"}
+    javaGradle:
+      - {javaMin: "25", javaMax: "26", gradleMin: "9.1.0"}
+      - {javaMin: "24", javaMax: "25", gradleMin: "8.14"}
+      - {javaMin: "23", javaMax: "24", gradleMin: "8.10"}
+      - {javaMin: "22", javaMax: "23", gradleMin: "8.7"}
+      - {javaMin: "21", javaMax: "22", gradleMin: "8.4"}
+      - {javaMin: "20", javaMax: "21", gradleMin: "8.1"}
+      - {javaMin: "19", javaMax: "20", gradleMin: "7.6"}
+      - {javaMin: "18", javaMax: "19", gradleMin: "7.5"}
+      - {javaMin: "17", javaMax: "18", gradleMin: "7.3"}
+      - {javaMin: "16", javaMax: "17", gradleMin: "7.0", gradleMax: "8.14.100"}
+      - {javaMin: "15", javaMax: "16", gradleMin: "6.7", gradleMax: "8.14.100"}
+      - {javaMin: "14", javaMax: "15", gradleMin: "6.3", gradleMax: "8.14.100"}
+      - {javaMin: "13", javaMax: "14", gradleMin: "6.0", gradleMax: "8.14.100"}
+      - {javaMin: "12", javaMax: "13", gradleMin: "5.4", gradleMax: "8.14.100"}
+      - {javaMin: "11", javaMax: "12", gradleMin: "5.0", gradleMax: "8.14.100"}
+      - {javaMin: "1.10", javaMax: "1.11", gradleMin: "4.7", gradleMax: "8.14.100"}
+      - {javaMin: "1.9", javaMax: "1.10", gradleMin: "4.3", gradleMax: "8.14.100"}
+      - {javaMin: "1.8", javaMax: "1.9", gradleMin: "2.0", gradleMax: "8.14.100"}
+    javaAgp:
+      - {javaMin: "17", javaDefault: "17", agpMin: "8.0", agpMax: "9.2"}
+      - {javaMin: "11", javaDefault: "11", agpMin: "7.0", agpMax: "7.4"}
+      - {javaMin: "1.8", javaDefault: "1.8", agpMin: "4.2", agpMax: "4.2"}
+  ios: {deploymentTarget: "15.0"}
+  macos: {deploymentTarget: "12.0"}
+
+notes:
+  - id: android-build-version-floors
+    since: "3.47"
+    priority: 1
+    area: android
+    summary: Flutter's Gradle plugin now fails the build for Gradle below 8.14, AGP below 8.11.1 and KGP below 2.2.20, and warns below Gradle 9.1.0, AGP 9.0.1 and KGP 2.3.20.
+    use: "In `android/settings.gradle.kts`: `id(\"com.android.application\") version \"9.1.0\"`, `id(\"org.jetbrains.kotlin.android\") version \"2.4.0\"`; Gradle wrapper `gradle-9.3.1-all.zip`."
+    avoid: "AGP below 8.11.1 (e.g. `8.7.0`), Gradle below 8.14, or KGP below 2.2.20 (e.g. 2.0/2.1) copied from older projects; these now fail during configuration (AGP 8.11.1+ and Gradle 8.14+ only warn)."
+    source: https://github.com/flutter/flutter/blob/3.47.5/packages/flutter_tools/gradle/src/main/kotlin/DependencyVersionChecker.kt
+
+  - id: dart-final-var-parameters-reserved
+    since: "3.47"
+    languageVersion: "3.13"
+    priority: 1
+    area: dart
+    summary: At language version 3.13, `final` and `var` on ordinary (non-declaring) parameters are a compile-time error; Dart reserves them for primary-constructor declaring parameters.
+    use: "Plain parameters: `void f(int x)`, `(BuildContext context) => ...`; enable the `parameter_assignments` lint to prevent reassignment."
+    avoid: "`void f(final int x)`, `(final BuildContext context) {}`, `final` or `var` on method, function, closure or in-body constructor parameters."
+    source: https://github.com/dart-lang/sdk/blob/main/CHANGELOG.md#3130
+
+  - id: ios-minimum-15
+    since: "3.47"
+    priority: 1
+    area: ios
+    summary: Flutter's minimum supported iOS is now 15 (iOS 14 and earlier are unsupported); new projects use IPHONEOS_DEPLOYMENT_TARGET 15.0 and the tool migrates older targets to 15.0.
+    use: "`IPHONEOS_DEPLOYMENT_TARGET = 15.0`, Podfile `platform :ios, '15.0'`, plugin podspec `s.platform = :ios, '15.0'`."
+    avoid: "`platform :ios, '13.0'` / `'12.0'`, deployment target 13.0 or 14.0, or podspecs declaring iOS 13."
+    source: https://docs.flutter.dev/reference/supported-platforms
+
+  - id: android-builtin-kotlin-version-check
+    since: "3.47"
+    priority: 2
+    area: android
+    summary: Flutter 3.47 allows `android.builtInKotlin=true`, but on 3.47.x stable the Kotlin version check rejects AGP's bundled Kotlin 2.2.10 (issue #192167, closed by PR #192206 on master; the fix is in 3.49 beta, not in any 3.47.x stable).
+    use: "On 3.47.x keep the template's `android.builtInKotlin=false`; if you must enable built-in Kotlin, build with `--android-skip-build-dependency-validation`."
+    avoid: "Setting `android.builtInKotlin=true` and removing `org.jetbrains.kotlin.android` on 3.47.x, then expecting the build to pass Flutter's KGP check."
+    source: https://github.com/flutter/flutter/issues/192167
+
+  - id: android-template-agp-9
+    since: "3.47"
+    priority: 2
+    area: android
+    summary: New Android projects are generated with Gradle 9.3.1, AGP 9.1.0 and KGP 2.4.0 (3.44 used Gradle 9.1.0, AGP 9.0.1, KGP 2.3.20).
+    use: "Match the template: Gradle `9.3.1`, AGP `9.1.0`, KGP `2.4.0`, Java 17, `kotlin { compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17 } }`."
+    avoid: "Hard-coding older template versions (AGP 8.x, Gradle 8.x) in new projects."
+    source: https://github.com/flutter/flutter/blob/3.47.5/packages/flutter_tools/lib/src/android/gradle_utils.dart
+
+  - id: dart-primary-constructors
+    since: "3.47"
+    languageVersion: "3.13"
+    priority: 2
+    area: dart
+    summary: Dart 3.13 adds primary constructors, declaring a constructor and its fields in the class header.
+    use: "`class Point(final int x, final int y);`; initializer list or body via `this : assert(x >= 0) { ... }` inside the class; `class const P(final int x);` for const."
+    avoid: "Using primary-constructor syntax in packages whose SDK constraint lower bound is below 3.13 (`sdk: '^3.13.0'` is required)."
+    source: https://dart.dev/language/primary-constructors
+
+  - id: macos-minimum-12
+    since: "3.47"
+    priority: 2
+    area: ios
+    summary: Flutter's minimum supported macOS is now 12 (Monterey); new projects use MACOSX_DEPLOYMENT_TARGET 12.0 and the tool migrates older targets.
+    use: "`MACOSX_DEPLOYMENT_TARGET = 12.0`, Podfile `platform :osx, '12.0'`, podspec `s.osx.deployment_target = '12.0'`."
+    avoid: "`platform :osx, '10.15'` or `'11.0'`, deployment target 10.15."
+    source: https://docs.flutter.dev/reference/supported-platforms
+
+  - id: material-ui-packages
+    since: "3.47"
+    priority: 2
+    area: framework
+    summary: Material and Cupertino are published as standalone packages `material_ui` and `cupertino_ui`; the in-framework libraries are frozen and scheduled for formal deprecation in a later stable, but are not deprecated in 3.47.
+    use: "To opt in: `flutter pub add material_ui cupertino_ui`, then `dart fix --apply --code=migrate_design_widgets`; imports become `package:material_ui/material_ui.dart` / `package:cupertino_ui/cupertino_ui.dart`."
+    avoid: "Claiming `package:flutter/material.dart` is deprecated in 3.47, or expecting new Material/Cupertino features to land in the in-framework libraries."
+    source: https://docs.flutter.dev/release/breaking-changes/material-ui-and-cupertino-ui
+
+  - id: semantics-heading-level
+    since: "3.47"
+    priority: 2
+    area: framework
+    summary: The `header` semantics flag is now a no-op on iOS and Android; headings are announced only when `headingLevel` is greater than 0.
+    use: "`Semantics(headingLevel: 1, child: Text('Section'))`; `SemanticsProperties(headingLevel: 1)`."
+    avoid: "`Semantics(header: true, ...)` to mark headings for TalkBack/VoiceOver."
+    source: https://docs.flutter.dev/release/breaking-changes/semantics-header-heading-level
+
+  - id: dart-concise-constructor-syntax
+    since: "3.47"
+    languageVersion: "3.13"
+    priority: 3
+    area: dart
+    summary: In Dart 3.13 constructors in a class body can use `new` or `factory` instead of repeating the class name.
+    use: "`new(this.x, this.y);`, `new origin() : x = 0, y = 0;`, `factory clone(Point other) => Point(other.x, other.y);`"
+    avoid: "This syntax below language version 3.13; a method named `factory` with no return type (`factory () {}`) now parses as an unnamed factory constructor."
+    source: https://dart.dev/language/constructors
+
+  - id: impeller-desktop-default
+    since: "3.47"
+    priority: 3
+    area: framework
+    summary: Impeller is the default renderer on macOS, Windows and Linux; the opt-out will be removed in a future release.
+    use: "Assume Impeller on desktop; to opt out temporarily use `flutter run --no-enable-impeller`, `FLTEnableImpeller=false` (macOS Info.plist), `set_impeller_switch(flutter::ImpellerSwitch::Disabled)` (Windows), `fl_dart_project_set_enable_impeller(project, FALSE)` (Linux)."
+    avoid: "Assuming desktop renders with Skia, or relying on the opt-out long term."
+    source: https://docs.flutter.dev/perf/impeller
+
+  - id: material-ui-bridge-limitation
+    since: "3.47"
+    priority: 3
+    area: framework
+    summary: "`MaterialUiCompatibilityBridge` passes theme and localizations to dependencies still on `package:flutter/material.dart`, but cannot fix type mismatches when a dependency's API takes or returns in-framework Material types."
+    use: "`MaterialApp(builder: (context, child) => MaterialUiCompatibilityBridge(child: child!))`; wait for dependencies that expose types like `ColorScheme`, `TextTheme`, `FloatingActionButtonLocation` to migrate."
+    avoid: "Passing `package:material_ui` values (e.g. `ColorScheme`) to a dependency whose API uses `package:flutter/material.dart` types; it does not type-check."
+    source: https://docs.flutter.dev/release/breaking-changes/material-ui-and-cupertino-ui
+
+  - id: material-ui-localizations-delegates
+    since: "3.47"
+    priority: 3
+    area: framework
+    summary: With `package:material_ui`, `GlobalMaterialLocalizations.delegates` includes the Material, Cupertino and Widgets delegates.
+    use: "`MaterialApp(localizationsDelegates: GlobalMaterialLocalizations.delegates, ...)` with `package:material_ui/material_ui.dart`."
+    avoid: "Listing `GlobalCupertinoLocalizations.delegate`, `GlobalMaterialLocalizations.delegate`, `GlobalWidgetsLocalizations.delegate` from `flutter_localizations` in a `material_ui` app."
+    source: https://docs.flutter.dev/release/breaking-changes/material-ui-and-cupertino-ui
+
+  - id: opengles-render-texture-top-down
+    since: "3.47"
+    priority: 3
+    area: framework
+    summary: Impeller's OpenGL ES backend now stores render-to-texture content top-down like Metal and Vulkan, so shaders must not flip Y on OpenGL ES.
+    use: "Sample with `uv = FlutterFragCoord().xy / u_size` and no flip; for cross-version code guard with `#if defined(IMPELLER_TARGET_OPENGLES) && !defined(IMPELLER_OPENGLES_UNFLIPPED_DEPRECATED)`."
+    avoid: "`#ifdef IMPELLER_TARGET_OPENGLES uv.y = 1.0 - uv.y; #endif` in FragmentShader or Flutter GPU code."
+    source: https://docs.flutter.dev/release/breaking-changes/opengles-render-to-texture-top-down
+
+  - id: widget-previews-stable
+    since: "3.47"
+    priority: 3
+    area: tooling
+    summary: Flutter Widget Previewer is stable; it caches builds in `.widget_preview/` (now in the app template's .gitignore).
+    use: "`import 'package:flutter/widget_previews.dart';` and `@Preview(name: '...')` on a top-level function, static method or public no-required-arg widget constructor; run `flutter widget-preview start`."
+    avoid: "`@Preview` on private callbacks or members needing required arguments; `dart:io`/`dart:ffi` or native plugins in previews; committing `.widget_preview/`."
+    source: https://docs.flutter.dev/tools/widget-previewer

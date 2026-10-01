@@ -136,6 +136,8 @@ Exit codes, for both tools:
 
 `--since` with a revision that isn't a commit is reported as a problem (exit 1). With `--warn-only`, `check_guide` exits 0 whatever it finds, and when it can't run at all it prints one line, `warning: the guide check could not run: <error>`. Only bad usage still exits 3.
 
+**The curated notes are generated too, in a different way.** [`tool/gen_notes.dart`](../../tool/gen_notes.dart) compiles the YAML files in `notes/` into a Dart file the `appstein` binary carries, using [`notes_bundle.dart`](../../tool/src/notes_bundle.dart). It is not a guide section. Instead, `test/notes_bundle_test.dart` fails while the compiled file is stale. See [knowledge-store](knowledge-store.md#the-curated-notes).
+
 ## Is the graph current?
 
 graphify's knowledge graph (`graphify-out/`) has two layers. The git hooks rebuild the code structure after every commit, checkout, merge and rebase (see [Git hooks](#git-hooks)). What the docs mean is extracted by an LLM, and that only happens when someone runs `/graphify . --update`. So after a doc changes, the graph describes the old version until the command runs again, and the hooks don't say so: `GRAPH_REPORT.md` still says "Built from commit …", which reads as fresh.
