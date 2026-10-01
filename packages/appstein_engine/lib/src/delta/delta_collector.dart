@@ -78,7 +78,14 @@ final class _Collector {
   Future<LibraryElement?> _libraryAt(Uri uri) async {
     if (_resolved.containsKey(uri)) return _resolved[uri];
     final session = analysis.libraries.firstOrNull?.result.session;
-    final result = await session?.getLibraryByUri('$uri');
+    SomeLibraryElementResult? result;
+    try {
+      result = await session?.getLibraryByUri('$uri');
+    } on Object {
+      // An analyzer failure on one library loses only this migration, which
+      // is left out as unresolvable, not the whole delta.
+      result = null;
+    }
     return _resolved[uri] = result is LibraryElementResult
         ? result.element
         : null;
@@ -449,10 +456,19 @@ final class _Collector {
     // element, which is still there: each parameter is listed on its own,
     // named the way the Deprecated section names parameters.
     if (target is ExecutableElement && transform.oldParameters.isNotEmpty) {
+      final executable = target;
+      FormalParameterElement? parameterNamed(String name) => executable
+          .formalParameters
+          .where((formal) => formal.name == name)
+          .firstOrNull;
+      // When some old parameter is really gone, the migration is about it: a
+      // live one it also drops in some option (as `primarySwatch` in
+      // Flutter's ThemeData migrations) isn't listed as changed.
+      final anyGone = transform.oldParameters.any(
+        (old) => parameterNamed(old) == null,
+      );
       for (final old in transform.oldParameters.toList()..sort()) {
-        final parameter = target.formalParameters
-            .where((formal) => formal.name == old)
-            .firstOrNull;
+        final parameter = parameterNamed(old);
         if (parameter == null) {
           migrated.add((
             group,
@@ -461,7 +477,8 @@ final class _Collector {
             transform.title,
           ));
         } else if (!_attach(parameter, transform) &&
-            !_attach(target, transform)) {
+            !_attach(target, transform) &&
+            !anyGone) {
           migrated.add((
             group,
             '$name($old)',

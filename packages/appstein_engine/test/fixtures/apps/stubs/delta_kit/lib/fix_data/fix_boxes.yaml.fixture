@@ -46,11 +46,19 @@ transforms:
       uris: [ 'package:delta_kit/delta_kit.dart' ]
       constructor: ''
       inClass: 'NewBox'
+    # Like Flutter's ThemeData migrations, an option also drops a live
+    # parameter (`size`); only the gone `height` is listed.
     oneOf:
       - if: "height != ''"
         changes:
           - kind: 'removeParameter'
             name: 'height'
+      - if: "height != '' && size != ''"
+        changes:
+          - kind: 'removeParameter'
+            name: 'height'
+          - kind: 'removeParameter'
+            name: 'size'
 
   - title: "Rename to 'Extra2'"
     date: 2026-01-01
