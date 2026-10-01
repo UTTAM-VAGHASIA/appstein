@@ -239,8 +239,9 @@ int? _setElsewhere(KtsScript script, List<String> path) {
     if (full.length == 1 || path.length == 1) return true;
     if (full[full.length - 2] == path[path.length - 2]) return true;
     if (raw.length < 2 || raw.length == full.length) return false;
-    final above = raw[raw.length - 2];
-    return above == ktsOpaque || path.contains(above);
+    // Conditional: the block that holds the key (ignoring `?`) must be one
+    // of [path]'s, so a sibling block's own key isn't taken for this one's.
+    return path.contains(full[full.length - 2]);
   }
 
   final lines = [
@@ -453,6 +454,7 @@ NativeNode _app(_GradleFile app, _FlutterValues flutter) {
     String? absent,
   }) => _setting(app, path, convert, oldNames: oldNames, absent: absent);
 
+  final flavors = _flavors(app, text, number);
   return NativeGroup({
     'plugins': _appliedPlugins(app),
     'namespace': setting(['android', 'namespace'], text),
@@ -497,9 +499,10 @@ NativeNode _app(_GradleFile app, _FlutterValues flutter) {
         absent: 'the release build type sets no signing config',
       ),
       setting(['android', 'defaultConfig', 'signingConfig'], _signing),
+      _flavorSigning(app, flavors),
     ),
     'signingConfigs': _signingConfigs(app),
-    'flavors': _flavors(app, text, number),
+    'flavors': flavors,
   });
 }
 
@@ -513,11 +516,46 @@ NativeValue _constant(KtsValue written, String at, List<String> prefixes) =>
       _ => _computed(written, at),
     };
 
+/// Unknown when a flavor sets (or may set) its own signing config: AGP
+/// picks the build type's, then the flavor's, then `defaultConfig`'s, so
+/// the release builds of that flavor aren't signed with `defaultConfig`'s.
+NativeValue? _flavorSigning(_GradleFile app, NativeNode flavors) {
+  if (flavors is NativeValue) {
+    return NativeValue.unknown(
+      'release sets no signing config, and flavors may set their own '
+      '(the flavor list is unknown)',
+      at: flavors.at,
+    );
+  }
+  final script = app.script!;
+  final lines = [
+    for (final assignment in script.assignments)
+      if (assignment.plainPath.contains('productFlavors') &&
+          assignment.plainPath.last == 'signingConfig')
+        assignment.line,
+    for (final call in script.calls)
+      if (call.plainPath.contains('productFlavors') &&
+          call.name == 'signingConfig')
+        call.line,
+  ]..sort();
+  if (lines.isEmpty) return null;
+  return NativeValue.unknown(
+    'release sets no signing config, and flavors set their own signing '
+    'configs (line ${lines.first})',
+    at: app.kts.at(lines.first),
+  );
+}
+
 /// The release signing config: the release build type's, or, when it sets
 /// none, `defaultConfig`'s (AGP gives it to every build type that sets no
 /// signing config of its own).
-NativeValue _releaseSigning(NativeValue release, NativeValue fromDefault) {
+NativeValue _releaseSigning(
+  NativeValue release,
+  NativeValue fromDefault,
+  NativeValue? flavorsSign,
+) {
   if (release.status != NativeStatus.absent) return release;
+  if (flavorsSign != null) return flavorsSign;
   return switch (fromDefault.status) {
     NativeStatus.found => NativeValue.found(
       fromDefault.value!,
@@ -578,6 +616,27 @@ NativeValue _kotlinJvmTarget(_GradleFile app) {
           at: app.kts.at(call.line),
         );
       }
+    }
+    // `kotlin { jvmToolchain { … } }`, `java { toolchain { … } }`.
+    final toolchain = [
+      for (final block in script.blocks)
+        if (ktsPathIs(block.path, ['kotlin', 'jvmToolchain']) ||
+            ktsPathIs(block.path, ['java', 'toolchain']))
+          block.line,
+      for (final assignment in script.assignments)
+        if (assignment.plainPath.contains('toolchain') ||
+            assignment.plainPath.contains('jvmToolchain'))
+          assignment.line,
+      for (final call in script.calls)
+        if (call.plainPath.contains('toolchain') ||
+            call.plainPath.contains('jvmToolchain'))
+          call.line,
+    ]..sort();
+    if (toolchain.isNotEmpty) {
+      return NativeValue.unknown(
+        'set by a Java toolchain (line ${toolchain.first})',
+        at: app.kts.at(toolchain.first),
+      );
     }
     for (final path in paths) {
       if (_setElsewhere(script, path) case final line?) {

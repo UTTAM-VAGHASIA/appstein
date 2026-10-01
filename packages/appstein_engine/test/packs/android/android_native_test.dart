@@ -698,6 +698,70 @@ android {
         );
       });
 
+      test('a flavor signing config beats the defaultConfig one', () {
+        gradle(
+          'android {\n'
+          '  defaultConfig { signingConfig = signingConfigs.getByName("shared") }\n'
+          '  productFlavors {\n'
+          '    create("dev") { signingConfig = signingConfigs.getByName("dev") }\n'
+          '  }\n'
+          '}\n',
+        );
+        final v = value(read(app), ['app', 'releaseSigningConfig']);
+        expect(v.status, NativeStatus.unknown);
+        expect(v.reason, contains('flavors set their own signing configs'));
+        gradle(
+          'android {\n'
+          '  defaultConfig { signingConfig = signingConfigs.getByName("shared") }\n'
+          '  productFlavors { create(name) }\n'
+          '}\n',
+        );
+        expect(
+          value(read(app), ['app', 'releaseSigningConfig']).status,
+          NativeStatus.unknown,
+        );
+      });
+
+      test('a conditional value in one block does not leak to its siblings', () {
+        gradle(
+          'android {\n'
+          '  defaultConfig { if (ci) { versionCode = 3 } }\n'
+          '  productFlavors { create("a") { dimension = "x" } }\n'
+          '}\n',
+        );
+        final section = read(app);
+        final flavors = NativeConfig({
+          'android': section.node,
+        }).lookup(['android', 'app', 'flavors'])!.toJson();
+        expect(flavors, [
+          {
+            'name': 'a',
+            'at': 'android/app/build.gradle.kts:3',
+            'dimension': {
+              'status': 'found',
+              'value': 'x',
+              'at': 'android/app/build.gradle.kts:3',
+            },
+          },
+        ]);
+        gradle(
+          'android { productFlavors { create("a") { if (ci) { minSdk = 3 } } } }\n',
+        );
+        expect(value(read(app), ['app', 'minSdk']).status, NativeStatus.absent);
+      });
+
+      test('Java toolchain blocks set the Kotlin target implicitly', () {
+        for (final body in [
+          'kotlin { jvmToolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }\n',
+          'java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }\n',
+        ]) {
+          gradle(body);
+          final v = value(read(app), ['app', 'kotlinJvmTarget']);
+          expect(v.status, NativeStatus.unknown, reason: body);
+          expect(v.reason, 'set by a Java toolchain (line 1)', reason: body);
+        }
+      });
+
       test('kotlin jvmToolchain(...) sets the target implicitly', () {
         gradle('kotlin { jvmToolchain(17) }\n');
         final v = value(read(app), ['app', 'kotlinJvmTarget']);
