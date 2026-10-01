@@ -241,7 +241,8 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ```
 .appstein/
 ├── INDEX.md               (generated, git-ignored) always-loaded entry point (≤ 1,500 tokens, enforced by test)
-├── state.json             (generated, git-ignored) freshness hashes, lock info, last sync
+├── state.json             (generated, git-ignored) freshness hashes, last sync
+├── .lock                  (git-ignored) the write lock (§15)
 ├── platform/   (generated, git-ignored)
 │   ├── sdk.json           {flutter, dart, channel, languageVersion, fvm, appsteinNotesCoverage}
 │   ├── delta.md           version delta for THIS SDK + language version (§6.4)
@@ -258,13 +259,14 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ```
 
 - **Every generated file carries** `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and a hash of its inputs. This makes staleness detectable: `verify` fails with `knowledge.stale` if a hash doesn't match.
+- **A generated file is rewritten only when its input hash changes,** so syncing unchanged inputs changes no bytes, `generatedAt` included (§15).
 - **`INDEX.md` is generated too.** `AGENTS.md` / `CLAUDE.md` point to it. On a fresh clone it is created by the SessionStart hook, or by the `overview` MCP tool for agents without that hook (§5.4).
 
 **Git policy for everything Appstein touches in a project:**
 
 | Path | Committed? | Why |
 |---|---|---|
-| `.appstein/INDEX.md`, `platform/`, `map/`, `state.json` | No (git-ignored) | Generated; no merge conflicts; can never be committed stale |
+| `.appstein/INDEX.md`, `platform/`, `map/`, `state.json`, `.lock` | No (git-ignored) | Generated; no merge conflicts; can never be committed stale |
 | `.appstein/decisions/`, `.appstein/memory/` | Yes | Hand-written project knowledge |
 | `appstein.yaml`, `analysis_options.yaml` | Yes | Project configuration |
 | `docs/app/` (human docs, §6.9) | Yes | A **deliberate exception** to "generated = git-ignored": humans must be able to read the docs on GitHub or in a clone without Appstein. The output is byte-identical for the same inputs, so it only changes when the app does, and the `docs.stale` check catches docs that fall behind |
@@ -292,7 +294,7 @@ If the budget would be exceeded, lower-priority sections are truncated with poin
 - **The SDK's `fix_data/*.yaml`**: deprecated → replacement mappings.
 - **The releases manifest**: version ↔ date ↔ Dart version.
 - **Analyzer-visible deprecations** in the installed SDK (`@Deprecated` annotations with messages).
-- **Appstein's curated notes** in `notes/<flutter-minor>.yaml`, one per Flutter minor version, for changes the above can't express, e.g. "new projects use `material_ui`", "dot shorthands available when language version ≥ 3.10", "iOS minimum 15". Each note has an `id`, `since`, `languageVersion` (optional), `priority` (1–3), `summary`, `use`, `avoid`, and `source` (a URL to official docs).
+- **Appstein's curated notes** in `notes/<flutter-minor>.yaml`, one per stable Flutter minor version, for changes the above can't express, e.g. "new projects use `material_ui`", "dot shorthands available when language version ≥ 3.10", "iOS minimum 15". The file for the oldest supported minor also holds the notes from the baseline up to it. Each file records the minor's first stable release date and Dart version, the toolchain matrix used as a fallback (§12), and its notes. Each note has an `id`, `since`, `languageVersion` (optional), `priority` (1–3), `area` (`framework`, `dart`, `android`, `ios` or `tooling`), `summary`, `use`, `avoid`, and `source` (a URL to official docs). Store-imposed build minimums (the Play target API, the Xcode version for App Store uploads) change on the stores' schedule, not Flutter's, so they live in `notes/stores.yaml`, each with the date it applies from and its source. The notes are compiled into the `appstein` binary, so reading them needs no network.
 
 Other rules for the delta:
 
@@ -695,15 +697,13 @@ Skills are organized by **lifecycle** (following Twenty's `twenty-agent-skills`)
 
 ## 12. Native toolchain matrix (`toolchain.json`)
 
-- **Android:** parsed from the installed SDK's `gradle_utils.dart`:
-  - template versions (Gradle, AGP, KGP, NDK, compile/target/min SDK);
-  - warn and error thresholds;
-  - "max known" versions;
-  - the Java↔Gradle and AGP↔Java compatibility lists.
+- **Android:** parsed from two files in the installed SDK:
+  - `flutter_tools/lib/src/android/gradle_utils.dart`: template versions (Gradle, AGP, KGP, NDK, compile/target/min SDK), the minimum build-tools and Java versions, "max known" versions, and the Java↔Gradle and AGP↔Java compatibility lists;
+  - `flutter_tools/gradle/src/main/kotlin/DependencyVersionChecker.kt`: the versions below which Flutter's Gradle plugin warns or fails the build (Gradle, AGP, KGP, Java, minSdk).
 
-  If the file's structure changes and parsing fails, Appstein falls back to the matrix recorded in the curated notes for that Flutter minor version and reports `toolchain.fallback` (info).
+  If either file's structure changes and parsing fails, Appstein falls back to the matrix in the newest curated notes file at or below the installed version, and reports `toolchain.fallback` (info).
 - **Play target API** and other store-imposed minimums come from the curated notes (they change on Google's schedule, not Flutter's).
-- **iOS/macOS:** the minimum deployment target is read first from the installed SDK's own iOS and macOS app templates (`IPHONEOS_DEPLOYMENT_TARGET` / `MACOSX_DEPLOYMENT_TARGET` and `MinimumOSVersion` in `flutter_tools` templates). The curated notes are the fallback if parsing fails. The required Xcode version (Xcode 26 for App Store uploads since 2026-04-28) comes from the curated notes.
+- **iOS/macOS:** the minimum deployment target is read first from the installed SDK's own iOS and macOS app templates (`IPHONEOS_DEPLOYMENT_TARGET` / `MACOSX_DEPLOYMENT_TARGET` in their `project.pbxproj`). The curated notes are the fallback if parsing fails. The required Xcode version (Xcode 26 for App Store uploads since 2026-04-28) comes from the curated notes.
 - **Open issues are recorded as notes.** For example, #192167 (built-in Kotlin fails Flutter's Kotlin version check on AGP 9.3.2+) becomes a note that steers `create` and `toolchain()` to a known-good combination until it's fixed.
 
 ---
@@ -772,7 +772,7 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 | **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change |
 | **Startup** | Hooks invoke a compiled executable (AOT), not `dart run`, so start-up stays under 200 ms |
 | **Platforms** | Appstein runs on Windows, macOS and Linux (x64 and arm64 where Dart supports AOT). Paths with spaces and non-ASCII characters are supported |
-| **Concurrency** | Writes to `.appstein/` take a lock file with a timeout, so two hooks or two agents never corrupt knowledge. Readers never block |
+| **Concurrency** | Writes to `.appstein/` take an operating-system lock on `.appstein/.lock`, waiting up to a timeout, so two hooks or two agents never corrupt knowledge. The operating system releases the lock if a writer crashes, so a stale lock never blocks. Each file is written beside its target and then renamed over it, so readers never block and never see a half-written file |
 | **Offline** | Everything except package existence and advisory checks works offline. Network failures degrade to warnings and never block |
 | **Privacy** | No telemetry, no analytics, no code leaves the machine. Network calls: pub.dev API and advisory data; optional integrations only if enabled |
 | **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings. The exception is `doctor`, whose findings are exactly those problems (§9.5) |

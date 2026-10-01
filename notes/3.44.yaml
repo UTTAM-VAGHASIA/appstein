@@ -1,0 +1,328 @@
+# Curated notes for Flutter 3.44 (spec §6.4), the oldest stable minor
+# Appstein supports. This file also holds the notes from the delta baseline
+# (Flutter 3.16) up to 3.44, so every note here applies to a 3.44 SDK.
+# Reviewed by the owner like spec text; every fact was checked against its
+# source on 2026-10-01. See docs/guide/how-to/add-a-curated-note.md.
+flutter: "3.44"
+released: 2026-05-18
+dart: "3.12"
+
+# The toolchain matrix of Flutter 3.44.9, used only when the installed SDK's
+# own files can't be read (spec §12). A test checks it against those files.
+toolchain:
+  android:
+    template: {gradle: "9.1.0", agp: "9.0.1", kgp: "2.3.20", ndk: "28.2.13676358", compileSdk: 36, targetSdk: 36, minSdk: 24}
+    flutterMinimums:
+      compileSdk: 36
+      buildTools: "28.0.3"
+      java: {warnBelow: "17.0.0", errorBelow: "17.0.0"}
+    buildChecks:
+      gradle: {warnBelow: "8.14.0", errorBelow: "8.7.0"}
+      agp: {warnBelow: "8.11.1", errorBelow: "8.6.0"}
+      kgp: {warnBelow: "2.2.20", errorBelow: "2.0.0"}
+      java: {warnBelow: "17", errorBelow: "17"}
+      minSdk: {warnBelow: "24", errorBelow: "23"}
+    maxKnown: {gradle: "9.3.1", kgp: "2.3.20", agp: "9.1", agpWithFullKotlinSupport: "9.0.1"}
+    javaGradle:
+      - {javaMin: "25", javaMax: "26", gradleMin: "9.1.0"}
+      - {javaMin: "24", javaMax: "25", gradleMin: "8.14"}
+      - {javaMin: "23", javaMax: "24", gradleMin: "8.10"}
+      - {javaMin: "22", javaMax: "23", gradleMin: "8.7"}
+      - {javaMin: "21", javaMax: "22", gradleMin: "8.4"}
+      - {javaMin: "20", javaMax: "21", gradleMin: "8.1"}
+      - {javaMin: "19", javaMax: "20", gradleMin: "7.6"}
+      - {javaMin: "18", javaMax: "19", gradleMin: "7.5"}
+      - {javaMin: "17", javaMax: "18", gradleMin: "7.3"}
+      - {javaMin: "16", javaMax: "17", gradleMin: "7.0", gradleMax: "8.14.100"}
+      - {javaMin: "15", javaMax: "16", gradleMin: "6.7", gradleMax: "8.14.100"}
+      - {javaMin: "14", javaMax: "15", gradleMin: "6.3", gradleMax: "8.14.100"}
+      - {javaMin: "13", javaMax: "14", gradleMin: "6.0", gradleMax: "8.14.100"}
+      - {javaMin: "12", javaMax: "13", gradleMin: "5.4", gradleMax: "8.14.100"}
+      - {javaMin: "11", javaMax: "12", gradleMin: "5.0", gradleMax: "8.14.100"}
+      - {javaMin: "1.10", javaMax: "1.11", gradleMin: "4.7", gradleMax: "8.14.100"}
+      - {javaMin: "1.9", javaMax: "1.10", gradleMin: "4.3", gradleMax: "8.14.100"}
+      - {javaMin: "1.8", javaMax: "1.9", gradleMin: "2.0", gradleMax: "8.14.100"}
+    javaAgp:
+      - {javaMin: "17", javaDefault: "17", agpMin: "8.0", agpMax: "9.1"}
+      - {javaMin: "11", javaDefault: "11", agpMin: "7.0", agpMax: "7.4"}
+      - {javaMin: "1.8", javaDefault: "1.8", agpMin: "4.2", agpMax: "4.2"}
+  ios: {deploymentTarget: "13.0"}
+  macos: {deploymentTarget: "10.15"}
+
+notes:
+  - id: material-3-default
+    since: "3.16"
+    priority: 1
+    area: framework
+    summary: '`ThemeData.useMaterial3` defaults to `true`, so apps render Material 3 unless they opt out.'
+    use: 'Material 3 widgets and a seeded scheme, e.g. `ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: ...))`; `NavigationBar` where M2 code used `BottomNavigationBar`.'
+    avoid: 'Adding `useMaterial3: true` (already the default) or `useMaterial3: false` (an opt-out the docs say will be deprecated and removed).'
+    source: https://docs.flutter.dev/release/breaking-changes/material-3-default
+
+  - id: popscope-not-willpopscope
+    since: "3.16"
+    priority: 1
+    area: framework
+    summary: '`PopScope` replaced `WillPopScope` so Android predictive back works; since 3.24 its callback is `onPopInvokedWithResult`.'
+    use: '`PopScope(canPop: false, onPopInvokedWithResult: (didPop, result) { if (didPop) return; ... })`, deciding `canPop` ahead of time.'
+    avoid: '`WillPopScope(onWillPop: ...)`, `Navigator.willPop`, and the deprecated `PopScope.onPopInvoked`.'
+    source: https://docs.flutter.dev/release/breaking-changes/android-predictive-back
+
+  - id: text-scaler
+    since: "3.16"
+    priority: 1
+    area: framework
+    summary: '`textScaleFactor` is deprecated throughout the framework and replaced by `TextScaler`, which can express Android 14 nonlinear font scaling.'
+    use: '`MediaQuery.textScalerOf(context).scale(fontSize)` and `textScaler:` parameters.'
+    avoid: '`MediaQuery.textScaleFactorOf(context)`, `textScaleFactor:` parameters, or multiplying font sizes by a scale factor.'
+    source: https://docs.flutter.dev/release/breaking-changes/deprecate-textscalefactor
+
+  - id: button-stylefrom-old-colors-removed
+    since: "3.19"
+    priority: 1
+    area: framework
+    summary: 'The `primary`, `onPrimary` and `onSurface` parameters of `TextButton.styleFrom`, `ElevatedButton.styleFrom` and `OutlinedButton.styleFrom` were removed.'
+    use: '`ElevatedButton.styleFrom(backgroundColor: ..., foregroundColor: ..., disabledForegroundColor: ...)`; `TextButton`/`OutlinedButton.styleFrom(foregroundColor: ..., disabledForegroundColor: ...)`.'
+    avoid: '`styleFrom(primary: ..., onPrimary: ..., onSurface: ...)`, which no longer compiles.'
+    source: https://docs.flutter.dev/release/breaking-changes/3-16-deprecations
+
+  - id: texttheme-2018-names-removed
+    since: "3.22"
+    priority: 1
+    area: framework
+    summary: 'The 2018 `TextTheme` names (`headline1`-`headline6`, `subtitle1/2`, `bodyText1/2`, `caption`, `button`, `overline`) were removed.'
+    use: '`displayLarge/Medium/Small`, `headlineMedium/Small`, `titleLarge/Medium/Small`, `bodyLarge/Medium/Small`, `labelLarge/Small` (e.g. `headline6` -> `titleLarge`, `bodyText2` -> `bodyMedium`, `caption` -> `bodySmall`).'
+    avoid: '`Theme.of(context).textTheme.headline6`, `.bodyText1`, `.caption` and the other removed names.'
+    source: https://docs.flutter.dev/release/breaking-changes/3-19-deprecations
+
+  - id: color-with-values
+    since: "3.27"
+    priority: 1
+    area: framework
+    summary: '`Color` stores floating-point components for wide gamut; `withOpacity()` and `opacity` are deprecated because they quantize alpha.'
+    use: '`color.withValues(alpha: 0.5)`; read components as doubles (0.0-1.0) with `.a`, `.r`, `.g`, `.b`.'
+    avoid: '`color.withOpacity(0.5)`, `color.opacity`, and 8-bit component math with `.red`, `.green`, `.blue`.'
+    source: https://docs.flutter.dev/release/breaking-changes/wide-gamut-framework
+
+  - id: component-theme-data-cards-dialogs-tabs
+    since: "3.27"
+    priority: 1
+    area: framework
+    summary: '`ThemeData.cardTheme`, `dialogTheme` and `tabBarTheme` take `CardThemeData`, `DialogThemeData` and `TabBarThemeData`.'
+    use: '`ThemeData(cardTheme: CardThemeData(...), dialogTheme: DialogThemeData(...), tabBarTheme: TabBarThemeData(...))`.'
+    avoid: 'Passing `CardTheme(...)`, `DialogTheme(...)` or `TabBarTheme(...)` to `ThemeData`.'
+    source: https://docs.flutter.dev/release/breaking-changes/component-theme-normalization
+
+  - id: l10n-no-flutter-gen-package
+    since: "3.32"
+    priority: 1
+    area: tooling
+    summary: 'The tool no longer generates the synthetic `package:flutter_gen`; localizations are generated into the app source, `generate: true` is required, and `flutter_gen` support was removed after 3.32.'
+    use: 'Import the generated file from the `arb-dir` (or `output-dir`), e.g. `import ''i18n/app_localizations.dart'';`, with `generate: true` under `flutter:` in pubspec.yaml.'
+    avoid: '`import ''package:flutter_gen/gen_l10n/app_localizations.dart'';`.'
+    source: https://docs.flutter.dev/release/breaking-changes/flutter-generate-i10n-source
+
+  - id: uiscene-app-delegate
+    since: "3.38"
+    priority: 1
+    area: ios
+    summary: 'iOS apps use the UIScene lifecycle (default and auto-migrated for eligible apps since 3.41); apps without it crash on launch when built with Xcode 27.'
+    use: 'Make `AppDelegate` adopt `FlutterImplicitEngineDelegate`; register plugins, method channels and platform views in `didInitializeImplicitFlutterEngine(_ engineBridge:)` via `engineBridge.pluginRegistry` and `engineBridge.applicationRegistrar.messenger()`; put scene lifecycle code in a `FlutterSceneDelegate` subclass.'
+    avoid: '`window?.rootViewController as! FlutterViewController` or channel/plugin setup in `application(_:didFinishLaunchingWithOptions:)`; relying on `applicationDidBecomeActive` / `applicationDidEnterBackground`.'
+    source: https://docs.flutter.dev/release/breaking-changes/uiscenedelegate
+
+  - id: agp9-builtin-kotlin-off
+    since: "3.44"
+    priority: 1
+    area: android
+    summary: 'Flutter 3.44 supports AGP 9 only with built-in Kotlin disabled; enabling built-in Kotlin requires Flutter 3.47.'
+    use: 'Keep `android.builtInKotlin=false` and `android.newDsl=false` in `android/gradle.properties` (the tool adds them on `flutter run`/`flutter build apk`) and keep applying the Kotlin Gradle Plugin (`id("kotlin-android")`).'
+    avoid: 'Setting `android.builtInKotlin=true` or doing the built-in Kotlin migration (removing `kotlin-android`, moving to `kotlin { compilerOptions { } }`) on 3.44.'
+    source: https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-app-developers
+
+  - id: swiftpm-default
+    since: "3.44"
+    priority: 1
+    area: ios
+    summary: 'Swift Package Manager is on by default for iOS and macOS; Flutter falls back to CocoaPods only for dependencies that lack SwiftPM support.'
+    use: 'Give iOS/macOS plugins `ios/<plugin>/Package.swift` with sources in `Sources/<plugin>/`, keeping CocoaPods support too; to opt out use `flutter config --no-enable-swift-package-manager` or `enable-swift-package-manager: false` under `flutter: config:` in pubspec.yaml.'
+    avoid: 'Assuming every project has a `Podfile` and `Pods/`, or treating CocoaPods as the default integration path.'
+    source: https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers
+
+  - id: navigator-on-did-remove-page
+    since: "3.24"
+    priority: 2
+    area: framework
+    summary: '`Navigator.onPopPage` is replaced by `onDidRemovePage`, which cannot veto a pop; vetoing moved to `Page.canPop` and `Page.onPopInvoked`.'
+    use: '`Navigator(pages: pages, onDidRemovePage: (page) => pages.remove(page))`, and `MaterialPage(canPop: false, child: ...)` to block a pop.'
+    avoid: '`onPopPage: (route, result) { ... return false; }` to veto pops.'
+    source: https://docs.flutter.dev/release/breaking-changes/navigator-and-page-api
+
+  - id: edge-to-edge-default
+    since: "3.27"
+    priority: 2
+    area: android
+    summary: 'Apps run edge-to-edge by default on Android 15+, and Android 16 removes the opt-out.'
+    use: 'Lay out for edge-to-edge and pad content for the system bars (for example with `SafeArea`).'
+    avoid: '`android:windowOptOutEdgeToEdgeEnforcement` in styles.xml; on Android 16+ it can crash the app.'
+    source: https://docs.flutter.dev/release/breaking-changes/default-systemuimode-edge-to-edge
+
+  - id: gradle-kotlin-dsl
+    since: "3.27"
+    priority: 2
+    area: android
+    summary: 'New apps from `flutter create` use Kotlin Gradle build files (`build.gradle.kts`, `settings.gradle.kts`).'
+    use: 'Check which file exists; in `.kts` files write Kotlin syntax such as `plugins { id("com.android.application") }` and `property = value`.'
+    avoid: 'Groovy syntax (`apply plugin: ''...''`, `id ''...''`, `minSdkVersion 21`) in `.kts` files, or assuming `android/app/build.gradle` exists.'
+    source: https://flutter.dev/blog/whats-new-in-flutter-3-27
+
+  - id: dart-html-deprecated
+    since: "3.29"
+    priority: 2
+    area: dart
+    summary: '`dart:html`, `dart:js`, `dart:js_util` and the other Dart web libraries are deprecated and not supported when compiling to Wasm.'
+    use: '`import ''package:web/web.dart'' as web;` with `dart:js_interop`; conditional imports on `dart.library.js_interop`.'
+    avoid: '`import ''dart:html'';`, `dart:js`, `dart:js_util`, and `dart.library.html` conditional imports.'
+    source: https://dart.dev/interop/js-interop/package-web
+
+  - id: web-html-renderer-removed
+    since: "3.29"
+    priority: 2
+    area: tooling
+    summary: 'The HTML renderer was removed from Flutter web.'
+    use: 'The default web renderer; fix web rendering issues without switching renderers.'
+    avoid: '`--web-renderer html` or any advice that depends on the HTML renderer.'
+    source: https://flutter.dev/blog/whats-new-in-flutter-3-29
+
+  - id: wildcard-variables
+    since: "3.29"
+    languageVersion: "3.7"
+    priority: 2
+    area: dart
+    summary: 'A local variable or parameter named `_` is non-binding, so several `_` can coexist in one scope.'
+    use: '`(_, _) => ...`, `catch (_)`, `for (var _ in list)`.'
+    avoid: '`(_, __)` or `___` to dodge name collisions, and reading the value of `_`.'
+    source: https://dart.dev/language/variables
+
+  - id: null-aware-elements
+    since: "3.32"
+    languageVersion: "3.8"
+    priority: 2
+    area: dart
+    summary: 'A `?` before a collection element inserts it only when it is non-null; it works for list/set elements and map keys and values.'
+    use: '`[1, ?maybeItem]`, `{''key'': ?maybeValue}`.'
+    avoid: '`if (maybeItem != null) maybeItem` inside collection literals.'
+    source: https://dart.dev/language/collections
+
+  - id: component-theme-data-appbar-input
+    since: "3.35"
+    priority: 2
+    area: framework
+    summary: '`ThemeData.appBarTheme`, `bottomAppBarTheme` and `inputDecorationTheme` take `AppBarThemeData`, `BottomAppBarThemeData` and `InputDecorationThemeData`, and `Theme.of(context).appBarTheme` and `AppBarTheme.of(context)` return the `...ThemeData` type.'
+    use: '`ThemeData(appBarTheme: AppBarThemeData(...), bottomAppBarTheme: BottomAppBarThemeData(...), inputDecorationTheme: InputDecorationThemeData(...))`.'
+    avoid: '`AppBarTheme(...)`, `BottomAppBarTheme(...)` or `InputDecorationTheme(...)` as `ThemeData` arguments, and typing `Theme.of(context).appBarTheme` as `AppBarTheme`.'
+    source: https://docs.flutter.dev/release/breaking-changes/component-theme-normalization-updates
+
+  - id: radio-group
+    since: "3.35"
+    priority: 2
+    area: framework
+    summary: '`RadioGroup` now owns `groupValue` and `onChanged` for a set of radios; per-radio `groupValue` and `onChanged` are deprecated.'
+    use: '`RadioGroup<int>(groupValue: v, onChanged: (x) => setState(() => v = x), child: Column(children: [Radio<int>(value: 0), Radio<int>(value: 1)]))`.'
+    avoid: '`Radio(value: 0, groupValue: v, onChanged: ...)`, and the same on `RadioListTile` and `CupertinoRadio`.'
+    source: https://docs.flutter.dev/release/breaking-changes/radio-api-redesign
+
+  - id: android-predictive-back-transition
+    since: "3.38"
+    priority: 2
+    area: framework
+    summary: 'The default Android page transition is `PredictiveBackPageTransitionsBuilder` (falling back to `FadeForwardsPageTransitionsBuilder`), and page transitions take 450ms instead of 300ms.'
+    use: 'Keep the default; in tests attach a `TransitionDurationObserver` and call `observer.pumpPastTransition(tester)`.'
+    avoid: 'Hard-coded `tester.pump(const Duration(milliseconds: 300))` for route transitions; forcing `ZoomPageTransitionsBuilder` unless the old look is required (it drops predictive back).'
+    source: https://docs.flutter.dev/release/breaking-changes/default-android-page-transition
+
+  - id: dot-shorthands
+    since: "3.38"
+    languageVersion: "3.10"
+    priority: 2
+    area: dart
+    summary: 'Dot shorthands omit the type name for enum values, static members and constructors when the context type is known.'
+    use: '`mainAxisAlignment: .center`, `Status s = .running`, `Point p = .new(1, 2)`, only where a context type exists.'
+    avoid: 'Shorthands below language version 3.10, on the left side of `==`/`!=`, or at the start of an expression statement.'
+    source: https://dart.dev/language/dot-shorthands
+
+  - id: snackbar-action-persists
+    since: "3.38"
+    priority: 2
+    area: framework
+    summary: 'A `SnackBar` with an action no longer auto-dismisses by default.'
+    use: '`SnackBar(persist: false, action: ..., content: ...)` when it should still time out.'
+    avoid: 'Assuming a SnackBar with an action disappears after its `duration`.'
+    source: https://docs.flutter.dev/release/breaking-changes/snackbar-with-action-behavior-update
+
+  - id: android-17-orientation-ignored
+    since: "3.44"
+    priority: 2
+    area: android
+    summary: 'For apps targeting Android 17+, orientation, resizability and aspect-ratio restrictions are ignored on displays 600dp or wider, including `SystemChrome.setPreferredOrientations`.'
+    use: 'Adaptive layouts that work in both orientations and any window size.'
+    avoid: 'Relying on `SystemChrome.setPreferredOrientations` or the manifest `screenOrientation` to lock tablets and foldables.'
+    source: https://docs.flutter.dev/release/breaking-changes/android-large-screens-restrictions-ignored
+
+  - id: list-tile-colored-ancestor
+    since: "3.44"
+    priority: 2
+    area: framework
+    summary: 'In debug, `ListTile` reports an error when a `Container`, `ColoredBox` or `DecoratedBox` with a color sits between it and its nearest `Material`, because that hides its background and ink splashes.'
+    use: 'Put the color on the `Material` (`Material(color: ..., child: ...)`), or wrap the `ListTile` in `Material(type: MaterialType.transparency, child: ...)`.'
+    avoid: '`Container(color: ..., child: ListTile(...))` directly under a `Material`.'
+    source: https://docs.flutter.dev/release/breaking-changes/list-tile-color-warning
+
+  - id: private-named-parameters
+    since: "3.44"
+    languageVersion: "3.12"
+    priority: 2
+    area: dart
+    summary: 'Named initializing formals can target private fields; callers use the name without the underscore.'
+    use: '`Point({required this._x})`, called as `Point(x: 1)`.'
+    avoid: 'A public parameter copied in an initializer list (`Point({required int x}) : _x = x`), and using the feature below language version 3.12.'
+    source: https://dart.dev/language/constructors
+
+  - id: reorderable-on-reorder-item
+    since: "3.44"
+    priority: 2
+    area: framework
+    summary: '`onReorder` on `ReorderableListView`, `ReorderableList` and `SliverReorderableList` is replaced by `onReorderItem`, whose `newIndex` is already corrected.'
+    use: '`onReorderItem: (oldIndex, newIndex) { final item = items.removeAt(oldIndex); items.insert(newIndex, item); }`.'
+    avoid: '`onReorder` with `if (oldIndex < newIndex) newIndex -= 1;`, and carrying that adjustment over into `onReorderItem`.'
+    source: https://docs.flutter.dev/release/breaking-changes/deprecate-onreorder-callback
+
+  - id: private-field-promotion
+    since: "3.16"
+    languageVersion: "3.2"
+    priority: 3
+    area: dart
+    summary: 'Private final fields promote to non-nullable after null checks and `is` tests.'
+    use: '`if (_field != null) use(_field);` for a private final field.'
+    avoid: 'Copying a private final field into a local only to promote it.'
+    source: https://dart.dev/guides/language/evolution
+
+  - id: extension-types
+    since: "3.19"
+    languageVersion: "3.3"
+    priority: 3
+    area: dart
+    summary: 'Extension types wrap an existing type with a static-only interface at zero runtime cost.'
+    use: '`extension type UserId(int value) { ... }` for typed IDs and interop wrappers.'
+    avoid: 'Relying on them at runtime: they are erased, so `is` checks and casts see the representation type.'
+    source: https://dart.dev/language/extension-types
+
+  - id: digit-separators
+    since: "3.27"
+    languageVersion: "3.6"
+    priority: 3
+    area: dart
+    summary: 'Underscores can separate digits in number literals.'
+    use: '`1_000_000`, `0x00_14_22_01_23_45`.'
+    avoid: 'Digit separators below language version 3.6.'
+    source: https://dart.dev/language/built-in-types

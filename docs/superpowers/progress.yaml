@@ -61,13 +61,18 @@ milestones:
             finished: 2026-10-01
           - id: 1b.2
             title: Knowledge store and platform layer
-            summary: The `.appstein/` store with its lock and freshness state, `sdk.json`, curated notes for Flutter 3.44–3.47, `delta.md`, `toolchain.json` and `appstein sync`.
+            summary: The `.appstein/` store with its lock and freshness state, `sdk.json`, curated notes for Flutter 3.44–3.47, `toolchain.json` and `appstein sync`.
             status: next
+            plan: 2026-10-01-slice-1b2-knowledge-store.md
           - id: 1b.3
             title: Project map
             summary: The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through `official_mvvm` and the platform extractors.
             status: planned
           - id: 1b.4
+            title: Version delta
+            summary: "`delta.md`: what changed since the baseline for this SDK and language version, from `fix_data`, the SDK's deprecations and the curated notes, filtered to the APIs the project uses."
+            status: planned
+          - id: 1b.5
             title: Incremental sync, INDEX.md and package skills
             summary: Sync that rebuilds only what changed, the always-in-view `INDEX.md`, and the package skills refresh.
             status: planned

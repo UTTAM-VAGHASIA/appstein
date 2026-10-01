@@ -1,0 +1,78 @@
+# The stores' build minimums (spec §6.4, §12): what Google Play and the App
+# Store require of an uploaded app's build, from a date on. Only build
+# minimums, never review policies (spec §2.3). Each list is oldest first.
+# `since` is YYYY-MM-DD, or YYYY-MM when the store named only the month.
+# `formFactor` is set when a requirement applies to one kind of device only.
+# Checked against the sources on 2026-10-01.
+play:
+  targetSdk:
+    - value: 34
+      since: 2025-08-31
+      formFactor: tv
+      summary: New Android TV apps and updates must target API level 34 or higher.
+      source: https://support.google.com/googleplay/android-developer/answer/11926878
+    - value: 36
+      since: 2026-08-31
+      summary: New apps and app updates must target Android 16 (API level 36) or higher; developers can request an extension to 2026-11-01.
+      source: https://developer.android.com/google/play/requirements/target-sdk
+    - value: 35
+      since: 2026-08-31
+      formFactor: wear
+      summary: New Wear OS apps and updates must target API level 35 or higher.
+      source: https://developer.android.com/google/play/requirements/target-sdk
+    - value: 35
+      since: 2026-08-31
+      formFactor: automotive
+      summary: New Android Automotive OS apps and updates must target API level 35 or higher.
+      source: https://developer.android.com/google/play/requirements/target-sdk
+    - value: 34
+      since: 2026-08-31
+      formFactor: xr
+      summary: New Android XR apps and updates must target API level 34 or higher.
+      source: https://support.google.com/googleplay/android-developer/answer/11926878
+  pageSize16k:
+    - since: 2025-11-01
+      summary: New apps and app updates that target Android 15 (API level 35) or higher must support 16 KB memory pages on 64-bit devices.
+      source: https://android-developers.googleblog.com/2025/05/prepare-play-apps-for-devices-with-16kb-page-size.html
+    - since: 2026-08-01
+      formFactor: tv
+      summary: Android TV apps must be 64-bit and support 16 KB memory pages.
+      source: https://support.google.com/googleplay/android-developer/answer/17492799
+    - since: 2026-09-15
+      formFactor: wear
+      summary: Wear OS apps must be 64-bit and support 16 KB memory pages.
+      source: https://support.google.com/googleplay/android-developer/answer/17492799
+    - since: 2027-02-01
+      summary: App updates that don't support 16 KB memory pages can no longer be released.
+      source: https://developer.android.com/guide/practices/page-sizes
+appStore:
+  xcode:
+    - value: "14.1"
+      since: 2023-04-25
+      summary: iOS and iPadOS apps must be built with Xcode 14.1 and the iOS 16.1 SDK or later.
+      source: https://developer.apple.com/news/upcoming-requirements/
+    - value: 15
+      since: 2024-04-29
+      summary: Apps must be built with Xcode 15 and the iOS 17 SDK or later.
+      source: https://developer.apple.com/news/upcoming-requirements/
+    - value: 16
+      since: 2025-04-24
+      summary: Apps must be built with Xcode 16 and the iOS 18 SDK or later.
+      source: https://developer.apple.com/news/?id=9s0rgdy9
+    - value: 26
+      since: 2026-04-28
+      summary: Apps must be built with Xcode 26 or later, using the iOS 26 SDK or later.
+      source: https://developer.apple.com/news/upcoming-requirements/
+    - value: 27
+      since: 2027-04
+      summary: iOS and iPadOS apps must be built with the iOS 27 and iPadOS 27 SDK or later, which ships with Xcode 27.
+      source: https://developer.apple.com/news/?id=k1mtkt1k
+  iosDeploymentTarget:
+    - value: 13
+      since: 2026-09-09
+      summary: iOS and iPadOS apps uploaded to App Store Connect must target iOS 13 or later.
+      source: https://developer.apple.com/news/upcoming-requirements/
+    - value: 15
+      since: 2027-04
+      summary: iOS and iPadOS apps uploaded to App Store Connect must target iOS 15 or later.
+      source: https://developer.apple.com/app-store/submitting/
