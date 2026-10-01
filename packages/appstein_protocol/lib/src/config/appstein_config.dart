@@ -72,7 +72,8 @@ final class DeltaConfig {
   /// Creates the section.
   const DeltaConfig({this.baseline = '3.16'});
 
-  /// Show API changes since this Flutter version, such as `3.16`.
+  /// Curated notes since this Flutter version, such as `3.16` (spec §6.4);
+  /// deprecations and migrations are listed whatever their age.
   final String baseline;
 
   /// The JSON form.

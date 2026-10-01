@@ -57,6 +57,7 @@ void main() {
     );
     expect(text, contains(row('platform/sdk.json', 'written')));
     expect(text, contains(row('platform/toolchain.json', 'written')));
+    expect(text, contains(row('platform/delta.md', 'written')));
     expect(text, contains('Curated notes cover Flutter 3.47 and earlier.'));
     expect(
       text,
@@ -74,6 +75,7 @@ void main() {
     for (final path in [
       'platform/sdk.json',
       'platform/toolchain.json',
+      'platform/delta.md',
       'state.json',
     ]) {
       expect(
@@ -149,6 +151,18 @@ void main() {
     expect(await run(['sync']), ExitCodes.appsteinFailed);
     expect(err.toString(), contains('Fix appstein.yaml'));
     expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
+  });
+
+  test("the delta's baseline comes from appstein.yaml", () async {
+    File(
+      p.join(project, 'appstein.yaml'),
+    ).writeAsStringSync('delta:\n  baseline: "3.47"\n');
+    expect(await run(['sync']), ExitCodes.ok, reason: '$err');
+    final text = File(
+      p.join(project, '.appstein', 'platform', 'delta.md'),
+    ).readAsStringSync();
+    expect(text, contains('since Flutter 3.47'));
+    expect(text, isNot(contains('popscope-not-willpopscope')));
   });
 
   SyncReport reportWith(MapReport map) => SyncReport(

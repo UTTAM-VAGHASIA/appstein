@@ -26,14 +26,21 @@ void main() {
   String flutter() =>
       p.join(sdk, 'bin', Platform.isWindows ? 'flutter.bat' : 'flutter');
 
-  KnowledgeSync sync({List<Pack> packs = const [OfficialMvvmPack()]}) =>
-      KnowledgeSync(
-        environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
-        appsteinVersion: '0.1.0-dev',
-        packs: packs,
-        runner: runner,
-        clock: () => DateTime.utc(2026, 10, 1, 9),
-      );
+  KnowledgeSync sync({
+    List<Pack> packs = const [OfficialMvvmPack()],
+    String baseline = '3.16',
+  }) => KnowledgeSync(
+    environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
+    appsteinVersion: '0.1.0-dev',
+    packs: packs,
+    runner: runner,
+    clock: () => DateTime.utc(2026, 10, 1, 9),
+    baseline: baseline,
+  );
+
+  String delta(String project) => File(
+    p.join(project, '.appstein', 'platform', 'delta.md'),
+  ).readAsStringSync();
 
   Map<String, Object?> state(String project) =>
       jsonDecode(
@@ -48,6 +55,7 @@ void main() {
     expect(report.files, {
       'platform/sdk.json': true,
       'platform/toolchain.json': true,
+      'platform/delta.md': true,
       for (final path in MapFiles.all) path: true,
     });
     expect(report.map!.packages, PackagesAction.upToDate);
@@ -62,6 +70,7 @@ void main() {
       unorderedEquals([
         'platform/sdk.json',
         'platform/toolchain.json',
+        'platform/delta.md',
         ...MapFiles.all,
       ]),
     );
@@ -112,12 +121,17 @@ void main() {
       'get',
     ], const RunResult(exitCode: 69, stderr: 'Could not reach pub.dev.'));
     final report = await sync().run(app, dartSdkPath: testDartSdk);
-    expect(report.files.keys, ['platform/sdk.json', 'platform/toolchain.json']);
+    expect(report.files.keys, [
+      'platform/sdk.json',
+      'platform/toolchain.json',
+      'platform/delta.md',
+    ]);
     expect(report.map!.packages, PackagesAction.fetchFailed);
     expect(report.map!.packagesReason, contains('Could not reach pub.dev.'));
     expect(report.map!.skipped, 'the packages could not be fetched');
     expect(Directory(p.join(app, '.appstein', 'map')).existsSync(), isFalse);
     expect((state(app)['files']! as Map).keys, [
+      'platform/delta.md',
       'platform/sdk.json',
       'platform/toolchain.json',
     ]);
@@ -195,7 +209,11 @@ void main() {
       p.join(app, 'pubspec.lock'),
     ).writeAsStringSync('packages:\n<<<<<<< HEAD\n  a: 1\n=======\n');
     final report = await sync().run(app, dartSdkPath: testDartSdk);
-    expect(report.files.keys, ['platform/sdk.json', 'platform/toolchain.json']);
+    expect(report.files.keys, [
+      'platform/sdk.json',
+      'platform/toolchain.json',
+      'platform/delta.md',
+    ]);
     expect(report.map!.skipped, contains('pubspec.lock is not valid YAML'));
     expect(report.map!.skipped, contains('flutter pub get'));
     expect(depsFile.readAsStringSync(), before);
@@ -226,6 +244,7 @@ void main() {
         file.path: file.readAsStringSync(),
     }, before);
     expect((state(app)['files']! as Map).keys, [
+      'platform/delta.md',
       'platform/sdk.json',
       'platform/toolchain.json',
     ]);
@@ -280,6 +299,7 @@ void main() {
     expect(report.files.keys, [
       'platform/sdk.json',
       'platform/toolchain.json',
+      'platform/delta.md',
       MapFiles.deps,
       MapFiles.layers,
       MapFiles.symbols,
@@ -287,5 +307,81 @@ void main() {
     final layers = LayersMap.fromJson(readMapBody(app, 'layers.json'));
     expect(layers.violations, isEmpty);
     expect(layers.files.values.map((f) => f.layer), everyElement(isNull));
+  });
+
+  test('the first sync writes delta.md: the notes, then what the stand-ins '
+      'and the Dart SDK mark, with go_router\'s removed location', () async {
+    final app = copyFixtureApp();
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final text = delta(app);
+    final meta = readFrontMatter(text)!;
+    expect(meta.sdkVersion, '3.47.5');
+    expect(meta.generatedAt, '2026-10-01T09:00:00Z');
+    expect(
+      text,
+      contains('# Version delta: Flutter 3.47.5, Dart language 3.12\n'),
+    );
+    expect(text, contains('## Notes'));
+    expect(text, contains('popscope-not-willpopscope'));
+    expect(text, contains('## Deprecated'));
+    expect(
+      text,
+      contains(
+        "- `GoRouterState.location`: removed. Replaces 'location' in "
+        "'GoRouterState' with `uri.toString()`.",
+      ),
+    );
+    expect((state(app)['files']! as Map)['platform/delta.md'], meta.inputHash);
+  });
+
+  test('when the map is skipped, delta.md holds only the notes and says '
+      'why', () async {
+    final app = copyFixtureApp();
+    File(p.join(app, '.dart_tool', 'package_config.json')).deleteSync();
+    runner.when(flutter(), [
+      'pub',
+      'get',
+    ], const RunResult(exitCode: 69, stderr: 'Could not reach pub.dev.'));
+    final report = await sync().run(app, dartSdkPath: testDartSdk);
+    expect(report.files['platform/delta.md'], isTrue);
+    final text = delta(app);
+    expect(
+      text,
+      contains(
+        'project map was skipped: the packages could not be fetched. Fix '
+        'that, then run `appstein sync` again.',
+      ),
+    );
+    expect(text, contains('popscope-not-willpopscope'));
+    expect(text, isNot(contains('## Deprecated')));
+  });
+
+  test('a later baseline drops the older notes', () async {
+    final app = copyFixtureApp();
+    await sync(baseline: '3.47').run(app, dartSdkPath: testDartSdk);
+    final text = delta(app);
+    expect(text, contains('since Flutter 3.47'));
+    expect(text, isNot(contains('popscope-not-willpopscope')));
+  });
+
+  test('a hand-edited delta.md is put back', () async {
+    final app = copyFixtureApp();
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final file = File(p.join(app, '.appstein', 'platform', 'delta.md'));
+    final original = file.readAsStringSync();
+    file.writeAsStringSync(original.replaceFirst('## Notes', '## Edited'));
+    final second = await sync().run(app, dartSdkPath: testDartSdk);
+    expect(second.files['platform/delta.md'], isTrue);
+    expect(file.readAsStringSync(), contains('## Notes'));
+  });
+
+  test("editing a source file changes delta.md's input hash", () async {
+    final app = copyFixtureApp();
+    await sync().run(app, dartSdkPath: testDartSdk);
+    final before = readFrontMatter(delta(app))!.inputHash;
+    final source = File(p.join(app, 'lib', 'utils', 'result.dart'));
+    source.writeAsStringSync('${source.readAsStringSync()}\n// edited\n');
+    await sync().run(app, dartSdkPath: testDartSdk);
+    expect(readFrontMatter(delta(app))!.inputHash, isNot(before));
   });
 }

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
+import '../delta/delta_collector.dart';
+import '../delta/delta_facts.dart';
 import '../host/file_errors.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
@@ -51,13 +53,25 @@ final class MapReport {
 /// The project map, built but not yet written.
 final class MapBuild {
   /// Creates the build.
-  const MapBuild({required this.files, required this.report});
+  const MapBuild({
+    required this.files,
+    required this.report,
+    this.inputHash,
+    this.delta,
+  });
 
   /// The map files; empty when the map was skipped.
   final List<GeneratedFile> files;
 
   /// What happened.
   final MapReport report;
+
+  /// The input hash every map file shares; null when the map was skipped.
+  final String? inputHash;
+
+  /// The deprecated, removed and moved APIs the project can reach, for the
+  /// version delta (spec §6.4); null when the map was skipped.
+  final DeltaFacts? delta;
 }
 
 /// Builds the project map (spec §6.5).
@@ -66,6 +80,9 @@ final class MapBuild {
 /// it resolves the project, runs the packs' extractors (official_mvvm's
 /// features and routes), and builds the generic files: symbols, layers and
 /// deps.
+///
+/// While the analysis is open, it also collects the version delta's facts
+/// ([collectDelta]); `KnowledgeSync` renders them into `delta.md`.
 final class MapSync {
   /// Creates the sync. [runner] runs `flutter pub get` (a real process by
   /// default).
@@ -127,13 +144,10 @@ final class MapSync {
       status = checkPackages(projectRoot, flutterVersion: flutterVersion);
     }
 
+    final sdk = dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk');
     final ProjectAnalysis analysis;
     try {
-      analysis = await ProjectAnalysis.analyze(
-        projectRoot,
-        dartSdkPath:
-            dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk'),
-      );
+      analysis = await ProjectAnalysis.analyze(projectRoot, dartSdkPath: sdk);
     } on ProjectAnalysisException catch (error) {
       return MapBuild(
         files: const [],
@@ -173,6 +187,9 @@ final class MapSync {
         featureOf: featureOf,
       ).toJson();
       bodies[MapFiles.deps] = buildDeps(analysis, lockFile: lockFile).toJson();
+      // While the analysis is still open: the delta walks what the imports
+      // expose.
+      final delta = collectDelta(analysis, dartSdkPath: sdk);
 
       final hash = _inputHash(
         projectRoot,
@@ -186,6 +203,8 @@ final class MapSync {
             GeneratedFile(path: path, body: bodies[path]!, inputHash: hash),
         ],
         report: MapReport(packages: action, packagesReason: reason),
+        inputHash: hash,
+        delta: delta,
       );
     } on DependenciesException catch (error) {
       return MapBuild(

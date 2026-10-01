@@ -12,7 +12,8 @@ import 'version.dart';
 
 /// `appstein sync`: regenerates the knowledge Appstein keeps in
 /// `.appstein/` (spec §5.3). It writes the platform layer (`sdk.json`,
-/// `toolchain.json`) and the project map (`map/*.json`), then `state.json`.
+/// `toolchain.json`), the version delta (`delta.md`) and the project map
+/// (`map/*.json`), then `state.json`.
 final class SyncCommand extends Command<int> {
   /// Creates the command.
   SyncCommand({
@@ -67,6 +68,7 @@ final class SyncCommand extends Command<int> {
         environment: environment,
         appsteinVersion: appsteinVersion,
         packs: packsFor(config),
+        baseline: config.delta.baseline,
       ).run(projectRoot);
       out.write(formatSyncReport(report));
       return ExitCodes.ok;
