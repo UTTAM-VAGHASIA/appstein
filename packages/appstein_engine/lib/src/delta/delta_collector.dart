@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:path/path.dart' as p;
 
@@ -24,12 +25,19 @@ import 'fix_data.dart';
 ///     [dartSdkPath];
 ///   - a migration counts when the project imports one of its libraries
 ///     directly, which is the rule `dart fix` uses;
+///   - its element exists when any library it lists exports it; a listed
+///     library the project's imports don't reach is looked up through the
+///     open analysis, and one that can't be resolved at all means existence
+///     can't be told, so the migration is left out rather than called
+///     removed;
 ///   - a migration of an element or parameter that is still there and
-///     deprecated is attached to that deprecation.
+///     deprecated is attached to that deprecation;
+///   - a migration that names old parameters is listed per parameter.
 /// - **Unread:** the migration files that couldn't be read, and why.
 ///
-/// It never throws for a package's bad `fix_data` file.
-DeltaFacts collectDelta(
+/// It never throws for a package's bad `fix_data` file. [analysis] must
+/// still be open.
+Future<DeltaFacts> collectDelta(
   ProjectAnalysis analysis, {
   required String dartSdkPath,
 }) => _Collector(analysis, dartSdkPath).run();
@@ -58,32 +66,22 @@ final class _Collector {
   /// Each deprecation found, by its element and kind.
   final _found = <(Element, DeprecationKind), _Found>{};
 
-  /// Every library reachable through imports and exports from the ones the
-  /// project imports, by URI (the analyzer loads them with their importer),
-  /// built the first time it is needed.
-  late final Map<Uri, LibraryElement> _loaded = _loadReachable();
+  /// The libraries a migration lists that the project doesn't import, as
+  /// the analysis resolved them, by URI; null for a URI it can't resolve
+  /// (a package that isn't one of the project's, an unknown `dart:`
+  /// library).
+  final _resolved = <Uri, LibraryElement?>{};
 
-  Map<Uri, LibraryElement> _loadReachable() {
-    final all = <Uri, LibraryElement>{..._imported};
-    final queue = [..._imported.values];
-    while (queue.isNotEmpty) {
-      final library = queue.removeLast();
-      for (
-        LibraryFragment? fragment = library.firstFragment;
-        fragment != null;
-        fragment = fragment.nextFragment
-      ) {
-        for (final next in [
-          for (final import in fragment.libraryImports) import.importedLibrary,
-          for (final export in fragment.libraryExports) export.exportedLibrary,
-        ]) {
-          if (next == null || all.containsKey(next.uri)) continue;
-          all[next.uri] = next;
-          queue.add(next);
-        }
-      }
-    }
-    return all;
+  /// [uri]'s library, resolved through the open analysis session, or null
+  /// when it can't be resolved. A library the project's imports don't reach
+  /// is loaded on demand.
+  Future<LibraryElement?> _libraryAt(Uri uri) async {
+    if (_resolved.containsKey(uri)) return _resolved[uri];
+    final session = analysis.libraries.firstOrNull?.result.session;
+    final result = await session?.getLibraryByUri('$uri');
+    return _resolved[uri] = result is LibraryElementResult
+        ? result.element
+        : null;
   }
 
   /// The group of the public library being walked: a deprecation declared in
@@ -93,7 +91,7 @@ final class _Collector {
   final _visited = <Element>{};
   final _visitedTypes = <(InstanceElement, String)>{};
 
-  DeltaFacts run() {
+  Future<DeltaFacts> run() async {
     for (final library in analysis.libraries) {
       final element = library.result.element;
       // dart:core is imported by every library, even when no directive says
@@ -123,7 +121,7 @@ final class _Collector {
     final unread = <UnreadMigrations>[];
     for (final file in _migrationFiles(unread)) {
       for (final transform in _read(file, unread)) {
-        _classify(transform, migrated, moved);
+        await _classify(transform, migrated, moved);
       }
     }
 
@@ -398,11 +396,11 @@ final class _Collector {
     return const [];
   }
 
-  void _classify(
+  Future<void> _classify(
     FixDataTransform transform,
     Set<(String, String, MigrationStatus, String)> migrated,
     Set<(String, String?, String)> moved,
-  ) {
+  ) async {
     if (transform.library case final library?) {
       if (_imported.containsKey(library)) {
         moved.add((
@@ -425,11 +423,14 @@ final class _Collector {
     // exports it: `dart fix` accepts any of them.
     // - Exported by a library the project imports: it is in the namespace
     //   the walk covered, so it is classified below.
-    // - Exported only by a listed library the project doesn't import (found
-    //   through the libraries the analysis has loaded): it exists, so it is
-    //   not removed, but the project can't reach it, so the delta leaves it
-    //   out.
-    // - Exported by none: removed.
+    // - Exported only by a listed library the project doesn't import
+    //   (resolved through the analysis session, even when no import of the
+    //   project reaches it): it exists, so it is not removed, but the
+    //   project can't reach it, so the delta leaves it out.
+    // - A listed library the session can't resolve: whether the element
+    //   exists can't be told, so the migration is left out too. It is never
+    //   called removed on a guess.
+    // - Exported by none of them, and each was resolved: removed.
     Element? target;
     for (final (_, library) in scope) {
       target = _lookUp(library, transform);
@@ -437,33 +438,57 @@ final class _Collector {
     }
     if (target == null) {
       for (final uri in transform.uris) {
-        final library = _loaded[uri];
-        if (library == null || _imported.containsKey(uri)) continue;
-        if (_lookUp(library, transform) != null) return;
+        if (_imported.containsKey(uri)) continue;
+        final library = await _libraryAt(uri);
+        if (library == null || _lookUp(library, transform) != null) return;
       }
       migrated.add((group, name, MigrationStatus.removed, transform.title));
       return;
     }
-    final candidates = <Element>[
-      target,
-      if (target is ExecutableElement)
-        for (final parameter in target.formalParameters)
-          if (transform.oldParameters.contains(parameter.name)) parameter,
-    ];
-    var attached = false;
-    for (final element in candidates) {
-      if (!element.metadata.annotations.any((a) => a.isDeprecated)) continue;
-      // The walk noted every deprecation the project can reach; one it did
-      // not note is not the project's to list.
-      for (final MapEntry(:key, :value) in _found.entries) {
-        if (key.$1 != element) continue;
-        value.migrations.add(transform.title);
-        attached = true;
+    // A migration that names old parameters is about them, not about the
+    // element, which is still there: each parameter is listed on its own,
+    // named the way the Deprecated section names parameters.
+    if (target is ExecutableElement && transform.oldParameters.isNotEmpty) {
+      for (final old in transform.oldParameters.toList()..sort()) {
+        final parameter = target.formalParameters
+            .where((formal) => formal.name == old)
+            .firstOrNull;
+        if (parameter == null) {
+          migrated.add((
+            group,
+            '$name($old)',
+            MigrationStatus.removed,
+            transform.title,
+          ));
+        } else if (!_attach(parameter, transform) &&
+            !_attach(target, transform)) {
+          migrated.add((
+            group,
+            '$name($old)',
+            MigrationStatus.changed,
+            transform.title,
+          ));
+        }
       }
+      return;
     }
-    if (!attached) {
+    if (!_attach(target, transform)) {
       migrated.add((group, name, MigrationStatus.changed, transform.title));
     }
+  }
+
+  /// Attaches [transform]'s title to the deprecation line of [element], and
+  /// says whether it could: [element] must be deprecated, and noted by the
+  /// walk (one it did not note is not the project's to list).
+  bool _attach(Element element, FixDataTransform transform) {
+    if (!element.metadata.annotations.any((a) => a.isDeprecated)) return false;
+    var attached = false;
+    for (final MapEntry(:key, :value) in _found.entries) {
+      if (key.$1 != element) continue;
+      value.migrations.add(transform.title);
+      attached = true;
+    }
+    return attached;
   }
 
   /// The element [transform] names, looked up in what [library] exports,

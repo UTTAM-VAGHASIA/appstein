@@ -415,15 +415,15 @@ void main() {
   test('a collector that fails does not fail the sync: the map is written '
       'and delta.md says why the APIs are missing', () async {
     final app = copyFixtureApp();
+    // The message may hold a machine path: it must not reach delta.md.
+    final message = 'boom in ${p.join(app, 'lib', 'main.dart')}';
     final report = await sync(
-      deltaCollector: (analysis, {required dartSdkPath}) =>
-          throw StateError('boom'),
+      deltaCollector: (analysis, {required dartSdkPath}) async =>
+          throw StateError(message),
     ).run(app, dartSdkPath: testDartSdk);
     expect(report.map!.skipped, isNull);
-    expect(
-      report.map!.deltaSkipped,
-      "the version delta couldn't be collected: Bad state: boom",
-    );
+    expect(report.map!.deltaError, 'Bad state: $message');
+    expect(report.map!.deltaErrorType, 'StateError');
     expect(report.files.keys, containsAll(MapFiles.all));
     for (final path in MapFiles.all) {
       expectGolden(
@@ -435,13 +435,21 @@ void main() {
     expect(
       text,
       contains(
-        "Deprecated and removed APIs are missing: the version delta couldn't "
-        'be collected: Bad state: boom. Fix that, then run `appstein sync` '
-        'again.',
+        "Deprecated and removed APIs are missing: Appstein couldn't collect "
+        'them because of an internal error (StateError). Please report it.',
       ),
     );
+    expect(text, isNot(contains('boom')));
+    expect(text, isNot(contains('Fix that')));
     expect(text, contains('popscope-not-willpopscope'));
     expect(text, isNot(contains('## Deprecated')));
+    // The same failure with another message (another machine) hashes the
+    // same, so delta.md stays as it is.
+    final again = await sync(
+      deltaCollector: (analysis, {required dartSdkPath}) async =>
+          throw StateError('boom elsewhere'),
+    ).run(app, dartSdkPath: testDartSdk);
+    expect(again.files['platform/delta.md'], isFalse);
     final healthy = await sync().run(app, dartSdkPath: testDartSdk);
     expect(healthy.files['platform/delta.md'], isTrue);
     expect(delta(app), contains('## Deprecated'));

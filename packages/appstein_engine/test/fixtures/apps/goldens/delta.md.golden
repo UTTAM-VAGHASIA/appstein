@@ -43,11 +43,11 @@ APIs the project's imports expose that are deprecated, with each library's own m
 
 ## Removed
 
-APIs that are gone or changed, from the migration lists (`fix_data`) of the SDKs and the packages. Code that uses them doesn't compile; `dart fix` applies each migration.
+APIs from the migration lists (`fix_data`) of the SDKs and the packages, each with its migration's title; `dart fix` applies each migration. `removed`: gone; code that uses it doesn't compile. `changed`: it still exists, and `dart fix` changes how it's used; the migration's title says how.
 
 ### package:flutter
 
-- `Stack.new`: changed. Migrate to 'clipBehavior'.
+- `Stack.new(overflow)`: removed. Migrate to 'clipBehavior'.
 - `Stack.overflow`: removed. Migrate to 'clipBehavior'.
 
 ### package:go_router

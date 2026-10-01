@@ -64,19 +64,40 @@ Object box() => NewBox(size: 1);
   });
 
   test('classifies the migrations in scope: removed, changed, or attached '
-      'to a deprecation', () async {
+      'to a deprecation, per old parameter when the migration names '
+      'one', () async {
     final facts = await collect(mainDart);
+    // NewBox.new is still there: only its `height` is gone, `size` is still
+    // there (not deprecated), and `width` is deprecated, so its migration is
+    // attached to `NewBox.new(width)`. `paint` changes with no old
+    // parameter.
     expect(kit(facts.migrated), [
       "package:delta_kit GoneBox removed Rename to 'NewBox'",
-      "package:delta_kit NewBox.new changed Migrate from 'height'",
+      "package:delta_kit NewBox.new(height) removed Migrate from 'height'",
+      "package:delta_kit NewBox.new(size) changed Rename 'size' to 'extent'",
+      "package:delta_kit NewBox.paint changed Add 'canvas' to 'paint'",
       "package:delta_kit NewBox.render removed Rename to 'paint'",
+      "package:delta_kit Vanished removed Rename 'Vanished'",
     ]);
   });
 
-  test('a migration whose element only an unimported listed library exports '
-      'is left out: not removed, not deprecated', () async {
+  test('a migration whose element only a listed library outside the '
+      "project's imports exports is left out: not removed, not "
+      'deprecated', () async {
+    // No library the app imports reaches more.dart, the only one that
+    // exports Gadget.
     final text = (await collect(mainDart)).toString();
     expect(text, isNot(contains('Gadget')));
+  });
+
+  test('a listed library that resolves nowhere never makes a migration '
+      'removed', () async {
+    final text = (await collect(mainDart)).toString();
+    // Only delta_kit.dart and the unresolvable missing_kit are listed:
+    // whether Phantom exists can't be told.
+    expect(text, isNot(contains('Phantom')));
+    // more.dart, also listed, exports Gizmo.
+    expect(text, isNot(contains('Gizmo')));
   });
 
   test('the element counts when any listed library the project imports '
@@ -175,7 +196,7 @@ Object box() => NewBox(size: 1);
     File(
       p.join(folder, 'fix_bytes.yaml'),
     ).writeAsBytesSync([0x74, 0x3a, 0xff, 0xfe, 0x80]);
-    final facts = collectDelta(analysis, dartSdkPath: testDartSdk);
+    final facts = await collectDelta(analysis, dartSdkPath: testDartSdk);
     final bad = facts.unread.where(
       (u) => u.file == 'package:delta_kit/fix_data/fix_bytes.yaml',
     );
@@ -224,7 +245,7 @@ Object box() => NewBox(size: 1);
       dartSdkPath: testDartSdk,
     );
     addTearDown(analysis.dispose);
-    final facts = collectDelta(analysis, dartSdkPath: testDartSdk);
+    final facts = await collectDelta(analysis, dartSdkPath: testDartSdk);
     expect(kit(facts.deprecated), isNotEmpty);
     expect(kit(facts.migrated), isNotEmpty);
   });
@@ -237,7 +258,7 @@ Object box() => NewBox(size: 1);
       dartSdkPath: testDartSdk,
     );
     addTearDown(analysis.dispose);
-    final facts = collectDelta(analysis, dartSdkPath: testDartSdk);
+    final facts = await collectDelta(analysis, dartSdkPath: testDartSdk);
     expect(
       facts.migrated.map((m) => '$m'),
       contains(
@@ -249,8 +270,8 @@ Object box() => NewBox(size: 1);
 
   test('two collections of the same project are equal', () async {
     final analysis = await analyzeDeltaApp(mainDart);
-    final first = collectDelta(analysis, dartSdkPath: testDartSdk);
-    final second = collectDelta(analysis, dartSdkPath: testDartSdk);
+    final first = await collectDelta(analysis, dartSdkPath: testDartSdk);
+    final second = await collectDelta(analysis, dartSdkPath: testDartSdk);
     expect(second, first);
     expect('$second', '$first');
   });

@@ -235,24 +235,30 @@ void main() {
     expect(text, isNot(contains('core.dart..')));
   });
 
-  test('a delta that could not be collected is reported, with a full stop '
-      'added once', () {
+  test('a delta that could not be collected is reported as an internal '
+      'error, with the whole error once', () {
     final text = formatSyncReport(
       reportWith(
         const MapReport(
           packages: PackagesAction.upToDate,
           packagesReason: 'they are up to date',
-          deltaSkipped: "the version delta couldn't be collected: Bad state: x",
+          deltaError: 'Bad state: x\nat line 2',
+          deltaErrorType: 'StateError',
         ),
       ),
     );
     expect(
       text,
       contains(
-        'Version delta: deprecated and removed APIs are missing: the version '
-        "delta couldn't be collected: Bad state: x.\n",
+        'Version delta: deprecated and removed APIs are missing because of '
+        'an internal error in Appstein. Please report it, with this error:\n'
+        '  Bad state: x\n'
+        '  at line 2\n',
       ),
     );
+    expect('version delta'.allMatches(text.toLowerCase()), hasLength(1));
+    expect('Bad state: x'.allMatches(text), hasLength(1));
+    expect(text, isNot(contains('Fix that')));
     expect(text, isNot(contains('Project map skipped')));
   });
 

@@ -71,8 +71,8 @@ void main() {
     migrated: [
       MigratedApi(
         group: 'package:flutter',
-        name: 'Stack.new',
-        status: MigrationStatus.changed,
+        name: 'Stack.new(overflow)',
+        status: MigrationStatus.removed,
         title: "Migrate to 'clipBehavior'",
       ),
       MigratedApi(
@@ -115,6 +115,7 @@ void main() {
     ],
     DeltaFacts? facts = facts,
     String? skipped,
+    String? internalError,
   }) => DeltaInputs(
     flutterVersion: flutterVersion,
     languageVersion: languageVersion,
@@ -124,6 +125,7 @@ void main() {
     notes: notes,
     facts: facts,
     skipped: skipped,
+    internalError: internalError,
   );
 
   test('renders every section, matching the golden', () {
@@ -152,6 +154,21 @@ void main() {
     }
   });
 
+  test('when collecting the facts failed, it says Appstein failed and asks '
+      'for a report, naming only the type of the error', () {
+    final text = renderDelta(inputs(facts: null, internalError: 'StateError'));
+    expect(
+      text,
+      contains(
+        "Deprecated and removed APIs are missing: Appstein couldn't collect "
+        'them because of an internal error (StateError). Please report it.\n',
+      ),
+    );
+    expect(text, isNot(contains('Fix that')));
+    expect(text, contains('## Notes'));
+    expect(text, isNot(contains('## Deprecated')));
+  });
+
   test('a skip reason ending in a full stop is not doubled', () {
     final text = renderDelta(
       inputs(facts: null, skipped: 'pubspec.lock is not valid YAML.'),
@@ -163,7 +180,7 @@ void main() {
     final text = renderDelta(inputs(facts: const DeltaFacts()));
     expect(text, contains('## Deprecated\n\nAPIs'));
     expect(text, contains('`dart analyze` reports each use.\n\nNone.\n'));
-    expect(text, contains('`dart fix` applies each migration.\n\nNone.\n'));
+    expect(text, contains("the migration's title says how.\n\nNone.\n"));
     expect(text, isNot(contains('## Moved libraries')));
     expect(text, isNot(contains('## Not read')));
   });

@@ -93,7 +93,7 @@ transforms:
       - kind: 'rename'
         newName: 'paint'
 
-  # Only more.dart exports Gadget, and the project doesn't import it.
+  # Only more.dart exports Gadget, and no import of the project reaches it.
   - title: "Rename 'Gadget'"
     date: 2026-01-01
     element:
@@ -102,6 +102,67 @@ transforms:
     changes:
       - kind: 'rename'
         newName: 'Widget2'
+
+  # No listed library exports Vanished, and each of them exists.
+  - title: "Rename 'Vanished'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart', 'more.dart' ]
+      class: 'Vanished'
+    changes:
+      - kind: 'rename'
+        newName: 'Gadget'
+
+  # missing_kit isn't one of the project's packages, so whether Phantom
+  # exists can't be told.
+  - title: "Rename 'Phantom'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart', 'package:missing_kit/missing_kit.dart' ]
+      class: 'Phantom'
+    changes:
+      - kind: 'rename'
+        newName: 'Gadget'
+
+  # missing_kit can't be resolved, but more.dart exports Gizmo.
+  - title: "Rename 'Gizmo'"
+    date: 2026-01-01
+    element:
+      uris:
+        - 'delta_kit.dart'
+        - 'package:missing_kit/missing_kit.dart'
+        - 'more.dart'
+      class: 'Gizmo'
+    changes:
+      - kind: 'rename'
+        newName: 'Gadget'
+
+  # Neither migration names a parameter that is gone or deprecated: `size`
+  # is still there, and `paint` changes without one.
+  - title: "Rename 'size' to 'extent'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      constructor: ''
+      inClass: 'NewBox'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'size'
+        newName: 'extent'
+
+  - title: "Add 'canvas' to 'paint'"
+    date: 2026-01-01
+    element:
+      uris: [ 'delta_kit.dart' ]
+      method: 'paint'
+      inClass: 'NewBox'
+    changes:
+      - kind: 'addParameter'
+        index: 0
+        name: 'canvas'
+        style: required_positional
+        argumentValue:
+          expression: 'null'
 
   - title: 'Migrate from delta_kit to delta_kit_v2.'
     date: 2026-01-01

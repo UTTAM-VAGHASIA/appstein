@@ -19,6 +19,7 @@ final class DeltaInputs {
     required this.notes,
     this.facts,
     this.skipped,
+    this.internalError,
   });
 
   /// The installed Flutter version, such as `3.47.5`.
@@ -44,9 +45,14 @@ final class DeltaInputs {
   /// skipped or collecting them failed.
   final DeltaFacts? facts;
 
-  /// Why [facts] is null: the project map's skip reason, or why collecting
-  /// the facts failed.
+  /// Why [facts] is null when the project map was skipped: its skip reason,
+  /// which the user can act on.
   final String? skipped;
+
+  /// When collecting [facts] failed (an Appstein bug, not the project's),
+  /// the type of the error, such as `StateError`; null otherwise. Only the
+  /// type is shown, since the error's message may hold a machine path.
+  final String? internalError;
 }
 
 /// The curated notes the delta lists: those for [flutterVersion] whose
@@ -96,11 +102,16 @@ String renderDelta(DeltaInputs inputs) {
   }
   final facts = inputs.facts;
   if (facts == null) {
-    paragraph(
-      'Deprecated and removed APIs are missing: '
-      "${_withFullStop(inputs.skipped ?? 'no reason was given')} "
-      'Fix that, then run `appstein sync` again.',
-    );
+    paragraph(switch (inputs.internalError) {
+      final error? =>
+        "Deprecated and removed APIs are missing: Appstein couldn't collect "
+            'them because of an internal error (${_oneLine(error)}). Please '
+            'report it.',
+      null =>
+        'Deprecated and removed APIs are missing: '
+            "${_withFullStop(inputs.skipped ?? 'no reason was given')} "
+            'Fix that, then run `appstein sync` again.',
+    });
   }
 
   final usable = <CuratedNote>[];
@@ -137,9 +148,11 @@ String renderDelta(DeltaInputs inputs) {
   ]);
   paragraph('## Removed');
   paragraph(
-    'APIs that are gone or changed, from the migration lists (`fix_data`) '
-    "of the SDKs and the packages. Code that uses them doesn't compile; "
-    '`dart fix` applies each migration.',
+    'APIs from the migration lists (`fix_data`) of the SDKs and the '
+    "packages, each with its migration's title; `dart fix` applies each "
+    "migration. `removed`: gone; code that uses it doesn't compile. "
+    "`changed`: it still exists, and `dart fix` changes how it's used; the "
+    "migration's title says how.",
   );
   _grouped(out, [
     for (final api in facts.migrated)

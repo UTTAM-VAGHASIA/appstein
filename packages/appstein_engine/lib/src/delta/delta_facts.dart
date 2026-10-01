@@ -79,15 +79,24 @@ final class DeprecatedApi {
 
 /// Whether an API in a migration is gone, or is still there.
 enum MigrationStatus {
-  /// The element is gone.
+  /// The element is gone, or, for an entry named with a parameter
+  /// (`Stack.new(overflow)`), that parameter is gone from the element that
+  /// is still there. Code that uses it doesn't compile.
   removed,
 
-  /// The element is still there, and `dart fix` migrates uses of it; the
-  /// migration's title says what changed.
+  /// The element (or the named parameter) is still there and isn't
+  /// deprecated, and `dart fix` changes how it's used; the migration's
+  /// title says how.
   changed,
 }
 
 /// An API a `fix_data` migration says is removed or changed.
+///
+/// A migration that names old parameters (it removes or renames them) is
+/// listed once per parameter, named `Stack.new(overflow)`, except for a
+/// parameter that is still there and deprecated: its migration is attached
+/// to that deprecation ([DeprecatedApi.migrations]). One that names none is
+/// listed under the element's own name.
 final class MigratedApi {
   /// Creates the entry.
   const MigratedApi({
@@ -100,7 +109,8 @@ final class MigratedApi {
   /// The library or package, as in [DeprecatedApi.group].
   final String group;
 
-  /// Its name as code writes it, as in [DeprecatedApi.name].
+  /// Its name as code writes it, as in [DeprecatedApi.name]: `GoneBox`,
+  /// `Stack.overflow`, or `Stack.new(overflow)` for a parameter.
   final String name;
 
   /// Removed or changed.

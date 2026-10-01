@@ -1,6 +1,3 @@
-// ignore: unused_import
-import '../more.dart';
-
 class _PanelBase {
   @Deprecated('Use open instead.')
   void show() {}

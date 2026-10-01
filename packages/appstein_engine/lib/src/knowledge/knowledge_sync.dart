@@ -70,6 +70,11 @@ final class KnowledgeSync {
   /// packages can't be fetched or the Dart SDK is incomplete. The platform
   /// layer and a notes-only `delta.md` are still written.
   ///
+  /// When only collecting the delta's facts fails (an Appstein bug), the
+  /// map and the platform layer are written, `delta.md` holds only the
+  /// notes and names the error's type, and the error is in
+  /// [MapReport.deltaError]. The sync doesn't fail.
+  ///
   /// Throws `SyncException` when no usable SDK is found, a
   /// `KnowledgeLockTimeout` when another writer holds the lock too long,
   /// and a `KnowledgeWriteException` when a file can't be written.
@@ -121,7 +126,13 @@ final class KnowledgeSync {
   /// missing, plus the notes, the baseline and the language version.
   GeneratedFile _delta(PlatformBuild platform, MapBuild map) {
     final sdk = platform.sdk;
-    final skipped = map.report.skipped ?? map.report.deltaSkipped;
+    final internalError = map.report.deltaErrorType;
+    // With no facts, the hashed reason is what delta.md says: the map's skip
+    // reason, or only the error's type, never its message, which may hold
+    // a machine path or differ from run to run.
+    final skipped =
+        map.report.skipped ??
+        (internalError == null ? null : 'internal error ($internalError)');
     final facts = map.delta;
     final markdown = renderDelta(
       DeltaInputs(
@@ -136,7 +147,8 @@ final class KnowledgeSync {
           baseline: baseline,
         ),
         facts: facts,
-        skipped: skipped,
+        skipped: map.report.skipped,
+        internalError: map.report.skipped == null ? internalError : null,
       ),
     );
     return GeneratedFile.markdown(

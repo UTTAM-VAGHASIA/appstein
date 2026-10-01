@@ -1,3 +1,5 @@
-// Reached through panels.dart's import, but the delta test app does not
-// import it: a library a migration lists that the project doesn't import.
+// No library the delta test app imports reaches this one: a library a
+// migration lists that the project's imports don't reach at all.
 class Gadget {}
+
+class Gizmo {}

@@ -77,10 +77,12 @@ void main() {
       delta,
       contains("- `Stack.overflow`: removed. Migrate to 'clipBehavior'."),
     );
+    // Stack's constructor is still there; only its `overflow` is gone.
     expect(
       delta,
-      contains("- `Stack.new`: changed. Migrate to 'clipBehavior'."),
+      contains("- `Stack.new(overflow)`: removed. Migrate to 'clipBehavior'."),
     );
+    expect(delta, isNot(contains('- `Stack.new`: changed.')));
     expect(
       delta,
       contains(

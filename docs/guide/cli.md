@@ -99,10 +99,11 @@ Project map skipped: pubspec.lock is not valid YAML (line 4); run `flutter pub g
 Fix that, then run `appstein sync` again.
 ```
 
-When the map was written but the version delta's API lists couldn't be collected, one more line says why (the sync still exits 0, and `delta.md` holds the notes only; see [version-delta](version-delta.md#how-sync-builds-it)):
+When the map was written but the version delta's API lists couldn't be collected, that is a bug in Appstein, not in the project. The output asks for a report and shows the whole error once, indented (the sync still exits 0, and `delta.md` holds the notes only and names just the error's type; see [version-delta](version-delta.md#how-sync-builds-it)):
 
 ```text
-Version delta: deprecated and removed APIs are missing: the version delta couldn't be collected: <the first line of the error>.
+Version delta: deprecated and removed APIs are missing because of an internal error in Appstein. Please report it, with this error:
+  Bad state: <the error's message, every line>
 ```
 
 **Exit codes.**

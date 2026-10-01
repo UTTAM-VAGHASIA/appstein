@@ -37,7 +37,8 @@ final class MapReport {
     required this.packages,
     required this.packagesReason,
     this.skipped,
-    this.deltaSkipped,
+    this.deltaError,
+    this.deltaErrorType,
   });
 
   /// What was done about the packages.
@@ -50,15 +51,22 @@ final class MapReport {
   /// Why the map wasn't written; null when it was.
   final String? skipped;
 
-  /// Why the version delta's facts are missing although the map was written
-  /// (the collector failed); null otherwise. Never set when [skipped] is.
-  final String? deltaSkipped;
+  /// The error that stopped the version delta's facts being collected
+  /// although the map was written (an Appstein bug), in full, for the
+  /// person running the sync; null otherwise. Never set when [skipped] is.
+  /// It may hold a machine path, so it never goes into a generated file.
+  final String? deltaError;
+
+  /// The type of [deltaError], such as `StateError`: what `delta.md` says
+  /// and hashes, since it holds no machine path. Set exactly when
+  /// [deltaError] is.
+  final String? deltaErrorType;
 }
 
 /// Collects the version delta's facts from an open analysis; [collectDelta]
 /// is the real one. A seam for tests.
 typedef DeltaCollector =
-    DeltaFacts Function(
+    Future<DeltaFacts> Function(
       ProjectAnalysis analysis, {
       required String dartSdkPath,
     });
@@ -96,8 +104,8 @@ final class MapBuild {
 ///
 /// While the analysis is open, it also collects the version delta's facts
 /// ([collectDelta]); `KnowledgeSync` renders them into `delta.md`. If that
-/// fails for any reason, the map is still returned, with the reason in
-/// [MapReport.deltaSkipped]: a sync never fails because of the delta.
+/// fails for any reason, the map is still returned, with the error in
+/// [MapReport.deltaError]: a sync never fails because of the delta.
 final class MapSync {
   /// Creates the sync. [runner] runs `flutter pub get` (a real process by
   /// default); [deltaCollector] is [collectDelta] by default.
@@ -213,14 +221,14 @@ final class MapSync {
       // map: it is reported instead. `on Object` is deliberate; the lints in
       // use have no rule against catching Errors.
       DeltaFacts? delta;
-      String? deltaSkipped;
+      String? deltaError;
+      String? deltaErrorType;
       try {
-        delta = deltaCollector(analysis, dartSdkPath: sdk);
+        delta = await deltaCollector(analysis, dartSdkPath: sdk);
       } on Object catch (error) {
         delta = null;
-        deltaSkipped =
-            "the version delta couldn't be collected: "
-            '${error.toString().split('\n').first}';
+        deltaError = '$error';
+        deltaErrorType = '${error.runtimeType}';
       }
 
       final hash = _inputHash(
@@ -237,7 +245,8 @@ final class MapSync {
         report: MapReport(
           packages: action,
           packagesReason: reason,
-          deltaSkipped: deltaSkipped,
+          deltaError: deltaError,
+          deltaErrorType: deltaErrorType,
         ),
         inputHash: hash,
         delta: delta,
