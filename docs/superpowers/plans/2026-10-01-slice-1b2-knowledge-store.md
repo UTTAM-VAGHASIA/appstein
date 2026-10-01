@@ -6167,5 +6167,49 @@ These follow the per-slice workflow (AGENTS.md, spec §19.4):
   - `toolchain.fallback` becomes a real finding;
   - the stores' dated minimums are compared with today's date (`toolchain.json` lists them all; picking by date is left to the reader, so the file stays deterministic).
 - **1c (MCP):** readers of `.appstein/` files should retry briefly on Windows sharing errors too, the reader-side twin of `replaceFile`'s retry.
+- **From the final review (parked):**
+  - `notes_parser.dart` crashes with a null-check `TypeError`, not a `NotesFormatException`, on a notes file whose `flutter` or `since` is `"0.x"`. That's a side effect of treating major 0 as unversioned. Tighten `_minorPattern`.
+  - `knowledge-store.md`'s "Rewritten when" table omits hand-edited files.
+  - The CI grep `\]` may print a "stray \" warning on newer GNU grep; if so, use `grep -qF`.
+  - The deferred minors from each task's review: thin error context in the nested `fromJson` reads, a parser that is lenient on empty or duplicate compatibility rows, a Kotlin regex that is not comment-aware, untested paths in the notes parser, and the doctor parsing the toolchain on every run.
+  - The ledger (deleted when the slice merged) listed each deferred minor; the per-task reviews are summarized in the notes below.
 - **Still carried from 1b.1:** the other Android toolchain findings Flutter reports (a missing `cmdline-tools`, a licenses-only SDK, spaces in the SDK path, a missing `android.jar` or a broken `aapt`); `ANDROID_HOME=""` semantics; the FVM edge cases.
 
+
+## Notes from execution
+
+Built subagent-driven in quick mode (as 1a.4) on 2026-10-01, with PR #7. Tasks 1 and 2 were batched; each task's review ran alongside the next implementer when their files didn't overlap. The reviews of Tasks 13 and 14 and of the helper-imports fix were folded into the final review (Opus). Opus reviewed the risky tasks (4, 9, 10, 12).
+
+- **Owner rulings:**
+  - Delta split (2026-10-01): `delta.md` became its own slice 1b.4, after the map; incremental sync, INDEX.md and package skills became 1b.5.
+  - Doctor scope: only Flutter's two Android minimums landed here; the other Android findings stay carried.
+  - Spec edits E1–E6 were approved before the plan.
+  - Final review: the §6.2 rewrite rule became a byte comparison, so a hand-edited generated file is put back. The new wording is in the spec.
+  - The notes (3.44: 30, 3.47: 15, plus `stores.yaml`) were approved as files. Before that review, an independent agent re-checked every note against its source: 41 were correct and 4 were fixed. The controller dropped one store entry that its source no longer states.
+- **Controller rulings:**
+  - **R1:** Task 5's shell one-liner mis-parsed; the implementer used `mkdir -p` then `cd`.
+  - **R2:** the fallback matrices may be corrected to match Flutter's files. It wasn't needed: they matched on the first run.
+  - **R3, R8:** Task 14 also updated `sdk-lookups.md` and `docs-tooling.md`, which cover changed files.
+  - **R4:** the lock-test teardown waits for the holder process to exit.
+  - **R5:** an in-process mutex, so one isolate holds a folder's lock at most once. POSIX locks belong to the process and Windows locks to the handle.
+  - **R6:** keep retrying every lock error, because contention error codes differ by OS, but name the last error in the timeout message.
+  - **R7:** the `process_runner_test` time-budget regression was fixed by narrowing the helper processes' imports, not by raising the 8 s budget.
+  - **R9:** `generators_test` now expects the third CLI-help block.
+  - **R10, R11:** the final fix wave.
+- **Lessons:**
+  - **Byte order marks.** Writing the Dart BOM escape through the controller's tools produced the raw U+FEFF character. The plan itself held it in 4 code lines, so implementers who copied the code verbatim wrote raw bytes. CI rejects those bytes, which likely explains 1a.4's identical failure too. The plan was repaired at byte level with perl (GNU sed's `\u` uppercases in a replacement), and every commit is now gated on the byte scan. Recorded in memory.
+  - **A test that changes `Directory.current` breaks other test files.** It is process-wide, and test files run concurrently. A lock test and the Flutter fixtures resolved paths through it and flaked. They now resolve through `Isolate.resolvePackageUri`.
+  - **Importing the whole engine pulls in `package:analyzer`.** A test helper process then spends seconds compiling in JIT mode, which took `process_runner_test` from about 2 s to 8.6 s. The helpers now import only what they use. The AOT binary is unaffected.
+  - **Windows refuses to rename over an open file.** Found by a spike before planning; `replaceFile` retries for a bounded time.
+  - **Research facts:**
+    - Flutter 3.45 and 3.46 were never stable releases.
+    - The releases manifest is not in the installed SDK; that is carried to 1b.4.
+    - The warn and error thresholds are in `DependencyVersionChecker.kt`.
+    - The templates have no `MinimumOSVersion`.
+  - **Side effect:** a research agent ran `git fetch` inside the owner's FVM 3.47.5 checkout. Only its remote refs changed, and the owner was told.
+- **Verification:**
+  - **Windows development machine:** protocol 32, engine 337 (2 skipped), CLI 23, lints 17, repo tools 211, and the engine integration tests 5/5 against Flutter 3.47.5, whose files have CRLF endings.
+  - **Analysis:** analyze, format, `dependency_validator`, `dart doc` and `check_guide` all clean.
+  - **`appstein sync` by hand:** on a scratch project with FVM, the first run wrote `sdk.json` and `toolchain.json`, and a second run reported both unchanged. The toolchain came entirely from the SDK (`"fallbacks": []`). The compiled binary did the same against a path with a space.
+  - **Doctor cross-check:** `appstein doctor` still agrees with `flutter doctor -v` (`platform android-37.0, build-tools 37.0.0-rc2`).
+- **Still to prove in CI:** the `min-sdk` real-SDK step on Flutter 3.44.x, and the `build` job's AOT sync step on Linux, macOS and Windows.
