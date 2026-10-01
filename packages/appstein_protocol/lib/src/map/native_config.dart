@@ -220,6 +220,11 @@ final class NativeEntry {
     if (json is! Map<String, Object?>) {
       throw const FormatException('$_file: a list entry must be an object.');
     }
+    if (json.containsKey('status')) {
+      throw const FormatException(
+        '$_file: a list entry cannot have a part named "status".',
+      );
+    }
     final fields = JsonFields(_file, json);
     return NativeEntry(fields.string('name'), {
       for (final MapEntry(:key, :value) in json.entries)

@@ -123,6 +123,15 @@ void main() {
       [1],
       [<String, Object?>{}],
       'text',
+      [
+        {
+          'name': 'x',
+          'status': {'status': 'absent', 'reason': 'r'},
+        },
+      ],
+      [
+        {'name': 'x', 'status': 'found'},
+      ],
     ]) {
       expect(
         () => NativeConfig.fromJson({'android': bad}),
@@ -136,6 +145,17 @@ void main() {
         reason: '$bad',
       );
     }
+  });
+
+  test('an error section round-trips through fromJson', () {
+    final json = NativeConfig({
+      'android': const NativeValue.error('StateError'),
+    }).toJson();
+    final read = NativeConfig.fromJson(json);
+    final node = read.sections['android']! as NativeValue;
+    expect(node.status, NativeStatus.error);
+    expect(node.errorType, 'StateError');
+    expect(read.toJson(), json);
   });
 
   test('native.json is a map file but not one built from the analysis', () {
