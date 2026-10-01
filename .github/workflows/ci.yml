@@ -75,7 +75,7 @@ jobs:
         run: |
           dart test test
           for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
-      - name: Doctor against this real machine
+      - name: Doctor and sync against this real machine
         shell: bash
         working-directory: packages/appstein_engine
         run: dart test --run-skipped --tags integration
@@ -118,7 +118,7 @@ jobs:
           printf 'name: smoke\nenvironment:\n  sdk: ^3.12.0\n' > "$project/pubspec.yaml"
           ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} --project "$project" sync
           test -f "$project/.appstein/platform/toolchain.json"
-          ! grep -q '"source": "notes"' "$project/.appstein/platform/toolchain.json"
+          grep -q '"fallbacks": \[\]' "$project/.appstein/platform/toolchain.json"
       - uses: actions/upload-artifact@v4
         with:
           name: appstein-${{ runner.os }}

@@ -72,7 +72,7 @@ The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. 
 
 ## `appstein sync`
 
-[`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) finds the project (`--project` or the nearest `pubspec.yaml`), runs the engine's `PlatformSync` and prints `formatSyncReport`. That is one line for the SDK, one per file (`written` or `unchanged`), the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. Every failure it expects (no project, no SDK, the lock, a write) is an environment problem, so it prints a message and exits 3. How the files are written is in [knowledge-store](knowledge-store.md).
+[`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) finds the project (`--project` or the nearest `pubspec.yaml`), runs the engine's `PlatformSync` and prints `formatSyncReport`. That is one line for the SDK, one per file (`written` or `unchanged`), the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. Every failure it expects (no project, no SDK, the lock, a write) is an environment problem, so it prints a message and exits 3. A failed write adds a line saying what to check (the project folder is writable and `.appstein` is a folder), unless the message already says to run `appstein sync` again. How the files are written is in [knowledge-store](knowledge-store.md).
 
 ## Help text
 

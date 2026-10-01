@@ -113,6 +113,16 @@ void main() {
     expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
   });
 
+  test('a .appstein that is a file exits 3, names it and says what to '
+      'do', () async {
+    File(p.join(project, '.appstein')).writeAsStringSync('in the way');
+    expect(await run(['sync']), ExitCodes.appsteinFailed);
+    final text = err.toString();
+    expect(text, contains('.appstein'));
+    expect(text, contains('Check that the project folder is writable'));
+    expect(text, contains('appstein sync'));
+  });
+
   test('help lists sync', () async {
     await run(['--help']);
     expect(

@@ -52,7 +52,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 4. Install graphify for the graph check's tests
 5. `dart pub get --enforce-lockfile`
 6. Unit tests
-7. Doctor against this real machine
+7. Doctor and sync against this real machine
 
 **`build`** runs on `ubuntu-latest`, `windows-latest`, `macos-latest`:
 
@@ -109,14 +109,14 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 - It runs on Linux, Windows and macOS, because Appstein must behave the same on all three. `fail-fast: false` lets every OS finish, so one failure doesn't hide another.
 - **graphify for the graph check's tests:** it installs graphify, at the version pinned in `GRAPHIFY_VERSION` at the top of `ci.yml`, so the tests of [`tool/check_graph.py`](../../tool/check_graph.py) run on all three systems. It also sets `APPSTEIN_REQUIRE_GRAPHIFY=1`, which makes those tests fail instead of skip if graphify is missing. CI never builds this repo's graph (the repair tests build tiny ones in temp repos); see [docs-tooling](docs-tooling.md#is-the-graph-current) for why the graph itself isn't checked here.
 - **Unit tests:** `dart test test` runs the `tool/` tests from the root, then `dart test` runs in each package.
-- **Doctor against this real machine:** the engine's `integration`-tagged tests run with `--run-skipped --tags integration`. They compare Appstein's answers with the runner's real Flutter (see [testing](testing.md)).
+- **Doctor and sync against this real machine:** the engine's `integration`-tagged tests run with `--run-skipped --tags integration`. They compare Appstein's answers with the runner's real Flutter (see [testing](testing.md)).
 
 ### build
 
 - **Compile:** `dart compile exe` builds the AOT binary on each OS. Agent hooks will start this binary, not `dart run` ([spec §19.5](../superpowers/specs/2026-09-29-appstein-design.md#195-distribution-and-versioning): "Hooks use the compiled executable").
 - **Start-up budget:** [`tool/startup_check.dart`](../../tool/startup_check.dart) runs `appstein --version` seven times and fails if the median is over 200 ms (spec §15). A hook that starts slowly slows down every agent action.
 - **Run doctor (report only):** the binary runs `doctor` for real. Exit 0 or 1 is fine, because a CI runner may be missing tools such as the Android SDK. Exit 3 or 255 means Appstein crashed, and the step fails.
-- **Run sync in a scratch project:** the binary runs `appstein sync`, and the step fails if any part of `toolchain.json` came from the notes. That proves the analyzer-based toolchain parser works in the AOT binary, not only under `dart run`.
+- **Run sync in a scratch project:** the binary runs `appstein sync`, and the step fails unless `toolchain.json` has `"fallbacks": []`, so it fails when any part came from the notes and also when a part is unknown. A positive `grep` is used because a negated command (`! grep`) never fails a `bash -e` script unless it is the last command. That proves the analyzer-based toolchain parser works in the AOT binary, not only under `dart run`.
 - The binaries are uploaded as build artifacts.
 
 ### docs

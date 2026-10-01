@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
@@ -16,8 +17,19 @@ const fixtureFlutterVersions = ['3.44.9', '3.47.5'];
 /// The text of the SDK file at [sdkPath] (`/`-separated, such as
 /// [ToolchainFiles.gradleUtils]) in Flutter [version].
 String fixtureText(String version, String sdkPath) => File(
-  '${p.joinAll([Directory.current.path, 'test', 'fixtures', 'flutter_sdk', version, ...sdkPath.split('/')])}.fixture',
+  '${p.joinAll([_packageRoot, 'test', 'fixtures', 'flutter_sdk', version, ...sdkPath.split('/')])}.fixture',
 ).readAsStringSync();
+
+/// The engine package's folder, found from the package itself and not from
+/// `Directory.current`: test files run concurrently in one process, and one
+/// of them changes the working folder.
+final String _packageRoot = () {
+  final library = Isolate.resolvePackageUriSync(
+    Uri.parse('package:appstein_engine/appstein_engine.dart'),
+  )!;
+  // <package>/lib/appstein_engine.dart
+  return p.dirname(p.dirname(library.toFilePath()));
+}();
 
 /// Copies Flutter [version]'s toolchain files into the fake SDK at
 /// [sdkRoot], under their real names.

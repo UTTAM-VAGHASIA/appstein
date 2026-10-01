@@ -76,6 +76,34 @@ void main() {
     });
   }
 
+  test('puts back a file whose body was hand-edited but whose meta is '
+      'intact (spec §6.2)', () async {
+    await write(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+    final original = sdkJson.readAsStringSync();
+    sdkJson.writeAsStringSync(
+      original.replaceFirst('"flutter": "3.47.5"', '"flutter": "9.9.9"'),
+    );
+    final wrote = await write(storeAt(DateTime.utc(2026, 10, 2)), 'h1');
+    expect(wrote, isTrue);
+    // The body is restored, with the time of the rewrite.
+    expect(
+      sdkJson.readAsStringSync(),
+      original.replaceFirst('2026-10-01T', '2026-10-02T'),
+    );
+  });
+
+  test('puts back a file that differs only in formatting', () async {
+    await write(storeAt(DateTime.utc(2026, 10, 1)), 'h1');
+    final original = sdkJson.readAsStringSync();
+    sdkJson.writeAsStringSync(original.replaceAll('  ', '    '));
+    final wrote = await write(storeAt(DateTime.utc(2026, 10, 2)), 'h1');
+    expect(wrote, isTrue);
+    expect(
+      sdkJson.readAsStringSync(),
+      original.replaceFirst('2026-10-01T', '2026-10-02T'),
+    );
+  });
+
   test('a body may not carry its own meta', () {
     expect(
       () => storeAt(DateTime.utc(2026)).writeGenerated(

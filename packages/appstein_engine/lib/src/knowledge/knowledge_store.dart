@@ -12,8 +12,9 @@ import 'knowledge_write_exception.dart';
 /// A project's `.appstein/` folder (spec §6.2).
 ///
 /// It writes generated files as canonical JSON with their metadata, skips a
-/// file whose inputs haven't changed (so its bytes, `generatedAt`
-/// included, stay the same), and replaces files in one step.
+/// file whose content wouldn't change (so its bytes, `generatedAt` included,
+/// stay the same; a hand-edited file is put back), and replaces files in one
+/// step.
 final class KnowledgeStore {
   /// The store of the project at [projectRoot]. [clock] gives the time to
   /// record (the real time by default).
@@ -44,8 +45,11 @@ final class KnowledgeStore {
   }
 
   /// Writes [body] to [path] (inside `.appstein/`, with `/` separators),
-  /// adding a `meta` key with [inputHash], unless the file already carries
-  /// that input hash. Returns whether it wrote.
+  /// adding a `meta` key with [inputHash], unless the file is already exactly
+  /// what this would write. It rebuilds the text with the `generatedAt`
+  /// already in the file and compares the bytes: unchanged inputs change no
+  /// byte, and a hand-edited, reformatted or damaged file is rewritten (with
+  /// the current time). Returns whether it wrote.
   ///
   /// Throws an [ArgumentError] when [body] has its own `meta` key, and a
   /// [KnowledgeWriteException] when the file can't be written.
@@ -63,15 +67,21 @@ final class KnowledgeStore {
       throw ArgumentError.value(body, 'body', 'must not have a "meta" key');
     }
     final target = _pathOf(path);
-    if (_storedHash(target) == inputHash) return false;
-    final meta = KnowledgeMeta(
-      generatedAt: now(),
-      appsteinVersion: appsteinVersion,
-      formatVersion: knowledgeFormatVersion,
-      sdkVersion: sdkVersion,
-      inputHash: inputHash,
-    );
-    await replaceFile(target, canonicalJson({...body, 'meta': meta.toJson()}));
+    String textWith(String generatedAt) => canonicalJson({
+      ...body,
+      'meta': KnowledgeMeta(
+        generatedAt: generatedAt,
+        appsteinVersion: appsteinVersion,
+        formatVersion: knowledgeFormatVersion,
+        sdkVersion: sdkVersion,
+        inputHash: inputHash,
+      ).toJson(),
+    });
+    final stored = _storedGeneratedAt(target);
+    if (stored != null && stored.text == textWith(stored.generatedAt)) {
+      return false;
+    }
+    await replaceFile(target, textWith(now()));
     return true;
   }
 
@@ -81,16 +91,19 @@ final class KnowledgeStore {
 
   String _pathOf(String path) => p.joinAll([folder, ...path.split('/')]);
 
-  /// The input hash in the `meta` of the file at [path], or null when the
-  /// file is missing, unreadable or damaged.
-  static String? _storedHash(String path) {
+  /// The text of the file at [path] and the `generatedAt` in its `meta`, or
+  /// null when the file is missing, unreadable or damaged.
+  static ({String text, String generatedAt})? _storedGeneratedAt(String path) {
     try {
-      final json = jsonDecode(File(path).readAsStringSync());
+      final text = File(path).readAsStringSync();
+      final json = jsonDecode(text);
       if (json is! Map<String, Object?>) return null;
       final meta = json['meta'];
       if (meta is! Map<String, Object?>) return null;
-      final hash = meta['inputHash'];
-      return hash is String ? hash : null;
+      final generatedAt = meta['generatedAt'];
+      return generatedAt is String
+          ? (text: text, generatedAt: generatedAt)
+          : null;
     } on FileSystemException {
       return null;
     } on FormatException {

@@ -21,6 +21,13 @@ void main() {
       'same major version, previews included, or else with the newest '
       'build-tools.';
 
+  // The test context's Flutter SDK (3.47.5) has no files under /sdk, so the
+  // minimums come from the curated notes.
+  const notesSource =
+      "Flutter's minimums (Android SDK 36, build-tools 28.0.3) come from "
+      "Appstein's curated notes for Flutter 3.47, because this Flutter SDK's "
+      'files could not be read.';
+
   void buildTools(String version, {bool zipalign = true}) {
     final dir = Directory(p.join(sdk, 'build-tools', version))
       ..createSync(recursive: true);
@@ -68,7 +75,7 @@ void main() {
     final result = await run();
     expect(result.status, CheckStatus.ok);
     expect(result.summary, 'platform android-37.0, build-tools 37.0.0-rc2');
-    expect(result.details, ['Path: $sdk', pairing]);
+    expect(result.details, ['Path: $sdk', pairing, notesSource]);
   });
 
   test("the build-tools match the platform's major version, or else the "
@@ -256,13 +263,53 @@ void main() {
           'Flutter requires Android SDK 36 and the Android BuildTools 28.0.3.',
         ),
       );
+      expect(result.details, contains(notesSource));
+      // Only the failing part is named.
+      expect(result.fixHint, contains('Platform 36'));
       expect(result.fixHint, contains('android-36'));
+      expect(result.fixHint, isNot(contains('build-tools')));
     });
 
-    test('older build-tools are an error', () async {
-      platform('android-36');
+    test(
+      'older build-tools are an error, and the hint names only them',
+      () async {
+        platform('android-36');
+        buildTools('28.0.2');
+        final result = await run();
+        expect(result.status, CheckStatus.error);
+        expect(result.fixHint, contains('build-tools 28.0.3 or newer'));
+        expect(result.fixHint, contains('build-tools;<version>'));
+        expect(result.fixHint, isNot(contains('Platform')));
+        expect(result.fixHint, isNot(contains('platforms;')));
+      },
+    );
+
+    test('both below minimum names both in the hint', () async {
+      platform('android-35');
       buildTools('28.0.2');
-      expect((await run()).status, CheckStatus.error);
+      final hint = (await run()).fixHint!;
+      expect(hint, contains('Platform 36'));
+      expect(hint, contains('build-tools 28.0.3 or newer'));
+    });
+
+    test('says when the minimums come from the SDK files', () async {
+      final flutter = p.join(tempDir().path, 'flutter');
+      addToolchainFiles(flutter, '3.47.5');
+      platform('android-36');
+      buildTools('36.0.0');
+      final result = await const AndroidSdkCheck().run(
+        testContext(
+          environment: fakeEnvironment({'ANDROID_HOME': sdk}),
+          sdk: foundSdk(root: flutter),
+        ),
+      );
+      expect(
+        result.details,
+        contains(
+          "Flutter's minimums (Android SDK 36, build-tools 28.0.3) come from "
+          "this Flutter SDK's gradle_utils.dart.",
+        ),
+      );
     });
 
     test("the minimums come from the detected Flutter SDK's own "

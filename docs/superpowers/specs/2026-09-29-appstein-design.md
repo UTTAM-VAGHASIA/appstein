@@ -259,7 +259,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ```
 
 - **Every generated file carries** `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and a hash of its inputs. This makes staleness detectable: `verify` fails with `knowledge.stale` if a hash doesn't match.
-- **A generated file is rewritten only when its input hash changes,** so syncing unchanged inputs changes no bytes, `generatedAt` included (§15).
+- **A generated file is rewritten only when its content would change:** Appstein rebuilds it with the `generatedAt` already in the file and compares the bytes. So syncing unchanged inputs changes no bytes, `generatedAt` included, and a hand-edited file is put back (§15).
 - **`INDEX.md` is generated too.** `AGENTS.md` / `CLAUDE.md` point to it. On a fresh clone it is created by the SessionStart hook, or by the `overview` MCP tool for agents without that hook (§5.4).
 
 **Git policy for everything Appstein touches in a project:**

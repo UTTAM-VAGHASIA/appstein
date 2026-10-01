@@ -20,7 +20,7 @@ The paths are listed once, in [`ToolchainFiles`](../../packages/appstein_engine/
 
 **The Kotlin file** is read with a regular expression for its ten `val warn…Version` and `val error…Version` lines. Both supported minors write them the same way.
 
-The SDK files are read as bytes, so Windows checkouts of Flutter with CRLF endings parse the same as LF ones.
+Windows checkouts of Flutter with CRLF endings parse the same as LF ones, because the analyzer's parser and the regular expressions accept `\r\n`.
 
 ## When the SDK's files can't be read
 
@@ -32,7 +32,7 @@ The SDK files are read as bytes, so Windows checkouts of Flutter with CRLF endin
 
 `readToolchain` never throws for a missing or reshaped file.
 
-A test checks each notes file's fallback matrix against Flutter's real files for that version. A fallback can then never hand an agent different numbers from the ones Flutter itself uses.
+A test keeps each notes file's matrix equal to Flutter's files for that version, so a fallback for a version with a notes file gives the numbers Flutter uses. An SDK newer than the newest notes file gets the newest notes' numbers, and its notes coverage is reported as partial. An SDK that reports no version (`0.0.0-unknown`, from a fork or shallow clone) has no minor version, so it gets no notes and partial coverage.
 
 ## Tests and fixtures
 
@@ -45,3 +45,4 @@ Real SDKs are covered by `sync_real_environment_test.dart`. CI runs it on Flutte
 1. Download its four files into a new `test/fixtures/flutter_sdk/<version>/` folder (Task 5 of the 1b.2 plan has the commands), and add the version to `fixtureFlutterVersions`.
 2. If a parser test fails, Flutter changed a shape. Teach the parser the new shape, and keep the old one working.
 3. Add `notes/<minor>.yaml` with that version's matrix (see [How to: add a curated note](how-to/add-a-curated-note.md)). The fallback test then checks it against the new fixtures.
+4. Bump `newestKnownFlutterMinor` in `supported_versions.dart` to the new minor. A test compares it with the newest notes file, and fails until you do.

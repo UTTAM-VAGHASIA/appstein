@@ -32,6 +32,12 @@ void main() {
     expect(notes.coverageFor('main'), NotesCoverage.partial);
   });
 
+  test('an unversioned SDK gets partial coverage and no notes', () {
+    expect(notes.coverageFor('0.0.0-unknown'), NotesCoverage.partial);
+    expect(notes.fileFor('0.0.0-unknown'), isNull);
+    expect(notes.notesFor('0.0.0-unknown'), isEmpty);
+  });
+
   test('the fallback file is the newest at or below the version', () {
     expect(notes.fileFor('3.47.5')?.flutter, '3.47');
     expect(notes.fileFor('3.46.0-0.3.pre')?.flutter, '3.44');

@@ -68,6 +68,13 @@ final class SyncCommand extends Command<int> {
       return ExitCodes.appsteinFailed;
     } on KnowledgeWriteException catch (error) {
       err.writeln(error);
+      // A write that gave up on an open file already says what to do.
+      if (!error.toString().contains('`appstein sync`')) {
+        err.writeln(
+          'Check that the project folder is writable and that .appstein is a '
+          'folder, then run `appstein sync` again.',
+        );
+      }
       return ExitCodes.appsteinFailed;
     }
   }

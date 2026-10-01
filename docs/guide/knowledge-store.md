@@ -18,7 +18,7 @@ tool/src/notes_bundle.dart
 | `.appstein/state.json` | When `sync` last ran, and each generated file's input hash | every sync |
 | `.appstein/.lock` | Nothing: it exists to be locked | never |
 
-All of it is generated and git-ignored (spec §6.2).
+All of it is generated and meant to be git-ignored (spec §6.2). `integrate` (slice 1e) writes the `.gitignore` entries, so until then a project shows `.appstein/` as untracked.
 
 ## How one sync runs
 
@@ -48,7 +48,7 @@ flowchart LR
 - `sdk.json`'s input is the detected facts themselves. Detection reads only a few small files, so hashing its result is the cheapest exact input.
 - `sdk.json` also records `appsteinNotesCoverage`, the answer to "do the curated notes cover this SDK?". It is part of the detected facts, so a new Appstein with newer notes rewrites the file.
 
-**Rewrite only on change.** [`KnowledgeStore.writeGenerated`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) reads the input hash already in the file, and skips the write when it matches. This is how `generatedAt` and byte-identical output (spec §15) live together: syncing unchanged inputs changes no byte. A missing or damaged file has no readable hash, so it is simply rewritten.
+**Rewrite only on change.** [`KnowledgeStore.writeGenerated`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) rebuilds the file's text with the `generatedAt` already in the file, and skips the write only when that text equals the file's bytes. This is how `generatedAt` and byte-identical output (spec §15) live together: syncing unchanged inputs changes no byte, `generatedAt` included. Comparing bytes, and not just the input hash, also means a hand-edited file is put back: an agent that "corrects" a number in `toolchain.json` must not make it stick (spec §6.2, §15). A reformatted, missing or damaged file is rewritten too, with the current time as `generatedAt`.
 
 ## The lock, and why files are renamed into place
 
@@ -79,7 +79,7 @@ The curated notes (spec §6.4) live in `notes/` at the repo root: one YAML file 
 
 **The notes are compiled in.** The `appstein` binary runs in users' projects, where there is no `notes/` folder.
 - [`tool/gen_notes.dart`](../../tool/gen_notes.dart) writes the YAML into `packages/appstein_engine/lib/src/notes/bundled_notes.g.dart`, as raw Dart strings. The work is done by [`notes_bundle.dart`](../../tool/src/notes_bundle.dart).
-- `test/notes_bundle_test.dart` fails while that file is out of date, so a note edited without regenerating can't be committed unnoticed.
+- `test/notes_bundle_test.dart` fails while that file is out of date, so a note edited without regenerating can be committed, but CI fails on it.
 - `CuratedNotes.bundled()` parses it.
 
 [`CuratedNotes`](../../packages/appstein_engine/lib/src/notes/curated_notes.dart) answers three questions:

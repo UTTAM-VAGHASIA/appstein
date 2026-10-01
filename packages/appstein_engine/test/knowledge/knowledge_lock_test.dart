@@ -73,13 +73,14 @@ void main() {
   test('waits for another process, and gets the lock when that process '
       'ends without releasing it', () async {
     final folder = p.join(tempDir().path, '.appstein');
-    final holder = await holdLock(folder, 1500);
+    final holder = await holdLock(folder, 3000);
     final sinceLocked = Stopwatch()..start();
     final lock = await KnowledgeLock.acquire(
       folder,
       timeout: const Duration(seconds: 60),
     );
-    // It really waited: the holder keeps the lock for 1500 ms.
+    // It really waited: the holder keeps the lock for 3000 ms,
+    // so a "locked" line that arrives late still leaves 1000 ms of waiting.
     expect(sinceLocked.elapsedMilliseconds, greaterThanOrEqualTo(1000));
     lock.release();
     expect(await holder.exitCode, 0);
@@ -103,6 +104,22 @@ void main() {
       ),
     );
   }, timeout: slow);
+
+  test('the timeout message does not double the reason\'s full stop', () {
+    String message(String reason) => KnowledgeLockTimeout(
+      'f',
+      const Duration(seconds: 10),
+      lastError: reason,
+    ).toString();
+    expect(
+      message('Access is denied.'),
+      contains('(last error: Access is denied). Try again'),
+    );
+    expect(
+      message('Access is denied'),
+      contains('(last error: Access is denied). Try again'),
+    );
+  });
 
   test('a second acquire in the same process waits for the first to be '
       'released, then gets the lock', () async {

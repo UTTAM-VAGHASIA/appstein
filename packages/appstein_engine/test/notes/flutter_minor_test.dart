@@ -9,6 +9,10 @@ void main() {
     expect(flutterMinorOf('main'), isNull);
   });
 
+  test('an unversioned SDK (0.0.0-unknown) has no minor', () {
+    expect(flutterMinorOf('0.0.0-unknown'), isNull);
+  });
+
   test('compares numerically, not as text', () {
     expect(
       compareFlutterMinors((major: 3, minor: 9), (major: 3, minor: 10)),

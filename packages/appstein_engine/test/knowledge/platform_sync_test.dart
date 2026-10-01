@@ -93,6 +93,30 @@ void main() {
     );
   });
 
+  test(
+    'a hand-edited toolchain.json is put back, meta intact (spec §6.2)',
+    () async {
+      await sync(DateTime.utc(2026, 10, 1)).run(project);
+      final original = knowledge('platform/toolchain.json').readAsStringSync();
+      expect(original, contains('"deploymentTarget": "15.0"'));
+      knowledge('platform/toolchain.json').writeAsStringSync(
+        original.replaceFirst(
+          '"deploymentTarget": "15.0"',
+          '"deploymentTarget": "99.0"',
+        ),
+      );
+      final report = await sync(DateTime.utc(2026, 10, 2)).run(project);
+      expect(report.files, {
+        'platform/sdk.json': false,
+        'platform/toolchain.json': true,
+      });
+      expect(
+        knowledge('platform/toolchain.json').readAsStringSync(),
+        original.replaceFirst('2026-10-01T', '2026-10-02T'),
+      );
+    },
+  );
+
   test('a new SDK version rewrites both, with partial coverage above the '
       'notes', () async {
     await sync(DateTime.utc(2026, 10, 1)).run(project);

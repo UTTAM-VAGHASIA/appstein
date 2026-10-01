@@ -27,7 +27,9 @@ final class KnowledgeLockTimeout implements Exception {
   String toString() {
     final ms = timeout.inMilliseconds;
     final seconds = ms % 1000 == 0 ? '${ms ~/ 1000}' : '${ms / 1000}';
-    final reason = lastError == null ? '' : ' (last error: $lastError)';
+    // Operating-system reasons often end with a full stop of their own.
+    final error = lastError?.replaceFirst(RegExp(r'\.$'), '');
+    final reason = error == null ? '' : ' (last error: $error)';
     return 'Another Appstein process is still writing $folder after waiting '
         '$seconds s$reason. Try again when it has finished.';
   }
