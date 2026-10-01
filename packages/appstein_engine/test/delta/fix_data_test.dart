@@ -81,6 +81,34 @@ transforms:
     expect(transforms.single.oldParameters, {'child'});
   });
 
+  test('a parameter the migration also adds back is not an old one, as in '
+      "Flutter 3.47.5's Tooltip migration", () {
+    final transforms = parse('''
+transforms:
+  - title: "Migrate to 'constraints'"
+    element:
+      uris: [ 'material.dart' ]
+      constructor: ""
+      inClass: "Tooltip"
+    oneOf:
+      - if: "height == 'null'"
+        changes:
+          - kind: "removeParameter"
+            name: "height"
+      - if: "constraints == 'null' && height != ''"
+        changes:
+          - kind: "removeParameter"
+            name: "constraints"
+          - kind: "addParameter"
+            index: 0
+            name: "constraints"
+            style: optional_named
+          - kind: "removeParameter"
+            name: "height"
+''');
+    expect(transforms.single.oldParameters, {'height'});
+  });
+
   test('the same library named relatively and absolutely counts once, '
       "as in go_router's file", () {
     final transforms = parse('''

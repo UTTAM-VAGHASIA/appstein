@@ -77,7 +77,8 @@ final class FixDataTransform {
   /// for a top-level element.
   final String? container;
 
-  /// The old names of the parameters the migration removes or renames.
+  /// The old names of the parameters the migration removes or renames,
+  /// leaving out any it also adds back.
   final Set<String> oldParameters;
 
   /// For a library migration, the library it moves away from.
@@ -216,14 +217,21 @@ FixDataTransform _transform(YamlNode node, String file, Uri base) {
     kind: kind,
     name: name,
     container: containers.firstOrNull,
-    oldParameters: {
-      for (final change in changes)
-        if (change['kind'] == 'removeParameter' && change['name'] is String)
-          change['name'] as String
-        else if (change['kind'] == 'renameParameter' &&
-            change['oldName'] is String)
-          change['oldName'] as String,
-    },
+    // A parameter the migration also adds back is rewritten, not gone (as
+    // `constraints` in Flutter's Tooltip migration).
+    oldParameters:
+        {
+          for (final change in changes)
+            if (change['kind'] == 'removeParameter' && change['name'] is String)
+              change['name'] as String
+            else if (change['kind'] == 'renameParameter' &&
+                change['oldName'] is String)
+              change['oldName'] as String,
+        }.difference({
+          for (final change in changes)
+            if (change['kind'] == 'addParameter' && change['name'] is String)
+              change['name'] as String,
+        }),
   );
 }
 
