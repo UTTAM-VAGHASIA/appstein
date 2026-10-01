@@ -17,6 +17,7 @@ export 'src/map/deps_map.dart';
 export 'src/map/features_map.dart';
 export 'src/map/layers_map.dart';
 export 'src/map/map_files.dart';
+export 'src/map/native_config.dart';
 export 'src/map/routes_map.dart';
 export 'src/map/symbols_map.dart';
 export 'src/protocol_version.dart';
