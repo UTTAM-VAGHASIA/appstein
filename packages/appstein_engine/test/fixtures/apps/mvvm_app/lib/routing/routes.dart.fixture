@@ -1,0 +1,20 @@
+/// The app's route paths.
+abstract final class Routes {
+  /// The home screen.
+  static const home = '/';
+
+  /// The login screen.
+  static const login = '/login';
+
+  /// The booking screen, below home.
+  static const bookingRelative = 'booking';
+
+  /// The booking screen's full path.
+  static const booking = '/$bookingRelative';
+
+  /// The settings tab.
+  static const settings = '/settings';
+
+  /// The profile tab.
+  static const profile = '/profile';
+}

@@ -1,0 +1,8 @@
+/// Signs the user in and out.
+abstract class AuthRepository {
+  /// Whether a user is signed in.
+  bool get isSignedIn;
+
+  /// Signs in with [email] and [password].
+  Future<void> login({required String email, required String password});
+}

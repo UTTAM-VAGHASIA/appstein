@@ -1,0 +1,10 @@
+import '../../model/booking_api_model.dart';
+
+/// Talks to the booking server.
+class ApiClient {
+  /// The bookings the server has.
+  Future<List<BookingApiModel>> getBookings() async => const [];
+
+  /// Whether a user is signed in on the server.
+  bool get hasSession => false;
+}

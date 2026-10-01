@@ -1,0 +1,13 @@
+// A stand-in for package:flutter, with only what the project-map tests
+// read. Same names as the real Flutter.
+class ChangeNotifier {
+  void notifyListeners() {}
+
+  void dispose() {}
+}
+
+class Key {
+  const Key(this.value);
+
+  final String value;
+}

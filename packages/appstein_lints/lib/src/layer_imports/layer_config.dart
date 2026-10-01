@@ -2,8 +2,6 @@ import 'package:analyzer/file_system/file_system.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:yaml/yaml.dart';
 
-import 'layer_matcher.dart';
-
 /// The layer rules that apply to a file, and where they came from.
 final class LayerConfig {
   /// Creates a config.

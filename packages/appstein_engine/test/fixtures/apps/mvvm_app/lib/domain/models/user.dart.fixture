@@ -1,0 +1,8 @@
+/// The signed-in user
+class User {
+  /// Creates a user called [name].
+  const User({required this.name});
+
+  /// The user's name.
+  final String name;
+}

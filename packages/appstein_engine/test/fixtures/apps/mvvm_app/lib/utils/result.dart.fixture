@@ -1,0 +1,64 @@
+/// The result of an operation that can fail.
+sealed class Result<T> {
+  const Result();
+}
+
+/// A result with a value.
+final class Ok<T> extends Result<T> {
+  /// Creates a result holding [value].
+  const Ok(this.value);
+
+  /// The value.
+  final T value;
+}
+
+/// A result with an error.
+final class Failure<T> extends Result<T> {
+  /// Creates a result holding [error].
+  const Failure(this.error);
+
+  /// What went wrong.
+  final Object error;
+}
+
+/// Logs what a class does.
+mixin Loggable {
+  /// The log lines so far.
+  final List<String> log = [];
+}
+
+/// Where a booking stands.
+enum BookingStatus {
+  /// Waiting for the server.
+  pending,
+
+  /// Confirmed by the server.
+  confirmed,
+}
+
+/// Turns a booking status into words.
+extension StatusWords on BookingStatus {
+  /// The status in words.
+  String get words => name;
+}
+
+/// A booking's id, kept apart from other integers.
+extension type BookingId(int value) {}
+
+/// A decoded JSON object.
+typedef Json = Map<String, Object?>;
+
+/// Describes [status] for the user! Then more.
+String describe(BookingStatus status) => status.words;
+
+/// The app's name: a getter, which is not a symbol kind.
+String get appName => 'Fixture';
+
+extension on int {
+  int get doubled => this * 2;
+}
+
+class _Hidden {}
+
+/// Uses the private declarations, so they aren't unused.
+int useHidden() => [_Hidden()].length + 1.doubled;

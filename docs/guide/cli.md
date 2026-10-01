@@ -26,6 +26,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
+| [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |
 | [`version.dart`](../../packages/appstein_cli/lib/src/version.dart) | `appsteinVersion` and `versionText` |
 | [`exit_codes.dart`](../../packages/appstein_cli/lib/src/exit_codes.dart) | `ExitCodes` |
@@ -47,7 +48,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | `ConfigException` | `Invalid appstein.yaml: ` and the error | 3 |
 | Anything else | `reportCrash`: "Appstein failed unexpectedly", a hint to run `appstein doctor`, and the stack trace | 3 |
 
-No command reaches the `ConfigException` handler today. `doctor`, the only command that reads `appstein.yaml`, reports an invalid file as a check error, with exit code 1 (see [doctor](doctor.md)). The handler is a safety net for any command that loads the config itself.
+No command reaches the `ConfigException` handler today. `doctor` reports an invalid file as a check error, with exit code 1 (see [doctor](doctor.md)). `sync` catches the exception itself, prints it with a hint, and exits 3 (see [`appstein sync`](#appstein-sync)). The handler is a safety net for any command that loads the config and forgets to catch.
 
 ## Global options
 
@@ -72,7 +73,38 @@ The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. 
 
 ## `appstein sync`
 
-[`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) finds the project (`--project` or the nearest `pubspec.yaml`), runs the engine's `PlatformSync` and prints `formatSyncReport`. That is one line for the SDK, one per file (`written` or `unchanged`), the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. Every failure it expects (no project, no SDK, the lock, a write) is an environment problem, so it prints a message and exits 3. A failed write adds a line saying what to check (the project folder is writable and `.appstein` is a folder), unless the message already says to run `appstein sync` again. How the files are written is in [knowledge-store](knowledge-store.md).
+[`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) does four things:
+
+1. **Finds the project** (`--project` or the nearest `pubspec.yaml`).
+2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which stack pack the project uses. [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` into a list of packs: today `official_mvvm` gives `OfficialMvvmPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
+3. **Runs the engine's `KnowledgeSync`** with those packs. It writes the platform layer and the project map.
+4. **Prints `formatSyncReport`.**
+
+The report is one line for the SDK, one per file (`written` or `unchanged`, the map files included), then the lines about the packages and the map, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened:
+
+```text
+Fetched the packages with `flutter pub get`, because pubspec.yaml changed after they were fetched.
+```
+
+```text
+Could not fetch the packages:
+  `flutter pub get` failed with exit code 1:
+  Because app depends on go_router ^99.0.0 which doesn't match any versions, version solving failed.
+Project map skipped: the packages could not be fetched.
+Run `flutter pub get` in the project to see the whole error, then `appstein sync` again.
+```
+
+```text
+Project map skipped: pubspec.lock is not valid YAML (line 4); run `flutter pub get`.
+Fix that, then run `appstein sync` again.
+```
+
+**Exit codes.**
+- **0 when only the map is skipped.** The platform layer was written, and a project whose packages won't fetch is a project problem, not an Appstein failure. The old map files are left as they were.
+- **3 for a broken `appstein.yaml`.** The message is the `ConfigException` (with its file, line and column), then `Fix appstein.yaml, then run appstein sync again.` Nothing is written.
+- **3 for the other failures it expects** (no project, no SDK, the lock, a write): each is an environment problem, so it prints a message and exits 3. A failed write adds a line saying what to check (the project folder is writable and `.appstein` is a folder), unless the message already says to run `appstein sync` again.
+
+How the files are written is in [knowledge-store](knowledge-store.md), and how the map is built is in [project-map](project-map.md).
 
 ## Help text
 

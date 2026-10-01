@@ -1,0 +1,41 @@
+import '../data/repositories/auth/auth_repository.dart';
+import '../data/repositories/auth/auth_repository_remote.dart';
+import '../data/repositories/booking/booking_repository.dart';
+import '../data/repositories/booking/booking_repository_remote.dart';
+import '../data/services/analytics_service.dart';
+import '../data/services/api/api_client.dart';
+import '../domain/use_cases/booking_create_use_case.dart';
+
+/// Builds the app's repositories, services and use cases once.
+final class Dependencies {
+  /// Creates them, all talking to one [ApiClient].
+  Dependencies() : _apiClient = ApiClient();
+
+  final ApiClient _apiClient;
+
+  /// Signs the user in and out.
+  late final AuthRepository authRepository = AuthRepositoryRemote(
+    apiClient: _apiClient,
+  );
+
+  /// Reads and writes bookings.
+  late final BookingRepository bookingRepository = BookingRepositoryRemote(
+    apiClient: _apiClient,
+  );
+
+  /// Records what the user does.
+  late final AnalyticsService analytics = _NoAnalytics();
+
+  /// Books trips.
+  late final BookingCreateUseCase createBooking = BookingCreateUseCase(
+    bookingRepository: bookingRepository,
+  );
+
+  /// Whether the settings tab shows the profile instead.
+  bool showProfileInSettings = false;
+}
+
+final class _NoAnalytics implements AnalyticsService {
+  @override
+  void record(String event) {}
+}

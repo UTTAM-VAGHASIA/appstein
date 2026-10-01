@@ -1,0 +1,10 @@
+import 'package:flutter/widgets.dart';
+
+/// The user's profile.
+class ProfileScreen extends StatelessWidget {
+  /// Creates the screen.
+  const ProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Text('Profile');
+}

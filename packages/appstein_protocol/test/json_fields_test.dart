@@ -42,4 +42,41 @@ void main() {
     expect(() => fields.stringMap('mixed'), throwsFormatException);
     expect(() => fields.optionalString('count'), throwsFormatException);
   });
+
+  test('reads booleans, optional integers, string lists and object maps', () {
+    const more = JsonFields('y.json', {
+      'yes': true,
+      'n': 4,
+      'none': null,
+      'names': ['a', 'b'],
+      'byName': {
+        'a': {'k': 1},
+      },
+    });
+    expect(more.boolean('yes'), isTrue);
+    expect(more.optionalInteger('n'), 4);
+    expect(more.optionalInteger('none'), isNull);
+    expect(more.strings('names'), ['a', 'b']);
+    expect(more.objectMap('byName')['a']!.integer('k'), 1);
+    expect(
+      () => more.boolean('n'),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          'y.json: "n" must be true or false.',
+        ),
+      ),
+    );
+    expect(
+      () => more.strings('byName'),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          'y.json: "byName" must be a list of strings.',
+        ),
+      ),
+    );
+  });
 }

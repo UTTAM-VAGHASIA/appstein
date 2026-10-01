@@ -1,0 +1,8 @@
+/// A booking as the server sends it.
+class BookingApiModel {
+  /// Creates a booking with its server [id].
+  const BookingApiModel({required this.id});
+
+  /// The server's id for the booking.
+  final int id;
+}

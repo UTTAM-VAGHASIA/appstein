@@ -1,0 +1,18 @@
+import '../../data/repositories/booking/booking_repository.dart';
+import '../models/booking.dart';
+
+/// Creates a booking and saves it.
+class BookingCreateUseCase {
+  /// Creates the use case on top of [bookingRepository].
+  BookingCreateUseCase({required BookingRepository bookingRepository})
+    : _bookingRepository = bookingRepository;
+
+  final BookingRepository _bookingRepository;
+
+  /// Books a trip to [destination].
+  Future<Booking> call(String destination) async {
+    final booking = Booking(id: 0, destination: destination);
+    await _bookingRepository.createBooking(booking);
+    return booking;
+  }
+}

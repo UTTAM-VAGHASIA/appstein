@@ -1,0 +1,26 @@
+import 'package:flutter/widgets.dart';
+
+// A layer violation on purpose: ui may use a repository's interface, and
+// this imports its implementation.
+import '../../../data/repositories/booking/booking_repository_remote.dart';
+import '../view_models/booking_viewmodel.dart';
+
+/// Shows a new booking.
+class BookingScreen extends StatelessWidget {
+  /// Creates the screen for [viewModel].
+  const BookingScreen({
+    super.key,
+    required this.viewModel,
+    this.debugRepository,
+  });
+
+  /// The screen's state.
+  final BookingViewModel viewModel;
+
+  /// A repository for debugging, which a screen should not hold.
+  final BookingRepositoryRemote? debugRepository;
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(viewModel.booking?.destination ?? '');
+}

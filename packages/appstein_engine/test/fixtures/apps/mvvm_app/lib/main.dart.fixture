@@ -1,0 +1,7 @@
+import 'config/dependencies.dart';
+import 'routing/router.dart';
+
+/// Starts the fixture app: builds its dependencies and its router.
+void main() {
+  router(Dependencies());
+}

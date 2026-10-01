@@ -65,6 +65,54 @@ Fakes can only answer the way we expect Flutter to. Some tests therefore run aga
 
 `packages/appstein_engine/test/fixtures/flutter_sdk/<version>/` holds Flutter's toolchain files for 3.44.9 and 3.47.5, each ending in `.fixture`. [`flutter_fixtures.dart`](../../packages/appstein_engine/test/support/flutter_fixtures.dart) reads them (`fixtureText`) or copies them into a fake SDK under their real names (`addToolchainFiles`). The fixture folder is found from the package itself (`Isolate.resolvePackageUriSync`), not from `Directory.current`, for the reason given under "Finding the helper" below. Tests that need CRLF files convert the text in the test, because the repo stores everything with LF. See [toolchain](toolchain.md#tests-and-fixtures).
 
+## The fixture app and goldens
+
+The [project map](project-map.md) is tested on one small app, kept in `packages/appstein_engine/test/fixtures/apps/mvvm_app/`. It is a miniature of Flutter's `compass_app` sample, with five features and a router, and every odd file in it is there to test one rule:
+
+| File | What it is for |
+|---|---|
+| `lib/ui/booking/widgets/booking_screen.dart` | The layer violation, on purpose: a screen that imports a repository's implementation, where `ui` may import only its interface |
+| `lib/ui/booking/view_models/base_view_model.dart` | The abstract base class: a view model's parent that is not itself a view model |
+| `lib/domain/use_cases/booking_create_use_case.dart` | A use case, which is `domain` code but not a feature's model |
+| `lib/routing/router.dart` | The routes: nested, in a `ShellRoute`, in a `StatefulShellRoute`, with a `pageBuilder`, a redirect, a path from a `const` — and the unresolved ones: a path from a function (`search`), a builder with two `return`s (`/settings`), a `Text` as the screen (`/about`) |
+| `lib/ui/core/ui/app_button.dart` | `ui/core`, which is shared UI and not a feature |
+| `lib/data/repositories/`, `lib/data/services/`, `lib/data/model/` | An interface and its remote implementation, a service, and a model, one per data tag |
+| The app's own `test` folder (`ui`, `data` and `fakes` inside it) | Tests that features claim by their folder (the `ui` ones, by feature), and tests that no feature owns (`data` and `fakes`) |
+
+**The `.fixture` suffix.** Every file of the app ends in `.fixture` (`router.dart.fixture`). The repo's analyzer, formatter and knowledge graph then ignore it: the app imports `go_router`, which this repo doesn't depend on, and `booking_screen` breaks a lint rule on purpose. The test helper copies the files without the suffix.
+
+**Stand-in packages.** Real `flutter` and `go_router` would need a Flutter SDK and the network in every unit test. So `fixtures/apps/stubs/` holds small packages, `flutter` (`widgets.dart`, `foundation.dart`), `flutter_test` and `go_router`, with just the classes the app uses (`GoRoute`, `ShellRoute`, `ChangeNotifier`, `StatelessWidget`, and so on), and a **hand-written `pubspec.lock`** that says what pub would have written for the app. [`writeStubPackages`](../../packages/appstein_engine/test/support/fixture_app.dart) then writes `.dart_tool/package_config.json` (mapping each package to the stand-in), `.dart_tool/version` and times on the files, so the packages count as **fresh** by Flutter's own rule. The analyzer resolves the app like a real one, offline.
+
+**The helpers**, all in [`fixture_app.dart`](../../packages/appstein_engine/test/support/fixture_app.dart):
+
+| Helper | What it does |
+|---|---|
+| `copyFixtureApp` | Copies the app into a `tempDir()` folder named `mvvm app` (a space, on purpose), and with `stubs: true`, the stand-ins and the lock file too. With `stubs: false` it copies only the app, for a real `flutter pub get` |
+| `writeStubPackages` | Makes any project's packages look fresh, as above. Tests of other shapes of project (a pub workspace, a stale lock) use it too |
+| `testDartSdk` | The Dart SDK running the tests. The analyzer reads `dart:` libraries from it, so the tests don't need Flutter's |
+| `lineOf` | The line of a text in a project file. Tests ask for the line instead of writing `17`, so editing a fixture doesn't break them |
+| `readMapBody`, `expectGolden` | Read a written map file without its `meta`, and compare it with a golden |
+
+### Goldens
+
+A **golden** is a file holding the exact output a test expects: `symbols.json.golden`, `layers.json.golden` and the other three in `fixtures/apps/goldens/`. A golden test runs the real sync on the fixture app (`knowledge_sync_test.dart` with the stand-ins, `map_real_sdk_test.dart` with the real packages) and compares the canonical JSON, byte for byte, with the file. It catches the changes no one meant: an extra symbol, a route that lost its screen, an order that changed.
+
+**To update goldens safely:**
+
+1. Run the failing test and read the diff. **Assume the code is wrong until proven otherwise.** A golden that changes should be a change you meant to make.
+2. If it is intended, run the tests once with `APPSTEIN_UPDATE_GOLDENS=1`. That is the one time a test writes into the repo.
+   ```powershell
+   cd packages/appstein_engine
+   $env:APPSTEIN_UPDATE_GOLDENS = '1'; fvm dart test test/knowledge/knowledge_sync_test.dart; Remove-Item Env:APPSTEIN_UPDATE_GOLDENS
+   ```
+3. Review the golden's diff in git, line by line, like code. Commit it with the change that caused it.
+
+### The real-SDK test
+
+Stand-ins can lie. [`map_real_sdk_test.dart`](../../packages/appstein_engine/test/integration/map_real_sdk_test.dart) (tagged `integration`) syncs the same app against the **real** Flutter and the real `go_router` from pub.dev, and expects the same goldens. For `deps.json` it compares only what must match (each direct package's kind, constraint and usages), because real versions and transitive packages differ. It also syncs a second time and expects every file `unchanged`. If a stand-in drifts from the real package, this test fails, and the stand-ins are what is wrong: bring them back in line with the real package, and leave the goldens alone. CI runs it in the `test` job with the current Flutter and in the `min-sdk` job with the oldest (see [ci](ci.md#min-sdk)).
+
+**`machineSdk`** ([`machine_sdk.dart`](../../packages/appstein_engine/test/support/machine_sdk.dart)) finds the Flutter that test uses: the repo's pinned one if there is one, else any on the machine. The `min-sdk` job installs 3.44 while the repo pins 3.47.5, so there only the second lookup works. With no Flutter, the test fails in CI and is skipped on a developer's machine, as the doctor's real-environment tests are.
+
 ## A second process, for locks
 
 `knowledge_lock_test.dart` starts [`lock_holder.dart`](../../packages/appstein_engine/test/knowledge/support/lock_holder.dart) as a separate `dart` process, the way `process_runner_test.dart` starts `timeout_harness.dart`. POSIX file locks belong to a process, so two handles in one test process can't stand for two writers. The holder exits without unlocking, to prove a crashed writer never leaves the lock stuck.

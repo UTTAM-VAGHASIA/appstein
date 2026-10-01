@@ -1,0 +1,15 @@
+import 'package:flutter/widgets.dart';
+
+import '../view_models/login_viewmodel.dart';
+
+/// Asks for the user's email and password.
+class LoginScreen extends StatelessWidget {
+  /// Creates the screen for [viewModel].
+  const LoginScreen({super.key, required this.viewModel});
+
+  /// The screen's state.
+  final LoginViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) => const Text('Log in');
+}

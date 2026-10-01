@@ -8,6 +8,7 @@ import 'package:analyzer/error/error.dart';
 import 'package:analyzer/file_system/file_system.dart';
 import 'package:path/path.dart' as p;
 
+import 'interface_library.dart';
 import 'layer_config.dart';
 
 /// Enforces the layer boundaries declared in `appstein_lints:`
@@ -101,14 +102,18 @@ final class _Visitor extends SimpleAstVisitor<void> {
     if (fromPath == null || toPath == null) return;
     final fromTag = matcher.tagFor(fromPath);
     final toTag = matcher.tagFor(toPath);
-    if (fromTag == null || toTag == null || rules.mayImport(fromTag, toTag)) {
+    if (fromTag == null || toTag == null) return;
+    if (rules.mayImport(
+      fromTag,
+      toTag,
+      interfaceOnly: isInterfaceLibrary(target),
+    )) {
       return;
     }
-    final allowed = [fromTag, ...?rules.allow[fromTag]].join(', ');
     rule.reportAtNode(
       node.uri,
       diagnosticCode: LayerImportsRule.forbiddenImport,
-      arguments: [fromTag, toTag, toPath, allowed],
+      arguments: [fromTag, toTag, toPath, rules.describeAllowed(fromTag)],
     );
   }
 

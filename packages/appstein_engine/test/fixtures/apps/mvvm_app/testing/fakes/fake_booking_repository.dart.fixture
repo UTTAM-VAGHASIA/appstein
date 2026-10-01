@@ -1,0 +1,13 @@
+import 'package:fixture_app/data/repositories/booking/booking_repository.dart';
+import 'package:fixture_app/domain/models/booking.dart';
+
+/// A booking repository that keeps bookings in memory.
+class FakeBookingRepository implements BookingRepository {
+  final List<Booking> _bookings = [];
+
+  @override
+  Future<List<Booking>> getBookings() async => _bookings;
+
+  @override
+  Future<void> createBooking(Booking booking) async => _bookings.add(booking);
+}

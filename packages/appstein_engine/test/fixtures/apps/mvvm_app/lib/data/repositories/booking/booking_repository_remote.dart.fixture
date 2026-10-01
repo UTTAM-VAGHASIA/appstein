@@ -1,0 +1,21 @@
+import '../../../domain/models/booking.dart';
+import '../../services/api/api_client.dart';
+import 'booking_repository.dart';
+
+/// Reads and writes bookings on the booking server.
+class BookingRepositoryRemote implements BookingRepository {
+  /// Creates the repository on top of [apiClient].
+  BookingRepositoryRemote({required ApiClient apiClient})
+    : _apiClient = apiClient;
+
+  final ApiClient _apiClient;
+
+  @override
+  Future<List<Booking>> getBookings() async => [
+    for (final booking in await _apiClient.getBookings())
+      Booking(id: booking.id, destination: ''),
+  ];
+
+  @override
+  Future<void> createBooking(Booking booking) async {}
+}

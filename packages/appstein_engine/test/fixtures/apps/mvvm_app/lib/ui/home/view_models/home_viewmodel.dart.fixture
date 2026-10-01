@@ -1,0 +1,28 @@
+import 'package:flutter/foundation.dart';
+
+import '../../../data/repositories/booking/booking_repository.dart';
+import '../../../data/services/analytics_service.dart';
+import '../../../domain/models/booking.dart';
+
+/// Loads the user's bookings for the home screen.
+class HomeViewModel extends ChangeNotifier {
+  /// Creates the view model on top of [bookingRepository] and [analytics].
+  HomeViewModel({
+    required BookingRepository bookingRepository,
+    required AnalyticsService analytics,
+  }) : _bookingRepository = bookingRepository,
+       _analytics = analytics;
+
+  final BookingRepository _bookingRepository;
+  final AnalyticsService _analytics;
+
+  /// The bookings the home screen shows.
+  List<Booking> bookings = const [];
+
+  /// Loads [bookings] again.
+  Future<void> load() async {
+    _analytics.record('home.load');
+    bookings = await _bookingRepository.getBookings();
+    notifyListeners();
+  }
+}

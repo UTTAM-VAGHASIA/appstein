@@ -22,7 +22,7 @@ On Windows, everything works in PowerShell, including paths with spaces.
 | Folder | What it holds |
 |---|---|
 | `packages/appstein_protocol/` | Shared data models ([README](../../packages/appstein_protocol/README.md)) |
-| `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor, the knowledge store and `sync` ([README](../../packages/appstein_engine/README.md)) |
+| `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor, the knowledge store, the project map, packs and `sync` ([README](../../packages/appstein_engine/README.md)) |
 | `packages/appstein_cli/` | The `appstein` command, a thin layer over the engine ([README](../../packages/appstein_cli/README.md)) |
 | `packages/appstein_lints/` | The analyzer plugin with our lint rules ([README](../../packages/appstein_lints/README.md)) |
 | `notes/` | The curated notes, compiled into Appstein ([knowledge-store](knowledge-store.md#the-curated-notes)) |
@@ -40,6 +40,7 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [doctor](doctor.md) | How `appstein doctor` runs its checks, and what each one looks at |
 | [sdk-lookups](sdk-lookups.md) | How Appstein finds the Flutter SDK, the JDK and the Android SDK |
 | [knowledge-store](knowledge-store.md) | How `appstein sync` writes `.appstein/`: metadata, input hashes, the lock, and the curated notes |
+| [project-map](project-map.md) | How `appstein sync` builds the project map: packages, symbols, layers, deps, and the official_mvvm pack's features and routes |
 | [toolchain](toolchain.md) | How the native toolchain matrix is read from the Flutter SDK, and when it falls back to the notes |
 | [running-tools](running-tools.md) | How the engine reads the environment and runs external tools safely |
 | [config](config.md) | How `appstein.yaml` is loaded and validated |

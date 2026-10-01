@@ -34,10 +34,11 @@ Flutter lists them with `where` on Windows, which also looks in the current fold
 
 ### The contract
 
-`run(executable, arguments, {timeout, environment})`:
+`run(executable, arguments, {timeout, environment, workingDirectory})`:
 
 - **It never throws for a missing or failing tool.** Doctor's whole job is to report missing tools, so "not installed" is a normal answer, not an exception.
-- **The default timeout is 20 s.** A check can pass its own; the agent check uses 10 s.
+- **The default timeout is 20 s.** A check can pass its own; the agent check uses 10 s, and `flutter pub get` in [project-map](project-map.md#a-failed-fetch) uses 5 minutes.
+- **`workingDirectory` is the folder the tool runs in.** When it is null, the tool runs in Appstein's own working folder. `flutter pub get` is the one caller: `MapSync` runs it with the project as `workingDirectory`, as a person would after `cd`. The alternative was `flutter pub get <path>`, passing the project through the command line, but Flutter's launcher on Windows is `flutter.bat`, which Windows runs through `cmd.exe` (see below). Spaces are not the hazard: Dart quotes each argument, so a path with a space works. The hazard is `cmd.exe`'s special characters, such as `%`, `^`, `&` and `!`. A project path that holds one, passed as an argument, can be read by `cmd.exe` as part of its own syntax. Running in the folder avoids passing the path at all, so there is nothing for `cmd.exe` to misread.
 
 The answer is a `RunResult` in one of three states:
 

@@ -1,0 +1,17 @@
+import '../../services/api/api_client.dart';
+import 'auth_repository.dart';
+
+/// Signs the user in and out through the booking server.
+class AuthRepositoryRemote implements AuthRepository {
+  /// Creates the repository on top of [apiClient].
+  AuthRepositoryRemote({required ApiClient apiClient})
+    : _apiClient = apiClient;
+
+  final ApiClient _apiClient;
+
+  @override
+  bool get isSignedIn => _apiClient.hasSession;
+
+  @override
+  Future<void> login({required String email, required String password}) async {}
+}

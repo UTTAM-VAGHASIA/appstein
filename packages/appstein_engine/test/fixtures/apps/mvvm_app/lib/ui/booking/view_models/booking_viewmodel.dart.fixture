@@ -1,0 +1,30 @@
+import '../../../data/repositories/booking/booking_repository.dart';
+import '../../../domain/models/booking.dart';
+import '../../../domain/use_cases/booking_create_use_case.dart';
+import 'base_view_model.dart';
+
+/// Books a trip and shows the result.
+class BookingViewModel extends BaseViewModel {
+  /// Creates the view model on top of [createBooking] and
+  /// [bookingRepository].
+  BookingViewModel({
+    required BookingCreateUseCase createBooking,
+    required BookingRepository bookingRepository,
+  }) : _createBooking = createBooking,
+       _bookingRepository = bookingRepository;
+
+  final BookingCreateUseCase _createBooking;
+  final BookingRepository _bookingRepository;
+
+  /// The booking just made, if any.
+  Booking? booking;
+
+  /// Books a trip to [destination].
+  Future<void> book(String destination) async {
+    busy = true;
+    booking = await _createBooking(destination);
+    await _bookingRepository.getBookings();
+    busy = false;
+    notifyListeners();
+  }
+}

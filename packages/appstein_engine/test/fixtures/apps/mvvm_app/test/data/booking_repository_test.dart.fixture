@@ -1,0 +1,10 @@
+import 'package:fixture_app/data/repositories/booking/booking_repository_remote.dart';
+import 'package:fixture_app/data/services/api/api_client.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('starts with no bookings', () async {
+    final repository = BookingRepositoryRemote(apiClient: ApiClient());
+    expect(await repository.getBookings(), isEmpty);
+  });
+}

@@ -1,0 +1,19 @@
+import 'package:flutter/widgets.dart';
+
+import '../../../routing/routes.dart';
+import '../view_models/home_viewmodel.dart';
+import 'booking_tile.dart';
+
+/// Lists the user's bookings.
+class HomeScreen extends StatelessWidget {
+  /// Creates the screen for [viewModel].
+  const HomeScreen({super.key, required this.viewModel});
+
+  /// The screen's state.
+  final HomeViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) => viewModel.bookings.isEmpty
+      ? const Text(Routes.booking)
+      : BookingTile(booking: viewModel.bookings.first);
+}

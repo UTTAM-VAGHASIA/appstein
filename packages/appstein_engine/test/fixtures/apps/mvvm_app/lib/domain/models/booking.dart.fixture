@@ -1,0 +1,14 @@
+/// A trip the user has booked. It holds where they go,
+/// and the server's id for it.
+///
+/// Bookings are created by a use case.
+class Booking {
+  /// Creates a booking.
+  const Booking({required this.id, required this.destination});
+
+  /// The server's id for the booking.
+  final int id;
+
+  /// Where the trip goes.
+  final String destination;
+}

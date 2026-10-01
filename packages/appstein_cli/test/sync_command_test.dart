@@ -58,6 +58,17 @@ void main() {
     expect(text, contains(row('platform/sdk.json', 'written')));
     expect(text, contains(row('platform/toolchain.json', 'written')));
     expect(text, contains('Curated notes cover Flutter 3.47 and earlier.'));
+    expect(
+      text,
+      contains('Project map skipped: the packages could not be fetched.'),
+    );
+    expect(
+      text,
+      contains(
+        'Run `flutter pub get` in the project to see the whole error, then '
+        '`appstein sync` again.',
+      ),
+    );
     // The fake SDK has no toolchain files, so each part is a fallback.
     expect(text, contains('toolchain.fallback (info): Android: '));
     for (final path in [
@@ -129,6 +140,85 @@ void main() {
       out.toString(),
       contains('Regenerate the knowledge Appstein keeps in .appstein/.'),
     );
+  });
+
+  test('a broken appstein.yaml exits 3 and says what to fix', () async {
+    File(
+      p.join(project, 'appstein.yaml'),
+    ).writeAsStringSync('packs:\n  stack: nope\n');
+    expect(await run(['sync']), ExitCodes.appsteinFailed);
+    expect(err.toString(), contains('Fix appstein.yaml'));
+    expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
+  });
+
+  SyncReport reportWith(MapReport map) => SyncReport(
+    sdk: const SdkInfo(
+      flutterVersion: '3.47.5',
+      dartVersion: '3.13.4',
+      channel: 'stable',
+      notesCoverage: NotesCoverage.complete,
+    ),
+    files: const {'platform/sdk.json': true, 'map/symbols.json': true},
+    newestNotes: '3.47',
+    fallbacks: const [],
+    map: map,
+  );
+
+  test('the report says when the packages were fetched', () {
+    final text = formatSyncReport(
+      reportWith(
+        const MapReport(
+          packages: PackagesAction.fetched,
+          packagesReason: 'pubspec.yaml changed after they were fetched',
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'Fetched the packages with `flutter pub get`, because pubspec.yaml '
+        'changed after they were fetched.',
+      ),
+    );
+    expect(text, isNot(contains('Project map skipped')));
+  });
+
+  test('the report shows a failed fetch, indented, and what to run', () {
+    final text = formatSyncReport(
+      reportWith(
+        const MapReport(
+          packages: PackagesAction.fetchFailed,
+          packagesReason:
+              '`flutter pub get` failed with exit code 69:\nNo network.',
+          skipped: 'the packages could not be fetched',
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'Could not fetch the packages:\n'
+        '  `flutter pub get` failed with exit code 69:\n'
+        '  No network.\n'
+        'Project map skipped: the packages could not be fetched.\n',
+      ),
+    );
+  });
+
+  test('a skip reason that ends in a full stop is not doubled', () {
+    final text = formatSyncReport(
+      reportWith(
+        const MapReport(
+          packages: PackagesAction.upToDate,
+          packagesReason: 'they are up to date',
+          skipped:
+              'The Dart SDK at /x is incomplete: it has no '
+              'lib/core/core.dart.',
+        ),
+      ),
+    );
+    expect(text, contains('lib/core/core.dart.\nFix that, then run'));
+    expect(text, isNot(contains('core.dart..')));
   });
 
   test('a partial coverage line names the minor version', () {

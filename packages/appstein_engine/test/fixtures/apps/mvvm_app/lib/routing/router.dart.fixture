@@ -1,0 +1,98 @@
+import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart';
+
+import '../config/dependencies.dart';
+import '../ui/auth/login/view_models/login_viewmodel.dart';
+import '../ui/auth/login/widgets/login_screen.dart';
+import '../ui/booking/view_models/booking_viewmodel.dart';
+import '../ui/booking/widgets/booking_screen.dart';
+import '../ui/home/view_models/home_viewmodel.dart';
+import '../ui/home/widgets/home_screen.dart';
+import '../ui/profile/widgets/profile_screen.dart';
+import '../ui/settings/widgets/settings_screen.dart';
+import 'routes.dart';
+
+/// The app's router: login, home with its booking pages, settings in a
+/// shell, and profile in a tab.
+GoRouter router(Dependencies dependencies) => GoRouter(
+  initialLocation: Routes.home,
+  redirect: (context, state) =>
+      dependencies.authRepository.isSignedIn ? null : Routes.login,
+  routes: [
+    GoRoute(
+      path: Routes.login,
+      name: 'login',
+      pageBuilder: (context, state) => NoTransitionPage(
+        child: LoginScreen(
+          viewModel: LoginViewModel(
+            authRepository: dependencies.authRepository,
+          ),
+        ),
+      ),
+    ),
+    GoRoute(
+      path: Routes.home,
+      builder: (context, state) {
+        final viewModel = HomeViewModel(
+          bookingRepository: dependencies.bookingRepository,
+          analytics: dependencies.analytics,
+        );
+        return HomeScreen(viewModel: viewModel);
+      },
+      routes: [
+        GoRoute(
+          path: Routes.bookingRelative,
+          builder: (context, state) => BookingScreen(
+            viewModel: BookingViewModel(
+              createBooking: dependencies.createBooking,
+              bookingRepository: dependencies.bookingRepository,
+            ),
+          ),
+          routes: [
+            GoRoute(
+              path: ':id',
+              redirect: (context, state) => Routes.booking,
+            ),
+          ],
+        ),
+        GoRoute(
+          path: _searchPath(),
+          builder: (context, state) => const SettingsScreen(),
+        ),
+      ],
+    ),
+    ShellRoute(
+      builder: (context, state, child) => child,
+      routes: [
+        GoRoute(
+          path: Routes.settings,
+          builder: (context, state) {
+            if (dependencies.showProfileInSettings) {
+              return const ProfileScreen();
+            }
+            return const SettingsScreen();
+          },
+        ),
+      ],
+    ),
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) => navigationShell,
+      branches: [
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: Routes.profile,
+              builder: (context, state) => const ProfileScreen(),
+            ),
+          ],
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/about',
+      builder: (context, state) => const Text('About'),
+    ),
+  ],
+);
+
+String _searchPath() => 'search';
