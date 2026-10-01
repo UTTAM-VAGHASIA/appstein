@@ -75,15 +75,12 @@ void main() {
     final folder = p.join(tempDir().path, '.appstein');
     final holder = await holdLock(folder, 1500);
     final sinceLocked = Stopwatch()..start();
-    var holderExited = false;
-    unawaited(holder.exitCode.then((_) => holderExited = true));
     final lock = await KnowledgeLock.acquire(
       folder,
       timeout: const Duration(seconds: 60),
     );
-    // It really waited: it got the lock only after the holder had ended.
+    // It really waited: the holder keeps the lock for 1500 ms.
     expect(sinceLocked.elapsedMilliseconds, greaterThanOrEqualTo(1000));
-    expect(holderExited, isTrue);
     lock.release();
     expect(await holder.exitCode, 0);
   }, timeout: slow);

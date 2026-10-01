@@ -34,8 +34,12 @@ final class KnowledgeLockTimeout implements Exception {
 }
 
 /// The write lock on a `.appstein/` folder (spec §15): an operating-system
-/// lock on its `.lock` file, plus an in-process mutex so that one process
+/// lock on its `.lock` file, plus an in-process mutex so that one isolate
 /// holds a folder's lock at most once at a time.
+///
+/// The mutex is a static, so it is per isolate. Two isolates of one process
+/// must not both write the same folder: POSIX locks belong to the process, so
+/// the second isolate would get the lock at once.
 ///
 /// The mutex is needed because the operating systems disagree about two
 /// handles in one process: POSIX locks belong to the process (a second

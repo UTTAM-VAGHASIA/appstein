@@ -1,7 +1,7 @@
 // Run by process_runner_test.dart as a separate process: runs the script in
 // its first argument with a 2 s limit and prints what the runner reported.
 // The test measures how long this whole process takes to exit.
-import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/src/host/process_runner.dart';
 
 Future<void> main(List<String> arguments) async {
   final result = await const SystemProcessRunner().run(

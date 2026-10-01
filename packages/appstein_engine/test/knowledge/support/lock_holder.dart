@@ -4,7 +4,7 @@
 // it, as a crashed writer would.
 import 'dart:io';
 
-import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/src/knowledge/knowledge_lock.dart';
 
 Future<void> main(List<String> arguments) async {
   await KnowledgeLock.acquire(arguments[0]);
