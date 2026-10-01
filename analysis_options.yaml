@@ -24,7 +24,7 @@ plugins:
 appstein_lints:
   layers:
     test: [packages/*/test/**]
-    pack.official_mvvm: [packages/appstein_engine/lib/src/packs/official_mvvm/**]
+    pack.official_mvvm: [packages/appstein_engine/lib/src/packs/official_mvvm/**, packages/appstein_engine/lib/official_mvvm.dart]
     pack.android: [packages/appstein_engine/lib/src/packs/android/**]
     pack.ios: [packages/appstein_engine/lib/src/packs/ios/**]
     protocol: [packages/appstein_protocol/**]

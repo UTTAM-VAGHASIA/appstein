@@ -1,0 +1,51 @@
+import 'package:appstein_protocol/appstein_protocol.dart';
+
+import '../../map/map_extractor.dart';
+import '../../map/project_analysis.dart';
+import '../pack.dart';
+import 'features.dart';
+import 'layer_rules.dart';
+import 'routes.dart';
+
+/// The official_mvvm stack pack (spec §10): Flutter's recommended app
+/// architecture, as in its compass_app sample.
+final class OfficialMvvmPack implements Pack {
+  /// Creates the pack.
+  const OfficialMvvmPack();
+
+  @override
+  String get id => 'official_mvvm';
+
+  @override
+  PackKind get kind => PackKind.stack;
+
+  @override
+  String get version => '1';
+
+  @override
+  List<MapExtractor> get extractors => const [OfficialMvvmExtractor()];
+
+  @override
+  LayerRules get layerRules => officialMvvmLayerRules;
+}
+
+/// Writes official_mvvm's part of the map: `routes.json` and
+/// `features.json`, whose screens come from the routes.
+final class OfficialMvvmExtractor implements MapExtractor {
+  /// Creates the extractor.
+  const OfficialMvvmExtractor();
+
+  @override
+  Map<String, Map<String, Object?>> extract(ProjectAnalysis analysis) {
+    final routes = readRoutes(analysis);
+    final features = readFeatures(
+      analysis,
+      routes: routes,
+      matcher: LayerMatcher(officialMvvmLayerRules),
+    );
+    return {
+      MapFiles.routes: routes.toJson(),
+      MapFiles.features: features.toJson(),
+    };
+  }
+}
