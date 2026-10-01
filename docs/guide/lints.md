@@ -1,6 +1,7 @@
 <!-- covers:
 packages/appstein_lints/lib/**
 packages/appstein_protocol/lib/src/layer_rules.dart
+packages/appstein_protocol/lib/src/layer_matcher.dart
 analysis_options.yaml
 -->
 
@@ -31,7 +32,7 @@ The rule has two diagnostics, both under the name `layer_imports`:
 
 | Unique name | When | Example message |
 |---|---|---|
-| `layer_imports_forbidden` | An import or export crosses a forbidden boundary | The 'ui' layer can't import 'lib/data/repo.dart', which is in the 'data' layer. The correction lists the layers 'ui' may import |
+| `layer_imports_forbidden` | An import or export crosses a forbidden boundary | The 'ui' layer can't import 'lib/data/repo.dart', which is in the 'data' layer. The correction lists what 'ui' may import, such as "The 'ui' layer may import: ui, domain, and the interfaces of data.repository." |
 | `layer_imports_invalid_config` | The `appstein_lints:` section is invalid, reported once per file | The appstein_lints layer rules in (file) are invalid: (reason) |
 
 A lint's default severity is info, so CI's `dart analyze --fatal-infos` is what makes it fail the build ([ci](ci.md#analyze)).
@@ -60,7 +61,7 @@ Our repo has one `analysis_options.yaml`, at the root, so every file in it gets 
 
 ### Matching files to layers
 
-[`layer_matcher.dart`](../../packages/appstein_lints/lib/src/layer_imports/layer_matcher.dart) gives each file a tag:
+[`LayerMatcher`](../../packages/appstein_protocol/lib/src/layer_matcher.dart) gives each file a tag. It lives in the protocol package, not in the lints, because `appstein sync` uses it too: the lint and `layers.json` in the [project map](project-map.md#layersjson) must tag a file the same way, in the editor and in the map. It works like this:
 
 - **Paths are relative to the options file's folder, with `/` on every OS,** and the globs are matched as POSIX globs (`package:glob`). So one set of rules works on Windows too.
 - **The first matching tag wins,** in the order the section declares them. List narrow layers before the wide ones that contain them.
@@ -74,8 +75,30 @@ The rules themselves are `LayerRules`, in the protocol package: [`layer_rules.da
 
 - **`layers`:** tag to path globs, in match order. A tag is lowercase words joined by dots, such as `data.repository`, and needs at least one glob.
 - **`allow`:** tag to the other tags it may import. Every tag named here must be declared under `layers`.
-- **`mayImport`:** a layer may always import itself, and **a tag with no `allow` entry is unrestricted**. A tag with an empty list may import only itself.
+- **`interfaces`:** tag to the tags whose *interface files* it may import, though not their other files. It is optional, and it follows the same rule as `allow`: every tag named must be declared under `layers`.
+- **`mayImport`:** a layer may always import itself, and **a tag with no `allow` entry is unrestricted**. A tag with an empty list may import only itself. Otherwise the import is allowed when the target tag is in `allow`, or when the target file is an interface file and the target tag is in `interfaces`.
+- `describeAllowed` writes what a tag may import in words, for the lint's message.
 - `fromJson` rejects unknown keys and wrong types with messages written for the person editing the file.
+
+### Interface files
+
+A repository has two files in the official_mvvm layout: an abstract `BookingRepository`, and `BookingRepositoryRemote`, which talks to the network. A view model needs the first one's type, but code in `ui` must not use the second. The `interfaces` key says exactly that:
+
+```yaml
+appstein_lints:
+  layers:
+    ui: [lib/ui/**]
+    domain: [lib/domain/**]
+    data.repository: [lib/data/repositories/**]
+  allow:
+    ui: [domain]
+  interfaces:
+    ui: [data.repository]
+```
+
+Here `ui` may import `domain` freely, and a file under `data/repositories/` only when it is an **interface file**: it declares at least one class, and every class it declares is abstract. [`isInterfaceLibrary`](../../packages/appstein_lints/lib/src/layer_imports/interface_library.dart) is that test. It looks at the analyzer's element for the imported library, so it needs no naming convention.
+
+**There are two copies of it.** The engine builds `layers.json` with the same rule, in [`map/interface_library.dart`](../../packages/appstein_engine/lib/src/map/interface_library.dart), because the lints package may not import the engine. Each copy's comment names the other. If you change one, change both, or the lint and the map will disagree about what is a violation.
 
 ### Our own boundaries
 
@@ -84,14 +107,14 @@ The bottom of the root [`analysis_options.yaml`](../../analysis_options.yaml) de
 | Tag | Files | May import |
 |---|---|---|
 | `test` | `packages/*/test/**` | Anything (no `allow` entry) |
-| `pack.official_mvvm`, `pack.android`, `pack.ios` | The pack folders under the engine's `lib/src/packs/` | `engine`, `protocol` |
+| `pack.official_mvvm`, `pack.android`, `pack.ios` | The pack folders under the engine's `lib/src/packs/`, and for `official_mvvm` also its public entry file `lib/official_mvvm.dart` | `engine`, `protocol` |
 | `protocol` | `packages/appstein_protocol/**` | Only itself |
 | `engine` | `packages/appstein_engine/**` | `protocol` |
 | `cli` | `packages/appstein_cli/**` | `engine`, `protocol` and the packs |
 | `lints` | `packages/appstein_lints/**` | `protocol` |
 
 - **Order matters.** `test` comes first, so a test file is tagged `test`, not the package it sits in. The pack tags come before `engine` for the same reason.
-- **The pack folders don't exist yet.** The tags are ready for the slices that add packs.
+- **Only the `official_mvvm` pack folder exists so far** (slice 1b.3). The other two tags are ready for the slices that add them. Because only the packs and the CLI may import a pack, the engine's core can't depend on one: see [project-map](project-map.md#packs-and-the-core).
 
 ## Why `path:` for the protocol dependency
 
@@ -99,7 +122,7 @@ The bottom of the root [`analysis_options.yaml`](../../analysis_options.yaml) de
 
 ## Testing rules
 
-Rules are tested with `package:analyzer_testing`, which analyzes small in-memory projects and asserts which diagnostics appear, and where. The tests are in `packages/appstein_lints/test/`: one for the rule, one for `LayerConfigFinder` and one for `LayerMatcher`. `LayerRules` is tested in the protocol package. [testing](testing.md#lint-tests) explains the setup.
+Rules are tested with `package:analyzer_testing`, which analyzes small in-memory projects and asserts which diagnostics appear, and where. The tests are in `packages/appstein_lints/test/`: one for the rule and one for `LayerConfigFinder`. `LayerRules` and `LayerMatcher` are tested in the protocol package. [testing](testing.md#lint-tests) explains the setup.
 
 ## Debugging
 
@@ -107,7 +130,7 @@ Rules are tested with `package:analyzer_testing`, which analyzes small in-memory
 
 ## Known gaps
 
-`layer_imports` doesn't check conditional imports or exports (`if (dart.library.io) '…'`). This and the plugin's cost are listed in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md).
+`layer_imports` doesn't check conditional imports or exports (`if (dart.library.io) '…'`). `layers.json` does read them, by their main URI, so the map can list a violation the lint doesn't report. This and the plugin's cost are listed in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md).
 
 ## Adding a rule
 

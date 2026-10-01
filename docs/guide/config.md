@@ -79,4 +79,9 @@ Windows PowerShell 5.1 writes UTF-8 files with a byte order mark (BOM), the invi
 
 ## Where config is used today
 
-`loadConfig` has one caller: `ProjectCheck` in `appstein doctor`, which reports whether the file is valid and shows the stack and platforms ([doctor](doctor.md#finding-the-project)). No other command reads `appstein.yaml` yet. The later commands that use it are planned in the [spec](../superpowers/specs/2026-09-29-appstein-design.md#53-commands).
+`loadConfig` has two callers:
+
+- **`ProjectCheck` in `appstein doctor`**, which reports whether the file is valid and shows the stack and platforms ([doctor](doctor.md#finding-the-project)).
+- **`appstein sync`**, which reads **`packs.stack`** to choose the stack pack. `packsFor` in the CLI maps `official_mvvm` to `OfficialMvvmPack`, and the pack's layer rules, features and routes shape the project map (see [cli](cli.md#appstein-sync) and [project-map](project-map.md#packs-and-the-core)). A project with no `appstein.yaml` gets the defaults, so `official_mvvm`. A broken file stops `sync` with exit code 3 before anything is written. `packs.platforms` is not read yet: the platform packs come with the native map in slice 1b.4.
+
+No other command reads `appstein.yaml` yet. The later commands that use it are planned in the [spec](../superpowers/specs/2026-09-29-appstein-design.md#53-commands).

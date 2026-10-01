@@ -7,15 +7,19 @@ tool/src/notes_bundle.dart
 
 # The knowledge store and `appstein sync`
 
-`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. The project map (1b.3 for the Dart code, 1b.4 for native config), the version delta (`delta.md`, 1b.5), and `INDEX.md` and incremental sync (1b.6) come in later slices.
+`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. Slice 1b.3 added the **project map** of the app's Dart code, which has [its own page](project-map.md). Native config (1b.4), the version delta (`delta.md`, 1b.5), and `INDEX.md` and incremental sync (1b.6) come in later slices.
 
 ## What `sync` writes now
 
+Every row is also rewritten when the file was hand-edited or damaged, because the store compares the file's bytes, not only its hash (see [Rewrite only on change](#three-rules-every-generated-file-follows)).
+
 | File | Holds | Rewritten when |
 |---|---|---|
-| `.appstein/platform/sdk.json` | Flutter, Dart, channel, the project's language version, the FVM pin, and how well the curated notes cover this SDK | the detected facts change |
-| `.appstein/platform/toolchain.json` | The native toolchain matrix (see [toolchain](toolchain.md)), the stores' build minimums, and the Android, iOS and tooling notes for this SDK | an SDK toolchain file, the notes or the Flutter version changes |
-| `.appstein/state.json` | When `sync` last ran, and each generated file's input hash | every sync |
+| `.appstein/platform/sdk.json` | Flutter, Dart, channel, the project's language version, the FVM pin, and how well the curated notes cover this SDK | the detected facts change, or the file was hand-edited or damaged |
+| `.appstein/platform/toolchain.json` | The native toolchain matrix (see [toolchain](toolchain.md)), the stores' build minimums, and the Android, iOS and tooling notes for this SDK | an SDK toolchain file, the notes or the Flutter version changes, or the file was hand-edited or damaged |
+| `.appstein/map/symbols.json`, `layers.json`, `deps.json` | The generic project map: public declarations, layers and imports, packages (see [project-map](project-map.md)) | any map input changes (a `.dart` file under `lib/`, `test/` or `testing/`, `pubspec.yaml`, `pubspec.lock`, the Flutter version, or a pack's id or version), or the file was hand-edited or damaged |
+| `.appstein/map/features.json`, `routes.json` | What the stack pack reads: features, screens and routes | the same inputs as the rows above, or the file was hand-edited or damaged |
+| `.appstein/state.json` | When `sync` last ran, and each generated file's input hash. When the map was skipped, it lists only the platform files | every sync |
 | `.appstein/.lock` | Nothing: it exists to be locked | never |
 
 All of it is generated and meant to be git-ignored (spec §6.2). `integrate` (slice 1e) writes the `.gitignore` entries, so until then a project shows `.appstein/` as untracked.
@@ -24,18 +28,20 @@ All of it is generated and meant to be git-ignored (spec §6.2). `integrate` (sl
 
 ```mermaid
 flowchart LR
-  cli["SyncCommand (CLI)"] --> run["PlatformSync.run"]
-  run --> detect["SdkDetector.detect"]
-  run --> notes["CuratedNotes: coverage, notes"]
-  run --> tool["readToolchain"]
-  run --> store["KnowledgeStore.locked:<br/>writeGenerated ×2, writeState"]
+  cli["SyncCommand (CLI)"] --> run["KnowledgeSync.run"]
+  run --> platform["PlatformSync.build:<br/>SDK, notes, toolchain"]
+  run --> map["MapSync.build:<br/>packages, analysis, map"]
+  run --> store["KnowledgeStore.locked:<br/>writeAll"]
 ```
 
-1. [`PlatformSync.run`](../../packages/appstein_engine/lib/src/knowledge/platform_sync.dart) detects the Flutter SDK, with the same detection `appstein doctor` uses. No usable SDK is a `SyncException`, which the CLI prints with its fix before exiting 3.
-2. It reads everything **before** taking the lock: the SDK facts, the notes coverage and the toolchain. Parsing takes a fraction of a second, and holding the lock only while writing keeps another writer's wait to milliseconds.
-3. Under the lock, it writes the two platform files, then `state.json`.
+1. [`KnowledgeSync.run`](../../packages/appstein_engine/lib/src/knowledge/knowledge_sync.dart) is what `appstein sync` calls. It first builds the platform layer, then the project map, and writes both under one lock.
+2. [`PlatformSync.build`](../../packages/appstein_engine/lib/src/knowledge/platform_sync.dart) detects the Flutter SDK, with the same detection `appstein doctor` uses. No usable SDK is a `SyncException`, which the CLI prints with its fix before exiting 3. It reads the SDK facts, the notes coverage and the toolchain, and returns a `PlatformBuild`: the facts plus two `GeneratedFile`s (a path, a body and an input hash), not yet written. `PlatformSync.run` is the platform layer alone, without the map.
+3. [`MapSync.build`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns the map's `GeneratedFile`s, or none and a reason when the map is skipped. See [project-map](project-map.md#how-sync-builds-it).
+4. Under the lock, [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) writes each `GeneratedFile` with `writeGenerated`, then `state.json` last, listing exactly the files it was given. A reader that finds `state.json` can trust the files it names.
 
-**A known gap.** Because the SDK is read before the lock is taken, two syncs that race across an SDK upgrade could let the later lock holder write the older reading. The next sync notices that the inputs differ and heals it, so nothing needs fixing by hand.
+Everything is built **before** taking the lock. Parsing and analysis take seconds, and holding the lock only while writing keeps another writer's wait to milliseconds.
+
+**A known gap.** Because everything is built before the lock is taken, two syncs that run at the same moment are last-writer-wins. Two that race across an SDK upgrade, or across an edit, could let the later lock holder write the older reading. Each write is consistent inside itself, and each file's input hash shows when it is stale. The next sync notices that the inputs differ and heals it, so nothing needs fixing by hand.
 
 ## Three rules every generated file follows
 
