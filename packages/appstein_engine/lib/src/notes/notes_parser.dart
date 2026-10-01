@@ -331,7 +331,7 @@ final class _Reader {
 
   YamlNode load(String text) {
     try {
-      return loadYamlNode(text.startsWith('﻿') ? text.substring(1) : text);
+      return loadYamlNode(text.startsWith('\uFEFF') ? text.substring(1) : text);
     } on YamlException catch (error) {
       final line = error.span?.start.line;
       throw NotesFormatException(

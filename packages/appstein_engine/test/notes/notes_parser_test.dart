@@ -64,7 +64,7 @@ void main() {
     });
 
     test('ignores a byte order mark', () {
-      expect(parseNotesFile('3.47.yaml', '﻿${_file()}').flutter, '3.47');
+      expect(parseNotesFile('3.47.yaml', '\uFEFF${_file()}').flutter, '3.47');
     });
 
     test('an unquoted version is reported on its line', () {
