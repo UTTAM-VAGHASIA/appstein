@@ -118,6 +118,7 @@ jobs:
           printf 'name: smoke\nenvironment:\n  sdk: ^3.12.0\n' > "$project/pubspec.yaml"
           ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} --project "$project" sync
           test -f "$project/.appstein/platform/toolchain.json"
+          test -f "$project/.appstein/map/symbols.json"
           grep -q '"fallbacks": \[\]' "$project/.appstein/platform/toolchain.json"
       - uses: actions/upload-artifact@v4
         with:
@@ -179,10 +180,10 @@ jobs:
       - name: Unit tests
         shell: bash
         run: for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
-      - name: Read the toolchain from this real SDK (spec §12, risk 6)
+      - name: Read the toolchain and map the fixture app with this real SDK (spec §6.5, §12, risk 6)
         shell: bash
         working-directory: packages/appstein_engine
-        run: dart test --run-skipped --tags integration test/integration/sync_real_environment_test.dart
+        run: dart test --run-skipped --tags integration test/integration/sync_real_environment_test.dart test/integration/map_real_sdk_test.dart
 
   measure:
     strategy:
@@ -204,3 +205,6 @@ jobs:
         # `tee` also puts the table in the log, which `gh run view --log` can
         # read; job summaries aren't available through the CLI or API.
         run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Measure a full sync of a 200-file app (spec §15)
+        shell: bash
+        run: dart run tool/measure_sync.dart | tee -a "$GITHUB_STEP_SUMMARY"

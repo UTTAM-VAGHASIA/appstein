@@ -81,7 +81,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 4. `dart pub get`
 5. Analyze, which also loads our analyzer plugin on the old SDK
 6. Unit tests
-7. Read the toolchain from this real SDK (spec §12, risk 6)
+7. Read the toolchain and map the fixture app with this real SDK (spec §6.5, §12, risk 6)
 
 **`measure`** runs on `ubuntu-latest`, `windows-latest`:
 
@@ -89,6 +89,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 2. `subosito/flutter-action@v2`
 3. `dart pub get --enforce-lockfile`
 4. Measure cold analysis with the plugin (spec §9.1)
+5. Measure a full sync of a 200-file app (spec §15)
 
 <!-- /generated:ci-jobs -->
 
