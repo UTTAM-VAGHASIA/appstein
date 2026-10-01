@@ -1,0 +1,341 @@
+{
+  "android": {
+    "app": {
+      "applicationId": {
+        "at": "android/app/build.gradle.kts:19",
+        "status": "found",
+        "value": "dev.sample.probe_app"
+      },
+      "compileSdk": {
+        "at": "android/app/build.gradle.kts:9",
+        "expression": "flutter.compileSdkVersion",
+        "resolvedFrom": "flutter",
+        "status": "found",
+        "value": 36
+      },
+      "flavors": [],
+      "javaSourceCompatibility": {
+        "at": "android/app/build.gradle.kts:13",
+        "status": "found",
+        "value": "JavaVersion.VERSION_17"
+      },
+      "javaTargetCompatibility": {
+        "at": "android/app/build.gradle.kts:14",
+        "status": "found",
+        "value": "JavaVersion.VERSION_17"
+      },
+      "kotlinJvmTarget": {
+        "at": "android/app/build.gradle.kts:43",
+        "status": "found",
+        "value": "org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17"
+      },
+      "minSdk": {
+        "at": "android/app/build.gradle.kts:22",
+        "expression": "flutter.minSdkVersion",
+        "resolvedFrom": "flutter",
+        "status": "found",
+        "value": 24
+      },
+      "namespace": {
+        "at": "android/app/build.gradle.kts:8",
+        "status": "found",
+        "value": "dev.sample.probe_app"
+      },
+      "ndkVersion": {
+        "at": "android/app/build.gradle.kts:10",
+        "expression": "flutter.ndkVersion",
+        "resolvedFrom": "flutter",
+        "status": "found",
+        "value": "28.2.13676358"
+      },
+      "plugins": {
+        "at": "android/app/build.gradle.kts:2",
+        "status": "found",
+        "value": [
+          "com.android.application",
+          "dev.flutter.flutter-gradle-plugin"
+        ]
+      },
+      "releaseSigningConfig": {
+        "at": "android/app/build.gradle.kts:36",
+        "expression": "signingConfigs.getByName(\"debug\")",
+        "status": "found",
+        "value": "debug"
+      },
+      "signingConfigs": {
+        "reason": "no signing configs in android/app/build.gradle.kts",
+        "status": "absent"
+      },
+      "targetSdk": {
+        "at": "android/app/build.gradle.kts:23",
+        "expression": "flutter.targetSdkVersion",
+        "resolvedFrom": "flutter",
+        "status": "found",
+        "value": 36
+      },
+      "versionCode": {
+        "at": "android/app/build.gradle.kts:28",
+        "expression": "flutter.versionCode",
+        "resolvedFrom": "pubspec.yaml:19",
+        "status": "found",
+        "value": 1
+      },
+      "versionName": {
+        "at": "android/app/build.gradle.kts:29",
+        "expression": "flutter.versionName",
+        "resolvedFrom": "pubspec.yaml:19",
+        "status": "found",
+        "value": "1.0.0"
+      }
+    },
+    "buildLanguage": {
+      "status": "found",
+      "value": "kts"
+    },
+    "gradle": {
+      "distribution": {
+        "at": "android/gradle/wrapper/gradle-wrapper.properties:5",
+        "status": "found",
+        "value": "all"
+      },
+      "version": {
+        "at": "android/gradle/wrapper/gradle-wrapper.properties:5",
+        "status": "found",
+        "value": "9.3.1"
+      }
+    },
+    "gradleProperties": {
+      "android.builtInKotlin": {
+        "at": "android/gradle.properties:6",
+        "status": "found",
+        "value": "false"
+      },
+      "android.newDsl": {
+        "at": "android/gradle.properties:4",
+        "status": "found",
+        "value": "false"
+      },
+      "android.useAndroidX": {
+        "at": "android/gradle.properties:2",
+        "status": "found",
+        "value": "true"
+      }
+    },
+    "manifests": {
+      "debug": {
+        "icon": {
+          "at": "android/app/src/debug/AndroidManifest.xml",
+          "reason": "no android:icon on <application>",
+          "status": "absent"
+        },
+        "label": {
+          "at": "android/app/src/debug/AndroidManifest.xml",
+          "reason": "no android:label on <application>",
+          "status": "absent"
+        },
+        "permissions": [
+          {
+            "at": "android/app/src/debug/AndroidManifest.xml:6",
+            "name": "android.permission.INTERNET"
+          }
+        ]
+      },
+      "main": {
+        "icon": {
+          "at": "android/app/src/main/AndroidManifest.xml:5",
+          "status": "found",
+          "value": "@mipmap/ic_launcher"
+        },
+        "label": {
+          "at": "android/app/src/main/AndroidManifest.xml:3",
+          "status": "found",
+          "value": "probe_app"
+        },
+        "permissions": []
+      },
+      "profile": {
+        "icon": {
+          "at": "android/app/src/profile/AndroidManifest.xml",
+          "reason": "no android:icon on <application>",
+          "status": "absent"
+        },
+        "label": {
+          "at": "android/app/src/profile/AndroidManifest.xml",
+          "reason": "no android:label on <application>",
+          "status": "absent"
+        },
+        "permissions": [
+          {
+            "at": "android/app/src/profile/AndroidManifest.xml:6",
+            "name": "android.permission.INTERNET"
+          }
+        ]
+      }
+    },
+    "settings": {
+      "agp": {
+        "at": "android/settings.gradle.kts:22",
+        "status": "found",
+        "value": "9.1.0"
+      },
+      "flutterPluginLoader": {
+        "at": "android/settings.gradle.kts:21",
+        "status": "found",
+        "value": "1.0.0"
+      },
+      "kgp": {
+        "at": "android/settings.gradle.kts:23",
+        "status": "found",
+        "value": "2.4.0"
+      }
+    }
+  },
+  "ios": {
+    "generatedPackage": {
+      "iosVersion": {
+        "at": "ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift:12",
+        "status": "found",
+        "value": "15.0"
+      },
+      "plugins": {
+        "at": "ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift",
+        "status": "found",
+        "value": []
+      }
+    },
+    "infoPlist": {
+      "bundleIdentifier": {
+        "at": "ios/Runner/Info.plist:14",
+        "status": "found",
+        "value": "$(PRODUCT_BUNDLE_IDENTIFIER)"
+      },
+      "bundleName": {
+        "at": "ios/Runner/Info.plist:18",
+        "status": "found",
+        "value": "probe_app"
+      },
+      "bundleVersion": {
+        "at": "ios/Runner/Info.plist:26",
+        "status": "found",
+        "value": "$(FLUTTER_BUILD_NUMBER)"
+      },
+      "displayName": {
+        "at": "ios/Runner/Info.plist:10",
+        "status": "found",
+        "value": "Probe App"
+      },
+      "sceneDelegate": {
+        "at": "ios/Runner/Info.plist:43",
+        "status": "found",
+        "value": "$(PRODUCT_MODULE_NAME).SceneDelegate"
+      },
+      "sceneManifest": {
+        "at": "ios/Runner/Info.plist:29",
+        "status": "found",
+        "value": true
+      },
+      "shortVersionString": {
+        "at": "ios/Runner/Info.plist:22",
+        "status": "found",
+        "value": "$(FLUTTER_BUILD_NAME)"
+      },
+      "usageDescriptions": []
+    },
+    "podfile": {
+      "reason": "no ios/Podfile: Flutter creates one only when a plugin needs CocoaPods",
+      "status": "absent"
+    },
+    "swiftPackageManager": {
+      "enabled": {
+        "note": "on by default since Flutter 3.44",
+        "resolvedFrom": "default",
+        "status": "found",
+        "value": true
+      }
+    },
+    "xcode": {
+      "configurations": [
+        {
+          "at": "ios/Runner.xcodeproj/project.pbxproj:554",
+          "bundleIdentifier": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:567",
+            "status": "found",
+            "value": "dev.sample.probeApp"
+          },
+          "deploymentTarget": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:490",
+            "note": "set at project level",
+            "status": "found",
+            "value": "15.0"
+          },
+          "developmentTeamSet": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj",
+            "reason": "DEVELOPMENT_TEAM is not in project.pbxproj; it may come from an .xcconfig file",
+            "status": "unknown"
+          },
+          "name": "Debug",
+          "swiftVersion": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:571",
+            "status": "found",
+            "value": "5.0"
+          }
+        },
+        {
+          "at": "ios/Runner.xcodeproj/project.pbxproj:373",
+          "bundleIdentifier": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:386",
+            "status": "found",
+            "value": "dev.sample.probeApp"
+          },
+          "deploymentTarget": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:363",
+            "note": "set at project level",
+            "status": "found",
+            "value": "15.0"
+          },
+          "developmentTeamSet": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj",
+            "reason": "DEVELOPMENT_TEAM is not in project.pbxproj; it may come from an .xcconfig file",
+            "status": "unknown"
+          },
+          "name": "Profile",
+          "swiftVersion": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:389",
+            "status": "found",
+            "value": "5.0"
+          }
+        },
+        {
+          "at": "ios/Runner.xcodeproj/project.pbxproj:576",
+          "bundleIdentifier": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:589",
+            "status": "found",
+            "value": "dev.sample.probeApp"
+          },
+          "deploymentTarget": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:542",
+            "note": "set at project level",
+            "status": "found",
+            "value": "15.0"
+          },
+          "developmentTeamSet": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj",
+            "reason": "DEVELOPMENT_TEAM is not in project.pbxproj; it may come from an .xcconfig file",
+            "status": "unknown"
+          },
+          "name": "Release",
+          "swiftVersion": {
+            "at": "ios/Runner.xcodeproj/project.pbxproj:592",
+            "status": "found",
+            "value": "5.0"
+          }
+        }
+      ],
+      "swiftPackageIntegrated": {
+        "at": "ios/Runner.xcodeproj/project.pbxproj",
+        "status": "found",
+        "value": true
+      }
+    }
+  }
+}
