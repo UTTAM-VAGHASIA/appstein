@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
 import '../../android/android_sdk_contents.dart';
@@ -8,11 +9,15 @@ import '../../android/flutter_settings.dart';
 import '../../host/executable_finder.dart';
 import '../../host/file_links.dart';
 import '../../host/host_environment.dart';
+import '../../notes/curated_notes.dart';
+import '../../toolchain/toolchain_reader.dart';
 import '../doctor_check.dart';
 
 /// Checks the Android SDK as Flutter reads it: the newest platform, the
-/// build-tools Flutter pairs with it, `zipalign` in those build-tools for
-/// the 16 KB page-size check, and `platform-tools`.
+/// build-tools Flutter pairs with it, both at least Flutter's minimums
+/// (`compileSdkVersionInt` and `minBuildToolsVersion` in the SDK's
+/// `gradle_utils.dart`), `zipalign` in those build-tools for the 16 KB
+/// page-size check, and `platform-tools`.
 ///
 /// The summary names the platform and build-tools in the words
 /// `flutter doctor -v` uses, so the two can be compared.
@@ -74,6 +79,28 @@ final class AndroidSdkCheck implements DoctorCheck {
     }
     details.add(_pairing);
     final pair = 'platform ${platform.name}, build-tools ${buildTools.text}';
+    final minimums = _flutterMinimums(context);
+    final minBuildTools = minimums == null
+        ? null
+        : LenientVersion.tryParse(minimums.buildTools);
+    if (minimums != null &&
+        minBuildTools != null &&
+        (platform.level < minimums.compileSdk ||
+            buildTools.compareTo(minBuildTools) < 0)) {
+      return CheckResult.error(
+        '$pair, older than Flutter requires',
+        details: [
+          ...details,
+          'Flutter requires Android SDK ${minimums.compileSdk} and the '
+              'Android BuildTools ${minimums.buildTools}.',
+        ],
+        fixHint:
+            'Install Android SDK Platform ${minimums.compileSdk} and the '
+            'newest build-tools in Android Studio (SDK Manager), or run '
+            '`sdkmanager "platforms;android-${minimums.compileSdk}" '
+            '"build-tools;<version>"`.',
+      );
+    }
     final problems = <String>[];
     final toolsDir = p.join(sdk, 'build-tools', buildTools.text);
     final zipalign = environment.os == HostOs.windows
@@ -107,6 +134,20 @@ final class AndroidSdkCheck implements DoctorCheck {
       );
     }
     return CheckResult.ok(pair, details: details);
+  }
+
+  /// What `flutter doctor` requires of the Android SDK, for the Flutter SDK
+  /// the doctor detected: read from its `gradle_utils.dart`, or else from
+  /// the curated notes for its version. Null when neither gives it.
+  static AndroidMinimums? _flutterMinimums(DoctorContext context) {
+    final info = context.sdk.info;
+    final location = context.sdk.location;
+    if (info == null || location == null) return null;
+    return readToolchain(
+      location.root,
+      flutterVersion: info.flutterVersion,
+      notes: CuratedNotes.bundled(),
+    ).toolchain.android?.value.flutterMinimums;
   }
 
   /// Every distinct `adb`, as detail lines, when there is more than one:

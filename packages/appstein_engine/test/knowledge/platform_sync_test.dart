@@ -116,6 +116,38 @@ void main() {
     expect(json('platform/sdk.json')['languageVersion'], '3.12');
   });
 
+  test('different notes sources rewrite toolchain.json only', () async {
+    await sync(DateTime.utc(2026, 10, 1)).run(project);
+    final edited = CuratedNotes.parse({
+      ...bundledNotes,
+      'stores.yaml': bundledNotes['stores.yaml']!.replaceFirst(
+        'iOS 15 or later',
+        'iOS 15 or later (edited)',
+      ),
+    });
+    expect(edited.inputs, isNot(CuratedNotes.bundled().inputs));
+    final report = await PlatformSync(
+      environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
+      appsteinVersion: '0.1.0-dev',
+      notes: edited,
+      clock: () => DateTime.utc(2026, 10, 2),
+    ).run(project);
+    expect(report.files, {
+      'platform/sdk.json': false,
+      'platform/toolchain.json': true,
+    });
+  });
+
+  test('a different Appstein version rewrites both files', () async {
+    await sync(DateTime.utc(2026, 10, 1)).run(project);
+    final report = await PlatformSync(
+      environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
+      appsteinVersion: '0.2.0-dev',
+      clock: () => DateTime.utc(2026, 10, 2),
+    ).run(project);
+    expect(report.files.values, everyElement(isTrue));
+  });
+
   test('damaged or deleted knowledge is rewritten (Review Focus 5)', () async {
     await sync(DateTime.utc(2026, 10, 1)).run(project);
     knowledge('platform/sdk.json').writeAsStringSync('{"meta": null');

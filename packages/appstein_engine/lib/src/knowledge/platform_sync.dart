@@ -60,12 +60,9 @@ final class PlatformSync {
     required this.environment,
     required this.appsteinVersion,
     CuratedNotes? notes,
-    DateTime Function()? clock,
+    this._clock,
     this.lockTimeout = const Duration(seconds: 10),
-  }) : notes = notes ?? CuratedNotes.bundled(),
-       // A named parameter can't be private, so it can't be a formal.
-       // ignore: prefer_initializing_formals
-       _clock = clock;
+  }) : notes = notes ?? CuratedNotes.bundled();
 
   /// Where `sdk.json` lives inside `.appstein/`.
   static const sdkPath = 'platform/sdk.json';

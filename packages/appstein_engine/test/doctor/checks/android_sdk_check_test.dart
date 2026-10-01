@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../support/doctor_support.dart';
+import '../../support/flutter_fixtures.dart';
 import '../../support/temp.dart';
 
 void main() {
@@ -94,11 +95,11 @@ void main() {
 
   test('build-tools names that are not full versions count, as in '
       'Flutter', () async {
-    platform('android-34');
-    buildTools('33.0');
-    buildTools('34');
+    platform('android-36');
+    buildTools('35.0');
+    buildTools('36');
     buildTools('latest');
-    expect((await run()).summary, 'platform android-34, build-tools 34');
+    expect((await run()).summary, 'platform android-36, build-tools 36');
   });
 
   // Review Focus 1.
@@ -235,6 +236,75 @@ void main() {
       placeAdb(p.join(sdk, 'platform-tools'));
       final result = await runWithPath(p.join(sdk, 'platform-tools'));
       expect(result.details.where((line) => line.contains('adb')), isEmpty);
+    });
+  });
+
+  group("Flutter's minimum platform and build-tools", () {
+    test('an older platform is an error, in the words flutter doctor '
+        'uses', () async {
+      platform('android-35');
+      buildTools('35.0.0');
+      final result = await run();
+      expect(result.status, CheckStatus.error);
+      expect(
+        result.summary,
+        'platform android-35, build-tools 35.0.0, older than Flutter requires',
+      );
+      expect(
+        result.details,
+        contains(
+          'Flutter requires Android SDK 36 and the Android BuildTools 28.0.3.',
+        ),
+      );
+      expect(result.fixHint, contains('android-36'));
+    });
+
+    test('older build-tools are an error', () async {
+      platform('android-36');
+      buildTools('28.0.2');
+      expect((await run()).status, CheckStatus.error);
+    });
+
+    test("the minimums come from the detected Flutter SDK's own "
+        'files', () async {
+      final flutter = p.join(tempDir().path, 'flutter');
+      addToolchainFiles(flutter, '3.47.5');
+      final gradleUtils = File(
+        p.joinAll([flutter, ...ToolchainFiles.gradleUtils.split('/')]),
+      );
+      gradleUtils.writeAsStringSync(
+        gradleUtils.readAsStringSync().replaceFirst(
+          'const compileSdkVersionInt = 36;',
+          'const compileSdkVersionInt = 37;',
+        ),
+      );
+      platform('android-36');
+      buildTools('36.0.0');
+      final result = await const AndroidSdkCheck().run(
+        testContext(
+          environment: fakeEnvironment({'ANDROID_HOME': sdk}),
+          sdk: foundSdk(root: flutter),
+        ),
+      );
+      expect(result.status, CheckStatus.error);
+      expect(
+        result.details,
+        contains(
+          'Flutter requires Android SDK 37 and the Android BuildTools 28.0.3.',
+        ),
+      );
+    });
+
+    test('unknown minimums skip this part of the check', () async {
+      platform('android-30');
+      buildTools('30.0.0');
+      final result = await const AndroidSdkCheck().run(
+        testContext(
+          environment: fakeEnvironment({'ANDROID_HOME': sdk}),
+          sdk: foundSdk(flutter: '3.38.6'),
+        ),
+      );
+      expect(result.status, CheckStatus.ok);
     });
   });
 }
