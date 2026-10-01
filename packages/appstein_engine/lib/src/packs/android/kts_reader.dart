@@ -182,6 +182,11 @@ bool _endsWith(List<String> list, List<String> suffix) {
   return true;
 }
 
+List<String> _plain(List<String> path) => [
+  for (final segment in path)
+    if (segment != ktsOpaque) segment,
+];
+
 /// What [readKts] found in a script.
 final class KtsScript {
   /// Creates the result.
@@ -219,11 +224,19 @@ final class KtsScript {
 
   /// The blocks directly inside [path], [ktsOpaque] ones included (a
   /// container entry with a computed name, such as `create(name) { }`).
+  ///
+  /// A block that is in [path] only through an `if`, a lambda, a scope
+  /// function or a block such as `afterEvaluate { }` (found the way
+  /// [assignmentsTo] finds assignments) is returned as a [ktsOpaque] entry,
+  /// so a caller sees that something is declared there that it can't name.
   List<KtsBlock> blocksIn(List<String> path) => [
     for (final block in blocks)
       if (block.path.length == path.length + 1 &&
           ktsPathIs(block.path.sublist(0, path.length), path))
-        block,
+        block
+      else if (path.isNotEmpty &&
+          _endsWith(_plain(block.path.sublist(0, block.path.length - 1)), path))
+        KtsBlock(path: [...path, ktsOpaque], line: block.line),
   ];
 }
 
@@ -521,6 +534,14 @@ const _continuesAfter = {
   '->', '..', '+=', '-=', '==', '!=', '<', '>', '<=', '>=', ':',
 };
 
+/// Symbols in [_continuesAfter] that also end lines without continuing
+/// (`import a.*`, `List<String>`).
+const _weakContinuers = {'*', '<', '>', ':'};
+
+/// Scope and configure functions: their block runs on some other receiver,
+/// so what it sets is read under [ktsOpaque].
+const _scopeFunctions = {'apply', 'run', 'also', 'let', 'with', 'configure'};
+
 /// Symbols that, starting a line, continue the statement before.
 const _continuesBefore = {'.', '?.', '?:', '&&', '||'};
 
@@ -570,6 +591,9 @@ final class _Parser {
     } else if (token.kind == _Kind.name &&
         !_declarationWords.contains(token.text)) {
       _named(path);
+    } else if (token.kind == _Kind.name &&
+        (token.text == 'import' || token.text == 'package')) {
+      _collect(path, lineOnly: true);
     } else {
       _collect(path);
     }
@@ -587,7 +611,7 @@ final class _Parser {
     if (_peek.isSymbol('{')) {
       final open = _peek;
       _pos++;
-      body(inner, openLine: open.line);
+      _opaqueBody(path, open);
     } else if (_peek.kind != _Kind.end && !_peek.isSymbol('}')) {
       _statement(inner);
     }
@@ -625,6 +649,10 @@ final class _Parser {
       );
     } else if (next.isSymbol('{')) {
       _pos++;
+      if (_scopeFunctions.contains(names.last)) {
+        _opaqueBody(path, next, inside: [...prefix, ktsOpaque]);
+        return;
+      }
       final blockPath = [...path, ...names];
       blocks.add(KtsBlock(path: blockPath, line: first.line));
       body(blockPath, openLine: next.line);
@@ -633,6 +661,18 @@ final class _Parser {
       if (_peek.isSymbol('{')) {
         final open = _peek;
         _pos++;
+        if (names.last == 'with') {
+          // `with(android.defaultConfig) { … }`: read as if inside it, but
+          // marked.
+          final receiver = _isDottedName(arguments)
+              ? [
+                  for (final token in arguments)
+                    if (token.kind == _Kind.name) token.text,
+                ]
+              : const <String>[];
+          _opaqueBody(path, open, inside: [...prefix, ktsOpaque, ...receiver]);
+          return;
+        }
         final name = _containerCalls.contains(names.last)
             ? _plainString(arguments)
             : null;
@@ -660,21 +700,73 @@ final class _Parser {
         }
         infix[word] = _classify(valueTokens);
       }
-      calls.add(
-        KtsCall(
-          path: prefix,
-          name: names.last,
-          arguments: _join(arguments),
-          argument: _single(arguments),
-          infix: infix,
-          line: first.line,
-        ),
+      KtsCall call(Map<String, KtsValue> infix) => KtsCall(
+        path: prefix,
+        name: names.last,
+        arguments: _join(arguments),
+        argument: _single(arguments),
+        infix: infix,
+        line: first.line,
       );
+      final index = calls.length;
+      calls.add(call(infix));
+      if (_trailingAssignment(path, prefix, names.last, arguments)) return;
       // Whatever follows, such as `.apply { … }`.
-      _collect(path);
+      final rest = _collect(path);
+      if (rest.isNotEmpty && infix.isNotEmpty) {
+        // `version "8." + "1.0"`: the value goes on past what was read.
+        final word = infix.keys.last;
+        infix[word] = KtsComputed(
+          _shorten('${infix[word]!.text} ${_join(rest)}'),
+        );
+        calls[index] = call(infix);
+      }
     } else {
       _collect(path);
     }
+  }
+
+  /// `getByName("release").isMinifyEnabled = true`: after a call, a dotted
+  /// name that is assigned to. Recorded with a [ktsOpaque] segment where
+  /// the call was, since the call's result is not followed. Returns whether
+  /// it was one.
+  bool _trailingAssignment(
+    List<String> path,
+    List<String> prefix,
+    String callName,
+    List<_Token> arguments,
+  ) {
+    var j = _pos;
+    final rest = <String>[];
+    while ((_tokens[j].isSymbol('.') || _tokens[j].isSymbol('?.')) &&
+        _tokens[j + 1].kind == _Kind.name) {
+      rest.add(_tokens[j + 1].text);
+      j += 2;
+    }
+    final op = _tokens[j];
+    if (rest.isEmpty ||
+        !(op.isSymbol('=') || op.isSymbol('+=') || op.isSymbol('-='))) {
+      return false;
+    }
+    final line = _tokens[_pos].line;
+    _pos = j + 1;
+    while (_peek.kind == _Kind.newline) {
+      _pos++;
+    }
+    final tokens = _collect(path);
+    final entry = _containerCalls.contains(callName)
+        ? _plainString(arguments)
+        : null;
+    assignments.add(
+      KtsAssignment(
+        path: [...prefix, ?entry, ktsOpaque, ...rest],
+        value: op.text == '='
+            ? _classify(tokens)
+            : KtsComputed(_shorten('${op.text} ${_join(tokens)}')),
+        line: line,
+      ),
+    );
+    return true;
   }
 
   bool _startsValue(_Token token) =>
@@ -710,6 +802,15 @@ final class _Parser {
     if (after.isSymbol('(') || after.isSymbol('{')) _pos = k + 1;
   }
 
+  /// Reads the body of a `{` (already consumed) that Appstein doesn't
+  /// follow, under [ktsOpaque], and records it as a block so that
+  /// [KtsScript.blocksIn] shows something was declared here.
+  void _opaqueBody(List<String> path, _Token open, {List<String>? inside}) {
+    final blockPath = inside ?? [...path, ktsOpaque];
+    blocks.add(KtsBlock(path: blockPath, line: open.line));
+    body(blockPath, openLine: open.line);
+  }
+
   /// Consumes `( … )` and returns the tokens inside, without newlines. A
   /// lambda inside is read under [ktsOpaque] and stands as `{…}`.
   List<_Token> _parenthesized(List<String> path) {
@@ -724,7 +825,7 @@ final class _Parser {
       }
       if (token.isSymbol('{')) {
         _pos++;
-        body([...path, ktsOpaque], openLine: token.line);
+        _opaqueBody(path, token);
         inner.add(_Token(_Kind.symbol, '{…}', token.line));
         continue;
       }
@@ -747,7 +848,7 @@ final class _Parser {
   /// Consumes the rest of a statement and returns its tokens. Lambdas in
   /// it are read under [ktsOpaque] and stand as `{…}`. After `->` (a `when`
   /// branch), the rest is read as a statement of its own.
-  List<_Token> _collect(List<String> path) {
+  List<_Token> _collect(List<String> path, {bool lineOnly = false}) {
     final tokens = <_Token>[];
     var depth = 0;
     while (true) {
@@ -762,7 +863,7 @@ final class _Parser {
         return tokens;
       }
       if (token.kind == _Kind.newline) {
-        if (depth > 0 || _continues(tokens)) {
+        if (depth > 0 || (!lineOnly && _continues(tokens))) {
           _pos++;
           continue;
         }
@@ -770,7 +871,7 @@ final class _Parser {
       }
       if (token.isSymbol('{')) {
         _pos++;
-        body([...path, ktsOpaque], openLine: token.line);
+        _opaqueBody(path, token);
         tokens.add(_Token(_Kind.symbol, '{…}', token.line));
         continue;
       }
@@ -800,15 +901,56 @@ final class _Parser {
     // Nothing yet, such as after a call statement: the line ends it.
     if (tokens.isEmpty) return false;
     final last = tokens.last;
-    if (last.kind == _Kind.symbol && _continuesAfter.contains(last.text)) {
-      return true;
-    }
     var k = _pos;
     while (_tokens[k].kind == _Kind.newline) {
       k++;
     }
+    if (last.kind == _Kind.symbol && _continuesAfter.contains(last.text)) {
+      // `import java.util.*`: the star is a wildcard, not a multiplication.
+      final afterDot =
+          tokens.length > 1 && tokens[tokens.length - 2].isSymbol('.');
+      if (last.text == '*' && afterDot) return false;
+      // `List<String>` ends a line as often as `a >` does: a line that
+      // starts a statement of its own is never swallowed.
+      if (_weakContinuers.contains(last.text)) return !_startsStatement(k);
+      return true;
+    }
     final next = _tokens[k];
     return next.kind == _Kind.symbol && _continuesBefore.contains(next.text);
+  }
+
+  /// Whether the tokens from [k] start a statement of their own: a name
+  /// (dotted) followed by `{`, `(…) {` or an assignment.
+  bool _startsStatement(int k) {
+    if (_tokens[k].kind != _Kind.name) return false;
+    var j = k + 1;
+    while ((_tokens[j].isSymbol('.') || _tokens[j].isSymbol('?.')) &&
+        _tokens[j + 1].kind == _Kind.name) {
+      j += 2;
+    }
+    final token = _tokens[j];
+    if (token.isSymbol('{') ||
+        token.isSymbol('=') ||
+        token.isSymbol('+=') ||
+        token.isSymbol('-=')) {
+      return true;
+    }
+    if (!token.isSymbol('(')) return false;
+    var depth = 0;
+    for (; j < _tokens.length; j++) {
+      final t = _tokens[j];
+      if (t.kind == _Kind.end) return false;
+      if (t.isSymbol('(')) depth++;
+      if (t.isSymbol(')')) {
+        depth--;
+        if (depth == 0) break;
+      }
+    }
+    j++;
+    while (j < _tokens.length && _tokens[j].kind == _Kind.newline) {
+      j++;
+    }
+    return j < _tokens.length && _tokens[j].isSymbol('{');
   }
 
   KtsValue _classify(List<_Token> tokens) {

@@ -315,6 +315,103 @@ android {
     expect(only(script, ['android', 'namespace']).line, 4);
   });
 
+  test('I1: a wildcard import or a generic type does not swallow the next '
+      'block', () {
+    for (final head in [
+      'import java.util.*\n',
+      'package a.b\nimport java.util.*\n',
+      'lateinit var names: List<String>\n',
+    ]) {
+      final script = readKts('$head\nandroid { namespace = "x" }\n');
+      final found = only(script, ['android', 'namespace']);
+      expect(found.conditional, isFalse, reason: head);
+      expect(found.path, ['android', 'namespace'], reason: head);
+    }
+  });
+
+  test('I2: scope functions, configure and call chains are marked, not '
+      'missed', () {
+    final script = readKts('''
+android {
+    defaultConfig.apply { targetSdk = 35 }
+    with(defaultConfig) { minSdk = 21 }
+    configure<ApplicationExtension> { defaultConfig { versionCode = 3 } }
+    buildTypes.getByName("release").isMinifyEnabled = true
+}
+''');
+    final target = only(script, ['android', 'defaultConfig', 'targetSdk']);
+    expect(target.conditional, isTrue);
+    expect(
+      only(script, ['android', 'defaultConfig', 'minSdk']).conditional,
+      isTrue,
+    );
+    expect(
+      only(script, ['android', 'defaultConfig', 'versionCode']).conditional,
+      isTrue,
+    );
+    final minify = only(script, [
+      'android',
+      'buildTypes',
+      'release',
+      'isMinifyEnabled',
+    ]);
+    expect(minify.conditional, isTrue);
+    expect(minify.value, isA<KtsBool>());
+  });
+
+  test('I3: entries declared in an if, a lambda, by creating or '
+      'afterEvaluate leave a ? block', () {
+    for (final inner in [
+      'if (ci) { create("ci") {} }',
+      'val staging by creating { applicationIdSuffix = ".s" }',
+      'create("qa").apply { applicationIdSuffix = ".qa" }',
+    ]) {
+      final script = readKts('''
+android {
+    productFlavors {
+        $inner
+    }
+}
+''');
+      expect(
+        script
+            .blocksIn(['android', 'productFlavors'])
+            .any((block) => block.path.last == ktsOpaque),
+        isTrue,
+        reason: inner,
+      );
+    }
+    final wrapped = readKts('''
+afterEvaluate {
+    android {
+        productFlavors {
+            create("late") {}
+        }
+    }
+}
+''');
+    expect(
+      wrapped
+          .blocksIn(['android', 'productFlavors'])
+          .any((block) => block.path.last == ktsOpaque),
+      isTrue,
+    );
+  });
+
+  test('I4: an infix value followed by an operator is computed', () {
+    final script = readKts('''
+plugins {
+    id("com.android.application") version "8." + "1.0" apply false
+    id("org.jetbrains.kotlin.android") version "2.4.0" apply false
+}
+''');
+    final ids = script.callsTo(['plugins'], 'id');
+    expect(ids[0].infix['version'], isA<KtsComputed>());
+    expect(ids[0].infix['version']!.text, contains('"1.0"'));
+    expect((ids[1].infix['version']! as KtsString).value, '2.4.0');
+    expect((ids[1].infix['apply']! as KtsBool).value, isFalse);
+  });
+
   test('broken scripts are a KtsFormatException with the line', () {
     for (final (text, line) in [
       ('android {\n    namespace = "a\n}\n', 2),
