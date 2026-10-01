@@ -20,7 +20,7 @@ The map is layer 2 of the knowledge Appstein keeps (spec §6.1). Layer 1, the pl
 | `features.json` | "What is in the booking feature: screens, view models, repositories, tests?" | the stack pack |
 | `routes.json` | "Which route shows which screen?" | the stack pack |
 
-`native.json`, the Android and iOS configuration, comes in slice 1b.4. It will be written by the platform packs, the way the stack pack writes `features.json` and `routes.json`.
+`native.json`, the Android and iOS configuration, is written by the platform packs from the native files, without the analysis. It has [its own page](native-config.md).
 
 Every file is generated, never edited by hand, and follows the rules in [knowledge-store](knowledge-store.md#three-rules-every-generated-file-follows): canonical JSON, a `meta` block with an input hash, and a rewrite only when the bytes would change.
 
@@ -41,6 +41,8 @@ KnowledgeSync.run
   |     5. one input hash    shared by every map file
   |     6. delta facts       collectDelta, while the analysis is open (version-delta.md)
   |
+  |-- NativeSync.build       map/native.json, from the platform packs (no writing yet)
+  |
   |-- renderDelta           platform/delta.md                  (no writing yet)
   |
   `-- KnowledgeStore.locked
@@ -50,7 +52,7 @@ KnowledgeSync.run
 Two things to notice.
 
 - **Building happens outside the lock, writing happens inside it.** The analysis takes seconds, and holding the lock that long would make any other writer wait. [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) takes the platform files and the map files together and writes `state.json` last, so `state.json` only ever lists files that were written. The consequence: two syncs that run at the same moment are last-writer-wins. Each write is consistent inside itself, and its input hash shows if it was built from something that has since changed.
-- **The map can be skipped without failing the sync.** When the packages can't be fetched, or the project files can't be read, [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns no files and a reason. The platform layer is still written, and so is `delta.md`, with only the notes. A failure while collecting the delta facts (step 6) is kept apart: the map is still written, and `delta.md` says its API lists are missing because of an internal error, which the user should report (see [version-delta](version-delta.md#how-sync-builds-it)). See [A failed fetch](#a-failed-fetch).
+- **The map can be skipped without failing the sync.** When the packages can't be fetched, or the project files can't be read, [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns no files and a reason. The platform layer is still written, and so is `delta.md`, with only the notes. `map/native.json` is still written then. A failure while collecting the delta facts (step 6) is kept apart: the map is still written, and `delta.md` says its API lists are missing because of an internal error, which the user should report (see [version-delta](version-delta.md#how-sync-builds-it)). See [A failed fetch](#a-failed-fetch).
 
 ## Packages first
 
@@ -274,11 +276,11 @@ In the fixture app, the `/settings` route returns `ProfileScreen` or `SettingsSc
 
 ## Packs and the core
 
-A **pack** ([`pack.dart`](../../packages/appstein_engine/lib/src/packs/pack.dart)) is what is specific to one stack or platform. The `Pack` interface is deliberately small: an `id`, a `kind` (stack or platform), a `version`, a list of `extractors` and optional `layerRules`. The interface grows only when a slice first needs a member (spec §10): a bigger interface written before there are two packs would be guessed, and wrong. The `version` is part of the map's input hash, so a new version of a pack rebuilds the map.
+A **pack** ([`pack.dart`](../../packages/appstein_engine/lib/src/packs/pack.dart)) is what is specific to one stack or platform. The `Pack` interface is deliberately small: an `id`, a `kind` (stack or platform), a `version`, a list of `extractors`, a `nativeExtractor` and optional `layerRules`. The `nativeExtractor` is what a platform pack uses to write its section of `native.json` (see [native-config](native-config.md)); stack packs return null. Two packs writing one map file, or one native section, is a `StateError`: a mistake in Appstein's pack list. The interface grows only when a slice first needs a member (spec §10): a bigger interface written before there are two packs would be guessed, and wrong. The `version` is part of the map's input hash, so a new version of a pack rebuilds the map.
 
 A [`MapExtractor`](../../packages/appstein_engine/lib/src/map/map_extractor.dart) turns the resolved project into files. It has one method, `extract(ProjectAnalysis)`, which returns bodies by their path (`map/routes.json`), each written with its `meta`. `OfficialMvvmExtractor` returns `routes.json` and `features.json`. `MapSync` runs every extractor of every pack, builds `symbols.json`, `layers.json` and `deps.json` with the stack pack's rules, then sorts all the files by path.
 
-**The core never imports a pack** (spec §5.1). Only `lib/src/packs/official_mvvm/**` and [`official_mvvm.dart`](../../packages/appstein_engine/lib/official_mvvm.dart), the pack's public entry, hold pack code. `MapSync` receives a `List<Pack>` and knows only the interface. The CLI wires one in: [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` from `appstein.yaml` into a list of packs. `layer_imports` enforces the rule on this repo (see [lints](lints.md#our-own-boundaries)). That matters because later packs (android, ios, other stacks) should plug in without touching `MapSync`.
+**The core never imports a pack** (spec §5.1). Only `lib/src/packs/official_mvvm/**`, `lib/src/packs/android/**` and `lib/src/packs/ios/**`, and their public entries, [`official_mvvm.dart`](../../packages/appstein_engine/lib/official_mvvm.dart), [`android.dart`](../../packages/appstein_engine/lib/android.dart) and [`ios.dart`](../../packages/appstein_engine/lib/ios.dart), hold pack code. `MapSync` and `NativeSync` receive a `List<Pack>` and know only the interface. The CLI wires the packs in: [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` and `packs.platforms` from `appstein.yaml` into a list of packs. `layer_imports` enforces the rule on this repo (see [lints](lints.md#our-own-boundaries)). That matters because later packs (other stacks and platforms) should plug in without touching `MapSync`.
 
 ## Determinism and freshness
 

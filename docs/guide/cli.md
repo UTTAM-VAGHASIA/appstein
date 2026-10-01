@@ -76,11 +76,11 @@ The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. 
 [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) does four things:
 
 1. **Finds the project** (`--project` or the nearest `pubspec.yaml`).
-2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which stack pack the project uses and the delta's baseline (`delta.baseline`). [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` into a list of packs: today `official_mvvm` gives `OfficialMvvmPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
-3. **Runs the engine's `KnowledgeSync`** with those packs and that baseline. It writes the platform layer, the version delta and the project map.
+2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which packs the project uses and the delta's baseline (`delta.baseline`). [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` **and `packs.platforms`** into a list of packs: `official_mvvm` gives `OfficialMvvmPack`, and `android` and `ios` give `AndroidPack` and `IosPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
+3. **Runs the engine's `KnowledgeSync`** with those packs and that baseline. It writes the platform layer, the version delta, the project map and the native config.
 4. **Prints `formatSyncReport`.**
 
-The report is one line for the SDK, one per file (`written` or `unchanged`, the map files included), then the lines about the packages and the map, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened:
+The report is one line for the SDK, one per file (`written` or `unchanged`, the map files and `map/native.json` included), then the lines about the packages and the map, a `Native config:` line, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened:
 
 ```text
 Fetched the packages with `flutter pub get`, because pubspec.yaml changed after they were fetched.
@@ -103,6 +103,19 @@ When the map was written but the version delta's API lists couldn't be collected
 
 ```text
 Version delta: deprecated and removed APIs are missing because of an internal error in Appstein. Please report it, with this error:
+  Bad state: <the error's message, every line>
+```
+
+The `Native config:` line says how each platform went, in a few words, and appears whenever a platform pack ran. It is printed even when the map was skipped, since `native.json` is still written:
+
+```text
+Native config: android read; ios absent: no ios/ folder.
+```
+
+When a platform pack crashes, that is also a bug in Appstein. Its section of `native.json` holds only the error's type, the sync still exits 0, and the output asks for a report with the whole error, indented (see [native-config](native-config.md#how-sync-builds-it)):
+
+```text
+Native config (ios): missing because of an internal error in Appstein. Please report it, with this error:
   Bad state: <the error's message, every line>
 ```
 
