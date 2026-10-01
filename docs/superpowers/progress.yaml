@@ -67,14 +67,18 @@ milestones:
             pr: 7
             finished: 2026-10-01
           - id: 1b.3
-            title: Project map
-            summary: The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through `official_mvvm` and the platform extractors.
+            title: Project map (Dart code)
+            summary: "The map of the user's Dart code through `official_mvvm`: features, symbols with doc-comment summaries, routes, layers and dependencies, from the resolved AST; `sync` runs `flutter pub get` when Flutter would."
             status: next
           - id: 1b.4
+            title: Native config map
+            summary: "`native.json` from the platform packs: Android Gradle and manifest settings, iOS plist, build settings, Podfile and SwiftPM state, each value with where it was found."
+            status: planned
+          - id: 1b.5
             title: Version delta
             summary: "`delta.md`: what changed since the baseline for this SDK and language version, from `fix_data`, the SDK's deprecations and the curated notes, filtered to the APIs the project uses."
             status: planned
-          - id: 1b.5
+          - id: 1b.6
             title: Incremental sync, INDEX.md and package skills
             summary: Sync that rebuilds only what changed, the always-in-view `INDEX.md`, and the package skills refresh.
             status: planned

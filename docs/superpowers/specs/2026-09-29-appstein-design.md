@@ -307,19 +307,36 @@ Other rules for the delta:
 
 Extraction uses the **resolved** Dart AST from `package:analyzer`, not text search.
 
+- **Resolution:** resolving needs the project's packages, so `sync` checks them the way `flutter run` and `flutter analyze` do.
+  - It skips `pub get` only when `.dart_tool/package_config.json` and `pubspec.lock` exist, `pubspec.yaml` is older than both, and `.dart_tool/version` names this Flutter version.
+  - In a pub workspace, the package config is found through `.dart_tool/pub/workspace_ref.json`. A package config written by another tool is used as it is.
+  - Otherwise it runs `flutter pub get` with the project's SDK. If that fails (for example, offline with nothing cached), `sync` still writes the platform layer, skips the map, and says why and what to run.
+  - Code with errors still gets a map: the analyzer resolves what it can.
 - **Layer tags by path:**
   - `lib/ui/**` → `ui`
   - `lib/data/repositories/**` → `data.repository`
   - `lib/data/services/**` → `data.service`
+  - `lib/data/model/**` → `data.model` (API models, in Flutter's architecture guide)
   - `lib/domain/**` → `domain`
   - `lib/routing/**` → `routing`
   - `lib/config/**` → `config`
   - `lib/utils/**` → `utils`
-  - `test/**` → `test`
-- **Features:** each `lib/ui/<feature>/` folder, with its `view_models/` (classes extending `ChangeNotifier`) and `widgets/` (screens are the widgets referenced by routes), linked to the repositories and services those view models depend on through their constructors, and to their tests under `test/ui/<feature>/`.
-- **Symbols:** public top-level classes, enums, extensions and functions, with file, layer, feature and **summary** (the first sentence of the `///` doc comment, if any). The summary feeds the human docs (§6.9) and gives `where_is` results a one-line description.
-- **Routes:** `GoRoute(path:, builder:/pageBuilder:)` entries reachable from the router, including nested routes. Only paths and builders that are statically resolvable are recorded; anything else is marked `unresolved` and never guessed.
-- **Dependencies:** `pubspec.yaml`, `pubspec.lock` and import usages per package, plus the health snapshot from the last package check.
+  - `test/**` and `testing/**` (shared fakes) → `test`
+- **Features:** each folder under `lib/ui/` that has a `view_models/` or `widgets/` folder, named by its path below `lib/ui/`. So `lib/ui/auth/login/` is the feature `auth/login`. `lib/ui/core/` holds the UI that features share (widgets, themes, localization), so it is not a feature. A feature lists:
+  - **view models:** the classes in its `view_models/` that extend `ChangeNotifier`, directly or through other classes;
+  - **screens:** the widgets in its `widgets/` that routes build. Without routes, no widget is called a screen; screens are never guessed from names;
+  - **repositories and services:** the types its view models' constructors take, sorted by the layer of the file that declares each type;
+  - **models:** the public classes in `domain` files that the feature's files import;
+  - **tests and files:** its tests under `test/ui/<feature>/`, and all of its files.
+- **Symbols:** public top-level classes, mixins, enums, extensions, extension types, typedefs and functions in `lib/`. Each has its file, line, layer, feature and **summary**: the first sentence of the first paragraph of its `///` doc comment, if it has one. The summary feeds the human docs (§6.9) and gives `where_is` results a one-line description.
+- **Routes:** `GoRoute(path:, builder:/pageBuilder:)` entries reachable from every `GoRouter(...)` in `lib/`.
+  - They include nested routes and the routes inside `ShellRoute` and `StatefulShellRoute`.
+  - A nested path is joined to its parent's, as GoRouter does. Constant paths are evaluated (`Routes.home`, `'/$searchRelative'`).
+  - The screen is the widget the builder returns (for `pageBuilder`, the page's `child:`), when the builder is a single plain return.
+  - Only paths and builders that are statically resolvable are recorded; anything else is marked `unresolved` and never guessed.
+  - Typed routes (`go_router_builder`) are recorded as one unresolved entry until a later slice reads them.
+- **Layers:** each file's tag, its imports of other project files, and the imports that the pack's layer rules forbid (§9.6). So `layers.json` reports exactly what `layer_imports` reports.
+- **Dependencies:** `pubspec.yaml`, `pubspec.lock` and import usages per package. The health snapshot and advisories from the last package check are added once the package gate exists (§9.4).
 - **Native config** (from the platform packs):
   - Android: parsed `android/settings.gradle.kts`, `android/build.gradle.kts`, `android/app/build.gradle.kts`, `gradle-wrapper.properties`, `gradle.properties` and `AndroidManifest.xml`.
   - iOS: `Info.plist`, `project.pbxproj` build settings, `Podfile` and `Package.swift` state, and the Flutter SwiftPM setting.
@@ -588,7 +605,7 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 
 | Rule | Enforces |
 |---|---|
-| `layer_imports` | **Tag-based** constraints declared by the stack pack (following Twenty's `enforce-module-boundaries`). For `official_mvvm`: `ui` → may import `ui`, `domain`, `routing`, `config`, `utils`; `ui` must not import `data.service` or `data.repository` implementations directly (only through their abstract interfaces); `domain` imports only `domain` and `utils`; `data.*` must not import `ui` |
+| `layer_imports` | **Tag-based** constraints declared by the stack pack (following Twenty's `enforce-module-boundaries`). A layer may import the tags it `allow`s. From the tags listed under its `interfaces`, it may import only files whose classes are all abstract: a repository's interface, not its implementation. For `official_mvvm`, matching Flutter's architecture guide and its compass_app sample: `ui` → `domain`, `routing`, `config` and `utils`, plus the interfaces of `data.repository` and `data.service`; `domain` → `utils`, plus the interfaces of `data.repository` (use cases call repositories); `data.*` → anything but `ui`; `routing`, `config`, `utils` and tests are unrestricted |
 | `no_hardcoded_colors` | No `Color(0x…)` / `Colors.*` literals in the `ui` layer; use `ColorScheme` or tokens |
 | `use_spacing_tokens` | No non-zero numeric `EdgeInsets`/`SizedBox`/`Gap` literals in `ui`; use the tokens from the `ThemeExtension` |
 | `no_platform_branching_in_layout` | No `Platform.isX` / `defaultTargetPlatform` checks inside `build` methods (Flutter's adaptive-design guidance) |
@@ -632,6 +649,7 @@ abstract interface class Pack {
 ```
 
 - **M1 packs:** `official_mvvm` (stack), `android` and `ios` (platform).
+- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`.
 - **Later packs:** `riverpod` and `bloc` (M3, together with support for existing projects), then `web`, `windows`, `macos` and `linux` (M4+). **The final goal is every platform Flutter supports.**
 - **Community packs** defined in code (inspired by Twenty's `defineObject`) and a pack scaffold: M3+.
 - **A pack must never read another pack's data directly.** Shared facts (e.g. the resolved plugin graph) are provided by the engine through the protocol.

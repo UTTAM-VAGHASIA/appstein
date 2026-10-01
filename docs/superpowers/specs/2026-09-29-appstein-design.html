@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1b.3</b> Project map</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1b.3</b> Project map (Dart code)</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -674,7 +674,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   <h3>M1 slices</h3>
   <div class="pg-bar">
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
-    <a class="pg-seg pg-underway" href="#pg-1b" style="--fill:40%"><b>1b</b><span>Knowledge layers 1–2</span><i>2 of 5 done</i></a>
+    <a class="pg-seg pg-underway" href="#pg-1b" style="--fill:33%"><b>1b</b><span>Knowledge layers 1–2</span><i>2 of 6 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1c" style="--fill:0%"><b>1c</b><span>MCP server</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
@@ -723,15 +723,19 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <p class="pg-meta"><time datetime="2026-10-01">1 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/7">PR #7</a> · <a href="../plans/2026-10-01-slice-1b2-knowledge-store.md">Plan</a></p>
         </li>
         <li class="pg-item pg-next" id="pg-1b-3">
-          <p class="pg-title"><b>1b.3</b> Project map <span class="tag info">Next</span></p>
-          <p class="pg-summary">The map of the user's app (features, symbols with doc-comment summaries, routes, layers, dependencies, native config) through <code>official_mvvm</code> and the platform extractors.</p>
+          <p class="pg-title"><b>1b.3</b> Project map (Dart code) <span class="tag info">Next</span></p>
+          <p class="pg-summary">The map of the user's Dart code through <code>official_mvvm</code>: features, symbols with doc-comment summaries, routes, layers and dependencies, from the resolved AST; <code>sync</code> runs <code>flutter pub get</code> when Flutter would.</p>
         </li>
         <li class="pg-item pg-planned" id="pg-1b-4">
-          <p class="pg-title"><b>1b.4</b> Version delta <span class="tag neutral">Planned</span></p>
-          <p class="pg-summary"><code>delta.md</code>: what changed since the baseline for this SDK and language version, from <code>fix_data</code>, the SDK's deprecations and the curated notes, filtered to the APIs the project uses.</p>
+          <p class="pg-title"><b>1b.4</b> Native config map <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary"><code>native.json</code> from the platform packs: Android Gradle and manifest settings, iOS plist, build settings, Podfile and SwiftPM state, each value with where it was found.</p>
         </li>
         <li class="pg-item pg-planned" id="pg-1b-5">
-          <p class="pg-title"><b>1b.5</b> Incremental sync, INDEX.md and package skills <span class="tag neutral">Planned</span></p>
+          <p class="pg-title"><b>1b.5</b> Version delta <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary"><code>delta.md</code>: what changed since the baseline for this SDK and language version, from <code>fix_data</code>, the SDK's deprecations and the curated notes, filtered to the APIs the project uses.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1b-6">
+          <p class="pg-title"><b>1b.6</b> Incremental sync, INDEX.md and package skills <span class="tag neutral">Planned</span></p>
           <p class="pg-summary">Sync that rebuilds only what changed, the always-in-view <code>INDEX.md</code>, and the package skills refresh.</p>
         </li>
       </ol>
@@ -1072,7 +1076,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     <details class="more">
       <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Lint rules in M1</summary>
       <div class="more-body">
-        <p><b><code>layer_imports</code></b> Tag-based layer rules from the stack pack. <code>ui</code> reaches data only through abstract interfaces.</p>
+        <p><b><code>layer_imports</code></b> Tag-based layer rules from the stack pack. <code>ui</code>, and use cases in <code>domain</code>, reach data only through abstract interfaces, as in Flutter's guide.</p>
         <p><b><code>no_hardcoded_colors</code></b> No <code>Color(0x…)</code> or <code>Colors.*</code> in UI; use <code>ColorScheme</code> or tokens.</p>
         <p><b><code>use_spacing_tokens</code></b> No non-zero numeric <code>EdgeInsets</code>, <code>SizedBox</code> or <code>Gap</code> literals in UI.</p>
         <p><b><code>no_platform_branching_in_layout</code></b> No <code>Platform.isX</code> checks inside <code>build</code>.</p>

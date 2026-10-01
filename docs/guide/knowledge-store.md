@@ -7,7 +7,7 @@ tool/src/notes_bundle.dart
 
 # The knowledge store and `appstein sync`
 
-`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. The project map, the version delta (`delta.md`), `INDEX.md` and incremental sync come in later slices (1b.3–1b.5).
+`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. The project map (1b.3 for the Dart code, 1b.4 for native config), the version delta (`delta.md`, 1b.5), and `INDEX.md` and incremental sync (1b.6) come in later slices.
 
 ## What `sync` writes now
 
