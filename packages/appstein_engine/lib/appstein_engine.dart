@@ -28,6 +28,7 @@ export 'src/knowledge/input_hash.dart';
 export 'src/knowledge/knowledge_lock.dart';
 export 'src/knowledge/knowledge_store.dart';
 export 'src/knowledge/knowledge_write_exception.dart';
+export 'src/knowledge/platform_sync.dart';
 export 'src/notes/bundled_notes.g.dart';
 export 'src/notes/curated_notes.dart';
 export 'src/notes/flutter_minor.dart';
