@@ -27,6 +27,7 @@ void main() {
       'channel': 'stable',
       'languageVersion': '3.9',
       'fvm': '3.47.5',
+      'appsteinNotesCoverage': null,
     });
   });
 
