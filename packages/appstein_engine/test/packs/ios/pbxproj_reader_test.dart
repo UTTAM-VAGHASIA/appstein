@@ -8,9 +8,10 @@ import 'package:test/test.dart';
 import '../../support/native_support.dart';
 
 void main() {
-  test('the old-style format: comments, quoted and bare strings, arrays, '
-      'lines', () {
-    final root = readPbxproj(r'''
+  for (final crlf in [false, true]) {
+    test('the old-style format: comments, quoted and bare strings, arrays, '
+        'lines${crlf ? ' (CRLF)' : ''}', () {
+      const sample = r'''
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
@@ -34,33 +35,52 @@ void main() {
 	};
 	rootObject = 97C146E61CF9000F007C117D /* Project object */;
 }
-''');
-    final objects = root.entries['objects']! as PlistDict;
-    final debug = objects.entries['97C147061CF9000F007C117D']! as PlistDict;
-    expect(debug.line, 7);
-    final settings = debug.entries['buildSettings']! as PlistDict;
-    final id = settings.entries['PRODUCT_BUNDLE_IDENTIFIER']! as PlistString;
-    expect(id.value, 'dev.sample.probeApp');
-    expect(id.line, 10);
-    expect(
-      (settings.entries['INFOPLIST_FILE']! as PlistString).value,
-      'Runner/Info.plist',
-    );
-    expect(
-      (settings.entries['OTHER']! as PlistString).value,
-      'a "quoted" value',
-    );
-    expect(
-      [
-        for (final item in (settings.entries['LIST']! as PlistArray).items)
-          (item as PlistString).value,
-      ],
-      [r'$(inherited)', '@executable_path/Frameworks'],
-    );
-    expect(
-      (root.entries['rootObject']! as PlistString).value,
-      '97C146E61CF9000F007C117D',
-    );
+''';
+      final root = readPbxproj(crlf ? sample.replaceAll('\n', '\r\n') : sample);
+      final objects = root.entries['objects']! as PlistDict;
+      final debug = objects.entries['97C147061CF9000F007C117D']! as PlistDict;
+      expect(debug.line, 7);
+      final settings = debug.entries['buildSettings']! as PlistDict;
+      final id = settings.entries['PRODUCT_BUNDLE_IDENTIFIER']! as PlistString;
+      expect(id.value, 'dev.sample.probeApp');
+      expect(id.line, 10);
+      expect(
+        (settings.entries['INFOPLIST_FILE']! as PlistString).value,
+        'Runner/Info.plist',
+      );
+      expect(
+        (settings.entries['OTHER']! as PlistString).value,
+        'a "quoted" value',
+      );
+      expect(
+        [
+          for (final item in (settings.entries['LIST']! as PlistArray).items)
+            (item as PlistString).value,
+        ],
+        [r'$(inherited)', '@executable_path/Frameworks'],
+      );
+      expect(
+        (root.entries['rootObject']! as PlistString).value,
+        '97C146E61CF9000F007C117D',
+      );
+    });
+  }
+
+  test(r'\U escapes read four hex digits and nothing else', () {
+    final root = readPbxproj(r'{ a = "x\U00e9y"; }');
+    expect((root.entries['a']! as PlistString).value, 'xéy');
+    for (final text in [
+      r'{ a = "\U-001"; }',
+      r'{ a = "\U+04x"; }',
+      r'{ a = "\U12"; }',
+      r'{ a = "\Uzzzz"; }',
+    ]) {
+      expect(
+        () => readPbxproj(text),
+        throwsA(isA<PlistFormatException>().having((e) => e.line, 'line', 1)),
+        reason: text,
+      );
+    }
   });
 
   test("the template's project.pbxproj reads whole", () {

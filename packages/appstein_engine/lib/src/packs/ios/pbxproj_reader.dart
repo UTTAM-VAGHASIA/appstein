@@ -21,6 +21,8 @@ PlistDict readPbxproj(String text) {
   return root;
 }
 
+final _fourHex = RegExp(r'^[0-9A-Fa-f]{4}$');
+
 final class _OpenStepReader {
   _OpenStepReader(this.source);
 
@@ -152,13 +154,17 @@ final class _OpenStepReader {
       if (c == r'\' && _i + 1 < source.length) {
         final escaped = source[_i + 1];
         _i += 2;
-        if (escaped == 'U' && _i + 4 <= source.length) {
-          final code = int.tryParse(source.substring(_i, _i + 4), radix: 16);
-          if (code != null) {
-            out.writeCharCode(code);
-            _i += 4;
-            continue;
+        if (escaped == 'U') {
+          final digits = source.substring(_i, (_i + 4).clamp(0, source.length));
+          if (!_fourHex.hasMatch(digits)) {
+            throw PlistFormatException(
+              r'"\U" must be followed by four hex digits',
+              line,
+            );
           }
+          out.writeCharCode(int.parse(digits, radix: 16));
+          _i += 4;
+          continue;
         }
         out.write(switch (escaped) {
           'n' => '\n',

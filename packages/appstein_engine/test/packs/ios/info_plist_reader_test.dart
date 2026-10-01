@@ -51,8 +51,9 @@ void main() {
     },
   );
 
-  test('integers, dates and escaped text', () {
-    final dict = readXmlPlist('''
+  for (final crlf in [false, true]) {
+    test('integers, dates and escaped text${crlf ? ' (CRLF)' : ''}', () {
+      const sample = '''
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -65,16 +66,20 @@ void main() {
   <string/>
 </dict>
 </plist>
-''');
-    expect((dict.entries['Count']! as PlistOther).text, '3');
-    expect((dict.entries['Count']! as PlistOther).kind, 'integer');
-    expect(
-      (dict.entries['NSCameraUsageDescription']! as PlistString).value,
-      'Scans & uploads',
-    );
-    expect(dict.entries['NSCameraUsageDescription']!.line, 8);
-    expect((dict.entries['Empty']! as PlistString).value, '');
-  });
+''';
+      final dict = readXmlPlist(
+        crlf ? sample.replaceAll('\n', '\r\n') : sample,
+      );
+      expect((dict.entries['Count']! as PlistOther).text, '3');
+      expect((dict.entries['Count']! as PlistOther).kind, 'integer');
+      expect(
+        (dict.entries['NSCameraUsageDescription']! as PlistString).value,
+        'Scans & uploads',
+      );
+      expect(dict.entries['NSCameraUsageDescription']!.line, 8);
+      expect((dict.entries['Empty']! as PlistString).value, '');
+    });
+  }
 
   test('what is not a readable property list is a PlistFormatException', () {
     for (final (text, message) in [
