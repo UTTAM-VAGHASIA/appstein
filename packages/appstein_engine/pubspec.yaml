@@ -10,6 +10,7 @@ environment:
 resolution: workspace
 
 dependencies:
+  analyzer: ^14.4.0
   appstein_protocol: ^0.1.0-dev
   crypto: ^3.0.7
   path: ^1.9.1
