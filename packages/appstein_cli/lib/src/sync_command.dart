@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:appstein_engine/appstein_engine.dart';
@@ -5,12 +6,13 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:args/command_runner.dart';
 
 import 'exit_codes.dart';
+import 'packs.dart';
 import 'project_option.dart';
 import 'version.dart';
 
 /// `appstein sync`: regenerates the knowledge Appstein keeps in
-/// `.appstein/` (spec §5.3). It writes the platform layer: `sdk.json`,
-/// `toolchain.json` and `state.json`.
+/// `.appstein/` (spec §5.3). It writes the platform layer (`sdk.json`,
+/// `toolchain.json`) and the project map (`map/*.json`), then `state.json`.
 final class SyncCommand extends Command<int> {
   /// Creates the command.
   SyncCommand({
@@ -51,10 +53,20 @@ final class SyncCommand extends Command<int> {
         ..writeln('Run it inside the project, or pass --project <path>.');
       return ExitCodes.appsteinFailed;
     }
+    final AppsteinConfig config;
     try {
-      final report = await PlatformSync(
+      config = loadConfig(projectRoot) ?? const AppsteinConfig();
+    } on ConfigException catch (error) {
+      err
+        ..writeln(error)
+        ..writeln('Fix appstein.yaml, then run `appstein sync` again.');
+      return ExitCodes.appsteinFailed;
+    }
+    try {
+      final report = await KnowledgeSync(
         environment: environment,
         appsteinVersion: appsteinVersion,
+        packs: packsFor(config),
       ).run(projectRoot);
       out.write(formatSyncReport(report));
       return ExitCodes.ok;
@@ -94,6 +106,36 @@ String formatSyncReport(SyncReport report) {
     buffer.writeln(
       '  ${path.padRight(width)}  ${written ? 'written' : 'unchanged'}',
     );
+  }
+  final map = report.map;
+  if (map != null) {
+    switch (map.packages) {
+      case PackagesAction.fetched:
+        buffer.writeln(
+          'Fetched the packages with `flutter pub get`, because '
+          '${map.packagesReason}.',
+        );
+      case PackagesAction.fetchFailed:
+        buffer.writeln('Could not fetch the packages:');
+        for (final line in const LineSplitter().convert(map.packagesReason)) {
+          buffer.writeln('  $line');
+        }
+      case PackagesAction.upToDate:
+        break;
+    }
+    if (map.skipped case final skipped?) {
+      final reason = skipped.endsWith('.')
+          ? skipped.substring(0, skipped.length - 1)
+          : skipped;
+      buffer
+        ..writeln('Project map skipped: $reason.')
+        ..writeln(
+          map.packages == PackagesAction.fetchFailed
+              ? 'Run `flutter pub get` in the project to see the whole error, '
+                    'then `appstein sync` again.'
+              : 'Fix that, then run `appstein sync` again.',
+        );
+    }
   }
   if (sdk.notesCoverage == NotesCoverage.partial) {
     final minor = flutterMinorOf(sdk.flutterVersion);
