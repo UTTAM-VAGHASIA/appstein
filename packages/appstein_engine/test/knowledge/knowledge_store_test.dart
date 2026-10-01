@@ -128,6 +128,19 @@ void main() {
     lock.release();
   });
 
+  test('locked() releases the lock when the action throws', () async {
+    final store = storeAt(DateTime.utc(2026));
+    await expectLater(
+      store.locked<void>(() async => throw StateError('boom')),
+      throwsStateError,
+    );
+    final lock = await KnowledgeLock.acquire(
+      store.folder,
+      timeout: const Duration(seconds: 1),
+    );
+    lock.release();
+  });
+
   group('replaceFile', () {
     test('replaces a file another handle has open once it is closed '
         '(Windows refuses while it is open)', () async {

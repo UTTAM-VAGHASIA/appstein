@@ -7,21 +7,7 @@ import 'package:path/path.dart' as p;
 import '../host/file_errors.dart';
 import 'canonical_json.dart';
 import 'knowledge_lock.dart';
-
-/// Thrown when a `.appstein/` file can't be written.
-final class KnowledgeWriteException implements Exception {
-  /// Creates the exception for [path].
-  const KnowledgeWriteException(this.path, this.reason);
-
-  /// The file Appstein tried to write.
-  final String path;
-
-  /// Why it failed.
-  final String reason;
-
-  @override
-  String toString() => 'Could not write $path: $reason';
-}
+import 'knowledge_write_exception.dart';
 
 /// A project's `.appstein/` folder (spec §6.2).
 ///
@@ -63,6 +49,9 @@ final class KnowledgeStore {
   ///
   /// Throws an [ArgumentError] when [body] has its own `meta` key, and a
   /// [KnowledgeWriteException] when the file can't be written.
+  ///
+  /// Call it inside [locked]: two unlocked writers would collide on the
+  /// same temporary file.
   Future<bool> writeGenerated(
     String path,
     Map<String, Object?> body, {
@@ -86,7 +75,7 @@ final class KnowledgeStore {
     return true;
   }
 
-  /// Writes `state.json`.
+  /// Writes `state.json`. Call it inside [locked], like [writeGenerated].
   Future<void> writeState(KnowledgeState state) =>
       replaceFile(_pathOf('state.json'), canonicalJson(state.toJson()));
 
@@ -128,6 +117,11 @@ Future<void> replaceFile(
     File(path).parent.createSync(recursive: true);
     temp.writeAsStringSync(contents, flush: true);
   } on FileSystemException catch (error) {
+    try {
+      if (temp.existsSync()) temp.deleteSync();
+    } on FileSystemException {
+      // Nothing more to do; the next write overwrites it.
+    }
     throw KnowledgeWriteException(path, fileErrorReason(error));
   }
   final waited = Stopwatch()..start();
@@ -142,10 +136,11 @@ Future<void> replaceFile(
         } on FileSystemException {
           // Leave the temporary file; the next sync overwrites it.
         }
+        final reason = fileErrorReason(error);
         throw KnowledgeWriteException(
           path,
-          '${fileErrorReason(error)} Another program may have it open; '
-          'close it and run `appstein sync` again.',
+          '$reason${reason.endsWith('.') ? '' : '.'} Another program may '
+          'have it open; close it and run `appstein sync` again.',
         );
       }
       await Future<void>.delayed(retryEvery);

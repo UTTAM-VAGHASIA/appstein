@@ -27,6 +27,7 @@ export 'src/knowledge/canonical_json.dart';
 export 'src/knowledge/input_hash.dart';
 export 'src/knowledge/knowledge_lock.dart';
 export 'src/knowledge/knowledge_store.dart';
+export 'src/knowledge/knowledge_write_exception.dart';
 export 'src/project/project_locator.dart';
 export 'src/sdk/flutter_sdk_locator.dart';
 export 'src/sdk/flutter_sdk_reader.dart';
