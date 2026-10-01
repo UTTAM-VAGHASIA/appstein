@@ -20,7 +20,7 @@
 - **Commands:** run every Dart command through FVM: `fvm dart …`. The repo pins Flutter 3.47.5 (Dart 3.13.4); packages declare `sdk: ^3.12.0`.
 - **Boundaries (spec §5.1):** `appstein_protocol` depends on nothing internal; `appstein_engine` depends only on `appstein_protocol`; `appstein_cli` depends on the engine and protocol. The `layer_imports` lint enforces this.
 - **Docs and analysis:** every public API has a `///` doc comment (`public_member_api_docs`). `fvm dart analyze --fatal-infos` and `fvm dart format --output=none --set-exit-if-changed .` must pass from the repo root.
-- **Byte order marks:** no raw U+FEFF byte in any `.dart` file. Write the escape `'﻿'` (the CI `analyze` job rejects the raw byte).
+- **Byte order marks:** no raw U+FEFF byte in any `.dart` file. Write the escape `'\uFEFF'` (the CI `analyze` job rejects the raw byte).
 - **Windows is first-class:** every file-system test uses `tempDir()` (`packages/appstein_engine/test/support/temp.dart`), whose path holds a space and a non-ASCII character.
 - **Determinism (§15):** every `.appstein/` JSON file is written by `canonicalJson`: keys sorted at every level, two-space indent, `\n` endings, final newline. A generated file is rewritten only when its input hash changes (§6.2).
 - **No network at runtime (§4 principle 9, §15):** the curated notes are compiled into the binary.
@@ -3382,7 +3382,7 @@ void main() {
     });
 
     test('ignores a byte order mark', () {
-      expect(parseNotesFile('3.47.yaml', '﻿${_file()}').flutter, '3.47');
+      expect(parseNotesFile('3.47.yaml', '\uFEFF${_file()}').flutter, '3.47');
     });
 
     test('an unquoted version is reported on its line', () {
@@ -3888,7 +3888,7 @@ final class _Reader {
 
   YamlNode load(String text) {
     try {
-      return loadYamlNode(text.startsWith('﻿') ? text.substring(1) : text);
+      return loadYamlNode(text.startsWith('\uFEFF') ? text.substring(1) : text);
     } on YamlException catch (error) {
       final line = error.span?.start.line;
       throw NotesFormatException(file, line == null ? null : line + 1, error.message);
@@ -4626,7 +4626,7 @@ ToolchainReading readToolchain(
       final bytes = file.readAsBytesSync();
       inputs['sdk:$path'] = bytes;
       final text = utf8.decode(bytes, allowMalformed: true);
-      texts[path] = text.startsWith('﻿') ? text.substring(1) : text;
+      texts[path] = text.startsWith('\uFEFF') ? text.substring(1) : text;
     } on FileSystemException catch (error) {
       inputs['sdk:$path'] = null;
       readErrors[path] = file.existsSync()
