@@ -340,7 +340,12 @@ void main() {
     expect(text, contains('; ask `feature()`.'));
     final notes = lines.where((line) => line.startsWith('- **')).length;
     expect(notes, inInclusiveRange(5, 10));
-    expect(text, contains('…and ${bundledNotes.length - notes} more notes.'));
+    expect(
+      text,
+      contains(
+        '…and ${bundledNotes.length - notes} more notes; ask `what_changed()`.',
+      ),
+    );
     for (final heading in headings) {
       expect(text, contains(heading));
     }
@@ -438,7 +443,10 @@ void main() {
     expect(text, isNot(contains('| `feature_')));
     expect(text, isNot(contains('- **')));
     expect(text, contains('…and 300 more; ask `feature()`.'));
-    expect(text, contains('…and ${bundledNotes.length} more notes.'));
+    expect(
+      text,
+      contains('…and ${bundledNotes.length} more notes; ask `what_changed()`.'),
+    );
     for (final heading in headings) {
       expect(text, contains(heading));
     }

@@ -312,11 +312,13 @@ String? _iosId(NativeConfig native) {
       '${[for (final MapEntry(:key, :value) in ids.entries) '$key `$value`'].join(', ')}';
 }
 
-/// [node]'s value when it is a found, non-empty string with no Xcode build
-/// variable (`$(…)`) in it; null otherwise.
+/// [node]'s value when it is a found, non-empty string with no `$` in it;
+/// null otherwise. A bundle id or applicationId can't legally contain a `$`,
+/// and Xcode and Gradle expand `$(X)`, `${X}` and `$X`, so any `$` means the
+/// value is a variable and not the id.
 String? _plainId(NativeNode? node) => switch (node) {
   NativeValue(status: NativeStatus.found, value: final String value)
-      when value.isNotEmpty && !value.contains(r'$(') =>
+      when value.isNotEmpty && !value.contains(r'$') =>
     value,
   _ => null,
 };
@@ -363,6 +365,7 @@ String? decisionNumber(String file) =>
 /// (spec §6.7): its title and status. Anything that keeps them from being
 /// read gives an [IndexDecision.unreadable] that says why.
 IndexDecision parseDecision(String file, String text) {
+  text = _withoutBom(text);
   final id = decisionNumber(file);
   IndexDecision unreadable(String problem) =>
       IndexDecision.unreadable(file: file, id: id, problem: problem);
@@ -402,7 +405,7 @@ IndexDecision parseDecision(String file, String text) {
 /// each line at most 160 characters.
 List<String> currentWorkLines(String text) {
   final lines = [
-    for (final line in const LineSplitter().convert(text))
+    for (final line in const LineSplitter().convert(_withoutBom(text)))
       _cap(line.trimRight(), 160),
   ];
   while (lines.isNotEmpty && lines.first.isEmpty) {
@@ -413,6 +416,11 @@ List<String> currentWorkLines(String text) {
   }
   return lines;
 }
+
+/// [text] without a leading byte order mark (Windows PowerShell 5.1 writes
+/// one).
+String _withoutBom(String text) =>
+    text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? text.substring(1) : text;
 
 /// [text] with each run of white space as one space.
 String _oneLine(String text) => text.replaceAll(RegExp(r'\s+'), ' ').trim();

@@ -157,6 +157,24 @@ void main() {
       );
     });
 
+    test('an id with any \$ (\${VAR} or \$VAR) is unknown, never shown', () {
+      for (final id in [
+        r'com.example.app${BUNDLE_SUFFIX}',
+        r'com.example.$SUFFIX',
+      ]) {
+        expect(
+          appIdLines(config(ios: ios({'Debug': found(id)}))).single,
+          'iOS bundle id: unknown; see `map/native.json`',
+        );
+      }
+      expect(
+        appIdLines(
+          config(android: android(found(r'com.example${APP_SUFFIX}'))),
+        ).single,
+        'Android applicationId: unknown; see `map/native.json`',
+      );
+    });
+
     test('a platform without its folder has no line; a failed pack says '
         'unknown', () {
       expect(
@@ -255,6 +273,17 @@ void main() {
       expect(decision.status, 'proposed');
     });
 
+    test('a leading BOM (Windows PowerShell writes one) is ignored', () {
+      final bom = String.fromCharCode(0xFEFF);
+      final decision = parseDecision(
+        '0006-x.md',
+        '$bom---\r\ntitle: Use provider\r\nstatus: accepted\r\n---\r\n',
+      );
+      expect(decision.problem, isNull);
+      expect(decision.title, 'Use provider');
+      expect(decision.status, 'accepted');
+    });
+
     test('a very long title is shortened to 120 characters', () {
       final decision = parseDecision(
         '0004-x.md',
@@ -295,6 +324,14 @@ void main() {
       ['# Goal', '', 'Ship it.', '${'x' * 159}…'],
     );
     expect(currentWorkLines('  \n\n'), isEmpty);
+  });
+
+  test('currentWorkLines ignores a leading BOM (Windows PowerShell writes '
+      'one)', () {
+    final bom = String.fromCharCode(0xFEFF);
+    final lines = currentWorkLines('$bom# Goal\r\nShip it.\r\n');
+    expect(lines, ['# Goal', 'Ship it.']);
+    expect(lines.first.codeUnitAt(0), isNot(0xFEFF));
   });
 
   group('readIndexSources', () {

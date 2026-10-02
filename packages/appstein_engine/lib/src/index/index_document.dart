@@ -291,7 +291,7 @@ void _notes(StringBuffer out, IndexInputs inputs, int shown) {
     final hidden = notes.length - shown;
     if (hidden > 0) {
       if (shown > 0) out.writeln();
-      out.writeln('…and ${_count(hidden, 'more note')}.');
+      out.writeln('…and ${_count(hidden, 'more note')}; ask `what_changed()`.');
     }
   }
   final counts = inputs.apiCounts;

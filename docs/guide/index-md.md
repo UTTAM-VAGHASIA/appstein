@@ -26,9 +26,9 @@ The heading is the project's name from `pubspec.yaml` (or "This project" when it
 Some details that are easy to get wrong:
 
 - **Platforms** are the folders that exist among `android`, `ios`, `linux`, `macos`, `web` and `windows`. That is how Flutter decides which platforms a project has.
-- **App ids are never guessed.** [`appIdLines`](../../packages/appstein_engine/lib/src/index/index_sources.dart) reads them from `native.json`, and anything that is not a plain found value is written `unknown; see map/native.json`.
+- **App ids are never guessed.** [`appIdLines`](../../packages/appstein_engine/lib/src/index/index_sources.dart) reads them from `native.json`, and anything that is not a plain found value is written ``unknown; see `map/native.json` ``.
   - Android's `applicationId` is the one in `defaultConfig`. When product flavors exist, the line says how many "may change it", because a flavor can override the id.
-  - iOS's id is read per Xcode configuration (Debug, Release, Profile), because `Info.plist` holds only `$(PRODUCT_BUNDLE_IDENTIFIER)`, which is a variable and not an id. If every configuration agrees, the line shows one id; if they differ, it lists each configuration with its id. A value that still has a `$(…)` in it is `unknown`.
+  - iOS's id is read per Xcode configuration (Debug, Release, Profile), because `Info.plist` holds only `$(PRODUCT_BUNDLE_IDENTIFIER)`, which is a variable and not an id. If every configuration agrees, the line shows one id; if they differ, it lists each configuration with its id. A value with a `$` anywhere in it (`$(X)`, `${X}` or `$X`) is `unknown`, because a real id can't contain one.
   - A platform folder that doesn't exist gives no line at all.
 - **Features** are ordered by number of screens (most first), then by name. A row shows the feature's folder and its main files: the screens' files, then the view models' files, at most two and then `…`. A feature with neither lists its files instead. Without `features.json` the section says why ("Not available: the project map was skipped: …", or "no stack pack, so no features"). A project with the file but no features says "None found."
 - **Version notes** show each note's summary only; the full text stays in `delta.md`. A note that needs a newer language version than the project's is left out, using the same test as `delta.md` (see [version-delta](version-delta.md)).
@@ -37,7 +37,7 @@ Some details that are easy to get wrong:
 
 ## The budget
 
-The cap is 1,500 tokens, counted as **UTF-8 bytes divided by 3**, so 4,500 bytes. Each model tokenizes differently and none of their tokenizers runs offline, so a fixed rule is the only way to get the same answer everywhere. Dividing by 3 over-counts on purpose: real English text is closer to four bytes per token, so the file ends up smaller than the cap in practice.
+The cap is 1,500 tokens, counted as **UTF-8 bytes divided by 3**, so 4,500 bytes. Each model tokenizes differently and none of their tokenizers runs offline, so a fixed rule is the only way to get the same answer everywhere. Dividing by 3 over-counts on purpose: code-heavy Markdown costs more tokens per byte than prose, and dividing by 3 still over-estimates it, so the real count stays under 1,500.
 
 The front matter counts too. [`indexBodyBudget`](../../packages/appstein_engine/lib/src/index/index_document.dart) subtracts the front matter's size from 4,500 to get what the text itself may use.
 
@@ -48,13 +48,13 @@ The front matter counts too. [`indexBodyBudget`](../../packages/appstein_engine/
 3. Features, down to 5 rows.
 4. Notes, down to 5.
 
-Each cut leaves a pointer to the tool that holds the rest, such as:
+Each of the four cuts leaves a pointer to the tool that holds the rest, such as:
 
 ```text
 …and 100 older decisions; ask `decisions()`.
 ```
 
-(The others are `…and N more; ask \`feature()\`.`, `…and N more notes.` and `…and N more lines; ask \`memory_read()\`.`) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
+(The others are ``…and N more; ask `feature()`.``, ``…and N more notes; ask `what_changed()`.`` and ``…and N more lines; ask `memory_read()`.``) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
 
 **The last resort.** If the text still doesn't fit with 5 features and 5 notes, features and then notes are cut below 5, one at a time, until it fits or none are left. Without this, a very long app id or layer list could push the file over the cap with nothing left to cut. If even that is not enough, the file is written as it is: the cap is a goal that the loop works toward, not a guarantee that clamps the text.
 
@@ -89,7 +89,7 @@ INDEX.md's input hash covers:
 - the packs' ids and versions;
 - the Appstein and format versions.
 
-So INDEX.md is rewritten exactly when something it summarizes changes: a file it is built from, a decision, or `current.md`. Syncing again with nothing changed writes no byte, `generatedAt` included. A hand-edited or damaged INDEX.md is put back, like every generated file (see [knowledge-store](knowledge-store.md#three-rules-every-generated-file-follows)).
+The hash is stored in INDEX.md's front matter, so any change to an input rewrites the file, even when no visible line changes: any Dart edit (through the map's hash), a decision's body, or a `pubspec.yaml` change that keeps the name. Syncing again with nothing changed writes no byte, `generatedAt` included. A hand-edited or damaged INDEX.md is put back, like every generated file (see [knowledge-store](knowledge-store.md#three-rules-every-generated-file-follows)).
 
 ## Tests
 
