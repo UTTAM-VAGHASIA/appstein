@@ -89,10 +89,23 @@ milestones:
             plan: 2026-10-02-slice-1b4-native-config.md
             pr: 10
             finished: 2026-10-02
+          # 1b.6 was split in three (owner decision, 2026-10-02): INDEX.md
+          # first, since it is the first knowledge that reaches agents.
           - id: 1b.6
-            title: Incremental sync, INDEX.md and package skills
-            summary: Sync that rebuilds only what changed, the always-in-view `INDEX.md`, and the package skills refresh.
+            title: INDEX.md
+            summary: The always-in-view `INDEX.md` (at most 1,500 tokens), built from the platform layer, the map and the delta.
+            status: done
+            plan: 2026-10-02-slice-1b6-index-md.md
+            pr: 11
+            finished: 2026-10-02
+          - id: 1b.7
+            title: Incremental sync
+            summary: "`sync --changed` and `--detect`: rebuild only what changed, under 2 s, with per-file hashes and a persistent analyzer cache."
             status: next
+          - id: 1b.8
+            title: Package skills
+            summary: "`sync` runs `dart run skills@ get` when `pubspec.yaml` or `pubspec.lock` changes, and warns when it can't."
+            status: planned
       - id: 1c
         title: MCP server
         summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.

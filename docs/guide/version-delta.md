@@ -15,7 +15,7 @@
 | Moved libraries | Libraries a migration moves, such as `package:flutter/material.dart` to `material_ui` | `fix_data` migrations with a `library:` |
 | Not read | Migration files Appstein couldn't read, and why | |
 
-Deprecated and Removed are grouped by package (`dart:core`, `package:flutter`, `package:go_router`), never by Flutter's private `src/` files, which no one should import. Each line quotes the library. Appstein adds only the section intros, the words `removed` and `changed`, and the rule of each deprecation kind. It also puts a full stop after a message or a migration title that has none when more text follows, and it joins a title, an unread reason or a skip reason onto one line, so a line break can't break a Markdown list. The curated notes are printed as written.
+Deprecated and Removed are grouped by package (`dart:core`, `package:flutter`, `package:go_router`), never by Flutter's private `src/` files, which no one should import. Each line quotes the library. `needsNewerLanguage` decides which notes need a newer language version; `INDEX.md` uses the same test to leave those notes out of its version notes (see [index-md](index-md.md)). Appstein adds only the section intros, the words `removed` and `changed`, and the rule of each deprecation kind. It also puts a full stop after a message or a migration title that has none when more text follows, and it joins a title, an unread reason or a skip reason onto one line, so a line break can't break a Markdown list. The curated notes are printed as written.
 
 ## Why every deprecation is listed, whatever its age
 

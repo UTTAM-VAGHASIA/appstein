@@ -94,6 +94,7 @@ void main() {
       'platform/toolchain.json': true,
       'platform/delta.md': true,
       for (final path in MapFiles.all) path: true,
+      'INDEX.md': true,
     });
     expect(report.map!.packages, PackagesAction.upToDate);
     expect(report.map!.skipped, isNull);
@@ -109,6 +110,7 @@ void main() {
         'platform/toolchain.json',
         'platform/delta.md',
         ...MapFiles.all,
+        'INDEX.md',
       ]),
     );
     final meta = KnowledgeMeta.fromJson(
@@ -162,12 +164,14 @@ void main() {
       'platform/sdk.json',
       'platform/toolchain.json',
       'platform/delta.md',
+      'INDEX.md',
     ]);
     expect(report.map!.packages, PackagesAction.fetchFailed);
     expect(report.map!.packagesReason, contains('Could not reach pub.dev.'));
     expect(report.map!.skipped, 'the packages could not be fetched');
     expect(Directory(p.join(app, '.appstein', 'map')).existsSync(), isFalse);
     expect((state(app)['files']! as Map).keys, [
+      'INDEX.md',
       'platform/delta.md',
       'platform/sdk.json',
       'platform/toolchain.json',
@@ -250,6 +254,7 @@ void main() {
       'platform/sdk.json',
       'platform/toolchain.json',
       'platform/delta.md',
+      'INDEX.md',
     ]);
     expect(report.map!.skipped, contains('pubspec.lock is not valid YAML'));
     expect(report.map!.skipped, contains('flutter pub get'));
@@ -281,6 +286,7 @@ void main() {
         file.path: file.readAsStringSync(),
     }, before);
     expect((state(app)['files']! as Map).keys, [
+      'INDEX.md',
       'platform/delta.md',
       'platform/sdk.json',
       'platform/toolchain.json',
@@ -340,6 +346,7 @@ void main() {
       MapFiles.deps,
       MapFiles.layers,
       MapFiles.symbols,
+      'INDEX.md',
     ]);
     final layers = LayersMap.fromJson(readMapBody(app, 'layers.json'));
     expect(layers.violations, isEmpty);
@@ -621,5 +628,194 @@ void main() {
         expect(report.files.keys, containsAll(MapFiles.all));
       },
     );
+  });
+
+  group('INDEX.md', () {
+    const platformPacks = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
+
+    String index(String project) =>
+        File(p.join(project, '.appstein', 'INDEX.md')).readAsStringSync();
+
+    void write(String project, String path, String text) =>
+        File(p.joinAll([project, ...path.split('/')]))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(text);
+
+    String appWithNative() {
+      final app = copyFixtureApp();
+      for (final folder in ['android', 'ios']) {
+        copyFixtureTree(p.join(nativeTemplateDir, folder), p.join(app, folder));
+      }
+      return app;
+    }
+
+    test('the first sync writes INDEX.md last, within 4,500 bytes, from the '
+        'map, native.json and the notes', () async {
+      final app = appWithNative();
+      final report = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(report.files.keys.last, 'INDEX.md');
+      expect(report.files['INDEX.md'], isTrue);
+      expect((state(app)['files']! as Map).keys, contains('INDEX.md'));
+      final text = index(app);
+      expect(utf8.encode(text).length, lessThanOrEqualTo(indexByteBudget));
+      final meta = readFrontMatter(text)!;
+      expect(meta.generatedAt, '2026-10-01T09:00:00Z');
+      expect(meta.sdkVersion, '3.47.5');
+      final sdk = report.sdk;
+      final firstNote = deltaNotes(
+        CuratedNotes.bundled(),
+        flutterVersion: '3.47.5',
+        baseline: '3.16',
+      ).firstWhere((note) => !needsNewerLanguage(note, sdk.languageVersion));
+      for (final line in [
+        '# fixture_app',
+        '- Flutter 3.47.5 (${sdk.channel} channel), Dart ${sdk.dartVersion}, '
+            'language version 3.12',
+        '- Stack pack: `official_mvvm`',
+        '- Platforms: android, ios',
+        '- Android applicationId: `dev.sample.probe_app`',
+        '- iOS bundle id: `dev.sample.probeApp`',
+        '| `auth/login` | 1 | `lib/ui/auth/login/`: '
+            'widgets/login_screen.dart, view_models/login_viewmodel.dart |',
+        '| `home` | 1 | `lib/ui/home/`: widgets/home_screen.dart, '
+            'view_models/home_viewmodel.dart |',
+        '- `ui`: `lib/ui/**`',
+        '- **${firstNote.id}** (priority ${firstNote.priority}): ',
+        '`platform/delta.md` also lists ',
+        '## Decisions\n\nNone recorded yet.\n',
+        '## Current work\n\nNone recorded yet.\n',
+        'Synced by Appstein 0.1.0-dev for Flutter 3.47.5.',
+      ]) {
+        expect(text, contains(line));
+      }
+    });
+
+    test('a second sync leaves INDEX.md; a decision or current.md rewrites '
+        'only INDEX.md', () async {
+      final app = appWithNative();
+      await sync(packs: platformPacks).run(app, dartSdkPath: testDartSdk);
+      final second = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(second.files.values, everyElement(isFalse));
+      write(
+        app,
+        '.appstein/decisions/0001-state.md',
+        '---\ntitle: State management with provider + ChangeNotifier\n'
+            'status: accepted\n---\nWhy: Flutter recommends it.\n',
+      );
+      write(
+        app,
+        '.appstein/decisions/0002-old.md',
+        '---\ntitle: Old idea\nstatus: superseded\n---\n',
+      );
+      write(
+        app,
+        '.appstein/memory/current.md',
+        '# Booking export\n\nStatus: tests written.\n',
+      );
+      final third = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(
+        {
+          for (final MapEntry(:key, :value) in third.files.entries)
+            if (value) key,
+        },
+        {'INDEX.md'},
+      );
+      final text = index(app);
+      expect(
+        text,
+        contains(
+          '- 0001 State management with provider + ChangeNotifier '
+          '(accepted): [0001-state.md](<decisions/0001-state.md>)',
+        ),
+      );
+      expect(text, isNot(contains('Old idea')));
+      expect(
+        text,
+        contains('> # Booking export\n>\n> Status: tests written.\n'),
+      );
+    });
+
+    test('a hand-edited INDEX.md is put back, and only it', () async {
+      final app = appWithNative();
+      await sync(packs: platformPacks).run(app, dartSdkPath: testDartSdk);
+      File(
+        p.join(app, '.appstein', 'INDEX.md'),
+      ).writeAsStringSync('# edited\n');
+      final second = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(
+        {
+          for (final MapEntry(:key, :value) in second.files.entries)
+            if (value) key,
+        },
+        {'INDEX.md'},
+      );
+      expect(index(app), contains('# fixture_app'));
+    });
+
+    test('when the map is skipped, INDEX.md is still written and says '
+        'why', () async {
+      final app = appWithNative();
+      File(p.join(app, '.dart_tool', 'package_config.json')).deleteSync();
+      runner.when(flutter(), [
+        'pub',
+        'get',
+      ], const RunResult(exitCode: 69, stderr: 'Could not reach pub.dev.'));
+      final report = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(report.files['INDEX.md'], isTrue);
+      final text = index(app);
+      expect(
+        text,
+        contains(
+          'Not available: the project map was skipped: the packages could '
+          'not be fetched.',
+        ),
+      );
+      expect(
+        text,
+        contains(
+          '`platform/delta.md` has no API lists this time; it says why. Ask '
+          '`what_changed()`.',
+        ),
+      );
+      expect(text, contains('- Android applicationId: `dev.sample.probe_app`'));
+    });
+
+    test('many decisions and a long current.md still fit in 4,500 bytes, '
+        'front matter included', () async {
+      final app = appWithNative();
+      for (var i = 1; i <= 150; i++) {
+        write(
+          app,
+          '.appstein/decisions/${'$i'.padLeft(4, '0')}-decision.md',
+          '---\ntitle: Decision number $i about a part of the app, with a '
+              'long title\nstatus: accepted\n---\n',
+        );
+      }
+      write(
+        app,
+        '.appstein/memory/current.md',
+        [
+          for (var i = 1; i <= 300; i++)
+            'Line $i of the current task, with enough words to be long.',
+        ].join('\n'),
+      );
+      await sync(packs: platformPacks).run(app, dartSdkPath: testDartSdk);
+      final text = index(app);
+      expect(utf8.encode(text).length, lessThanOrEqualTo(indexByteBudget));
+      expect(text, contains('; ask `memory_read()`.'));
+      expect(text, contains('; ask `decisions()`.'));
+      // The fixture has 5 features, the floor, so all of them stay.
+      expect(text, contains('| `settings` |'));
+    });
   });
 }
