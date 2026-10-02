@@ -9,6 +9,7 @@ import '../host/file_errors.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../knowledge/generated_file.dart';
+import '../knowledge/sync_timings.dart';
 import '../packs/pack.dart';
 import 'analyzer_cache.dart';
 import 'dependencies.dart';
@@ -158,22 +159,32 @@ final class MapSync {
   /// With a [cache], the analyzer keeps its work there. An error inside the
   /// analyzer while using the cache makes it analyze once more with an empty
   /// cache ([MapBuild.cacheRetry]).
+  ///
+  /// [timings] hears how long each step took.
   Future<MapBuild> build(
     String projectRoot, {
     required String flutterVersion,
     required String flutterRoot,
     String? dartSdkPath,
     AnalyzerCache? cache,
+    SyncTimings? timings,
   }) async {
-    var status = checkPackages(projectRoot, flutterVersion: flutterVersion);
+    final timed = timings ?? SyncTimings();
+    var status = timed.time(
+      'packages check',
+      () => checkPackages(projectRoot, flutterVersion: flutterVersion),
+    );
     final reason = status.reason;
     var action = PackagesAction.upToDate;
     if (!status.fresh) {
-      final failure = await fetchPackages(
-        projectRoot,
-        flutterRoot: flutterRoot,
-        os: environment.os,
-        runner: runner,
+      final failure = await timed.timeAsync(
+        'flutter pub get',
+        () => fetchPackages(
+          projectRoot,
+          flutterRoot: flutterRoot,
+          os: environment.os,
+          runner: runner,
+        ),
       );
       if (failure != null) {
         return MapBuild(
@@ -187,7 +198,10 @@ final class MapSync {
       }
       action = PackagesAction.fetched;
       // A first fetch may have created the workspace reference.
-      status = checkPackages(projectRoot, flutterVersion: flutterVersion);
+      status = timed.time(
+        'packages check',
+        () => checkPackages(projectRoot, flutterVersion: flutterVersion),
+      );
     }
 
     final sdk = dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk');
@@ -203,6 +217,7 @@ final class MapSync {
             sdk: sdk,
             cache: cache,
             retried: retried,
+            timings: timed,
           ),
         );
     try {
@@ -234,24 +249,31 @@ final class MapSync {
     required String sdk,
     required AnalyzerCache? cache,
     required String? retried,
+    required SyncTimings timings,
   }) async {
     // Read before the analysis, not after: a file edited while it runs must
     // leave the old hash behind, so the next `sync --detect` rebuilds.
-    final inputs = readMapInputs(
-      projectRoot,
-      workspaceRoot: status.workspaceRoot,
-      flutterVersion: flutterVersion,
-      flutterRoot: flutterRoot,
-      packs: packs,
-      appsteinVersion: appsteinVersion,
-      environment: environment,
+    final inputs = timings.time(
+      'map inputs',
+      () => readMapInputs(
+        projectRoot,
+        workspaceRoot: status.workspaceRoot,
+        flutterVersion: flutterVersion,
+        flutterRoot: flutterRoot,
+        packs: packs,
+        appsteinVersion: appsteinVersion,
+        environment: environment,
+      ),
     );
     final ProjectAnalysis analysis;
     try {
-      analysis = await ProjectAnalysis.analyze(
-        projectRoot,
-        dartSdkPath: sdk,
-        cache: cache,
+      analysis = await timings.timeAsync(
+        'analysis',
+        () => ProjectAnalysis.analyze(
+          projectRoot,
+          dartSdkPath: sdk,
+          cache: cache,
+        ),
       );
     } on ProjectAnalysisException catch (error) {
       return MapBuild(
@@ -264,6 +286,7 @@ final class MapSync {
       );
     }
     try {
+      final extracting = Stopwatch()..start();
       final bodies = <String, Map<String, Object?>>{};
       for (final pack in packs) {
         for (final extractor in pack.extractors) {
@@ -308,6 +331,7 @@ final class MapSync {
         featureOf: featureOf,
       ).toJson();
       bodies[MapFiles.deps] = buildDeps(analysis, lockFile: lockFile).toJson();
+      timings.add('extractors', extracting.elapsed);
       // While the analysis is still open: the delta walks what the imports
       // expose.
       // Any failure here (an analyzer internal, a bug) must not cost the
@@ -317,7 +341,10 @@ final class MapSync {
       String? deltaError;
       String? deltaErrorType;
       try {
-        delta = await deltaCollector(analysis, dartSdkPath: sdk);
+        delta = await timings.timeAsync(
+          'delta facts',
+          () => deltaCollector(analysis, dartSdkPath: sdk),
+        );
       } on Object catch (error) {
         delta = null;
         deltaError = '$error';
@@ -366,7 +393,7 @@ final class MapSync {
         ),
       );
     } finally {
-      await analysis.dispose();
+      await timings.timeAsync('analysis dispose', analysis.dispose);
     }
   }
 }

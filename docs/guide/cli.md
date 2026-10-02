@@ -75,6 +75,8 @@ The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. 
 
 `appstein sync` has one option, **`--detect`**: rebuild only when something the knowledge reads changed, found by content hash. It is what an agent's after-edit hook runs (see [incremental-sync](incremental-sync.md)). Without it, `sync` always rebuilds. There is no `--changed` option: the change list is found by hash, not given by the caller (spec §5.3), and passing `--changed` is a usage error.
 
+A second flag, **`--timings`**, is a measuring aid and is hidden from the help. After the report, it adds one line per step of the sync, `timing <ms> ms  <step>`, from `SyncReport.timings` ([`formatTimings`](../../packages/appstein_cli/lib/src/sync_command.dart)). [`tool/measure_sync.dart`](../../tool/measure_sync.dart) passes it to break each sync's time down (see [incremental-sync](incremental-sync.md#where-the-time-goes)).
+
 [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) does four things:
 
 1. **Finds the project** (`--project` or the nearest `pubspec.yaml`).

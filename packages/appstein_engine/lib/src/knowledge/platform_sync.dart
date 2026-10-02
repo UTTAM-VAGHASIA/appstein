@@ -45,7 +45,12 @@ final class SyncReport {
     this.current = false,
     this.changed = const [],
     this.rebuiltBecause = const [],
+    this.timings = const {},
   });
+
+  /// How long each step took, in the order the steps first ran
+  /// (`SyncTimings`); empty when nothing timed the sync.
+  final Map<String, Duration> timings;
 
   /// True when `sync --detect` found nothing changed, so nothing was rebuilt
   /// or written; [files] is then empty.

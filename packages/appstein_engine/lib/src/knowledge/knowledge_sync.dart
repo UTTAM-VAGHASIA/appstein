@@ -24,6 +24,7 @@ import 'knowledge_lock.dart';
 import 'knowledge_store.dart';
 import 'knowledge_write_exception.dart';
 import 'platform_sync.dart';
+import 'sync_timings.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2, §6.3): the platform
 /// layer, the version delta, the project map, the native config and
@@ -117,11 +118,15 @@ final class KnowledgeSync {
     String projectRoot, {
     SdkDetection? sdk,
     String? dartSdkPath,
-  }) async => _rebuild(
-    projectRoot,
-    _prepare(projectRoot, sdk: sdk),
-    dartSdkPath: dartSdkPath,
-  );
+  }) async {
+    final timings = SyncTimings();
+    return _rebuild(
+      projectRoot,
+      _prepare(projectRoot, sdk: sdk, timings: timings),
+      dartSdkPath: dartSdkPath,
+      timings: timings,
+    );
+  }
 
   /// `appstein sync --detect` (spec §5.3, §5.4): rebuilds, as [run] does,
   /// only when [freshness] finds something changed, saying why in
@@ -140,19 +145,25 @@ final class KnowledgeSync {
     SdkDetection? sdk,
     String? dartSdkPath,
   }) async {
-    final prepared = _prepare(projectRoot, sdk: sdk);
-    final freshness = _freshness(projectRoot, prepared);
+    final timings = SyncTimings();
+    final prepared = _prepare(projectRoot, sdk: sdk, timings: timings);
+    final freshness = timings.time(
+      'freshness',
+      () => _freshness(projectRoot, prepared),
+    );
     if (!freshness.current) {
       return _rebuild(
         projectRoot,
         prepared,
         dartSdkPath: dartSdkPath,
         reasons: freshness.reasons,
+        timings: timings,
       );
     }
     final checked = freshness.state!;
     if (checked.changed.isNotEmpty) {
       final store = KnowledgeStore(projectRoot, clock: _clock);
+      final clearing = Stopwatch()..start();
       try {
         await store.locked(() async {
           final now = store.readState().state;
@@ -177,6 +188,7 @@ final class KnowledgeSync {
         // check above would no longer match; the list is emptied by a later
         // detect.
       }
+      timings.add('change list clear', clearing.elapsed);
     }
     final platform = prepared.platform;
     return SyncReport(
@@ -185,6 +197,7 @@ final class KnowledgeSync {
       newestNotes: platform.newestNotes,
       fallbacks: platform.fallbacks,
       current: true,
+      timings: timings.steps,
     );
   }
 
@@ -201,48 +214,79 @@ final class KnowledgeSync {
   /// - a file's bytes differ from what was written.
   ///
   /// Throws `SyncException` when no usable SDK is found.
-  Freshness freshness(String projectRoot, {SdkDetection? sdk}) =>
-      _freshness(projectRoot, _prepare(projectRoot, sdk: sdk));
+  Freshness freshness(String projectRoot, {SdkDetection? sdk}) => _freshness(
+    projectRoot,
+    _prepare(projectRoot, sdk: sdk, timings: SyncTimings()),
+  );
 
-  _Prepared _prepare(String projectRoot, {SdkDetection? sdk}) {
-    final platform = PlatformSync(
-      environment: environment,
-      appsteinVersion: appsteinVersion,
-      notes: notes,
-      clock: _clock,
-    ).build(projectRoot, sdk: sdk);
-    final packages = checkPackages(
-      projectRoot,
-      flutterVersion: platform.sdk.flutterVersion,
+  _Prepared _prepare(
+    String projectRoot, {
+    required SyncTimings timings,
+    SdkDetection? sdk,
+  }) {
+    final platform = timings.time(
+      'platform',
+      () => PlatformSync(
+        environment: environment,
+        appsteinVersion: appsteinVersion,
+        notes: notes,
+        clock: _clock,
+      ).build(projectRoot, sdk: sdk),
+    );
+    final packages = timings.time(
+      'packages check',
+      () => checkPackages(
+        projectRoot,
+        flutterVersion: platform.sdk.flutterVersion,
+      ),
     );
     return _Prepared(
       platform: platform,
       packages: packages,
-      mapInputs: readMapInputs(
-        projectRoot,
-        workspaceRoot: packages.workspaceRoot,
-        flutterVersion: platform.sdk.flutterVersion,
-        flutterRoot: platform.location.root,
-        packs: packs,
-        appsteinVersion: appsteinVersion,
-        environment: environment,
+      mapInputs: timings.time(
+        'map inputs',
+        () => readMapInputs(
+          projectRoot,
+          workspaceRoot: packages.workspaceRoot,
+          flutterVersion: platform.sdk.flutterVersion,
+          flutterRoot: platform.location.root,
+          packs: packs,
+          appsteinVersion: appsteinVersion,
+          environment: environment,
+        ),
       ),
-      native: _native(projectRoot, platform),
-      sources: readIndexSources(projectRoot),
+      native: timings.time(
+        'native config',
+        () => _native(projectRoot, platform),
+      ),
+      sources: timings.time(
+        'INDEX.md sources',
+        () => readIndexSources(projectRoot),
+      ),
     );
   }
 
   Future<SyncReport> _rebuild(
     String projectRoot,
     _Prepared prepared, {
+    required SyncTimings timings,
     String? dartSdkPath,
     List<String> reasons = const [],
   }) async {
     final platform = prepared.platform;
-    final store = KnowledgeStore(projectRoot, clock: _clock);
-    final previous = store.readState().state;
+    final store = KnowledgeStore(
+      projectRoot,
+      clock: _clock,
+      onReplace: (timing) => timings
+        ..add('  knowledge: temp files', timing.write)
+        ..add('  knowledge: renames', timing.rename),
+    );
+    final previous = timings.time('read state', () => store.readState().state);
     final cache = analyzerCache
-        ? AnalyzerCache.open(analyzerCachePath(projectRoot))
+        ? timings.time(
+            'analyzer cache load',
+            () => AnalyzerCache.open(analyzerCachePath(projectRoot)),
+          )
         : null;
     final map =
         await MapSync(
@@ -257,25 +301,37 @@ final class KnowledgeSync {
           flutterRoot: platform.location.root,
           dartSdkPath: dartSdkPath,
           cache: cache,
+          timings: timings,
         );
     // Native config needs no analysis, so it is built even when the map was
     // skipped. It runs after MapSync because a `flutter pub get` the map ran
     // rewrites the generated Package.swift it reads.
-    final native = _native(projectRoot, platform);
-    final delta = _delta(platform, map);
+    final native = timings.time(
+      'native config',
+      () => _native(projectRoot, platform),
+    );
+    final delta = timings.time('delta', () => _delta(platform, map));
     // Last: it summarizes the other files.
-    final index = _index(platform, map, native, delta, prepared.sources);
+    final index = timings.time(
+      'INDEX.md',
+      () => _index(platform, map, native, delta, prepared.sources),
+    );
     // The map read its inputs after any fetch, which may change
     // pubspec.lock.
     final sources = map.inputs?.sources ?? prepared.mapInputs.sources;
     final changed = changedSources(previous?.sources, sources);
+    final asked = Stopwatch()..start();
     return store.locked(() async {
-      final files = await store.writeAll(
-        [...platform.files, delta, ...map.files, ?native.file, index],
-        appsteinVersion: appsteinVersion,
-        sdkVersion: platform.sdk.flutterVersion,
-        sources: sources,
-        changed: changed,
+      timings.add('lock wait', asked.elapsed);
+      final files = await timings.timeAsync(
+        'knowledge write',
+        () => store.writeAll(
+          [...platform.files, delta, ...map.files, ?native.file, index],
+          appsteinVersion: appsteinVersion,
+          sdkVersion: platform.sdk.flutterVersion,
+          sources: sources,
+          changed: changed,
+        ),
       );
       // After the knowledge, inside the lock, so two syncs never write the
       // same temporary file. The cache only makes the next sync faster, so
@@ -283,7 +339,14 @@ final class KnowledgeSync {
       String? saveError;
       if (map.cache case final used? when used.changed) {
         try {
-          await used.save();
+          await timings.timeAsync(
+            'analyzer cache save',
+            () => used.save(
+              onTimed: (timing) => timings
+                ..add('  cache: temp file', timing.write)
+                ..add('  cache: rename', timing.rename),
+            ),
+          );
         } on KnowledgeWriteException catch (error) {
           saveError = error.reason;
           // The cache must never fail a sync: the knowledge is already
@@ -311,6 +374,7 @@ final class KnowledgeSync {
                 retried: map.cacheRetry,
                 saveError: saveError,
               ),
+        timings: timings.steps,
       );
     }, timeout: lockTimeout);
   }

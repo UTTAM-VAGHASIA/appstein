@@ -116,6 +116,38 @@ void main() {
     expect(text, contains('Rebuilt because no sync has run here yet.\n'));
   });
 
+  test('--timings adds a line per step after the report; without it there '
+      'are none', () async {
+    expect(await run(['sync', '--timings']), ExitCodes.ok, reason: '$err');
+    final lines = out.toString().split('\n');
+    final timings = lines.where((line) => line.startsWith('timing ')).toList();
+    expect(timings, isNotEmpty);
+    // A part of the step before it keeps its two-space indent.
+    expect(
+      timings,
+      everyElement(matches(RegExp(r'^timing +\d+ ms  (  )?\S.*$'))),
+    );
+    expect(
+      timings.indexWhere((line) => line.endsWith('ms  knowledge write')),
+      lessThan(timings.indexWhere((line) => line.contains('    knowledge: '))),
+    );
+    expect(timings, contains(matches(RegExp(r'ms  platform$'))));
+    // After the report.
+    expect(
+      lines.indexOf(timings.first),
+      greaterThan(lines.indexWhere((line) => line.startsWith('Curated notes'))),
+    );
+    out.clear();
+    expect(await run(['sync']), ExitCodes.ok);
+    expect(out.toString(), isNot(contains('timing ')));
+  });
+
+  test('--timings is a measuring aid, left out of the help', () async {
+    expect(await run(['sync', '--help']), ExitCodes.ok);
+    expect(out.toString(), contains('--detect'));
+    expect(out.toString(), isNot(contains('--timings')));
+  });
+
   test('--changed is no longer an option (spec §5.3)', () async {
     expect(
       await run(['sync', '--changed', 'lib/main.dart']),

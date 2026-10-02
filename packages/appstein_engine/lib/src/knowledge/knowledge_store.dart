@@ -21,13 +21,21 @@ import 'markdown_front_matter.dart';
 /// and replaces files in one step.
 final class KnowledgeStore {
   /// The store of the project at [projectRoot]. [clock] gives the time to
-  /// record (the real time by default).
-  KnowledgeStore(String projectRoot, {DateTime Function()? clock})
-    : folder = p.join(projectRoot, '.appstein'),
-      _clock = clock ?? DateTime.now;
+  /// record (the real time by default). [onReplace] hears how long each file
+  /// it writes took ([replaceFile]'s `onTimed`).
+  KnowledgeStore(
+    String projectRoot, {
+    DateTime Function()? clock,
+    this.onReplace,
+  }) : folder = p.join(projectRoot, '.appstein'),
+       _clock = clock ?? DateTime.now;
 
   /// The `.appstein/` folder.
   final String folder;
+
+  /// Hears how long each file this store writes took; null when nobody is
+  /// timing it.
+  final void Function(ReplaceTiming timing)? onReplace;
 
   final DateTime Function() _clock;
 
@@ -100,7 +108,7 @@ final class KnowledgeStore {
       return (false, stored.text);
     }
     final text = textWith(now());
-    await replaceFile(target, text);
+    await replaceFile(target, text, onTimed: onReplace);
     return (true, text);
   }
 
@@ -150,13 +158,16 @@ final class KnowledgeStore {
       return (false, stored.text);
     }
     final text = textWith(now());
-    await replaceFile(target, text);
+    await replaceFile(target, text, onTimed: onReplace);
     return (true, text);
   }
 
   /// Writes `state.json`. Call it inside [locked], like [writeGenerated].
-  Future<void> writeState(KnowledgeState state) =>
-      replaceFile(_pathOf('state.json'), canonicalJson(state.toJson()));
+  Future<void> writeState(KnowledgeState state) => replaceFile(
+    _pathOf('state.json'),
+    canonicalJson(state.toJson()),
+    onTimed: onReplace,
+  );
 
   /// Writes each of [files] (JSON with [writeGenerated], Markdown with
   /// [writeGeneratedMarkdown]), then `state.json` listing
@@ -284,23 +295,30 @@ final class KnowledgeStore {
   }
 }
 
+/// How long one [replaceFile] took: writing the temporary file, and renaming
+/// it over the target, with how many renames failed and were retried.
+typedef ReplaceTiming = ({Duration write, Duration rename, int retries});
+
 /// Replaces the file at [path] with [contents] in one step: it writes
 /// `<path>.tmp` and renames it over [path], creating folders as needed, so
 /// a reader sees either the old file or the new one, never half of one.
 ///
 /// Windows refuses to rename over a file another program has open, so the
 /// rename is retried every [retryEvery] for up to [retryFor]. Throws a
-/// [KnowledgeWriteException] when it still fails.
+/// [KnowledgeWriteException] when it still fails. [onTimed] hears how long
+/// a replace that worked took.
 Future<void> replaceFile(
   String path,
   String contents, {
   Duration retryFor = const Duration(seconds: 2),
   Duration retryEvery = const Duration(milliseconds: 20),
+  void Function(ReplaceTiming timing)? onTimed,
 }) => _replace(
   path,
   (temp) => temp.writeAsStringSync(contents, flush: true),
   retryFor: retryFor,
   retryEvery: retryEvery,
+  onTimed: onTimed,
 );
 
 /// Replaces the file at [path] with [bytes] in one step, as [replaceFile]
@@ -310,11 +328,13 @@ Future<void> replaceFileBytes(
   List<int> bytes, {
   Duration retryFor = const Duration(seconds: 2),
   Duration retryEvery = const Duration(milliseconds: 20),
+  void Function(ReplaceTiming timing)? onTimed,
 }) => _replace(
   path,
   (temp) => temp.writeAsBytesSync(bytes, flush: true),
   retryFor: retryFor,
   retryEvery: retryEvery,
+  onTimed: onTimed,
 );
 
 Future<void> _replace(
@@ -322,8 +342,10 @@ Future<void> _replace(
   void Function(File temp) write, {
   required Duration retryFor,
   required Duration retryEvery,
+  required void Function(ReplaceTiming timing)? onTimed,
 }) async {
   final temp = File('$path.tmp');
+  final writing = Stopwatch()..start();
   try {
     File(path).parent.createSync(recursive: true);
     write(temp);
@@ -335,10 +357,13 @@ Future<void> _replace(
     }
     throw KnowledgeWriteException(path, fileErrorReason(error));
   }
+  final wrote = writing.elapsed;
   final waited = Stopwatch()..start();
+  var retries = 0;
   while (true) {
     try {
       temp.renameSync(path);
+      onTimed?.call((write: wrote, rename: waited.elapsed, retries: retries));
       return;
     } on FileSystemException catch (error) {
       if (waited.elapsed >= retryFor) {
@@ -354,6 +379,7 @@ Future<void> _replace(
           'have it open; close it and run `appstein sync` again.',
         );
       }
+      retries++;
       await Future<void>.delayed(retryEvery);
     }
   }

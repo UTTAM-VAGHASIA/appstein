@@ -379,6 +379,54 @@ void main() {
       expect(File('${target.path}.tmp').existsSync(), isFalse);
     }, testOn: 'windows');
 
+    test('onTimed reports the write and the rename, with no retries', () async {
+      final timings = <ReplaceTiming>[];
+      await replaceFile(
+        p.join(project, 'timed.json'),
+        'new',
+        onTimed: timings.add,
+      );
+      expect(timings, hasLength(1));
+      expect(timings.single.retries, 0);
+    });
+
+    test('onTimed counts the renames retried while another handle has the '
+        'file open', () async {
+      final target = File(p.join(project, 'target.json'))
+        ..writeAsStringSync('old');
+      final reader = target.openSync();
+      Timer(const Duration(milliseconds: 200), reader.closeSync);
+      final timings = <ReplaceTiming>[];
+      await replaceFile(target.path, 'new', onTimed: timings.add);
+      expect(timings.single.retries, greaterThan(0));
+      expect(
+        timings.single.rename >= const Duration(milliseconds: 150),
+        isTrue,
+      );
+    }, testOn: 'windows');
+
+    test('a store with onReplace reports every file it writes', () async {
+      final timings = <ReplaceTiming>[];
+      await KnowledgeStore(project, onReplace: timings.add).writeAll(
+        const [
+          GeneratedFile(
+            path: 'platform/sdk.json',
+            body: {'flutter': '3.47.5'},
+            inputHash: 'h1',
+          ),
+          GeneratedFile.markdown(
+            path: 'platform/delta.md',
+            markdown: '# Delta\n',
+            inputHash: 'h2',
+          ),
+        ],
+        appsteinVersion: '0.1.0-dev',
+        sdkVersion: '3.47.5',
+      );
+      // The two files and state.json.
+      expect(timings, hasLength(3));
+    });
+
     test('reports a parent that is a file', () async {
       File(p.join(project, 'blocker')).writeAsStringSync('');
       await expectLater(

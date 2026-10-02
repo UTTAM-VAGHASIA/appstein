@@ -2,6 +2,7 @@
 packages/appstein_engine/lib/src/map/analyzer_cache.dart
 packages/appstein_engine/lib/src/map/map_inputs.dart
 packages/appstein_engine/lib/src/knowledge/freshness.dart
+packages/appstein_engine/lib/src/knowledge/sync_timings.dart
 -->
 
 # Incremental sync
@@ -166,12 +167,23 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 
 At both sizes the tool still fails (exit 1) when a run is broken: a sync that fails, a run that isn't a real sync (a skipped map, unread native config), or an edit that isn't reported as changed. So a fast wrong answer can't pass.
 
+### Where the time goes
+
+A total alone can't say why a run is slow, and the slow run may be on a CI machine nobody can log in to. So every sync times its own steps, and the tool prints them as a second table, one column per full sync and edit.
+
+- [`SyncTimings`](../../packages/appstein_engine/lib/src/knowledge/sync_timings.dart) adds up each step's time, in the order the steps started. `KnowledgeSync` times its steps (the platform layer, the packages check, the map's inputs, the freshness check, the cache load and save, the knowledge write), and `MapSync.build` times its own (`flutter pub get`, the analysis, the extractors, the delta's facts, closing the analysis). The result is `SyncReport.timings`.
+- A name that starts with two spaces is **part of the step before it**: the temporary-file writes and renames inside the knowledge write and the cache save. They come from `replaceFile`'s `onTimed` (the store passes its `onReplace`), which also counts the renames Windows refused and that were retried. Only the other steps add up to the run.
+- The CLI prints the steps with the hidden `--timings` flag (see [cli](cli.md#appstein-sync)). The tool adds a row for the time outside every step, which is starting and ending the process.
+
+Timing costs a few stopwatch reads, so every sync does it, and the numbers are always there when a target is missed.
+
 ## Tests
 
 - `packages/appstein_engine/test/map/analyzer_cache_test.dart`: the file format (round trip, only used entries kept, sorted keys, every kind of damage), the path, the canary with the real analyzer, the version pin, and `catchAnalyzerErrors`.
 - `packages/appstein_engine/test/map/map_inputs_test.dart`: the input names, local packages, pub cache and SDK packages skipped, damaged package config, `pubCacheFolders`, that a moved project keeps its hash, and the walk: a linked folder (a junction on Windows), two links to one folder, a link loop, and (POSIX only) an unreadable folder beside hashed siblings.
 - `packages/appstein_engine/test/knowledge/knowledge_sync_cache_test.dart`: the cache is created and read, the knowledge is the same with a warm cache as with none, a damaged cache, garbage entries (the guard and the retry), a cache that can't be saved, and a skipped map.
 - `packages/appstein_engine/test/knowledge/knowledge_sync_detect_test.dart`: the freshness matrix. Nothing changed (and the change list emptied once, or left for later when the lock is busy), each kind of change, hand edits and a damaged or older `state.json`, a file edited while the sync analyzes, a skipped map tried again, an edit behind a linked folder, "current" reached with the Android and iOS packs and after a decision-file rebuild, native and other packs.
-- `packages/appstein_cli/test/sync_command_test.dart`: `--detect` and its report lines, and that `--changed` is not an option.
+- `packages/appstein_engine/test/knowledge/sync_timings_test.dart`: steps add up and keep their order, a step comes before its parts, and a step that throws is still timed. `knowledge_sync_detect_test.dart`'s "timings" group names the steps of a rebuild and of a "current" detect, and `knowledge_store_test.dart` checks `onTimed`, its retry count (Windows) and `onReplace`.
+- `packages/appstein_cli/test/sync_command_test.dart`: `--detect` and its report lines, that `--changed` is not an option, and `--timings` (its lines come after the report, and it is left out of the help).
 
 See [testing](testing.md) for how these tests are built, and [knowledge-store](knowledge-store.md) for how the files are written.

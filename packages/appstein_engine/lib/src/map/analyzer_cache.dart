@@ -240,8 +240,10 @@ final class AnalyzerCache {
   /// Writes the entries used since the cache was opened to [path], in one
   /// step, so the file never holds entries no run needs.
   ///
-  /// Throws a `KnowledgeWriteException` when it can't be written.
-  Future<void> save() => replaceFileBytes(path, encodeAnalyzerCache(_used));
+  /// Throws a `KnowledgeWriteException` when it can't be written. [onTimed]
+  /// hears how long writing and renaming the file took.
+  Future<void> save({void Function(ReplaceTiming timing)? onTimed}) =>
+      replaceFileBytes(path, encodeAnalyzerCache(_used), onTimed: onTimed);
 }
 
 /// The analyzer's view of an [AnalyzerCache].

@@ -22,8 +22,9 @@ import 'package:path/path.dart' as p;
 ///   fvm dart run tool/measure_sync.dart
 ///
 /// The first sync of each app fetches its packages (go_router needs the
-/// network). Prints a Markdown table, and exits 1 when a held row misses its
-/// target or a check fails.
+/// network). Prints a Markdown table, then a second one with where the time
+/// of each full sync and edit went, step by step (`appstein sync --timings`),
+/// and exits 1 when a held row misses its target or a check fails.
 Future<void> main() async {
   final flutterRoot = _flutterRoot();
   if (flutterRoot == null) {
@@ -43,6 +44,8 @@ Future<void> main() async {
       return;
     }
     final columns = <int, Map<String, Duration>>{};
+    // The runs whose steps the second table breaks down.
+    final broken = <String, _Run>{};
     var missed = <String>[];
     for (final (files, held) in const [(200, true), (1000, false)]) {
       final app = p.join(work.path, 'app $files');
@@ -70,6 +73,7 @@ Future<void> main() async {
         return;
       }
       times['full'] = full.elapsed;
+      broken['full, $files'] = full;
 
       // The first detect empties the change list the full sync recorded;
       // the second is what a hook sees after a command that changed nothing.
@@ -102,6 +106,7 @@ Future<void> main() async {
         return;
       }
       times['viewModel'] = edited.elapsed;
+      broken['view model edit, $files'] = edited;
 
       _edit(
         p.join(app, 'lib', 'routing', 'router.dart'),
@@ -115,6 +120,7 @@ Future<void> main() async {
         return;
       }
       times['router'] = router.elapsed;
+      broken['router edit, $files'] = router;
 
       if (held) {
         missed = [
@@ -142,6 +148,7 @@ ${line('**`sync --detect`, nothing changed** (target under 2 s)', 'unchanged')}
 ${line('**`sync --detect` after editing a view model** (target under 2 s)', 'viewModel')}
 ${line('`sync --detect` after editing the router', 'router')}
 ''');
+    stdout.writeln(_breakdown(broken));
     if (missed.isNotEmpty) {
       stderr.writeln('Spec §15 targets missed on the 200-file app:');
       for (final miss in missed) {
@@ -160,7 +167,38 @@ ${line('`sync --detect` after editing the router', 'router')}
   }
 }
 
-/// One `appstein sync` process: its exit code, output and time.
+/// The second table: where each of [runs]' time went, one column per run
+/// and one row per step `appstein sync --timings` reported (a part of the
+/// step above it is indented), then the time outside every step (starting
+/// and ending the process) and the whole run.
+String _breakdown(Map<String, _Run> runs) {
+  final steps = <String>{for (final run in runs.values) ...run.steps.keys};
+  String cell(_Run run, String step) =>
+      run.steps.containsKey(step) ? '${run.steps[step]} ms' : '';
+  String outside(_Run run) {
+    final inSteps = run.steps.entries
+        .where((step) => !step.key.startsWith('  '))
+        .fold(0, (sum, step) => sum + step.value);
+    return '${run.elapsed.inMilliseconds - inSteps} ms';
+  }
+
+  final names = runs.keys.toList();
+  return [
+    '| Where the time went (${Platform.operatingSystem}) | '
+        '${names.join(' | ')} |',
+    '|---|${[for (final _ in names) '---|'].join()}',
+    for (final step in steps)
+      '| ${step.startsWith('  ') ? '&nbsp;&nbsp;' : ''}${step.trim()} | '
+          '${[for (final run in runs.values) cell(run, step)].join(' | ')} |',
+    '| outside every step (process start and exit) | '
+        '${[for (final run in runs.values) outside(run)].join(' | ')} |',
+    '| **the whole run** | '
+        '${[for (final run in runs.values) '${run.elapsed.inMilliseconds} ms'].join(' | ')} |',
+    '',
+  ].join('\n');
+}
+
+/// One `appstein sync --timings` process: its exit code, output and time.
 final class _Run {
   _Run(this.exitCode, this.stdout, this.stderr, this.elapsed);
 
@@ -168,6 +206,16 @@ final class _Run {
   final String stdout;
   final String stderr;
   final Duration elapsed;
+
+  /// Each step's time in milliseconds, from the `timing` lines the sync
+  /// printed after its report.
+  late final Map<String, int> steps = {
+    for (final match in RegExp(
+      r'^timing +(\d+) ms  (.+)$',
+      multiLine: true,
+    ).allMatches(stdout))
+      match[2]!: int.parse(match[1]!),
+  };
 
   /// Why this run doesn't count as a real sync, or null. A failed run, a
   /// skipped map or unread native config would be cheaper than a real sync.
@@ -192,7 +240,7 @@ Future<_Run> _run(
   final watch = Stopwatch()..start();
   final result = await Process.run(
     exe,
-    ['--project', app, 'sync', ...flags],
+    ['--project', app, 'sync', '--timings', ...flags],
     environment: {'FLUTTER_ROOT': flutterRoot},
   );
   watch.stop();

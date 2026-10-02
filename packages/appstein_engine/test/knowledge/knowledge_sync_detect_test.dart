@@ -122,6 +122,54 @@ void main() {
     });
   });
 
+  group('timings', () {
+    test('a rebuild times each step, the analysis and the writes among '
+        'them', () async {
+      final report = await full();
+      expect(
+        report.timings.keys,
+        containsAll([
+          'platform',
+          'packages check',
+          'map inputs',
+          'native config',
+          'INDEX.md sources',
+          'read state',
+          'analyzer cache load',
+          'analysis',
+          'extractors',
+          'delta facts',
+          'analysis dispose',
+          'delta',
+          'INDEX.md',
+          'lock wait',
+          'knowledge write',
+          '  knowledge: temp files',
+          '  knowledge: renames',
+          'analyzer cache save',
+          '  cache: temp file',
+          '  cache: rename',
+        ]),
+      );
+      expect(report.timings.keys, isNot(contains('freshness')));
+    });
+
+    test(
+      'a detect that finds nothing changed times only its cheap steps',
+      () async {
+        await full();
+        await detect();
+        final report = await detect();
+        expect(report.current, isTrue);
+        expect(
+          report.timings.keys,
+          containsAll(['platform', 'map inputs', 'freshness']),
+        );
+        expect(report.timings.keys, isNot(contains('analysis')));
+      },
+    );
+  });
+
   group('a change rebuilds, as a full sync would', () {
     setUp(() async {
       await full();

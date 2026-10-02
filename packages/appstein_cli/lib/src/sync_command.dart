@@ -22,13 +22,17 @@ final class SyncCommand extends Command<int> {
     required this.err,
     required this.environment,
   }) {
-    argParser.addFlag(
-      'detect',
-      negatable: false,
-      help:
-          'Rebuild only when something the knowledge reads changed, found by '
-          'content hash (the after-edit hook).',
-    );
+    argParser
+      ..addFlag(
+        'detect',
+        negatable: false,
+        help:
+            'Rebuild only when something the knowledge reads changed, found by '
+            'content hash (the after-edit hook).',
+      )
+      // A measuring aid for tool/measure_sync.dart, so it is left out of the
+      // help: after the report, one line per step with its time.
+      ..addFlag('timings', negatable: false, hide: true);
   }
 
   /// Where the report goes.
@@ -83,6 +87,7 @@ final class SyncCommand extends Command<int> {
           ? await sync.detect(projectRoot)
           : await sync.run(projectRoot);
       out.write(formatSyncReport(report));
+      if (argResults!['timings'] as bool) out.write(formatTimings(report));
       return ExitCodes.ok;
     } on SyncException catch (error) {
       err
@@ -244,6 +249,14 @@ String formatSyncReport(SyncReport report) {
   }
   return buffer.toString();
 }
+
+/// The lines `appstein sync --timings` adds after the report: one per step
+/// in [SyncReport.timings], as `timing <ms> ms  <step>`. A step that is part
+/// of the one before it keeps its two-space indent.
+String formatTimings(SyncReport report) => [
+  for (final MapEntry(key: step, value: time) in report.timings.entries)
+    'timing ${'${time.inMilliseconds}'.padLeft(6)} ms  $step\n',
+].join();
 
 /// [names] (input names) for one line: the first five, without the
 /// `project:` prefix, then how many more.
