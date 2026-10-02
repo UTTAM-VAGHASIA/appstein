@@ -30,6 +30,7 @@ export 'src/host/process_runner.dart';
 export 'src/index/index_document.dart';
 export 'src/index/index_sources.dart';
 export 'src/knowledge/canonical_json.dart';
+export 'src/knowledge/freshness.dart';
 export 'src/knowledge/generated_file.dart';
 export 'src/knowledge/input_hash.dart';
 export 'src/knowledge/knowledge_lock.dart';

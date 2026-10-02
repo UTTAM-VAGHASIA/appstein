@@ -124,17 +124,29 @@ void main() {
         appsteinVersion: '0.1.0-dev',
         lastSync: '2026-10-01T00:00:00Z',
         files: {'platform/sdk.json': 'h1'},
+        sources: {'pubspec.yaml': 's1'},
+        written: {'platform/sdk.json': 'w1'},
+        changed: ['pubspec.yaml'],
       ),
     );
     expect(
       File(p.join(project, '.appstein', 'state.json')).readAsStringSync(),
       '{\n'
       '  "appsteinVersion": "0.1.0-dev",\n'
+      '  "changed": [\n'
+      '    "pubspec.yaml"\n'
+      '  ],\n'
       '  "files": {\n'
       '    "platform/sdk.json": "h1"\n'
       '  },\n'
       '  "formatVersion": 1,\n'
-      '  "lastSync": "2026-10-01T00:00:00Z"\n'
+      '  "lastSync": "2026-10-01T00:00:00Z",\n'
+      '  "sources": {\n'
+      '    "pubspec.yaml": "s1"\n'
+      '  },\n'
+      '  "written": {\n'
+      '    "platform/sdk.json": "w1"\n'
+      '  }\n'
       '}\n',
     );
   });
@@ -270,6 +282,43 @@ void main() {
       expect(
         File(p.join(project, '.appstein', 'state.json')).readAsStringSync(),
         contains('"platform/delta.md": "h2"'),
+      );
+    });
+
+    test('writeAll records the bytes, the sources and the change list, and '
+        'readState reads them back', () async {
+      final store = storeAt(DateTime.utc(2026, 10, 1));
+      await store.writeAll(
+        const [
+          GeneratedFile(
+            path: 'platform/sdk.json',
+            body: {'flutter': '3.47.5'},
+            inputHash: 'h1',
+          ),
+        ],
+        appsteinVersion: '0.1.0-dev',
+        sdkVersion: '3.47.5',
+        sources: const {'pubspec.yaml': 'p1', 'pubspec.lock': null},
+        changed: const ['pubspec.yaml'],
+      );
+      final state = store.readState().state!;
+      expect(state.sources, {'pubspec.yaml': 'p1', 'pubspec.lock': 'missing'});
+      expect(state.changed, ['pubspec.yaml']);
+      expect(
+        state.written['platform/sdk.json'],
+        store.fileHash('platform/sdk.json'),
+      );
+    });
+
+    test('readState says why there is no state', () {
+      final store = storeAt(DateTime.utc(2026));
+      expect(store.readState().problem, 'no sync has run here yet');
+      File(p.join(project, '.appstein', 'state.json'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{"formatVersion": 1}');
+      expect(
+        store.readState().problem,
+        'state.json is damaged or from an older Appstein',
       );
     });
   });

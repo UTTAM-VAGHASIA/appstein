@@ -42,7 +42,23 @@ final class SyncReport {
     this.map,
     this.native,
     this.analyzerCache,
+    this.current = false,
+    this.changed = const [],
+    this.rebuiltBecause = const [],
   });
+
+  /// True when `sync --detect` found nothing changed, so nothing was rebuilt
+  /// or written; [files] is then empty.
+  final bool current;
+
+  /// The input files that changed since the last sync, by input name
+  /// (`Freshness.changed`); empty when there was no earlier sync to compare
+  /// with.
+  final List<String> changed;
+
+  /// Why `sync --detect` rebuilt (`Freshness.reasons`); empty for a plain
+  /// sync.
+  final List<String> rebuiltBecause;
 
   /// What happened to the analyzer cache; null when the sync ran without
   /// one (the platform layer alone, or `KnowledgeSync(analyzerCache:

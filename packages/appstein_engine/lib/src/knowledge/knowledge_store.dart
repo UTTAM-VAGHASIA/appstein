@@ -6,7 +6,9 @@ import 'package:path/path.dart' as p;
 
 import '../host/file_errors.dart';
 import 'canonical_json.dart';
+import 'freshness.dart';
 import 'generated_file.dart';
+import 'input_hash.dart';
 import 'knowledge_lock.dart';
 import 'knowledge_write_exception.dart';
 import 'markdown_front_matter.dart';
@@ -64,6 +66,20 @@ final class KnowledgeStore {
     required String inputHash,
     required String appsteinVersion,
     required String sdkVersion,
+  }) async => (await _writeJson(
+    path,
+    body,
+    inputHash: inputHash,
+    appsteinVersion: appsteinVersion,
+    sdkVersion: sdkVersion,
+  )).$1;
+
+  Future<(bool, String)> _writeJson(
+    String path,
+    Map<String, Object?> body, {
+    required String inputHash,
+    required String appsteinVersion,
+    required String sdkVersion,
   }) async {
     if (body.containsKey('meta')) {
       throw ArgumentError.value(body, 'body', 'must not have a "meta" key');
@@ -81,10 +97,11 @@ final class KnowledgeStore {
     });
     final stored = _storedGeneratedAt(target);
     if (stored != null && stored.text == textWith(stored.generatedAt)) {
-      return false;
+      return (false, stored.text);
     }
-    await replaceFile(target, textWith(now()));
-    return true;
+    final text = textWith(now());
+    await replaceFile(target, text);
+    return (true, text);
   }
 
   /// Writes the Markdown [markdown] to [path] (inside `.appstein/`, with `/`
@@ -97,6 +114,20 @@ final class KnowledgeStore {
   /// Throws a [KnowledgeWriteException] when the file can't be written. Call
   /// it inside [locked].
   Future<bool> writeGeneratedMarkdown(
+    String path,
+    String markdown, {
+    required String inputHash,
+    required String appsteinVersion,
+    required String sdkVersion,
+  }) async => (await _writeMarkdown(
+    path,
+    markdown,
+    inputHash: inputHash,
+    appsteinVersion: appsteinVersion,
+    sdkVersion: sdkVersion,
+  )).$1;
+
+  Future<(bool, String)> _writeMarkdown(
     String path,
     String markdown, {
     required String inputHash,
@@ -116,10 +147,11 @@ final class KnowledgeStore {
     );
     final stored = _storedMarkdownGeneratedAt(target);
     if (stored != null && stored.text == textWith(stored.generatedAt)) {
-      return false;
+      return (false, stored.text);
     }
-    await replaceFile(target, textWith(now()));
-    return true;
+    final text = textWith(now());
+    await replaceFile(target, text);
+    return (true, text);
   }
 
   /// Writes `state.json`. Call it inside [locked], like [writeGenerated].
@@ -129,16 +161,22 @@ final class KnowledgeStore {
   /// Writes each of [files] (JSON with [writeGenerated], Markdown with
   /// [writeGeneratedMarkdown]), then `state.json` listing
   /// exactly these files' input hashes. Returns whether each file was
-  /// written, in the order given. Call it inside [locked].
+  /// written, in the order given. `state.json` also records the hash of each
+  /// file's bytes, the map's [sources] and the [changed] input names (spec
+  /// §6.2). Call it inside [locked].
   Future<Map<String, bool>> writeAll(
     List<GeneratedFile> files, {
     required String appsteinVersion,
     required String sdkVersion,
+    Map<String, String?> sources = const {},
+    List<String> changed = const [],
   }) async {
     final written = <String, bool>{};
+    final hashes = <String, String>{};
     for (final file in files) {
+      final (bool, String) result;
       if (file.body case final body?) {
-        written[file.path] = await writeGenerated(
+        result = await _writeJson(
           file.path,
           body,
           inputHash: file.inputHash,
@@ -146,7 +184,7 @@ final class KnowledgeStore {
           sdkVersion: sdkVersion,
         );
       } else {
-        written[file.path] = await writeGeneratedMarkdown(
+        result = await _writeMarkdown(
           file.path,
           file.markdown!,
           inputHash: file.inputHash,
@@ -154,6 +192,8 @@ final class KnowledgeStore {
           sdkVersion: sdkVersion,
         );
       }
+      written[file.path] = result.$1;
+      hashes[file.path] = sha256Hex(utf8.encode(result.$2));
     }
     await writeState(
       KnowledgeState(
@@ -161,9 +201,48 @@ final class KnowledgeStore {
         appsteinVersion: appsteinVersion,
         lastSync: now(),
         files: {for (final file in files) file.path: file.inputHash},
+        sources: stateSources(sources),
+        written: hashes,
+        changed: changed,
       ),
     );
     return written;
+  }
+
+  /// `state.json`, or null with the reason (words that follow "because")
+  /// when there is none, or it is damaged, or it comes from an Appstein
+  /// before 1b.7, without the fields this one needs.
+  ({KnowledgeState? state, String? problem}) readState() {
+    final file = File(_pathOf('state.json'));
+    try {
+      final json = jsonDecode(file.readAsStringSync());
+      if (json is Map<String, Object?>) {
+        return (state: KnowledgeState.fromJson(json), problem: null);
+      }
+    } on FileSystemException catch (error) {
+      return (
+        state: null,
+        problem: file.existsSync()
+            ? 'state.json could not be read (${fileErrorReason(error)})'
+            : 'no sync has run here yet',
+      );
+    } on FormatException {
+      // Below.
+    }
+    return (
+      state: null,
+      problem: 'state.json is damaged or from an older Appstein',
+    );
+  }
+
+  /// The SHA-256 of the file at [path] inside `.appstein/`, or null when it
+  /// is missing or can't be read.
+  String? fileHash(String path) {
+    try {
+      return sha256Hex(File(_pathOf(path)).readAsBytesSync());
+    } on FileSystemException {
+      return null;
+    }
   }
 
   String _pathOf(String path) => p.joinAll([folder, ...path.split('/')]);

@@ -232,6 +232,17 @@ final class MapSync {
     required AnalyzerCache? cache,
     required String? retried,
   }) async {
+    // Read before the analysis, not after: a file edited while it runs must
+    // leave the old hash behind, so the next `sync --detect` rebuilds.
+    final inputs = readMapInputs(
+      projectRoot,
+      workspaceRoot: status.workspaceRoot,
+      flutterVersion: flutterVersion,
+      flutterRoot: flutterRoot,
+      packs: packs,
+      appsteinVersion: appsteinVersion,
+      environment: environment,
+    );
     final ProjectAnalysis analysis;
     try {
       analysis = await ProjectAnalysis.analyze(
@@ -310,15 +321,6 @@ final class MapSync {
         deltaErrorType = '${error.runtimeType}';
       }
 
-      final inputs = readMapInputs(
-        projectRoot,
-        workspaceRoot: status.workspaceRoot,
-        flutterVersion: flutterVersion,
-        flutterRoot: flutterRoot,
-        packs: packs,
-        appsteinVersion: appsteinVersion,
-        environment: environment,
-      );
       final paths = bodies.keys.toList()..sort();
       return MapBuild(
         files: [

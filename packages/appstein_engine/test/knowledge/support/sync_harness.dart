@@ -34,6 +34,7 @@ KnowledgeSync knowledgeSync({
   String baseline = '3.16',
   String appsteinVersion = '0.1.0-dev',
   bool analyzerCache = true,
+  DeltaCollector? deltaCollector,
 }) => KnowledgeSync(
   environment: fakeEnvironment({'FLUTTER_ROOT': flutterRoot}),
   appsteinVersion: appsteinVersion,
@@ -42,6 +43,7 @@ KnowledgeSync knowledgeSync({
   clock: () => DateTime.utc(2026, 10, 1, 9),
   baseline: baseline,
   analyzerCache: analyzerCache,
+  deltaCollector: deltaCollector,
 );
 
 /// The text of every file under [project]'s `.appstein/`, by its path
