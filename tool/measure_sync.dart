@@ -1,85 +1,150 @@
 import 'dart:io';
 
-import 'package:appstein_engine/android.dart';
-import 'package:appstein_engine/appstein_engine.dart';
-import 'package:appstein_engine/ios.dart';
-import 'package:appstein_engine/official_mvvm.dart';
 import 'package:path/path.dart' as p;
 
-/// Measures a full `appstein sync` of a generated app with 200 Dart files,
-/// against spec §15's target: under 30 s for a 200-file app.
+/// Measures `appstein sync` against spec §15, on generated official_mvvm apps
+/// with a new app's `android/` and `ios/` files:
+/// - a full sync of a 200-file app, with fresh packages and no analyzer
+///   cache: under 30 s;
+/// - `sync --detect` on that app when nothing changed, and after one edit of
+///   a view model: each under 2 s.
+///
+/// The same rows for a 1,000-file app are printed for information only and
+/// never fail (owner decision, slice 1b.7).
+///
+/// It compiles the `appstein` command first and runs every sync as a new
+/// process, the way an agent's hook runs it, with FLUTTER_ROOT set to the
+/// Flutter SDK whose Dart runs this tool.
 ///
 /// Usage, from the repo root:
 ///   fvm dart run tool/measure_sync.dart
 ///
-/// It finds Flutter as `appstein sync` does (FLUTTER_ROOT, FVM, PATH). The
-/// first sync also fetches the packages (go_router needs the network), so
-/// only the second, a full rebuild of `.appstein/` with fresh packages, is
-/// held to the target. Prints a Markdown table and exits 1 when that sync
-/// takes 30 s or more.
+/// The first sync of each app fetches its packages (go_router needs the
+/// network). Prints a Markdown table, and exits 1 when a held row misses its
+/// target or a check fails.
 Future<void> main() async {
-  final work = Directory.systemTemp.createTempSync('appstein measure sync ');
-  final app = p.join(work.path, 'measure app');
-  try {
-    _generateApp(app, features: 99);
-    final sync = KnowledgeSync(
-      environment: HostEnvironment.current(),
-      appsteinVersion: 'measure',
-      packs: const [OfficialMvvmPack(), AndroidPack(), IosPack()],
+  final flutterRoot = _flutterRoot();
+  if (flutterRoot == null) {
+    stderr.writeln(
+      'Run this with the Dart of a Flutter SDK (fvm dart run '
+      'tool/measure_sync.dart): ${Platform.resolvedExecutable} is not inside '
+      'one.',
     );
-    final first = Stopwatch()..start();
-    final report = await sync.run(app);
-    first.stop();
-    if (report.map?.skipped case final reason?) {
-      stderr.writeln(
-        'The map was skipped: $reason\n${report.map!.packagesReason}',
-      );
+    exitCode = 1;
+    return;
+  }
+  final work = Directory.systemTemp.createTempSync('appstein measure sync ');
+  try {
+    final exe = await _compile(work.path);
+    if (exe == null) {
       exitCode = 1;
       return;
     }
-    // The 30 s evidence must include the native work: a section that was
-    // absent or failed would make the timing cheaper than a real sync.
-    if (_nativeProblem(report) case final problem?) {
-      stderr.writeln('The first sync did not read native.json: $problem');
-      exitCode = 1;
-      return;
-    }
-    Directory(p.join(app, '.appstein')).deleteSync(recursive: true);
-    final full = Stopwatch()..start();
-    final fullReport = await sync.run(app);
-    full.stop();
-    // A skipped map is fast, so it would pass the budget without proving it.
-    if (fullReport.map?.skipped case final reason?) {
-      stderr.writeln('The timed sync skipped the map: $reason');
-      exitCode = 1;
-      return;
-    }
-    if (_nativeProblem(fullReport) case final problem?) {
-      stderr.writeln('The timed sync did not read native.json: $problem');
-      exitCode = 1;
-      return;
-    }
-    final native = fullReport.native!.sections.entries
-        .map((entry) => '${entry.key}: ${entry.value}')
-        .join(', ');
-    final files = Directory(p.join(app, 'lib'))
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((file) => file.path.endsWith('.dart'))
-        .length;
-    stdout.writeln('''
-| Measurement (${Platform.operatingSystem}, $files Dart files) | Time |
-|---|---|
-| First sync, including `flutter pub get` | ${first.elapsedMilliseconds} ms |
-| **Full sync with fresh packages (target under 30 s)** | **${full.elapsedMilliseconds} ms** |
+    final columns = <int, Map<String, Duration>>{};
+    var missed = <String>[];
+    for (final (files, held) in const [(200, true), (1000, false)]) {
+      final app = p.join(work.path, 'app $files');
+      _generateApp(app, features: (files - 2) ~/ 2);
+      Future<_Run> sync([List<String> flags = const []]) =>
+          _run(exe, app, flutterRoot, flags);
+      final times = columns[files] = {};
 
-Native config in the timed sync (every section must be `read`): $native
-''');
-    if (full.elapsed >= const Duration(seconds: 30)) {
-      stderr.writeln(
-        'A full sync took ${full.elapsed.inSeconds} s; spec §15 allows '
-        'under 30 s.',
+      final first = await sync();
+      if (first.problem() case final problem?) {
+        stderr.writeln('The first sync of the $files-file app: $problem');
+        exitCode = 1;
+        return;
+      }
+      times['first'] = first.elapsed;
+
+      // Cold: no knowledge and no analyzer cache, the 30 s worst case.
+      Directory(p.join(app, '.appstein')).deleteSync(recursive: true);
+      final cache = Directory(p.join(app, '.dart_tool', 'appstein'));
+      if (cache.existsSync()) cache.deleteSync(recursive: true);
+      final full = await sync();
+      if (full.problem() case final problem?) {
+        stderr.writeln('The full sync of the $files-file app: $problem');
+        exitCode = 1;
+        return;
+      }
+      times['full'] = full.elapsed;
+
+      // The first detect empties the change list the full sync recorded;
+      // the second is what a hook sees after a command that changed nothing.
+      await sync(const ['--detect']);
+      final unchanged = await sync(const ['--detect']);
+      if (!unchanged.stdout.startsWith('Knowledge is current')) {
+        stderr.writeln(
+          'A detect with nothing changed rebuilt:\n${unchanged.stdout}',
+        );
+        exitCode = 1;
+        return;
+      }
+      times['unchanged'] = unchanged.elapsed;
+
+      const viewModel =
+          'lib/ui/feature_5/view_models/feature_5_view_model.dart';
+      _edit(
+        p.join(app, viewModel),
+        'int taps = 0;',
+        'int taps = 0;\n\n  /// Whether it was opened.\n  bool opened = false;',
       );
+      final edited = await sync(const ['--detect']);
+      if (edited.problem() != null ||
+          !edited.stdout.contains('Changed since the last sync: $viewModel.')) {
+        stderr.writeln(
+          'A detect after the view model edit did not rebuild it:\n'
+          '${edited.stdout}${edited.stderr}',
+        );
+        exitCode = 1;
+        return;
+      }
+      times['viewModel'] = edited.elapsed;
+
+      _edit(
+        p.join(app, 'lib', 'routing', 'router.dart'),
+        "'/feature-0'",
+        "'/feature-zero'",
+      );
+      final router = await sync(const ['--detect']);
+      if (router.problem() case final problem?) {
+        stderr.writeln('A detect after the router edit: $problem');
+        exitCode = 1;
+        return;
+      }
+      times['router'] = router.elapsed;
+
+      if (held) {
+        missed = [
+          if (full.elapsed >= const Duration(seconds: 30))
+            'a full sync took ${full.elapsed.inMilliseconds} ms (under 30 s)',
+          if (unchanged.elapsed >= const Duration(seconds: 2))
+            'a detect with nothing changed took '
+                '${unchanged.elapsed.inMilliseconds} ms (under 2 s)',
+          if (edited.elapsed >= const Duration(seconds: 2))
+            'a detect after one edit took ${edited.elapsed.inMilliseconds} ms '
+                '(under 2 s)',
+        ];
+      }
+    }
+    String cell(int files, String row) =>
+        '${columns[files]![row]!.inMilliseconds} ms';
+    String line(String label, String row) =>
+        '| $label | ${cell(200, row)} | ${cell(1000, row)} |';
+    stdout.writeln('''
+| Measurement (${Platform.operatingSystem}, a new process each) | 200 files | 1,000 files (info) |
+|---|---|---|
+${line('First sync, with `flutter pub get`', 'first')}
+${line('**Full sync, no analyzer cache** (target under 30 s)', 'full')}
+${line('**`sync --detect`, nothing changed** (target under 2 s)', 'unchanged')}
+${line('**`sync --detect` after editing a view model** (target under 2 s)', 'viewModel')}
+${line('`sync --detect` after editing the router', 'router')}
+''');
+    if (missed.isNotEmpty) {
+      stderr.writeln('Spec §15 targets missed on the 200-file app:');
+      for (final miss in missed) {
+        stderr.writeln('  $miss');
+      }
       exitCode = 1;
     }
   } finally {
@@ -93,17 +158,90 @@ Native config in the timed sync (every section must be `read`): $native
   }
 }
 
-/// Why [report] doesn't show every native section as `read`, or null when
-/// it does. A sync with no native report, no sections, or an `absent: …` or
-/// `internal error (…)` outcome measured less than a real one.
-String? _nativeProblem(SyncReport report) {
-  final sections = report.native?.sections;
-  if (sections == null || sections.isEmpty) return 'no native report';
-  final bad = [
-    for (final MapEntry(:key, :value) in sections.entries)
-      if (value != 'read') '$key is "$value"',
-  ];
-  return bad.isEmpty ? null : bad.join(', ');
+/// One `appstein sync` process: its exit code, output and time.
+final class _Run {
+  _Run(this.exitCode, this.stdout, this.stderr, this.elapsed);
+
+  final int exitCode;
+  final String stdout;
+  final String stderr;
+  final Duration elapsed;
+
+  /// Why this run doesn't count as a real sync, or null. A failed run, a
+  /// skipped map or unread native config would be cheaper than a real sync.
+  String? problem() {
+    if (exitCode != 0) return 'exit code $exitCode:\n$stdout$stderr';
+    if (stdout.contains('Project map skipped')) {
+      return 'the project map was skipped:\n$stdout';
+    }
+    if (!stdout.contains('Native config: android read; ios read.')) {
+      return 'native config was not read:\n$stdout';
+    }
+    return null;
+  }
+}
+
+Future<_Run> _run(
+  String exe,
+  String app,
+  String flutterRoot,
+  List<String> flags,
+) async {
+  final watch = Stopwatch()..start();
+  final result = await Process.run(
+    exe,
+    ['--project', app, 'sync', ...flags],
+    environment: {'FLUTTER_ROOT': flutterRoot},
+  );
+  watch.stop();
+  return _Run(
+    result.exitCode,
+    '${result.stdout}',
+    '${result.stderr}',
+    watch.elapsed,
+  );
+}
+
+/// The Flutter SDK whose Dart runs this tool
+/// (`<flutter>/bin/cache/dart-sdk/bin/dart`), or null when this Dart isn't
+/// inside one.
+String? _flutterRoot() {
+  var folder = p.dirname(Platform.resolvedExecutable);
+  for (var i = 0; i < 4; i++) {
+    folder = p.dirname(folder);
+  }
+  return File(
+        p.join(folder, 'bin', 'cache', 'flutter.version.json'),
+      ).existsSync()
+      ? folder
+      : null;
+}
+
+/// Compiles the `appstein` command into [work]; null, with the compiler's
+/// output printed, when it fails.
+Future<String?> _compile(String work) async {
+  final exe = p.join(work, Platform.isWindows ? 'appstein.exe' : 'appstein');
+  final result = await Process.run(Platform.resolvedExecutable, [
+    'compile',
+    'exe',
+    p.join('packages', 'appstein_cli', 'bin', 'appstein.dart'),
+    '-o',
+    exe,
+  ]);
+  if (result.exitCode != 0) {
+    stderr.writeln(
+      'Could not compile appstein:\n${result.stdout}${result.stderr}',
+    );
+    return null;
+  }
+  return exe;
+}
+
+void _edit(String path, String from, String to) {
+  final file = File(path);
+  final text = file.readAsStringSync();
+  if (!text.contains(from)) throw StateError('"$from" is not in $path');
+  file.writeAsStringSync(text.replaceFirst(from, to));
 }
 
 /// Writes an official_mvvm app: [features] features with a view model and a
