@@ -7,7 +7,9 @@ import 'package:path/path.dart' as p;
 /// - a full sync of a 200-file app, with fresh packages and no analyzer
 ///   cache: under 30 s;
 /// - `sync --detect` on that app when nothing changed, and after one edit of
-///   a view model: each under 2 s.
+///   a view model: each under 2 s, as the median of three runs (three
+///   different edits), because a CI machine's speed varies by about 2x
+///   from run to run. The table shows the three times beside the median.
 ///
 /// The same rows are measured for a 1,000-file app. Their times are printed
 /// for information only and never held to a target (owner decision, slice
@@ -44,6 +46,8 @@ Future<void> main() async {
       return;
     }
     final columns = <int, Map<String, Duration>>{};
+    // The three runs behind each median row, in the order they ran.
+    final spreads = <int, Map<String, List<Duration>>>{};
     // The runs whose steps the second table breaks down.
     final broken = <String, _Run>{};
     var missed = <String>[];
@@ -75,68 +79,101 @@ Future<void> main() async {
       times['full'] = full.elapsed;
       broken['full, $files'] = full;
 
-      // The first detect empties the change list the full sync recorded;
-      // the second is what a hook sees after a command that changed nothing.
-      await sync(const ['--detect']);
-      final unchanged = await sync(const ['--detect']);
-      if (!unchanged.stdout.startsWith('Knowledge is current')) {
-        stderr.writeln(
-          'A detect with nothing changed rebuilt:\n${unchanged.stdout}',
-        );
-        exitCode = 1;
-        return;
+      // Each detect row is the median of three runs, as measure_analyze
+      // takes the median of three: a CI machine's speed varies by about 2x
+      // from run to run, and one slow run must not fail the target, while a
+      // real slowdown still moves the median.
+      final runs = spreads[files] = {};
+      void record(String row, List<_Run> three) {
+        final median = _median(three);
+        times[row] = median.elapsed;
+        runs[row] = [for (final run in three) run.elapsed];
       }
-      times['unchanged'] = unchanged.elapsed;
 
+      // The first detect empties the change list the full sync recorded;
+      // the next ones are what a hook sees after a command that changed
+      // nothing.
+      await sync(const ['--detect']);
+      final unchanged = <_Run>[];
+      for (var i = 0; i < 3; i++) {
+        final run = await sync(const ['--detect']);
+        if (!run.stdout.startsWith('Knowledge is current')) {
+          stderr.writeln(
+            'A detect with nothing changed rebuilt:\n${run.stdout}',
+          );
+          exitCode = 1;
+          return;
+        }
+        unchanged.add(run);
+      }
+      record('unchanged', unchanged);
+
+      // Three different edits of one view model, each followed by a detect.
       const viewModel =
           'lib/ui/feature_5/view_models/feature_5_view_model.dart';
-      _edit(
-        p.join(app, viewModel),
-        'int taps = 0;',
-        'int taps = 0;\n\n  /// Whether it was opened.\n  bool opened = false;',
-      );
-      final edited = await sync(const ['--detect']);
-      if (edited.problem() != null ||
-          !edited.stdout.contains('Changed since the last sync: $viewModel.')) {
-        stderr.writeln(
-          'A detect after the view model edit did not rebuild it:\n'
-          '${edited.stdout}${edited.stderr}',
+      final edited = <_Run>[];
+      for (var i = 0; i < 3; i++) {
+        _edit(
+          p.join(app, viewModel),
+          'int taps = 0;',
+          'int taps = 0;\n\n  /// Whether it was opened, $i.\n'
+              '  bool opened$i = false;',
         );
-        exitCode = 1;
-        return;
+        final run = await sync(const ['--detect']);
+        if (run.problem() != null ||
+            !run.stdout.contains('Changed since the last sync: $viewModel.')) {
+          stderr.writeln(
+            'A detect after the view model edit did not rebuild it:\n'
+            '${run.stdout}${run.stderr}',
+          );
+          exitCode = 1;
+          return;
+        }
+        edited.add(run);
       }
-      times['viewModel'] = edited.elapsed;
-      broken['view model edit, $files'] = edited;
+      record('viewModel', edited);
+      broken['view model edit (median), $files'] = _median(edited);
 
-      _edit(
-        p.join(app, 'lib', 'routing', 'router.dart'),
-        "'/feature-0'",
-        "'/feature-zero'",
-      );
-      final router = await sync(const ['--detect']);
-      if (router.problem() case final problem?) {
-        stderr.writeln('A detect after the router edit: $problem');
-        exitCode = 1;
-        return;
+      final router = <_Run>[];
+      for (var i = 0; i < 3; i++) {
+        _edit(
+          p.join(app, 'lib', 'routing', 'router.dart'),
+          "'/feature-$i'",
+          "'/feature-$i-renamed'",
+        );
+        final run = await sync(const ['--detect']);
+        if (run.problem() case final problem?) {
+          stderr.writeln('A detect after the router edit: $problem');
+          exitCode = 1;
+          return;
+        }
+        router.add(run);
       }
-      times['router'] = router.elapsed;
-      broken['router edit, $files'] = router;
+      record('router', router);
+      broken['router edit (median), $files'] = _median(router);
 
       if (held) {
+        String took(String row) => '${times[row]!.inMilliseconds} ms';
         missed = [
           if (full.elapsed >= const Duration(seconds: 30))
             'a full sync took ${full.elapsed.inMilliseconds} ms (under 30 s)',
-          if (unchanged.elapsed >= const Duration(seconds: 2))
-            'a detect with nothing changed took '
-                '${unchanged.elapsed.inMilliseconds} ms (under 2 s)',
-          if (edited.elapsed >= const Duration(seconds: 2))
-            'a detect after one edit took ${edited.elapsed.inMilliseconds} ms '
-                '(under 2 s)',
+          if (times['unchanged']! >= const Duration(seconds: 2))
+            'a detect with nothing changed took ${took('unchanged')}, the '
+                'median of three (under 2 s)',
+          if (times['viewModel']! >= const Duration(seconds: 2))
+            'a detect after one edit took ${took('viewModel')}, the median '
+                'of three (under 2 s)',
         ];
       }
     }
-    String cell(int files, String row) =>
-        '${columns[files]![row]!.inMilliseconds} ms';
+    String cell(int files, String row) {
+      final median = '${columns[files]![row]!.inMilliseconds} ms';
+      final three = spreads[files]![row];
+      return three == null
+          ? median
+          : '$median (${three.map((time) => time.inMilliseconds).join(', ')})';
+    }
+
     String line(String label, String row) =>
         '| $label | ${cell(200, row)} | ${cell(1000, row)} |';
     stdout.writeln('''
@@ -144,9 +181,9 @@ Future<void> main() async {
 |---|---|---|
 ${line('First sync, with `flutter pub get`', 'first')}
 ${line('**Full sync, no analyzer cache** (target under 30 s)', 'full')}
-${line('**`sync --detect`, nothing changed** (target under 2 s)', 'unchanged')}
-${line('**`sync --detect` after editing a view model** (target under 2 s)', 'viewModel')}
-${line('`sync --detect` after editing the router', 'router')}
+${line('**`sync --detect`, nothing changed**, median of 3 (target under 2 s)', 'unchanged')}
+${line('**`sync --detect` after editing a view model**, median of 3 (target under 2 s)', 'viewModel')}
+${line('`sync --detect` after editing the router, median of 3', 'router')}
 ''');
     stdout.writeln(_breakdown(broken));
     if (missed.isNotEmpty) {
@@ -197,6 +234,11 @@ String _breakdown(Map<String, _Run> runs) {
     '',
   ].join('\n');
 }
+
+/// The run with the middle time of [runs] (an odd number of them).
+_Run _median(List<_Run> runs) =>
+    (runs.toList()
+      ..sort((a, b) => a.elapsed.compareTo(b.elapsed)))[runs.length ~/ 2];
 
 /// One `appstein sync --timings` process: its exit code, output and time.
 final class _Run {
