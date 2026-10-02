@@ -95,6 +95,7 @@ milestones:
             title: INDEX.md
             summary: The always-in-view `INDEX.md` (at most 1,500 tokens), built from the platform layer, the map and the delta.
             status: next
+            plan: 2026-10-02-slice-1b6-index-md.md
           - id: 1b.7
             title: Incremental sync
             summary: "`sync --changed` and `--detect`: rebuild only what changed, under 2 s, with per-file hashes and a persistent analyzer cache."
