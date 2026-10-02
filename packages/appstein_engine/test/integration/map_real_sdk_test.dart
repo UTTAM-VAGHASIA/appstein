@@ -110,6 +110,12 @@ void main() {
       'delta.md: ${lines.length} lines, ${entries.length} entries',
     );
 
+    // INDEX.md, from the real map and delta.
+    final index = File(p.join(app, '.appstein', 'INDEX.md')).readAsStringSync();
+    expect(utf8.encode(index).length, lessThanOrEqualTo(indexByteBudget));
+    expect(index, contains('| `booking` | 1 |'));
+    expect(index, contains('`platform/delta.md` also lists '));
+    printOnFailure('INDEX.md: ${utf8.encode(index).length} bytes');
     // The fetch left fresh packages, so the next sync runs nothing and
     // changes nothing.
     final second = await sync.run(app, sdk: sdk);

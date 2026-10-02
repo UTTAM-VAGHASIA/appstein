@@ -59,6 +59,7 @@ void main() {
     expect(text, contains(row('platform/toolchain.json', 'written')));
     expect(text, contains(row('platform/delta.md', 'written')));
     expect(text, contains(row('map/native.json', 'written')));
+    expect(text, contains(row('INDEX.md', 'written')));
     expect(
       text,
       contains(
@@ -84,6 +85,7 @@ void main() {
       'platform/sdk.json',
       'platform/toolchain.json',
       'platform/delta.md',
+      'INDEX.md',
       'state.json',
     ]) {
       expect(

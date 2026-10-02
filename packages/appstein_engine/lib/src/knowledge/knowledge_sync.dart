@@ -5,6 +5,8 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import '../delta/delta_document.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
+import '../index/index_document.dart';
+import '../index/index_sources.dart';
 import '../map/map_sync.dart';
 import '../native/native_extractor.dart';
 import '../native/native_sync.dart';
@@ -16,8 +18,9 @@ import 'input_hash.dart';
 import 'knowledge_store.dart';
 import 'platform_sync.dart';
 
-/// Everything `appstein sync` writes (spec §5.4, §6.2): the platform layer,
-/// the version delta, the project map and the native config. All are built
+/// Everything `appstein sync` writes (spec §5.4, §6.2, §6.3): the platform
+/// layer, the version delta, the project map, the native config and
+/// `INDEX.md`. All are built
 /// first, then written under one lock, with a `state.json` that lists them.
 final class KnowledgeSync {
   /// Creates the sync. [packs] are the project's packs (the CLI chooses
@@ -76,6 +79,9 @@ final class KnowledgeSync {
   /// native files without the analysis. A platform pack that fails costs only
   /// its own section, and the error is in [SyncReport.native].
   ///
+  /// `INDEX.md` is written last, after every other file, since it summarizes
+  /// them; when the map was skipped, it says so.
+  ///
   /// When only collecting the delta's facts fails (an Appstein bug), the
   /// map and the platform layer are written, `delta.md` holds only the
   /// notes and names the error's type, and the error is in
@@ -122,12 +128,14 @@ final class KnowledgeSync {
           ),
         );
     final delta = _delta(platform, map);
+    // Last: it summarizes the other files.
+    final index = _index(projectRoot, platform, map, native, delta);
     final store = KnowledgeStore(projectRoot, clock: _clock);
     return store.locked(
       () async => SyncReport(
         sdk: platform.sdk,
         files: await store.writeAll(
-          [...platform.files, delta, ...map.files, ?native.file],
+          [...platform.files, delta, ...map.files, ?native.file, index],
           appsteinVersion: appsteinVersion,
           sdkVersion: platform.sdk.flutterVersion,
         ),
@@ -188,6 +196,96 @@ final class KnowledgeSync {
         appsteinVersion: appsteinVersion,
         formatVersion: knowledgeFormatVersion,
       ),
+    );
+  }
+
+  /// `INDEX.md` (spec §6.3): a summary of the other files, the project's
+  /// decisions and its current work, within [indexByteBudget] bytes. Its
+  /// input hash covers the other files' input hashes, the project files it
+  /// reads, and the packs.
+  GeneratedFile _index(
+    String projectRoot,
+    PlatformBuild platform,
+    MapBuild map,
+    NativeBuild native,
+    GeneratedFile delta,
+  ) {
+    final sdk = platform.sdk;
+    final sources = readIndexSources(projectRoot);
+    final hash = inputHash(
+      {
+        for (final file in [
+          ...platform.files,
+          delta,
+          ...map.files,
+          ?native.file,
+        ])
+          'file:${file.path}': utf8.encode(file.inputHash),
+        ...sources.inputs,
+        'packs': utf8.encode(
+          [for (final pack in packs) '${pack.id}@${pack.version}'].join(','),
+        ),
+      },
+      appsteinVersion: appsteinVersion,
+      formatVersion: knowledgeFormatVersion,
+    );
+    final stack = packs
+        .where((pack) => pack.kind == PackKind.stack)
+        .firstOrNull;
+    final featuresBody = map.files
+        .where((file) => file.path == MapFiles.features)
+        .firstOrNull
+        ?.body;
+    final nativeBody = native.file?.body;
+    final skipped = map.report.skipped;
+    final inputs = IndexInputs(
+      projectName: sources.projectName,
+      sdk: sdk,
+      appsteinVersion: appsteinVersion,
+      newestNotes: platform.newestNotes,
+      stackPack: stack?.id,
+      platforms: sources.platforms,
+      appIds: appIdLines(
+        nativeBody == null ? null : NativeConfig.fromJson(nativeBody),
+      ),
+      features: featuresBody == null
+          ? null
+          : indexFeatures(FeaturesMap.fromJson(featuresBody)),
+      featuresMissing: skipped == null
+          ? 'no stack pack, so no features'
+          : 'the project map was skipped: $skipped',
+      layers: stack?.layerRules?.layers,
+      notes: [
+        for (final note in deltaNotes(
+          notes,
+          flutterVersion: sdk.flutterVersion,
+          baseline: baseline,
+        ))
+          if (!needsNewerLanguage(note, sdk.languageVersion)) note,
+      ],
+      apiCounts: switch (map.delta) {
+        final facts? => DeltaCounts.of(facts),
+        null => null,
+      },
+      decisions: sources.decisions,
+      decisionsError: sources.decisionsError,
+      currentWork: sources.currentWork,
+      currentWorkError: sources.currentWorkError,
+    );
+    final budget = indexBodyBudget(
+      KnowledgeMeta(
+        // Any time: every one has the same length.
+        generatedAt: formatKnowledgeTime(DateTime.utc(2000)),
+        appsteinVersion: appsteinVersion,
+        formatVersion: knowledgeFormatVersion,
+        sdkVersion: sdk.flutterVersion,
+        inputHash: hash,
+      ),
+    );
+    return GeneratedFile.markdown(
+      path: indexPath,
+      markdown: renderIndex(inputs, byteBudget: budget),
+      inputHash: hash,
     );
   }
 }
