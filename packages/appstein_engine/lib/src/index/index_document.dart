@@ -99,11 +99,13 @@ int indexBodyBudget(KnowledgeMeta meta) =>
 /// [byteBudget] UTF-8 bytes when that can be done.
 ///
 /// When the full text is longer, it cuts one item at a time in §6.3's
-/// order: current work, then decisions (keeping the newest), then features
-/// down to 5 rows, then notes down to 5. Each cut leaves a pointer to the
-/// MCP tool that holds the rest. Only if the text still doesn't fit do
-/// features, then notes, go below 5. Project, rules, where things live and
-/// freshness are never cut.
+/// order: version notes down to 5, then current work, then decisions
+/// (keeping the newest), then features down to 5 rows. The generic notes go
+/// first because the project's own decisions and current work exist nowhere
+/// else in view; the other notes are one call away in `what_changed()`. Each
+/// cut leaves a pointer to the MCP tool that holds the rest. Only if the text
+/// still doesn't fit do features, then notes, go below 5. Project, rules,
+/// where things live and freshness are never cut.
 String renderIndex(IndexInputs inputs, {required int byteBudget}) {
   var limits = _Limits.start(inputs);
   var text = _render(inputs, limits);
@@ -136,12 +138,15 @@ final class _Limits {
   final int features;
   final int notes;
 
-  /// One item fewer, in §6.3's order; null when nothing is left to cut.
+  /// One item fewer, in §6.3's order: notes to 5, current work, decisions,
+  /// features to 5. The generic notes go first because the project's own
+  /// decisions and current work exist nowhere else in view; the other notes
+  /// are one call away in `what_changed()`. Null when nothing is left to cut.
   _Limits? cut() {
+    if (notes > 5) return _with(notes: notes - 1);
     if (currentWork > 0) return _with(currentWork: currentWork - 1);
     if (decisions > 0) return _with(decisions: decisions - 1);
     if (features > 5) return _with(features: features - 1);
-    if (notes > 5) return _with(notes: notes - 1);
     // Past §6.3's floors only when even they don't fit (D8).
     if (features > 0) return _with(features: features - 1);
     if (notes > 0) return _with(notes: notes - 1);

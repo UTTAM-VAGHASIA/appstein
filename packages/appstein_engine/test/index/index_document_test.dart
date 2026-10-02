@@ -307,7 +307,9 @@ void main() {
     );
   });
 
-  test('over budget, current work is cut first', () {
+  test('over budget with at most 5 notes, current work is the first thing '
+      'cut', () {
+    // small() has 1 note, already at the floor of 5, so no note can go.
     final inputs = small(
       currentWork: [for (var i = 1; i <= 10; i++) 'Step $i of the task.'],
     );
@@ -319,8 +321,33 @@ void main() {
     expect(cut, contains('| `profile` |'));
   });
 
-  test('a very large project fits; current work and decisions go first, and '
-      'features and notes keep at least 5', () {
+  test('over budget with more than 5 notes, a note is cut before any current '
+      'work', () {
+    final inputs = IndexInputs(
+      projectName: 'fixture_app',
+      sdk: sdk,
+      appsteinVersion: '0.1.0-dev',
+      newestNotes: '3.47',
+      stackPack: null,
+      platforms: const ['android'],
+      appIds: const [],
+      features: const [],
+      layers: null,
+      notes: bundledNotes.take(8).toList(),
+      apiCounts: null,
+      currentWork: [for (var i = 1; i <= 10; i++) 'Step $i of the task.'],
+    );
+    final full = renderIndex(inputs, byteBudget: 1000000);
+    final cut = renderIndex(inputs, byteBudget: bytes(full) - 1);
+    expect(cut, contains('…and 1 more note; ask `what_changed()`.'));
+    expect(cut, isNot(contains('ask `memory_read()`')));
+    for (var i = 1; i <= 10; i++) {
+      expect(cut, contains('> Step $i of the task.'));
+    }
+  });
+
+  test('a very large project fits; notes go to 5, then current work and '
+      'decisions go, and features keep at least 5', () {
     const budget = indexByteBudget - 300;
     final text = renderIndex(large(), byteBudget: budget);
     expect(bytes(text), lessThanOrEqualTo(budget));
@@ -331,7 +358,9 @@ void main() {
       for (final line in lines)
         if (line.startsWith('| `feature_')) line,
     ];
-    expect(rows.length, inInclusiveRange(5, 15));
+    // Notes, current work and decisions were all cut, so features give up
+    // rows too, but stay above their floor of 5 at this budget.
+    expect(rows.length, 12);
     expect(
       rows.first,
       '| `feature_0` | 300 | `lib/ui/feature_0/`: widgets/screen_0.dart, '
@@ -339,7 +368,7 @@ void main() {
     );
     expect(text, contains('; ask `feature()`.'));
     final notes = lines.where((line) => line.startsWith('- **')).length;
-    expect(notes, inInclusiveRange(5, 10));
+    expect(notes, 5);
     expect(
       text,
       contains(
@@ -351,8 +380,8 @@ void main() {
     }
   });
 
-  test('the cut order holds at every step: current work, decisions, features '
-      'down to 5, notes down to 5, then features, then notes', () {
+  test('the cut order holds at every step: notes down to 5, current work, '
+      'decisions, features down to 5, then features, then notes', () {
     // Each step asks for one byte less than the last text, which forces
     // exactly the next cut.
     ({int work, int decisions, int rows, int notes}) shown(String text) {
@@ -381,29 +410,59 @@ void main() {
     expect(states.last.rows, 0);
     expect(states.last.notes, 0);
     for (final s in states) {
+      // Current work is only cut once notes are down to 5.
+      if (s.work < 10) expect(s.notes, lessThanOrEqualTo(5), reason: '$s');
       // Decisions are only cut once current work is gone.
       if (s.decisions < 100) expect(s.work, 0, reason: '$s');
       // Features are only cut once decisions are gone.
       if (s.rows < 15) expect(s.decisions, 0, reason: '$s');
-      // Notes are only cut (down to their floor of 5) once features are
-      // down to 5.
-      if (s.notes < 10 && s.notes > 5) expect(s.rows, 5, reason: '$s');
-      // Features go below 5 before notes do: notes stay at 5 until then.
-      if (s.rows < 5 && s.rows > 0) expect(s.notes, 5, reason: '$s');
-      // Notes go below 5 only once no feature rows are left.
+      // Notes never go below 5 while any feature row is left: in the last
+      // resort features reach 0 first.
       if (s.notes < 5) expect(s.rows, 0, reason: '$s');
+      // Notes, decisions and current work are untouched until their turn.
+      if (s.notes > 5) {
+        expect(s.work, 10, reason: '$s');
+        expect(s.decisions, 100, reason: '$s');
+        expect(s.rows, 15, reason: '$s');
+      }
+      if (s.work > 0) {
+        expect(s.decisions, 100, reason: '$s');
+        expect(s.rows, 15, reason: '$s');
+      }
+      if (s.decisions > 0) expect(s.rows, 15, reason: '$s');
+      // Notes only fall below 5 once features are at 0 (checked above), so
+      // while any feature row is left they are at least 5.
+      if (s.rows > 0) expect(s.notes, greaterThanOrEqualTo(5), reason: '$s');
     }
     // Each phase really happens.
+    bool phase(
+      bool Function(({int work, int decisions, int rows, int notes})) f,
+    ) => states.any(f);
+    // 1. notes 10 -> 5 with everything else full.
+    expect(phase((s) => s.notes < 10 && s.notes > 5 && s.work == 10), isTrue);
+    // 2. current work 10 -> 0, notes at 5, decisions full.
     expect(
-      states.any((s) => s.rows < 15 && s.rows > 5 && s.notes == 10),
+      phase(
+        (s) => s.work < 10 && s.work > 0 && s.notes == 5 && s.decisions == 100,
+      ),
       isTrue,
     );
+    // 3. decisions 100 -> 0, features still 15.
     expect(
-      states.any((s) => s.notes < 10 && s.notes > 5 && s.rows == 5),
+      phase((s) => s.decisions < 100 && s.decisions > 0 && s.rows == 15),
       isTrue,
     );
-    expect(states.any((s) => s.rows < 5 && s.rows > 0 && s.notes == 5), isTrue);
-    expect(states.any((s) => s.rows == 0 && s.notes == 5), isTrue);
+    // 4. features 15 -> 5, notes at 5.
+    expect(
+      phase(
+        (s) => s.rows < 15 && s.rows > 5 && s.decisions == 0 && s.notes == 5,
+      ),
+      isTrue,
+    );
+    // 5. last resort: features 5 -> 0 with notes at 5, then notes 5 -> 0.
+    expect(phase((s) => s.rows < 5 && s.rows > 0 && s.notes == 5), isTrue);
+    expect(phase((s) => s.rows == 0 && s.notes == 5), isTrue);
+    expect(phase((s) => s.rows == 0 && s.notes < 5 && s.notes > 0), isTrue);
   });
 
   test('when decisions are cut, the newest stay and the pointer counts the '

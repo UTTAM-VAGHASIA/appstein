@@ -43,10 +43,12 @@ The front matter counts too. [`indexBodyBudget`](../../packages/appstein_engine/
 
 [`renderIndex`](../../packages/appstein_engine/lib/src/index/index_document.dart) first renders everything it is allowed to show (10 lines of current work, all decisions, 15 features, 10 notes). If that is too long, it removes **one item at a time** and renders again, in the order of spec §6.3:
 
-1. Current work, line by line, down to none.
-2. Decisions, one at a time, down to none. The **newest** are kept, because the decisions are in file-name order and the numbers grow.
-3. Features, down to 5 rows.
-4. Notes, down to 5.
+1. Notes, from 10 down to 5.
+2. Current work, line by line, down to none.
+3. Decisions, one at a time, down to none. The **newest** are kept, because the decisions are in file-name order and the numbers grow.
+4. Features, from 15 down to 5 rows.
+
+The generic notes go first because the project's own decisions and current work exist nowhere else in view, while the other notes are one call away in `what_changed()`.
 
 Each of the four cuts leaves a pointer to the tool that holds the rest, such as:
 
@@ -56,9 +58,9 @@ Each of the four cuts leaves a pointer to the tool that holds the rest, such as:
 
 (The others are ``…and N more; ask `feature()`.``, ``…and N more notes; ask `what_changed()`.`` and ``…and N more lines; ask `memory_read()`.``) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
 
-**The last resort.** If the text still doesn't fit with 5 features and 5 notes, features and then notes are cut below 5, one at a time, until it fits or none are left. Without this, a very long app id or layer list could push the file over the cap with nothing left to cut. If even that is not enough, the file is written as it is: the cap is a goal that the loop works toward, not a guarantee that clamps the text.
+**The last resort.** If the text still doesn't fit with 5 notes and 5 features, features and then notes are cut below 5, one at a time, until it fits or none are left. Without this, a very long app id or layer list could push the file over the cap with nothing left to cut. If even that is not enough, the file is written as it is: the cap is a goal that the loop works toward, not a guarantee that clamps the text.
 
-Real sizes: a fresh `flutter create --platforms=android,ios` app, synced on Flutter 3.47.5, gave a 3,551-byte INDEX.md (10 notes shown with "…and 31 more notes", and features "None found."). The fixture app on the real SDK gave 3,951 bytes. A large synthetic project with a 4,200-byte budget came to 4,039 bytes, with 5 feature rows and 8 of 45 notes.
+Real sizes: a fresh `flutter create --platforms=android,ios` app, synced on Flutter 3.47.5, gave a 3,551-byte INDEX.md (10 notes shown with "…and 31 more notes", and features "None found."). The fixture app on the real SDK gave 3,951 bytes. A large synthetic project with a 4,200-byte budget came to 4,200 bytes, with 12 feature rows, 5 of 45 notes, no decisions and no current work.
 
 ## How sync builds it
 
