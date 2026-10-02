@@ -744,7 +744,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         </li>
         <li class="pg-item pg-next" id="pg-1b-7">
           <p class="pg-title"><b>1b.7</b> Incremental sync <span class="tag info">Next</span></p>
-          <p class="pg-summary"><code>sync --changed</code> and <code>--detect</code>: rebuild only what changed, under 2 s, with per-file hashes and a persistent analyzer cache.</p>
+          <p class="pg-summary"><code>sync --detect</code>: rebuild only when an input changed, under 2 s, with per-file hashes, the changed files recorded for verify, and a persistent analyzer cache.</p>
         </li>
         <li class="pg-item pg-planned" id="pg-1b-8">
           <p class="pg-title"><b>1b.8</b> Package skills <span class="tag neutral">Planned</span></p>
@@ -891,7 +891,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <details class="more">
         <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
         <div class="more-body">
-          <p><b>Bash changes are caught too.</b> <code>--detect</code> compares content hashes with <code>state.json</code>, so <code>flutter pub add</code> is checked like an edit.</p>
+          <p><b>Bash changes are caught too.</b> <code>--detect</code> compares content hashes with <code>state.json</code>, so <code>flutter pub add</code> is checked like an edit. When nothing the knowledge reads changed, it stops there; otherwise it rebuilds with the analyzer cache in <code>.dart_tool/appstein/</code>.</p>
           <p><b>Dependencies changed?</b> The same hook runs the package gate and re-runs <code>dart run skills@ get</code> for package skills.</p>
           <p><b>Why fixes wait for Stop:</b> rewriting a file the agent just read makes its next edit fail.</p>
           <p><b>No SessionStart hook (Codex):</b> <code>AGENTS.md</code> says to call <code>overview</code> first, which syncs if knowledge is missing or stale.</p>
@@ -1148,7 +1148,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     </div>
     <div class="perf">
       <div><b>&lt; 5 s</b><span>fast verify</span></div>
-      <div><b>&lt; 2 s</b><span>incremental sync</span></div>
+      <div><b>&lt; 2 s</b><span>incremental sync, 200 files</span></div>
       <div><b>&lt; 1 s</b><span>MCP answers</span></div>
       <div><b>&lt; 200 ms</b><span>hook start-up (AOT)</span></div>
     </div>

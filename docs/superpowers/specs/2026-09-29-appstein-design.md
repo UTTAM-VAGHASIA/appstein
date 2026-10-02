@@ -180,7 +180,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 | Command | Purpose |
 |---|---|
 | `appstein create <name>` | New project with the right structure, tokens and native config, plus knowledge and agent setup; must pass `verify` (§13.1) |
-| `appstein sync [--changed <files> \| --detect]` | Regenerate knowledge; incremental when given changed files or when `--detect` finds them by content hash |
+| `appstein sync [--detect]` | Regenerate knowledge. A plain `sync` rebuilds everything; `--detect` compares content hashes with `state.json` and rebuilds only when an input changed (§5.4) |
 | `appstein verify [--fast\|--full] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks; exit codes in §9.5 |
 | `appstein mcp` | Start the MCP server over stdio (launched by agents) |
 | `appstein docs [--check]` | Render the human docs into `docs/app/` (§6.9); `--check` writes nothing and exits 1 if the docs are stale |
@@ -200,7 +200,9 @@ session starts
 agent changes files (Edit / Write / MultiEdit, or a Bash command such as `flutter pub add`)
   └─ PostToolUse hook → `appstein sync --detect` → `appstein verify --fast --hook <agent>`
        │   (--detect finds changed files by comparing content hashes with state.json,
-       │    so changes made through Bash are caught too)
+       │    so changes made through Bash are caught too. When nothing the knowledge
+       │    reads changed, it stops there; otherwise it rebuilds, with the analyzer
+       │    cache (§6.2). It records the changed files in state.json for verify --fast)
        ├─ pass → continue
        └─ findings → fed back to the agent (file:line, message, fix hint, knowledge ref)
           NOTE: fast checks only REPORT. They never rewrite files mid-session,
@@ -242,7 +244,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ```
 .appstein/
 ├── INDEX.md               (generated, git-ignored) always-loaded entry point (≤ 1,500 tokens, enforced by test)
-├── state.json             (generated, git-ignored) freshness hashes, last sync
+├── state.json             (generated, git-ignored) input hash per source file, hash of each written file, last changes, last sync
 ├── .lock                  (git-ignored) the write lock (§15)
 ├── platform/   (generated, git-ignored)
 │   ├── sdk.json           {flutter, dart, channel, languageVersion, fvm, appsteinNotesCoverage}
@@ -262,6 +264,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 - **Every generated file carries** `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and a hash of its inputs. JSON files carry it in a `meta` key, Markdown files in a YAML front-matter block at the top. This makes staleness detectable: `verify` fails with `knowledge.stale` if a hash doesn't match.
 - **A generated file is rewritten only when its content would change:** Appstein rebuilds it with the `generatedAt` already in the file and compares the bytes. So syncing unchanged inputs changes no bytes, `generatedAt` included, and a hand-edited file is put back (§15).
 - **`INDEX.md` is generated too.** `AGENTS.md` / `CLAUDE.md` point to it. On a fresh clone it is created by the SessionStart hook, or by the `overview` MCP tool for agents without that hook (§5.4).
+- **The analyzer cache isn't knowledge.** `sync` keeps the Dart analyzer's work in `.dart_tool/appstein/`, where Dart tools keep their caches (Flutter's template already git-ignores `.dart_tool/`, and `flutter clean` deletes it). It only makes syncs faster: deleting it, or a damaged one, costs one slow sync and never changes the knowledge.
 
 **Git policy for everything Appstein touches in a project:**
 
@@ -789,7 +792,7 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 
 | Area | Requirement |
 |---|---|
-| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change |
+| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync (`sync --detect` after one edit) of a 200-file app < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change |
 | **Startup** | Hooks invoke a compiled executable (AOT), not `dart run`, so start-up stays under 200 ms |
 | **Platforms** | Appstein runs on Windows, macOS and Linux (x64 and arm64 where Dart supports AOT). Paths with spaces and non-ASCII characters are supported |
 | **Concurrency** | Writes to `.appstein/` take an operating-system lock on `.appstein/.lock`, waiting up to a timeout, so two hooks or two agents never corrupt knowledge. The operating system releases the lock if a writer crashes, so a stale lock never blocks. Each file is written beside its target and then renamed over it, so readers never block and never see a half-written file |
