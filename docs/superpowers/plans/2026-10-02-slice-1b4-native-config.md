@@ -7062,3 +7062,66 @@ Run `/graphify . --update` until `tool/check_graph.py` reports nothing, with at 
   - `--build-number` and `--build-name` given at build time aren't known to `native.json`;
   - a flavor created by a call without a block (`create("x")` alone) isn't listed.
 - **Still carried from 1b.3:** an unexpected exception in the map build (an analyzer bug) still aborts the whole sync; `native.json` and the delta each have their own catch, the map doesn't.
+
+## Notes from execution (2026-10-02)
+
+Executed in quick subagent-driven mode, with at most 3 subagents at once. Every task had a task review (Opus for the readers, the section builders and the seam), then came a final whole-branch review on Opus, one fix wave, a scoped re-review, and one more ruled round (below). PR #10.
+
+**Pre-flight scan.** It found no conflicts between tasks. One ruling: each task is committed right after its implementer reports, and fixes land as follow-up commits, so the review script can diff commits while subagents never commit.
+
+**The plan's own code guessed, and reviews caught it.** Opus reviewers ran throwaway probes against each reader and section builder. About fifteen realistic inputs gave a wrong `found` or an `absent` for a value that is set. Each now gives `unknown` with a reason:
+- **`readKts`:**
+  - `import java.util.*` or a generic type at a line end swallowed the next block, `android { }` included;
+  - scope functions (`apply`, `run`, `with`, `let`, `also`, `configure<…>`) and collection callbacks (`all { }`, `configureEach { }`) hid assignments or became flavor names;
+  - entries under `if`, `by creating` and `create("x").apply { }` vanished;
+  - `version "8." + "1.0"` read as `"8."`.
+  - Every opaque body now leaves a `?` block, and nested scope bodies are read at most three levels deep, so a pathological file stays linear.
+- **The `android` section:**
+  - a damaged `pubspec.yaml` gave a confident default version;
+  - `alias(…)` plugins and `id(…).version(…)` chains read as "not declared";
+  - flavors created by calls, and flavors using old names, were lost;
+  - keys set where the reader doesn't follow read as "not set": `tasks.withType<…>().configureEach { … }`, `getByName("release").apply { … }`, `jvmTarget.set(…)`, `jvmToolchain(…)`, toolchain blocks, AGP's block form `compileSdk { version = release(36) }`, `it.`/`this.` receivers and `setX(…)` calls;
+  - a release build with no signing config of its own uses `defaultConfig`'s, unless a flavor signs its own builds;
+  - a key set twice on one line is "set more than once".
+  - A backstop now turns any key the reader saw but can't place into `unknown`.
+- **The `ios` section:**
+  - a bad `\U` escape could crash the extractor;
+  - a Podfile version written as a Ruby expression, as `"#{…}"`, with an `if` modifier, inside a Ruby block, twice, or in a CRLF file was misread;
+  - an unreadable `pubspec.yaml` silently dropped out of the SwiftPM decision;
+  - several `absent` reasons said something false.
+  - Info.plist values using `$(…)` carry the build-variables note. A project-level Xcode value notes that the target's `.xcconfig` can override it.
+
+**Reading the real output found one more.** On Windows and Linux, `flutter pub get` writes the generated `Package.swift` as a placeholder with no plugins, even for an app with iOS plugins. Flutter fills it only when Swift Package Manager is in use, which needs Xcode 15 or later (`xcode_project.dart:214-238`, `darwin_dependency_management.dart:62-75`). So `generatedPackage.plugins` is found only when the file depends on `FlutterFramework`, which Flutter always adds when SwiftPM is in use. The template fixture was made on Windows, so its golden says `unknown`. The real-SDK test expects `found []` on a Mac with Xcode, deciding from the generated file.
+
+**One extra round, by ruling.** The final fix wave introduced two new false claims: flavors in nested scope functions read as `[]`, and `minSdk = 21; minSdk = 23` on one line read as 21. The process allows one fix wave, but these were false claims, and this plan's Task 11 says to fix what the reading finds. So one more round fixed them, with the `Package.swift` finding and a manifest wording fix. Its scoped re-review approved merging.
+
+**Windows line endings.** `flutter create` on Windows writes CRLF files, and git stores the fixtures as LF. The fixture folder was re-checked out as LF before the golden was generated. The golden holds no hash, and the real-SDK test compares the body, not `meta`, so CRLF doesn't matter there.
+
+**Corrections to this plan's text.**
+- "A flavor created by a call without a block isn't listed" (Carried, known limits) is no longer true: such flavors are listed with only their name.
+- Containers declared more than three scope functions deep can still be missed. That limit is in the guide.
+
+**Numbers.**
+- **Tests:** engine 617, protocol 56, CLI 34, lints 19, engine integration 7, repo tools 212.
+- **`measure_sync` on Windows:** full sync 13.2 s, against the 30 s target; first sync 23.2 s; both native sections read.
+- **Real output** (compiled CLI, Flutter 3.47.5):
+  - A fresh app gives an 11 KB `native.json`, every value matching the files; a second sync left it unchanged.
+  - With `camera`, `url_launcher` and `permission_handler`, the `CAMERA` permission and the usage description appear with their lines, and no machine path appears.
+  - Without an FVM pin, the machine's Flutter 3.38.6 failed `pub get`, the map was skipped, and `native.json` was still written.
+- **Not checked locally:** a Groovy-era project (none on this machine; unit tests cover it), the real-SDK test's macOS branch, and the Flutter 3.44 job.
+
+**Left by ruling.** AGP declared only in the app's own `plugins { }` block reads as "not declared in settings", which is literally true and rare.
+
+**Parked (minor; the final review rated each "can wait"):**
+- the OS's own wording for an unreadable file reaches `reason` and the hash;
+- `MapSync`'s duplicate check doesn't cover symbols, layers or deps;
+- a `\` before a newline inside a Kotlin string is accepted, and later lines shift by one;
+- an unclosed bracket reports the end-of-file line;
+- a malformed `\uXXXX` in `.properties` becomes letters;
+- unknown pbxproj escapes become the letter;
+- duplicate plist keys keep the last value silently;
+- the XML plist reader accepts stray text;
+- `val dc = android.defaultConfig; dc.minSdk = 21` reads as "not set";
+- `the<AppExtension>()` and `extensions.configure<…>` without an `android` receiver aren't followed;
+- `platform :ios, ''` is labelled a Ruby expression;
+- a few test gaps (the channel and packs in the hash test, the environment-source SwiftPM note, permission children).
