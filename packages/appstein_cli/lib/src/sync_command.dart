@@ -10,8 +10,9 @@ import 'packs.dart';
 import 'project_option.dart';
 import 'version.dart';
 
-/// `appstein sync`: regenerates the knowledge Appstein keeps in
-/// `.appstein/` (spec §5.3). It writes the platform layer (`sdk.json`,
+/// `appstein sync [--detect]`: regenerates the knowledge Appstein keeps in
+/// `.appstein/` (spec §5.3, §5.4). With `--detect`, only when something it
+/// reads changed. It writes the platform layer (`sdk.json`,
 /// `toolchain.json`), the version delta (`delta.md`) and the project map
 /// (`map/*.json`, `native.json` included), then `state.json`.
 final class SyncCommand extends Command<int> {
@@ -20,7 +21,15 @@ final class SyncCommand extends Command<int> {
     required this.out,
     required this.err,
     required this.environment,
-  });
+  }) {
+    argParser.addFlag(
+      'detect',
+      negatable: false,
+      help:
+          'Rebuild only when something the knowledge reads changed, found by '
+          'content hash (the after-edit hook).',
+    );
+  }
 
   /// Where the report goes.
   final StringSink out;
@@ -64,12 +73,15 @@ final class SyncCommand extends Command<int> {
       return ExitCodes.appsteinFailed;
     }
     try {
-      final report = await KnowledgeSync(
+      final sync = KnowledgeSync(
         environment: environment,
         appsteinVersion: appsteinVersion,
         packs: packsFor(config),
         baseline: config.delta.baseline,
-      ).run(projectRoot);
+      );
+      final report = argResults!['detect'] as bool
+          ? await sync.detect(projectRoot)
+          : await sync.run(projectRoot);
       out.write(formatSyncReport(report));
       return ExitCodes.ok;
     } on SyncException catch (error) {
@@ -98,15 +110,30 @@ final class SyncCommand extends Command<int> {
 /// or unchanged, what happened to the project's packages (fetched, or why
 /// they could not be), the project map's skip reason and what to do about
 /// it, what native config found for each platform, the notes coverage, and
-/// any toolchain fallback.
+/// any toolchain fallback. A `--detect` that found nothing changed is one
+/// line; otherwise it says what changed or why it rebuilt, and any
+/// analyzer-cache problem.
 String formatSyncReport(SyncReport report) {
   final sdk = report.sdk;
+  if (report.current) {
+    return 'Knowledge is current for Flutter ${sdk.flutterVersion} '
+        '(Dart ${sdk.dartVersion}, ${sdk.channel} channel): nothing it reads '
+        'changed since the last sync.\n';
+  }
   final width = report.files.keys.map((path) => path.length).fold(0, max);
   final buffer = StringBuffer()
     ..writeln(
       'Synced .appstein/ for Flutter ${sdk.flutterVersion} '
       '(Dart ${sdk.dartVersion}, ${sdk.channel} channel).',
     );
+  if (report.changed.isNotEmpty) {
+    buffer.writeln('Changed since the last sync: ${_names(report.changed)}.');
+  } else if (report.rebuiltBecause case [final first, ...final rest]) {
+    buffer.writeln(
+      'Rebuilt because $first'
+      '${rest.isEmpty ? '' : ' (and ${rest.length} more)'}.',
+    );
+  }
   for (final MapEntry(key: path, value: written) in report.files.entries) {
     buffer.writeln(
       '  ${path.padRight(width)}  ${written ? 'written' : 'unchanged'}',
@@ -172,6 +199,26 @@ String formatSyncReport(SyncReport report) {
       }
     }
   }
+  if (report.analyzerCache case final cache?) {
+    if (cache.damage case final why?) {
+      buffer.writeln(
+        'The analyzer cache could not be used ($why), so this sync analyzed '
+        'without it.',
+      );
+    }
+    if (cache.retried case final error?) {
+      buffer.writeln(
+        'The analyzer failed while reading its cache ($error), so the '
+        'analysis ran again without it and the cache was replaced.',
+      );
+    }
+    if (cache.saveError case final why?) {
+      buffer.writeln(
+        'warning: the analyzer cache could not be saved ($why); the next '
+        'sync will be slower.',
+      );
+    }
+  }
   // Coverage is "complete" only when known; unknown counts as partial, the
   // same as in delta.md.
   if (sdk.notesCoverage != NotesCoverage.complete) {
@@ -192,4 +239,16 @@ String formatSyncReport(SyncReport report) {
     buffer.writeln('toolchain.fallback (info): $fallback');
   }
   return buffer.toString();
+}
+
+/// [names] (input names) for one line: the first five, without the
+/// `project:` prefix, then how many more.
+String _names(List<String> names) {
+  const prefix = 'project:';
+  final shown = [
+    for (final name in names.take(5))
+      name.startsWith(prefix) ? name.substring(prefix.length) : name,
+  ];
+  final rest = names.length - shown.length;
+  return '${shown.join(', ')}${rest > 0 ? ' and $rest more' : ''}';
 }
