@@ -20,6 +20,7 @@ import 'canonical_json.dart';
 import 'freshness.dart';
 import 'generated_file.dart';
 import 'input_hash.dart';
+import 'knowledge_lock.dart';
 import 'knowledge_store.dart';
 import 'knowledge_write_exception.dart';
 import 'platform_sync.dart';
@@ -130,7 +131,8 @@ final class KnowledgeSync {
   /// [SyncReport.current]. The first such call after a rebuild empties
   /// `state.json`'s change list, so `verify --fast` checks each change once.
   /// It does that under the lock, and only if `state.json` is still the one
-  /// it checked.
+  /// it checked. When the lock stays busy past [lockTimeout], it leaves the
+  /// list for a later call and still reports current.
   ///
   /// Throws as [run] does.
   Future<SyncReport> detect(
@@ -151,23 +153,30 @@ final class KnowledgeSync {
     final checked = freshness.state!;
     if (checked.changed.isNotEmpty) {
       final store = KnowledgeStore(projectRoot, clock: _clock);
-      await store.locked(() async {
-        final now = store.readState().state;
-        if (now != null &&
-            canonicalJson(now.toJson()) == canonicalJson(checked.toJson())) {
-          await store.writeState(
-            KnowledgeState(
-              formatVersion: now.formatVersion,
-              appsteinVersion: now.appsteinVersion,
-              lastSync: now.lastSync,
-              files: now.files,
-              sources: now.sources,
-              written: now.written,
-              changed: const [],
-            ),
-          );
-        }
-      }, timeout: lockTimeout);
+      try {
+        await store.locked(() async {
+          final now = store.readState().state;
+          if (now != null &&
+              canonicalJson(now.toJson()) == canonicalJson(checked.toJson())) {
+            await store.writeState(
+              KnowledgeState(
+                formatVersion: now.formatVersion,
+                appsteinVersion: now.appsteinVersion,
+                lastSync: now.lastSync,
+                files: now.files,
+                sources: now.sources,
+                written: now.written,
+                changed: const [],
+              ),
+            );
+          }
+        }, timeout: lockTimeout);
+      } on KnowledgeLockTimeout {
+        // Nothing is stale, so a hook mustn't fail over a busy lock. The
+        // writer holding it is writing a new state.json anyway, which the
+        // check above would no longer match; the list is emptied by a later
+        // detect.
+      }
     }
     final platform = prepared.platform;
     return SyncReport(
@@ -277,6 +286,11 @@ final class KnowledgeSync {
           await used.save();
         } on KnowledgeWriteException catch (error) {
           saveError = error.reason;
+          // The cache must never fail a sync: the knowledge is already
+          // written, so any other error saving it (an `ArgumentError` from
+          // encoding a key that isn't ASCII, say) is a warning too.
+        } on Object catch (error) {
+          saveError = '$error';
         }
       }
       return SyncReport(

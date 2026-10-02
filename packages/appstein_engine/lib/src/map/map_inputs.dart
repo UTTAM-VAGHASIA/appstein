@@ -25,8 +25,14 @@ final class MapInputs {
   ///   and each `.dart` or `.yaml` file under its `lib/`
   ///   ([localPackageRoots]).
   ///
-  /// A folder that can't be listed is an input named after it
-  /// (`project:lib/`, `local-package:<name>/lib/`) with null.
+  /// The folders are walked as the analyzer walks them: links to folders
+  /// (and Windows junctions) are followed, and a file behind one is named by
+  /// its path through the link (`project:lib/linked/s.dart`). A folder that
+  /// can't be listed is an input named after that folder alone, with a
+  /// trailing `/` and null (`project:lib/locked/`,
+  /// `local-package:<name>/lib/locked/`, or `project:lib/` when `lib/`
+  /// itself can't be); its siblings are still hashed. The analyzer skips
+  /// that folder too.
   final Map<String, String?> sources;
 
   /// The input hash every map file shares: [sources], the Flutter version,
@@ -56,13 +62,14 @@ MapInputs readMapInputs(
     ),
   };
   for (final folder in ProjectAnalysis.folders) {
-    final files = _filesUnder(p.join(projectRoot, folder), const ['.dart']);
-    if (files == null) {
-      sources['project:$folder/'] = null;
-      continue;
-    }
+    final (:files, :unlisted) = _filesUnder(p.join(projectRoot, folder), const [
+      '.dart',
+    ]);
     for (final file in files) {
       sources['project:${_relative(file, projectRoot)}'] = _digest(file);
+    }
+    for (final dir in unlisted) {
+      sources['project:${_relative(dir, projectRoot)}/'] = null;
     }
   }
   final locals = localPackageRoots(
@@ -75,13 +82,15 @@ MapInputs readMapInputs(
     sources['local-package:$name/pubspec.yaml'] = _digest(
       p.join(root, 'pubspec.yaml'),
     );
-    final files = _filesUnder(p.join(root, 'lib'), const ['.dart', '.yaml']);
-    if (files == null) {
-      sources['local-package:$name/lib/'] = null;
-      continue;
-    }
+    final (:files, :unlisted) = _filesUnder(p.join(root, 'lib'), const [
+      '.dart',
+      '.yaml',
+    ]);
     for (final file in files) {
       sources['local-package:$name/${_relative(file, root)}'] = _digest(file);
+    }
+    for (final dir in unlisted) {
+      sources['local-package:$name/${_relative(dir, root)}/'] = null;
     }
   }
   return MapInputs(
@@ -185,22 +194,70 @@ List<String> pubCacheFolders(HostEnvironment environment) {
   return [if (environment.homeDir case final home?) p.join(home, '.pub-cache')];
 }
 
-/// The files under [folder] whose names end with one of [extensions], or
-/// null when it can't be listed. A missing folder has none.
-List<String>? _filesUnder(String folder, List<String> extensions) {
-  final directory = Directory(folder);
-  if (!directory.existsSync()) return const [];
-  try {
-    return [
-      for (final entity in directory.listSync(
-        recursive: true,
-        followLinks: false,
-      ))
-        if (entity is File && extensions.any(entity.path.endsWith)) entity.path,
-    ];
-  } on FileSystemException {
-    return null;
+/// The files under [folder] whose names end with one of [extensions], and
+/// the folders under it (or [folder] itself) that can't be listed. A missing
+/// folder has neither.
+///
+/// The walk matches the analyzer's (analyzer 14.4.0,
+/// `ContextRootImpl._includedFilesInFolder`), so the inputs cover exactly
+/// the files the map is built from:
+/// - a link to a folder, or a Windows junction, is walked into, and the
+///   files behind it are named by their path through the link
+///   (`lib/linked/s.dart`);
+/// - a folder whose resolved path is one the walk is already inside (a link
+///   loop) is skipped. As in the analyzer, this tracks only the folders on
+///   the current path, so two links to one folder are both walked;
+/// - a folder that can't be listed, or whose link can't be resolved, is
+///   recorded in `unlisted`, and its siblings are still walked. The analyzer
+///   skips it too, so the map and the inputs agree.
+({List<String> files, List<String> unlisted}) _filesUnder(
+  String folder,
+  List<String> extensions,
+) {
+  final files = <String>[];
+  final unlisted = <String>[];
+  if (!Directory(folder).existsSync()) {
+    return (files: files, unlisted: unlisted);
   }
+  // The resolved paths of the folders the walk is inside. Like the
+  // analyzer's, it doesn't hold the top folder.
+  final inside = <String>{};
+  void walk(String dir) {
+    final List<FileSystemEntity> entries;
+    try {
+      entries = Directory(dir).listSync(followLinks: false)
+        ..sort((a, b) => a.path.compareTo(b.path));
+    } on FileSystemException {
+      unlisted.add(dir);
+      return;
+    }
+    for (final entry in entries) {
+      final path = entry.path;
+      // Follows links: a link to a folder (or a junction) is a directory.
+      switch (FileSystemEntity.typeSync(path)) {
+        case FileSystemEntityType.directory:
+          final String resolved;
+          try {
+            resolved = Directory(path).resolveSymbolicLinksSync();
+          } on FileSystemException {
+            unlisted.add(path);
+            continue;
+          }
+          if (inside.add(resolved)) {
+            walk(path);
+            inside.remove(resolved);
+          }
+        case FileSystemEntityType.file:
+          if (extensions.any(path.endsWith)) files.add(path);
+        // A broken link, or something that is neither: the analyzer skips
+        // it too.
+        default:
+      }
+    }
+  }
+
+  walk(folder);
+  return (files: files, unlisted: unlisted);
 }
 
 String _relative(String file, String root) =>

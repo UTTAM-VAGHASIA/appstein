@@ -9,8 +9,10 @@ import 'package:path/path.dart' as p;
 /// - `sync --detect` on that app when nothing changed, and after one edit of
 ///   a view model: each under 2 s.
 ///
-/// The same rows for a 1,000-file app are printed for information only and
-/// never fail (owner decision, slice 1b.7).
+/// The same rows are measured for a 1,000-file app. Their times are printed
+/// for information only and never held to a target (owner decision, slice
+/// 1b.7), but a broken run at either size (a failed sync, a skipped map,
+/// unread native config, an edit not reported as changed) still exits 1.
 ///
 /// It compiles the `appstein` command first and runs every sync as a new
 /// process, the way an agent's hook runs it, with FLUTTER_ROOT set to the

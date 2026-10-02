@@ -207,9 +207,13 @@ String formatSyncReport(SyncReport report) {
       );
     }
     if (cache.retried case final error?) {
+      // When the save failed, the old cache is still there.
+      final replaced = cache.saveError == null
+          ? ' and the cache was replaced'
+          : '';
       buffer.writeln(
         'The analyzer failed while reading its cache ($error), so the '
-        'analysis ran again without it and the cache was replaced.',
+        'analysis ran again without it$replaced.',
       );
     }
     if (cache.saveError case final why?) {

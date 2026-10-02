@@ -214,6 +214,9 @@ final class MapSync {
       // an empty cache, which then replaces the old one. Any other error
       // happens again and is thrown.
       if (cache == null) rethrow;
+      // The failed analysis is abandoned, not disposed: its futures never
+      // complete and it may still use CPU during the retry; the process
+      // still exits normally.
       return analyzeWith(
         AnalyzerCache.empty(cache.path),
         retried: '${error.runtimeType}: ${'$error'.split('\n').first}',

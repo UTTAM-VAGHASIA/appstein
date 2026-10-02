@@ -90,7 +90,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 2. `subosito/flutter-action@v2`
 3. `dart pub get --enforce-lockfile`
 4. Measure cold analysis with the plugin (spec §9.1)
-5. Measure a full sync of a 200-file app (spec §15)
+5. Measure a full sync and sync --detect (spec §15)
 
 <!-- /generated:ci-jobs -->
 
@@ -156,7 +156,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
   3. `sync --detect` with nothing changed;
   4. `sync --detect` after editing a view model, and after editing the router.
 
-  Spec §15 sets the targets, and **this tool does fail**: it exits 1 when the full sync takes 30 s or more, when either `--detect` of 3 and 4 (nothing changed, the view model edit) takes 2 s or more, when the map was skipped, when any native section is not `read`, or when a `--detect` gives the wrong answer (it rebuilt with nothing changed, or didn't report the edit). The same rows for a 1,000-file app are printed for information only and never fail. The table goes to the job summary and the log. On the Windows development machine:
+  Spec §15 sets the targets, and **this tool does fail**: it exits 1 when the full sync takes 30 s or more, when either `--detect` of 3 and 4 (nothing changed, the view model edit) takes 2 s or more, when the map was skipped, when any native section is not `read`, or when a `--detect` gives the wrong answer (it rebuilt with nothing changed, or didn't report the edit). The same rows are measured for a 1,000-file app: their times are printed for information only and never held to a target, but a broken run there (a failed sync, a skipped map, a native section not `read`, a wrong `--detect` answer) still exits 1. The table goes to the job summary and the log. On the Windows development machine:
 
   | Measurement | 200 files | 1,000 files (info) |
   |---|---|---|

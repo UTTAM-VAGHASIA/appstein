@@ -205,6 +205,6 @@ jobs:
         # `tee` also puts the table in the log, which `gh run view --log` can
         # read; job summaries aren't available through the CLI or API.
         run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Measure a full sync of a 200-file app (spec §15)
+      - name: Measure a full sync and sync --detect (spec §15)
         shell: bash
         run: dart run tool/measure_sync.dart | tee -a "$GITHUB_STEP_SUMMARY"

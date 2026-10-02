@@ -452,12 +452,36 @@ void main() {
       contains(
         'The analyzer cache could not be used (it is cut short), so this sync '
         'analyzed without it.\n'
+        // The save failed, so the cache was not replaced.
         'The analyzer failed while reading its cache (RangeError: bad), so the '
-        'analysis ran again without it and the cache was replaced.\n'
+        'analysis ran again without it.\n'
         'warning: the analyzer cache could not be saved (Access is denied.); '
         'the next sync will be slower.\n',
       ),
     );
+  });
+
+  test('after a retry whose save succeeded, the cache was replaced', () {
+    final text = formatSyncReport(
+      const SyncReport(
+        sdk: sdkInfo,
+        files: {'map/symbols.json': true},
+        newestNotes: '3.47',
+        fallbacks: [],
+        analyzerCache: AnalyzerCacheReport(
+          load: AnalyzerCacheLoad.loaded,
+          retried: 'RangeError: bad',
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'The analyzer failed while reading its cache (RangeError: bad), so the '
+        'analysis ran again without it and the cache was replaced.\n',
+      ),
+    );
+    expect(text, isNot(contains('could not be saved')));
   });
 
   test('a healthy cache adds no line', () {

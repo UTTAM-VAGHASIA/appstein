@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:appstein_engine/android.dart';
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/ios.dart';
 import 'package:appstein_engine/official_mvvm.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
@@ -93,6 +94,23 @@ void main() {
       expect(report.current, isTrue);
       expect(state().changed, isEmpty);
       expect(knowledgeFiles(app)..remove('state.json'), knowledge);
+    });
+
+    test('a busy lock leaves the change list for a later detect; the report '
+        'is still current', () async {
+      await full();
+      final lock = await KnowledgeLock.acquire(p.join(app, '.appstein'));
+      addTearDown(lock.release);
+      final report = await knowledgeSync(
+        flutterRoot: sdk,
+        runner: runner,
+        lockTimeout: const Duration(milliseconds: 200),
+      ).detect(app, dartSdkPath: testDartSdk);
+      expect(report.current, isTrue);
+      expect(state().changed, isNotEmpty);
+      lock.release();
+      await detect();
+      expect(state().changed, isEmpty);
     });
 
     test('freshness() says current and writes nothing', () async {
@@ -326,6 +344,60 @@ void main() {
     expect(report.changed, isEmpty);
     expect(report.rebuiltBecause, contains('map/native.json is out of date'));
   });
+
+  test('an edit behind a linked folder in lib/ is not "current"', () async {
+    final shared = p.join(p.dirname(app), 'shared');
+    File(p.join(shared, 's.dart'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('/// S.\nclass S {}\n');
+    // On Windows this is a junction, which needs no admin.
+    Link(p.join(app, 'lib', 'linked')).createSync(shared);
+    await full();
+    await detect(); // Empties the change list.
+    expect((await detect()).current, isTrue);
+    File(
+      p.join(shared, 's.dart'),
+    ).writeAsStringSync('\n/// T.\nclass T {}\n', mode: FileMode.append);
+    final report = await detect();
+    expect(report.current, isFalse);
+    expect(report.changed, contains('project:lib/linked/s.dart'));
+    expect(jsonEncode(readMapBody(app, 'symbols.json')), contains('"T"'));
+  });
+
+  test('with the platform packs and native config, detect reaches '
+      '"current"', () async {
+    // Native config must be deterministic, or every hook would rebuild.
+    final template = p.join(
+      p.dirname(fixtureAppsDir),
+      'native',
+      'template_app',
+    );
+    for (final folder in const ['android', 'ios']) {
+      copyFixtureTree(p.join(template, folder), p.join(app, folder));
+    }
+    const packs = [OfficialMvvmPack(), AndroidPack(), IosPack()];
+    await full(packs: packs);
+    expect(fileOf('.appstein/map/native.json').existsSync(), isTrue);
+    await detect(packs: packs); // Empties the change list.
+    final report = await detect(packs: packs);
+    expect(report.current, isTrue, reason: '${report.rebuiltBecause}');
+  });
+
+  test(
+    'after a rebuild for a decision file, detect reaches "current"',
+    () async {
+      await full();
+      await detect();
+      write(
+        '.appstein/decisions/0001-state.md',
+        '---\nid: 0001\ntitle: State\nstatus: accepted\n---\nWhy: test.\n',
+      );
+      expect((await detect()).current, isFalse);
+      await detect(); // Empties the change list, if the rebuild left one.
+      final report = await detect();
+      expect(report.current, isTrue, reason: '${report.rebuiltBecause}');
+    },
+  );
 
   test('other packs: rebuilt', () async {
     await full();

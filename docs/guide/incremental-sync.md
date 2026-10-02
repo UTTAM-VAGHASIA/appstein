@@ -52,7 +52,7 @@ Then it computes **every output's input hash** and compares it with the one in `
 | `state.json could not be read (…)` | the file exists but can't be read |
 | `the last sync was made by Appstein X` | another Appstein version wrote it |
 | `state.json is in format N` | its format version differs from this Appstein's |
-| `the packages need \`flutter pub get\`: …` | `checkPackages` says they are stale |
+| `` the packages need `flutter pub get`: … `` | `checkPackages` says they are stale |
 | `the last sync could not build the project map` | `state.json` has no `map/symbols.json` |
 | `<file> is out of date` | a file's input hash differs from `state.json`'s (or the file is new, or no longer expected) |
 | `<file> was changed by hand` | the file's bytes differ from the hash in `written` |
@@ -74,7 +74,13 @@ A rebuild rebuilds everything, `map/native.json` and `INDEX.md` too. Both cost u
 | `analysis_options.yaml` | the project's (its `exclude:` changes which files the map covers) |
 | `local-package:<name>/<path>` | a local package's `pubspec.yaml`, and each `.dart` or `.yaml` file under its `lib/` |
 
-A file that can't be read has no hash (`null`, written `missing` in `state.json`). A folder that can't be listed is one input named after it (`project:lib/`, `local-package:<name>/lib/`) with no hash, so it can't be mistaken for "no files".
+A file that can't be read has no hash (`null`, written `missing` in `state.json`).
+
+**The folders are walked as the analyzer walks them.** The inputs must cover exactly the files the map is built from, so `_filesUnder` copies the analyzer's walk (analyzer 14.4.0, `ContextRootImpl._includedFilesInFolder`):
+
+- **Links are followed.** A link to a folder, or a Windows junction, is walked into, and a file behind it is named by its path through the link, as the analyzer names it: `project:lib/linked/s.dart`. An edit behind the link therefore changes the hash.
+- **Loops end.** A folder whose resolved path is one the walk is already inside is skipped. Like the analyzer, the walk tracks only the folders on its current path, not every folder it has seen, so two links to one folder are both inputs (removing one changes the map, so it must change the hash). A link `lib/loop` to `lib` is walked once, as `lib/loop/…`, and stops at `lib/loop/loop`.
+- **Only the unlistable folder is lost.** A folder that can't be listed, or whose link can't be resolved, is one input named after that folder alone, with a trailing `/` and no hash: `project:lib/locked/`, `local-package:<name>/lib/locked/`, or `project:lib/` when `lib/` itself can't be. Its siblings are still walked and hashed. The analyzer skips that folder too, so the map and the hash agree; when the folder becomes readable, its key disappears and its files appear, so the change is seen.
 
 **Names, not paths.** The hash covers the names above, never an absolute path. A project folder that moves keeps its hashes.
 
@@ -97,7 +103,7 @@ A file that can't be read has no hash (`null`, written `missing` in `state.json`
 
 `changed` is for the checks that come later: `verify --fast` (slice 1d) and the package skills (slice 1b.8) read it to look only at what changed. With no earlier `state.json`, `changed` lists every input, but the *report* (`SyncReport.changed`) is empty then, so a first sync doesn't print 200 "changed" files.
 
-**Each change is reported once.** The first `--detect` that finds nothing changed empties `changed`. It does that inside the store's lock, and only if `state.json` is still exactly the one it checked (it compares the canonical JSON). If another sync wrote it in between, it leaves it alone. Every later `--detect` writes no byte.
+**Each change is reported once.** The first `--detect` that finds nothing changed empties `changed`. It does that inside the store's lock, and only if `state.json` is still exactly the one it checked (it compares the canonical JSON). If another sync wrote it in between, it leaves it alone. If the lock stays busy past the lock timeout, it skips emptying the list and still reports "current": nothing is stale, so a hook mustn't fail, and the writer holding the lock is writing a new `state.json` anyway. Every later `--detect` writes no byte.
 
 **Older `state.json` files.** One written before 1b.7 lacks `sources`, `written` and `changed`, so it fails to read and `--detect` says "state.json is damaged or from an older Appstein" and rebuilds. That costs one rebuild. Raising the format version instead would have rewritten every generated file once, for no gain: nobody has 1b.6 state files.
 
@@ -142,8 +148,8 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 |---|---|---|
 | no cache file | analyzes from nothing, then saves | nothing |
 | wrong header, another format or analyzer version, cut short, or unreadable | opens as an empty cache, then replaces the file | `The analyzer cache could not be used (<why>), so this sync analyzed without it.` |
-| the header is fine but entries are garbage | the analysis fails; it runs once more with an empty cache, which replaces the bad one | `The analyzer failed while reading its cache (<error>), so the analysis ran again without it and the cache was replaced.` |
-| the cache can't be saved (a read-only folder, or `.dart_tool/appstein` is a file) | the knowledge is already written; the sync succeeds | `warning: the analyzer cache could not be saved (<why>); the next sync will be slower.` |
+| the header is fine but entries are garbage | the analysis fails; it runs once more with an empty cache, which replaces the bad one | `The analyzer failed while reading its cache (<error>), so the analysis ran again without it and the cache was replaced.` (without "and the cache was replaced" when the save then failed) |
+| the cache can't be saved (a read-only folder, `.dart_tool/appstein` is a file, or any other error while saving) | the knowledge is already written; the sync succeeds | `warning: the analyzer cache could not be saved (<why>); the next sync will be slower.` |
 | the map was skipped | leaves the cache file alone | nothing |
 
 **Why `catchAnalyzerErrors` exists.** The probe found that a cache with garbage entries made the analyzer throw inside **its own scheduler**, where no `await` of ours can catch it. The process died with exit 255, and every later sync would have done the same until someone deleted the file by hand. [`catchAnalyzerErrors`](../../packages/appstein_engine/lib/src/map/analyzer_cache.dart) runs the analysis inside `runZonedGuarded`, so that error becomes the analysis's own error. `MapSync.build` then retries once with `AnalyzerCache.empty`. Without a cache, or when the retry fails too, the error is thrown and the CLI turns it into exit 3 with a crash report. The abandoned first analysis isn't disposed, because its futures never complete; the process still exits normally.
@@ -156,16 +162,16 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 - it sets `FLUTTER_ROOT` to the Flutter SDK whose Dart runs the tool;
 - the **full sync row is cold**: it deletes `.appstein/` and the cache folder first, so it is the 30 s worst case;
 - before the "nothing changed" row it runs `--detect` once to empty the change list, then times the second;
-- the 1,000-file rows are **information only** (owner decision): they are printed and never fail the tool. The 200-file rows are held to spec §15 (full sync under 30 s, each detect under 2 s).
+- the 1,000-file rows' **times are information only** (owner decision): they are printed and never held to a target. The 200-file rows' times are held to spec §15 (full sync under 30 s, each detect under 2 s).
 
-It also fails when a run isn't a real sync (a skipped map, unread native config), or when an edit isn't reported as changed, so a fast wrong answer can't pass.
+At both sizes the tool still fails (exit 1) when a run is broken: a sync that fails, a run that isn't a real sync (a skipped map, unread native config), or an edit that isn't reported as changed. So a fast wrong answer can't pass.
 
 ## Tests
 
 - `packages/appstein_engine/test/map/analyzer_cache_test.dart`: the file format (round trip, only used entries kept, sorted keys, every kind of damage), the path, the canary with the real analyzer, the version pin, and `catchAnalyzerErrors`.
-- `packages/appstein_engine/test/map/map_inputs_test.dart`: the input names, local packages, pub cache and SDK packages skipped, damaged package config, `pubCacheFolders`, and that a moved project keeps its hash.
+- `packages/appstein_engine/test/map/map_inputs_test.dart`: the input names, local packages, pub cache and SDK packages skipped, damaged package config, `pubCacheFolders`, that a moved project keeps its hash, and the walk: a linked folder (a junction on Windows), two links to one folder, a link loop, and (POSIX only) an unreadable folder beside hashed siblings.
 - `packages/appstein_engine/test/knowledge/knowledge_sync_cache_test.dart`: the cache is created and read, the knowledge is the same with a warm cache as with none, a damaged cache, garbage entries (the guard and the retry), a cache that can't be saved, and a skipped map.
-- `packages/appstein_engine/test/knowledge/knowledge_sync_detect_test.dart`: the freshness matrix. Nothing changed (and the change list emptied once), each kind of change, hand edits and a damaged or older `state.json`, a file edited while the sync analyzes, a skipped map tried again, native and other packs.
+- `packages/appstein_engine/test/knowledge/knowledge_sync_detect_test.dart`: the freshness matrix. Nothing changed (and the change list emptied once, or left for later when the lock is busy), each kind of change, hand edits and a damaged or older `state.json`, a file edited while the sync analyzes, a skipped map tried again, an edit behind a linked folder, "current" reached with the Android and iOS packs and after a decision-file rebuild, native and other packs.
 - `packages/appstein_cli/test/sync_command_test.dart`: `--detect` and its report lines, and that `--changed` is not an option.
 
 See [testing](testing.md) for how these tests are built, and [knowledge-store](knowledge-store.md) for how the files are written.
