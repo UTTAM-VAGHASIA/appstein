@@ -240,10 +240,21 @@ final class AnalyzerCache {
   /// Writes the entries used since the cache was opened to [path], in one
   /// step, so the file never holds entries no run needs.
   ///
+  /// It doesn't wait for the disk to have the file (`flush: false`): waiting
+  /// cost about 0.6 s of a 2 s budget on Windows CI's disks, for a file that
+  /// only saves time. A copy a power cut damaged is caught when it is read
+  /// (a bad header or length makes it empty, garbage in an entry makes the
+  /// analysis run again without it), so the worst case is one slower sync.
+  ///
   /// Throws a `KnowledgeWriteException` when it can't be written. [onTimed]
   /// hears how long writing and renaming the file took.
   Future<void> save({void Function(ReplaceTiming timing)? onTimed}) =>
-      replaceFileBytes(path, encodeAnalyzerCache(_used), onTimed: onTimed);
+      replaceFileBytes(
+        path,
+        encodeAnalyzerCache(_used),
+        onTimed: onTimed,
+        flush: false,
+      );
 }
 
 /// The analyzer's view of an [AnalyzerCache].
