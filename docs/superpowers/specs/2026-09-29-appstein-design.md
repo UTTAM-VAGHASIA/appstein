@@ -277,16 +277,16 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 
 ### 6.3 `INDEX.md` template (generated)
 
-1. **Project**: name, app/bundle IDs, target platforms, stack pack, Flutter/Dart/language version.
+1. **Project**: name (from `pubspec.yaml`), app/bundle IDs (from `native.json`; one per Xcode configuration when they differ; an `unknown` ID says so and points to `native.json`, never a guess), target platforms (the platform folders that exist, as Flutter decides), stack pack, Flutter/Dart/language version.
 2. **Rules that matter most**: "ask Appstein MCP before searching", "run verify before claiming done", "never upgrade native toolchain versions yourself; use `toolchain()`", and dependency policy in one line.
-3. **Features**: a table of feature → screen count → main files (top 15; "…and N more, use `feature()`").
-4. **Where things live**: layer → folder.
-5. **Version notes**: the 5–10 highest-priority delta entries for this SDK, plus a pointer to `what_changed()`.
-6. **Decisions**: one line per decision with a link.
-7. **Current work**: the first lines of `memory/current.md`.
-8. **Freshness**: generated time, SDK, and "notes may be incomplete" if applicable.
+3. **Features**: a table of feature → screen count → main files (top 15, most screens first; "…and N more, use `feature()`"). When the map was skipped, the section says why.
+4. **Where things live**: layer → folder, from the stack pack's layer rules.
+5. **Version notes**: the 5–10 highest-priority curated notes in `delta.md`'s order, a count of the deprecated and removed APIs `delta.md` lists, and a pointer to `what_changed()`.
+6. **Decisions**: one line per accepted or proposed decision with a link; superseded ones are left out, and one whose front matter can't be read is listed as unreadable.
+7. **Current work**: the first lines of `memory/current.md` (at most 10), or "none recorded yet".
+8. **Freshness**: SDK, Appstein version, and "notes may be incomplete" if applicable. The generated time is the front matter's `generatedAt` (§6.2), so the body has no timestamp and an unchanged project changes no bytes.
 
-If the budget would be exceeded, lower-priority sections are truncated with pointers to the MCP tool that holds the full data.
+**The budget** is measured as the file's UTF-8 bytes ÷ 3, so 1,500 tokens is at most 4,500 bytes. Each model tokenizes differently and none of their tokenizers is available offline; dividing by 3 overestimates for code-heavy Markdown, so the real count stays under 1,500. If the budget would be exceeded, lower-priority sections are truncated in this order, each with a pointer to the MCP tool that holds the full data: current work (`memory_read()`), then decisions (`decisions()`), then features down to 5 rows (`feature()`), then version notes down to 5 (`what_changed()`). Project, rules, where things live and freshness are never cut. A test proves that a very large project still fits.
 
 ### 6.4 The version delta (`delta.md`) and curated notes
 
