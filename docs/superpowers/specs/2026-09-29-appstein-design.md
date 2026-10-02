@@ -310,7 +310,7 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
 - **Resolution:** resolving needs the project's packages, so `sync` checks them the way `flutter run` and `flutter analyze` do.
   - It skips `pub get` only when `.dart_tool/package_config.json` and `pubspec.lock` exist, `pubspec.yaml` is older than both, and `.dart_tool/version` names this Flutter version.
   - In a pub workspace, the package config is found through `.dart_tool/pub/workspace_ref.json`. A package config written by another tool is used as it is.
-  - Otherwise it runs `flutter pub get` with the project's SDK. If that fails (for example, offline with nothing cached), `sync` still writes the platform layer, skips the map, and says why and what to run.
+  - Otherwise it runs `flutter pub get` with the project's SDK. If that fails (for example, offline with nothing cached), `sync` still writes the platform layer and `native.json`, skips the rest of the map, and says why and what to run.
   - Code with errors still gets a map: the analyzer resolves what it can.
 - **Layer tags by path:**
   - `lib/ui/**` → `ui`
@@ -337,10 +337,11 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
   - Typed routes (`go_router_builder`) are recorded as one unresolved entry until a later slice reads them.
 - **Layers:** each file's tag, its imports of other project files, and the imports that the pack's layer rules forbid (§9.6). So `layers.json` reports exactly what `layer_imports` reports.
 - **Dependencies:** `pubspec.yaml`, `pubspec.lock` and import usages per package. The health snapshot and advisories from the last package check are added once the package gate exists (§9.4).
-- **Native config** (from the platform packs):
-  - Android: parsed `android/settings.gradle.kts`, `android/build.gradle.kts`, `android/app/build.gradle.kts`, `gradle-wrapper.properties`, `gradle.properties` and `AndroidManifest.xml`.
-  - iOS: `Info.plist`, `project.pbxproj` build settings, `Podfile` and `Package.swift` state, and the Flutter SwiftPM setting.
-  - For each value: what was found and where (file:line). If a value can't be parsed (for example it's computed in Gradle code), it is recorded as `unknown` and flagged, never guessed.
+- **Native config** (from the platform packs, `map/native.json`). The packs read the native files directly, without the Dart analysis, so `native.json` has its own input hash and is written even when the rest of the map is skipped.
+  - Android: `android/settings.gradle.kts`, `android/build.gradle.kts`, `android/app/build.gradle.kts`, `gradle-wrapper.properties`, the listed keys of `gradle.properties` (`android.builtInKotlin`, `android.newDsl`, `android.useAndroidX`, `kotlin.*`), and the main, debug and profile `AndroidManifest.xml`. Groovy build files (`build.gradle`, from projects created before Flutter 3.29) aren't read yet; their values are recorded as `unknown` with that reason.
+  - iOS: `Info.plist`; the `project.pbxproj` build settings of the Runner target, per configuration; the `Podfile` when present; the `Package.swift` that `flutter pub get` generates; and the Flutter SwiftPM setting, decided as Flutter decides it (the `pubspec.yaml` `flutter: config:`, then the global `flutter config`, then `FLUTTER_SWIFT_PACKAGE_MANAGER`, then the version's default), with where it came from.
+  - Each value is `found` (with its file:line), `unknown` (computed in Gradle code, set more than once, set conditionally, or unreadable, with the reason) or `absent`. Nothing is guessed. A value written as one of Flutter's variables (`flutter.minSdkVersion`) records the expression and the number it resolves to with the installed SDK.
+  - Secrets are never recorded: signing configs by name only, no passwords or keystore paths, only the listed `gradle.properties` keys, and only whether an Xcode development team is set.
 
 ### 6.6 Package skills
 
@@ -639,6 +640,7 @@ abstract interface class Pack {
   PackKind get kind;                      // stack | platform
   String get version;                     // pack version, for migrations
   List<Extractor> get extractors;         // contribute to layer 2 (and platform facts)
+  NativeExtractor? get nativeExtractor;   // platform packs: map/native.json (§6.5)
   List<Check> get checks;                 // contribute to verify
   LayerRules? get layerRules;             // tag rules for layer_imports (stack packs)
   List<SkillSource> get skills;           // pack-specific skills/references
@@ -649,7 +651,7 @@ abstract interface class Pack {
 ```
 
 - **M1 packs:** `official_mvvm` (stack), `android` and `ios` (platform).
-- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`.
+- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`. Slice 1b.4 adds `nativeExtractor`.
 - **Later packs:** `riverpod` and `bloc` (M3, together with support for existing projects), then `web`, `windows`, `macos` and `linux` (M4+). **The final goal is every platform Flutter supports.**
 - **Community packs** defined in code (inspired by Twenty's `defineObject`) and a pack scaffold: M3+.
 - **A pack must never read another pack's data directly.** Shared facts (e.g. the resolved plugin graph) are provided by the engine through the protocol.
@@ -881,6 +883,7 @@ The benchmark lives in `benchmark/`.
 - **M3: Existing projects + more stacks + community.**
   - `appstein adopt` maps an existing project, reports gaps and proposes a migration path.
   - Riverpod and Bloc packs, community packs and a pack scaffold.
+  - Reading Groovy Gradle build files, if needed (projects created before Flutter 3.29; see §6.5).
 - **M4: Flutter desktop app + multiple agents + every platform.**
   - **Client:** the app is a client of the engine over authenticated localhost JSON-RPC/WebSocket.
   - **Rendering:** it renders structured agent events as native widgets (the idea behind Brainless), with a utilitarian design, not a themed "office". It never copies Claude Code's look or name (Anthropic branding rules). A raw terminal is only a fallback.

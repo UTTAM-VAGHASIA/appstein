@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:appstein_engine/android.dart';
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/ios.dart';
 import 'package:appstein_engine/official_mvvm.dart';
 import 'package:path/path.dart' as p;
 
@@ -23,7 +25,7 @@ Future<void> main() async {
     final sync = KnowledgeSync(
       environment: HostEnvironment.current(),
       appsteinVersion: 'measure',
-      packs: const [OfficialMvvmPack()],
+      packs: const [OfficialMvvmPack(), AndroidPack(), IosPack()],
     );
     final first = Stopwatch()..start();
     final report = await sync.run(app);
@@ -32,6 +34,13 @@ Future<void> main() async {
       stderr.writeln(
         'The map was skipped: $reason\n${report.map!.packagesReason}',
       );
+      exitCode = 1;
+      return;
+    }
+    // The 30 s evidence must include the native work: a section that was
+    // absent or failed would make the timing cheaper than a real sync.
+    if (_nativeProblem(report) case final problem?) {
+      stderr.writeln('The first sync did not read native.json: $problem');
       exitCode = 1;
       return;
     }
@@ -45,6 +54,14 @@ Future<void> main() async {
       exitCode = 1;
       return;
     }
+    if (_nativeProblem(fullReport) case final problem?) {
+      stderr.writeln('The timed sync did not read native.json: $problem');
+      exitCode = 1;
+      return;
+    }
+    final native = fullReport.native!.sections.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join(', ');
     final files = Directory(p.join(app, 'lib'))
         .listSync(recursive: true)
         .whereType<File>()
@@ -55,6 +72,8 @@ Future<void> main() async {
 |---|---|
 | First sync, including `flutter pub get` | ${first.elapsedMilliseconds} ms |
 | **Full sync with fresh packages (target under 30 s)** | **${full.elapsedMilliseconds} ms** |
+
+Native config in the timed sync (every section must be `read`): $native
 ''');
     if (full.elapsed >= const Duration(seconds: 30)) {
       stderr.writeln(
@@ -74,8 +93,22 @@ Future<void> main() async {
   }
 }
 
+/// Why [report] doesn't show every native section as `read`, or null when
+/// it does. A sync with no native report, no sections, or an `absent: …` or
+/// `internal error (…)` outcome measured less than a real one.
+String? _nativeProblem(SyncReport report) {
+  final sections = report.native?.sections;
+  if (sections == null || sections.isEmpty) return 'no native report';
+  final bad = [
+    for (final MapEntry(:key, :value) in sections.entries)
+      if (value != 'read') '$key is "$value"',
+  ];
+  return bad.isEmpty ? null : bad.join(', ');
+}
+
 /// Writes an official_mvvm app: [features] features with a view model and a
-/// screen each, a router with one route per feature, and `main.dart`.
+/// screen each, a router with one route per feature, and `main.dart`. The
+/// app also has a new app's `android/` and `ios/` files.
 void _generateApp(String app, {required int features}) {
   void write(String relative, String content) => File(p.join(app, relative))
     ..createSync(recursive: true)
@@ -133,4 +166,25 @@ void _generateApp(String app, {required int features}) {
     "import 'routing/router.dart';\n\n/// Starts the app.\n"
         'void main() => router();\n',
   );
+  // The native files of a new Flutter app, from the engine's test fixture
+  // (the tool runs from the repo root).
+  final template = p.join(
+    'packages',
+    'appstein_engine',
+    'test',
+    'fixtures',
+    'native',
+    'template_app',
+  );
+  for (final file in Directory(template).listSync(recursive: true)) {
+    if (file is! File || !file.path.endsWith('.fixture')) continue;
+    final relative = p.relative(file.path, from: template);
+    if (!relative.startsWith('android') && !relative.startsWith('ios')) {
+      continue;
+    }
+    write(
+      relative.substring(0, relative.length - '.fixture'.length),
+      file.readAsStringSync(),
+    );
+  }
 }

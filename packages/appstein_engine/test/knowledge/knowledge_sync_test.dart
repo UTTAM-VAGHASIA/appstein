@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:appstein_engine/android.dart';
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/ios.dart';
 import 'package:appstein_engine/official_mvvm.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
@@ -11,7 +13,40 @@ import '../support/fake_process_runner.dart';
 import '../support/fake_sdk.dart';
 import '../support/fixture_app.dart';
 import '../support/flutter_fixtures.dart';
+import '../support/native_support.dart';
 import '../support/temp.dart';
+
+final class _BrokenExtractor implements NativeExtractor {
+  const _BrokenExtractor();
+
+  @override
+  String get section => 'android';
+
+  @override
+  NativeSection extract(NativeContext context) => throw StateError('boom');
+}
+
+final class _BrokenPack implements Pack {
+  const _BrokenPack();
+
+  @override
+  String get id => 'broken';
+
+  @override
+  PackKind get kind => PackKind.platform;
+
+  @override
+  String get version => '1';
+
+  @override
+  List<MapExtractor> get extractors => const [];
+
+  @override
+  LayerRules? get layerRules => null;
+
+  @override
+  NativeExtractor get nativeExtractor => const _BrokenExtractor();
+}
 
 void main() {
   late String sdk;
@@ -453,5 +488,138 @@ void main() {
     final healthy = await sync().run(app, dartSdkPath: testDartSdk);
     expect(healthy.files['platform/delta.md'], isTrue);
     expect(delta(app), contains('## Deprecated'));
+  });
+
+  group('native config', () {
+    const platformPacks = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
+
+    void addTemplateNativeFiles(String app) {
+      for (final folder in ['android', 'ios']) {
+        copyFixtureTree(p.join(nativeTemplateDir, folder), p.join(app, folder));
+      }
+    }
+
+    NativeValue nativeValue(String app, List<String> path) =>
+        NativeConfig.fromJson(readMapBody(app, 'native.json')).lookup(path)!
+            as NativeValue;
+
+    test('with platform packs, native.json is written and listed in '
+        'state.json; a project without android/ or ios/ gets absent '
+        'sections', () async {
+      final app = copyFixtureApp();
+      final report = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(report.files[MapFiles.native], isTrue);
+      expect(readMapBody(app, 'native.json'), {
+        'android': {'status': 'absent', 'reason': 'no android/ folder'},
+        'ios': {'status': 'absent', 'reason': 'no ios/ folder'},
+      });
+      expect(report.native!.sections, {
+        'android': 'absent: no android/ folder',
+        'ios': 'absent: no ios/ folder',
+      });
+      expect((state(app)['files']! as Map).keys, contains(MapFiles.native));
+    });
+
+    test('when pub get fails, the map is skipped but native.json is still '
+        'written', () async {
+      final app = copyFixtureApp();
+      addTemplateNativeFiles(app);
+      File(p.join(app, '.dart_tool', 'package_config.json')).deleteSync();
+      runner.when(flutter(), [
+        'pub',
+        'get',
+      ], const RunResult(exitCode: 69, stderr: 'Could not reach pub.dev.'));
+      final report = await sync(
+        packs: platformPacks,
+      ).run(app, dartSdkPath: testDartSdk);
+      expect(report.map!.skipped, 'the packages could not be fetched');
+      expect(report.files[MapFiles.native], isTrue);
+      expect(nativeValue(app, ['android', 'app', 'minSdk']).toJson(), {
+        'status': 'found',
+        'value': 24,
+        'at':
+            'android/app/build.gradle.kts:${lineOf(app, 'android/app/build.gradle.kts', 'minSdk =')}',
+        'expression': 'flutter.minSdkVersion',
+        'resolvedFrom': 'flutter',
+      });
+      // The file is still read: the template's placeholder has no
+      // FlutterFramework, so it says nothing about the plugins.
+      expect(
+        nativeValue(app, ['ios', 'generatedPackage', 'plugins']).status,
+        NativeStatus.unknown,
+      );
+      expect(
+        nativeValue(app, ['ios', 'generatedPackage', 'iosVersion']).value,
+        '15.0',
+      );
+    });
+
+    test('an unchanged sync leaves native.json; the SwiftPM variable and the '
+        'global setting rewrite it', () async {
+      final app = copyFixtureApp();
+      addTemplateNativeFiles(app);
+      final home = tempDir().path;
+      KnowledgeSync withVariables(Map<String, String> variables) =>
+          KnowledgeSync(
+            environment: fakeEnvironment({
+              'FLUTTER_ROOT': sdk,
+              'APPDATA': home,
+              'HOME': home,
+              ...variables,
+            }),
+            appsteinVersion: '0.1.0-dev',
+            packs: platformPacks,
+            runner: runner,
+            clock: () => DateTime.utc(2026, 10, 1, 9),
+          );
+      Future<bool> nativeWritten(Map<String, String> variables) async =>
+          (await withVariables(
+            variables,
+          ).run(app, dartSdkPath: testDartSdk)).files[MapFiles.native]!;
+
+      expect(await nativeWritten({}), isTrue);
+      expect(await nativeWritten({}), isFalse);
+      expect(
+        await nativeWritten({'FLUTTER_SWIFT_PACKAGE_MANAGER': 'false'}),
+        isTrue,
+      );
+      expect(
+        nativeValue(app, ['ios', 'swiftPackageManager', 'enabled']).value,
+        isFalse,
+      );
+      File(
+        p.join(home, '.flutter_settings'),
+      ).writeAsStringSync('{"enable-swift-package-manager": true}');
+      expect(
+        await nativeWritten({'FLUTTER_SWIFT_PACKAGE_MANAGER': 'false'}),
+        isTrue,
+      );
+      expect(
+        nativeValue(app, ['ios', 'swiftPackageManager', 'enabled']).toJson(),
+        {
+          'status': 'found',
+          'value': true,
+          'resolvedFrom': 'flutter config (global)',
+        },
+      );
+    });
+
+    test(
+      'a native pack that fails costs only its section; the sync goes on',
+      () async {
+        final app = copyFixtureApp();
+        final report = await sync(
+          packs: const [OfficialMvvmPack(), _BrokenPack(), IosPack()],
+        ).run(app, dartSdkPath: testDartSdk);
+        expect(report.native!.errors, {'android': 'Bad state: boom'});
+        expect(readMapBody(app, 'native.json')['android'], {
+          'status': 'error',
+          'errorType': 'StateError',
+        });
+        expect(report.files.keys, containsAll(MapFiles.all));
+      },
+    );
   });
 }

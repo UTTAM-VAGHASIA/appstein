@@ -58,6 +58,14 @@ void main() {
     expect(text, contains(row('platform/sdk.json', 'written')));
     expect(text, contains(row('platform/toolchain.json', 'written')));
     expect(text, contains(row('platform/delta.md', 'written')));
+    expect(text, contains(row('map/native.json', 'written')));
+    expect(
+      text,
+      contains(
+        'Native config: android absent: no android/ folder; ios absent: no '
+        'ios/ folder.\n',
+      ),
+    );
     expect(text, contains('Curated notes cover Flutter 3.47 and earlier.'));
     expect(
       text,
@@ -260,6 +268,44 @@ void main() {
     expect('Bad state: x'.allMatches(text), hasLength(1));
     expect(text, isNot(contains('Fix that')));
     expect(text, isNot(contains('Project map skipped')));
+  });
+
+  test('native config is one line, and an internal error is shown in full', () {
+    const report = SyncReport(
+      sdk: SdkInfo(
+        flutterVersion: '3.47.5',
+        dartVersion: '3.13.4',
+        channel: 'stable',
+        notesCoverage: NotesCoverage.complete,
+      ),
+      files: {'map/native.json': true},
+      newestNotes: '3.47',
+      fallbacks: [],
+      native: NativeReport(
+        sections: {
+          'android': 'internal error (StateError)',
+          'ios': 'absent: no ios/ folder',
+        },
+        errors: {'android': 'Bad state: boom\nmore'},
+      ),
+    );
+    final text = formatSyncReport(report);
+    expect(
+      text,
+      contains(
+        'Native config: android internal error (StateError); ios absent: no '
+        'ios/ folder.\n',
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'Native config (android): missing because of an internal error in '
+        'Appstein. Please report it, with this error:\n'
+        '  Bad state: boom\n'
+        '  more\n',
+      ),
+    );
   });
 
   test('unknown notes coverage is reported as possibly incomplete', () {

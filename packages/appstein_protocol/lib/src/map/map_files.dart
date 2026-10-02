@@ -15,6 +15,12 @@ abstract final class MapFiles {
   /// The go_router routes (written by the stack pack).
   static const routes = 'map/routes.json';
 
-  /// All of them, sorted.
+  /// The Android and iOS setup (written by the platform packs). It is built
+  /// without the Dart analysis, so it is written even when the rest of the
+  /// map is skipped.
+  static const native = 'map/native.json';
+
+  /// The five files built from the Dart analysis, sorted. [native] isn't
+  /// one of them.
   static const all = [deps, features, layers, routes, symbols];
 }

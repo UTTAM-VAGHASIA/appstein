@@ -190,7 +190,13 @@ final class MapSync {
       final bodies = <String, Map<String, Object?>>{};
       for (final pack in packs) {
         for (final extractor in pack.extractors) {
-          bodies.addAll(extractor.extract(analysis));
+          for (final MapEntry(:key, :value)
+              in extractor.extract(analysis).entries) {
+            if (bodies.containsKey(key)) {
+              throw StateError('Two packs write $key.');
+            }
+            bodies[key] = value;
+          }
         }
       }
       final featuresBody = bodies[MapFiles.features];

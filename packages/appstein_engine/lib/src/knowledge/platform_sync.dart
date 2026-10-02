@@ -4,6 +4,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../host/host_environment.dart';
 import '../map/map_sync.dart';
+import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
 import '../sdk/flutter_sdk_locator.dart';
 import '../sdk/sdk_detector.dart';
@@ -38,7 +39,12 @@ final class SyncReport {
     required this.newestNotes,
     required this.fallbacks,
     this.map,
+    this.native,
   });
+
+  /// What the native-config part of the sync did; null when only the
+  /// platform layer was synced ([PlatformSync.run]).
+  final NativeReport? native;
 
   /// What the project-map part of the sync did; null when only the platform
   /// layer was synced ([PlatformSync.run]).
@@ -68,7 +74,12 @@ final class PlatformBuild {
     required this.files,
     required this.newestNotes,
     required this.fallbacks,
+    required this.toolchain,
   });
+
+  /// The toolchain matrix written to `toolchain.json`. Native config reads
+  /// Flutter's Android values from it.
+  final Toolchain toolchain;
 
   /// The SDK facts, with the notes coverage.
   final SdkInfo sdk;
@@ -176,6 +187,7 @@ final class PlatformSync {
       ],
       newestNotes: notes.newestMinor,
       fallbacks: reading.toolchain.fallbacks,
+      toolchain: reading.toolchain,
     );
   }
 

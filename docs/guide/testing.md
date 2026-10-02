@@ -97,7 +97,7 @@ The [project map](project-map.md) is tested on one small app, kept in `packages/
 
 ### Goldens
 
-A **golden** is a file holding the exact output a test expects: `symbols.json.golden`, `layers.json.golden` and the other three in `fixtures/apps/goldens/`. `delta.md.golden` is the version-delta renderer's output, compared with `expectTextGolden`. A golden test runs the real sync on the fixture app (`knowledge_sync_test.dart` with the stand-ins, `map_real_sdk_test.dart` with the real packages) and compares the canonical JSON, byte for byte, with the file. It catches the changes no one meant: an extra symbol, a route that lost its screen, an order that changed.
+A **golden** is a file holding the exact output a test expects: `symbols.json.golden`, `layers.json.golden` and the other three in `fixtures/apps/goldens/`. `delta.md.golden` is the version-delta renderer's output, compared with `expectTextGolden`. `native.json.golden` is the native config of the template app below, compared by `native_template_test.dart` and, on Flutter 3.47.5, by the real-SDK test. A golden test runs the real sync on the fixture app (`knowledge_sync_test.dart` with the stand-ins, `map_real_sdk_test.dart` with the real packages) and compares the canonical JSON, byte for byte, with the file. It catches the changes no one meant: an extra symbol, a route that lost its screen, an order that changed.
 
 **To update goldens safely:**
 
@@ -114,6 +114,21 @@ A **golden** is a file holding the exact output a test expects: `symbols.json.go
 Stand-ins can lie. [`map_real_sdk_test.dart`](../../packages/appstein_engine/test/integration/map_real_sdk_test.dart) (tagged `integration`) syncs the same app against the **real** Flutter and the real `go_router` from pub.dev, and expects the same goldens. For `deps.json` it compares only what must match (each direct package's kind, constraint and usages), because real versions and transitive packages differ. It also syncs a second time and expects every file `unchanged`. If a stand-in drifts from the real package, this test fails, and the stand-ins are what is wrong: bring them back in line with the real package, and leave the goldens alone. CI runs it in the `test` job with the current Flutter and in the `min-sdk` job with the oldest (see [ci](ci.md#min-sdk)).
 
 **`machineSdk`** ([`machine_sdk.dart`](../../packages/appstein_engine/test/support/machine_sdk.dart)) finds the Flutter that test uses: the repo's pinned one if there is one, else any on the machine. The `min-sdk` job installs 3.44 while the repo pins 3.47.5, so there only the second lookup works. With no Flutter, the test fails in CI and is skipped on a developer's machine, as the doctor's real-environment tests are.
+
+## The native template and its golden
+
+The [native config](native-config.md) is tested on the native files of a real Flutter app, kept in `packages/appstein_engine/test/fixtures/native/template_app/`. It is the output of Flutter 3.47.5's `flutter create --platforms=android,ios --org dev.sample --project-name probe_app`, after `flutter pub get` (which writes the generated `Package.swift`). Only the files the packs read are kept: `pubspec.yaml`, the three Gradle build files, `gradle.properties`, the wrapper properties, the three manifests, `Info.plist`, `project.pbxproj` and `Package.swift`. Each ends in `.fixture`, for the reason given above. `local.properties` is left out, because it holds machine paths. How to make the folder again is on the [native-config](native-config.md#tests) page.
+
+The helpers are in [`native_support.dart`](../../packages/appstein_engine/test/support/native_support.dart):
+
+| Helper | What it does |
+|---|---|
+| `copyNativeTemplate` | Copies the template into a `tempDir()` folder named `native app` (a space, on purpose) |
+| `writeProjectFiles` | Writes files by their forward-slash paths, so a test changes one file of the copy to try one case |
+| `flutterAndroidValues` | Flutter 3.47.5's Android values (what `flutter.minSdkVersion` and the others become), read the way `sync` reads them: from the SDK fixture's `gradle_utils.dart` |
+| `nativeContext` | A `NativeContext` for a project on a machine with only the variables you give it. It points `APPDATA` and `HOME` at an empty temp folder, so the real machine's Flutter settings (the global SwiftPM setting) are never read |
+
+`native_template_test.dart` syncs the template with both platform packs and compares the result with `native.json.golden`. The real-SDK counterpart, `native_real_sdk_test.dart`, is described on the [native-config](native-config.md#tests) page; CI runs it in the `test` job and in `min-sdk` (see [ci](ci.md#min-sdk)).
 
 ## A second process, for locks
 

@@ -183,7 +183,7 @@ jobs:
       - name: Read the toolchain and map the fixture app with this real SDK (spec §6.5, §12, risk 6)
         shell: bash
         working-directory: packages/appstein_engine
-        run: dart test --run-skipped --tags integration test/integration/sync_real_environment_test.dart test/integration/map_real_sdk_test.dart
+        run: dart test --run-skipped --tags integration test/integration/sync_real_environment_test.dart test/integration/map_real_sdk_test.dart test/integration/native_real_sdk_test.dart
 
   measure:
     strategy:

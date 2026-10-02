@@ -13,7 +13,7 @@ import 'version.dart';
 /// `appstein sync`: regenerates the knowledge Appstein keeps in
 /// `.appstein/` (spec §5.3). It writes the platform layer (`sdk.json`,
 /// `toolchain.json`), the version delta (`delta.md`) and the project map
-/// (`map/*.json`), then `state.json`.
+/// (`map/*.json`, `native.json` included), then `state.json`.
 final class SyncCommand extends Command<int> {
   /// Creates the command.
   SyncCommand({
@@ -97,7 +97,8 @@ final class SyncCommand extends Command<int> {
 /// The text `appstein sync` prints for [report]: the SDK, each file written
 /// or unchanged, what happened to the project's packages (fetched, or why
 /// they could not be), the project map's skip reason and what to do about
-/// it, the notes coverage, and any toolchain fallback.
+/// it, what native config found for each platform, the notes coverage, and
+/// any toolchain fallback.
 String formatSyncReport(SyncReport report) {
   final sdk = report.sdk;
   final width = report.files.keys.map((path) => path.length).fold(0, max);
@@ -150,6 +151,25 @@ String formatSyncReport(SyncReport report) {
     );
     for (final line in const LineSplitter().convert(error)) {
       buffer.writeln('  $line');
+    }
+  }
+  if (report.native case final native?) {
+    if (native.sections.isNotEmpty) {
+      buffer.writeln(
+        'Native config: '
+        '${[for (final MapEntry(:key, :value) in native.sections.entries) '$key $value'].join('; ')}.',
+      );
+    }
+    // An Appstein bug the user can't fix: ask for a report, with the whole
+    // error (native.json names only its type).
+    for (final MapEntry(key: section, value: error) in native.errors.entries) {
+      buffer.writeln(
+        'Native config ($section): missing because of an internal error in '
+        'Appstein. Please report it, with this error:',
+      );
+      for (final line in const LineSplitter().convert(error)) {
+        buffer.writeln('  $line');
+      }
     }
   }
   // Coverage is "complete" only when known; unknown counts as partial, the

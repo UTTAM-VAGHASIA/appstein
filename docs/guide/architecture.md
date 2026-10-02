@@ -15,10 +15,10 @@ Appstein is currently:
 - an engine behind it, which holds all the logic;
 - shared data models;
 - an analyzer plugin with one lint rule, `layer_imports`;
-- the knowledge Appstein writes into a project's `.appstein/`: the platform layer, the version delta (see [version-delta](version-delta.md)) and the project map of the app's Dart code (see [project-map](project-map.md));
-- one pack, `official_mvvm`, which knows Flutter's recommended app architecture.
+- the knowledge Appstein writes into a project's `.appstein/`: the platform layer, the version delta (see [version-delta](version-delta.md)) and the project map of the app's Dart code (see [project-map](project-map.md)) and the native config of its Android and iOS files (see [native-config](native-config.md));
+- three packs: `official_mvvm`, which knows Flutter's recommended app architecture, and `android` and `ios`, which read the native files.
 
-Native config, the verifier, more packs and the MCP server come in later slices ([spec §18](../superpowers/specs/2026-09-29-appstein-design.md#18-milestones)).
+The verifier, more packs and the MCP server come in later slices ([spec §18](../superpowers/specs/2026-09-29-appstein-design.md#18-milestones)).
 
 ## The four packages
 
@@ -36,7 +36,7 @@ An arrow means "depends on". Read from each package's `pubspec.yaml`; dev depend
 
 <!-- /generated:package-graph -->
 
-- **protocol** holds data only: `SdkInfo`, `AppsteinConfig` (with one class per section of `appstein.yaml`), `LayerRules`, `Severity` and the `protocolVersion` constant. It imports nothing that touches the machine. See [`appstein_protocol.dart`](../../packages/appstein_protocol/lib/appstein_protocol.dart). Since slice 1b.2 it also defines the `.appstein/` file formats (`KnowledgeMeta`, `KnowledgeState`, `SdkInfo` with notes coverage, `CuratedNote`, `Toolchain`), so the CLI, the future MCP server and the UIs read one format (spec §4 principle 4). Since slice 1b.3 it also defines the **map formats** (`SymbolsMap`, `LayersMap`, `DepsMap`, `FeaturesMap`, `RoutesMap`, in `src/map/`), and `LayerMatcher`, which both the `layer_imports` lint and the engine's `layers.json` use, so a file has the same layer tag in the editor and in the map.
+- **protocol** holds data only: `SdkInfo`, `AppsteinConfig` (with one class per section of `appstein.yaml`), `LayerRules`, `Severity` and the `protocolVersion` constant. It imports nothing that touches the machine. See [`appstein_protocol.dart`](../../packages/appstein_protocol/lib/appstein_protocol.dart). Since slice 1b.2 it also defines the `.appstein/` file formats (`KnowledgeMeta`, `KnowledgeState`, `SdkInfo` with notes coverage, `CuratedNote`, `Toolchain`), so the CLI, the future MCP server and the UIs read one format (spec §4 principle 4). Since slice 1b.3 it also defines the **map formats** (`SymbolsMap`, `LayersMap`, `DepsMap`, `FeaturesMap`, `RoutesMap` and, since slice 1b.4, `NativeConfig`, in `src/map/`), and `LayerMatcher`, which both the `layer_imports` lint and the engine's `layers.json` use, so a file has the same layer tag in the editor and in the map.
 - **engine** holds all behaviour. Environment variables and processes go through two small types in `packages/appstein_engine/lib/src/host/`:
   - `HostEnvironment` for environment variables, the PATH and the OS;
   - `ProcessRunner` for running tools.
@@ -79,11 +79,11 @@ flowchart TD
 11. `formatDoctorReport` turns the report into plain text. See [cli](cli.md).
 12. The exit code is `1` if any check found an error, and `0` otherwise. See [cli](cli.md).
 
-`appstein sync` follows the same shape: the CLI's `SyncCommand` loads `appstein.yaml`, chooses the packs with `packsFor`, and calls the engine's `KnowledgeSync`. That builds the platform layer (`PlatformSync`: SDK detection, `readToolchain`, `CuratedNotes`) and the project map (`MapSync`: packages, analysis, the packs' extractors), and the version delta (`collectDelta` inside `MapSync`, then `renderDelta`), and hands all of them to `KnowledgeStore`, which writes the files in `.appstein/`. See [knowledge-store](knowledge-store.md) and [project-map](project-map.md).
+`appstein sync` follows the same shape: the CLI's `SyncCommand` loads `appstein.yaml`, chooses the packs with `packsFor`, and calls the engine's `KnowledgeSync`. That builds the platform layer (`PlatformSync`: SDK detection, `readToolchain`, `CuratedNotes`), the project map (`MapSync`: packages, analysis, the packs' extractors), the native config (`NativeSync`: the platform packs' native extractors) and the version delta (`collectDelta` inside `MapSync`, then `renderDelta`), and hands all of them to `KnowledgeStore`, which writes the files in `.appstein/`. See [knowledge-store](knowledge-store.md), [project-map](project-map.md) and [native-config](native-config.md).
 
 ### How a pack reaches the engine
 
-The engine's core (everything outside `lib/src/packs/official_mvvm/` and `lib/official_mvvm.dart`) never imports a pack: the rule in spec §5.1, enforced by `layer_imports` on this repo. Instead the engine defines a small `Pack` interface (in `lib/src/packs/pack.dart`, exported from the barrel) and the map's `MapExtractor`. A pack lives in its own folder and has its own entry file, `official_mvvm.dart`. The CLI, which may import both, calls `packsFor(config)` and passes the resulting `List<Pack>` into `KnowledgeSync`. From there `MapSync` sees only the interface. A new pack is therefore a new folder, a new entry file, and one line in `packsFor`.
+The engine's core (everything outside the pack folders `lib/src/packs/official_mvvm/`, `android/` and `ios/` and their entry files `lib/official_mvvm.dart`, `lib/android.dart` and `lib/ios.dart`) never imports a pack: the rule in spec §5.1, enforced by `layer_imports` on this repo. Instead the engine defines a small `Pack` interface (in `lib/src/packs/pack.dart`, exported from the barrel), the map's `MapExtractor` and the native config's `NativeExtractor`. A pack lives in its own folder and has its own entry file, such as `android.dart`. The CLI, which may import them all, calls `packsFor(config)` and passes the resulting `List<Pack>` into `KnowledgeSync`. From there `MapSync` and `NativeSync` see only the interface. A new pack is therefore a new folder, a new entry file, and one line in `packsFor`.
 
 ## Where each part is explained
 
@@ -98,8 +98,9 @@ The engine's core (everything outside `lib/src/packs/official_mvvm/` and `lib/of
 | `project/` | Finds the project folder | [doctor](doctor.md) |
 | `knowledge/` | The `.appstein/` store: canonical JSON, input hashes, the lock, `sync` | [knowledge-store](knowledge-store.md) |
 | `map/` | The project map: packages, analysis, symbols, layers, deps | [project-map](project-map.md) |
+| `native/` | Native config: the extractor seam and `NativeSync`, which writes `native.json` from the platform packs | [native-config](native-config.md) |
 | `delta/` | The version delta: `fix_data` migrations, the deprecations the imports expose, the Markdown | [version-delta](version-delta.md) |
-| `packs/` | The `Pack` interface, and `official_mvvm/`: its layer rules, features and routes | [project-map](project-map.md) |
+| `packs/` | The `Pack` interface; `official_mvvm/`: its layer rules, features and routes; `android/` and `ios/`: the readers behind `native.json` | [project-map](project-map.md), [native-config](native-config.md) |
 | `notes/` | The curated notes, parsed and compiled in | [knowledge-store](knowledge-store.md) |
 | `toolchain/` | Reads the native toolchain matrix from the Flutter SDK | [toolchain](toolchain.md) |
 
@@ -113,6 +114,6 @@ Outside the engine:
 
 ## What the engine exports
 
-The barrel file [`appstein_engine.dart`](../../packages/appstein_engine/lib/appstein_engine.dart) exports everything the CLI and the repo tools use: the host types, the config loader, the SDK and Android lookups, the project locator, the doctor and its checks, the knowledge sync and the map builders, the `Pack` interface, and the text helpers. There is one other public entry point, [`official_mvvm.dart`](../../packages/appstein_engine/lib/official_mvvm.dart), which exports the official_mvvm pack for the CLI to register; it is separate so that the core never imports a pack. The code itself lives under `lib/src/`, which by Dart convention is private to the package, and the barrel re-exports it. So a file can move inside `lib/src/` without breaking code that imports the barrel. A few helpers that only the engine itself uses, such as `readAndroidSdkContents` and `fileErrorReason`, live under `lib/src/` without an export; their tests import them from `src/` directly.
+The barrel file [`appstein_engine.dart`](../../packages/appstein_engine/lib/appstein_engine.dart) exports everything the CLI and the repo tools use: the host types, the config loader, the SDK and Android lookups, the project locator, the doctor and its checks, the knowledge sync and the map builders, the `Pack` interface, and the text helpers. There are three other public entry points, [`official_mvvm.dart`](../../packages/appstein_engine/lib/official_mvvm.dart), [`android.dart`](../../packages/appstein_engine/lib/android.dart) and [`ios.dart`](../../packages/appstein_engine/lib/ios.dart), which export the packs for the CLI to register; they are separate so that the core never imports a pack. The code itself lives under `lib/src/`, which by Dart convention is private to the package, and the barrel re-exports it. So a file can move inside `lib/src/` without breaking code that imports the barrel. A few helpers that only the engine itself uses, such as `readAndroidSdkContents` and `fileErrorReason`, live under `lib/src/` without an export; their tests import them from `src/` directly.
 
 Some map helpers are exported even though only the engine uses them today: `ast_values`, `project_packages`, `interface_library` and the `build*` map functions. They are the building blocks of a pack. A pack outside the engine package, which will exist (the `Pack` and `MapExtractor` interface of spec §10), can import only the barrel, so it needs these to read the project's code the way the official_mvvm pack does.
