@@ -7,6 +7,8 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import 'analyzer_cache.dart';
+
 /// One analyzed Dart library of the project, with its parts.
 final class AnalyzedLibrary {
   /// Creates the entry.
@@ -70,7 +72,8 @@ final class ProjectAnalysis {
 
   /// Analyzes the project at [projectRoot], reading `dart:` libraries from
   /// the Dart SDK at [dartSdkPath] (inside a Flutter SDK, that is
-  /// `bin/cache/dart-sdk`).
+  /// `bin/cache/dart-sdk`). With a [cache], the analyzer keeps its work there
+  /// for the next analysis (spec §6.2).
   ///
   /// Throws a [ProjectAnalysisException] when that SDK has no
   /// `lib/core/core.dart`, or when a Dart file of the project can't be
@@ -78,6 +81,7 @@ final class ProjectAnalysis {
   static Future<ProjectAnalysis> analyze(
     String projectRoot, {
     required String dartSdkPath,
+    AnalyzerCache? cache,
   }) async {
     // The analyzer accepts only absolute, normalized paths.
     final root = p.normalize(p.absolute(projectRoot));
@@ -93,9 +97,10 @@ final class ProjectAnalysis {
     ];
     final name = _packageName(root);
     if (included.isEmpty) return ProjectAnalysis._(root, name, const [], null);
-    final collection = AnalysisContextCollection(
+    final collection = analysisCollection(
       includedPaths: included,
       sdkPath: sdk,
+      cache: cache,
     );
     final libraries = <String, AnalyzedLibrary>{};
     try {

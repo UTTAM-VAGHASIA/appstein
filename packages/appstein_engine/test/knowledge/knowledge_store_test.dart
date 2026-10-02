@@ -139,6 +139,13 @@ void main() {
     );
   });
 
+  test('replaceFileBytes writes bytes in one step, creating folders', () async {
+    final path = p.join(tempDir().path, 'a', 'b.bin');
+    await replaceFileBytes(path, [0, 255, 1]);
+    expect(File(path).readAsBytesSync(), [0, 255, 1]);
+    expect(File('$path.tmp').existsSync(), isFalse);
+  });
+
   test('now() is the clock in the .appstein/ time format', () {
     expect(
       storeAt(DateTime.utc(2026, 10, 1, 9, 30, 5)).now(),

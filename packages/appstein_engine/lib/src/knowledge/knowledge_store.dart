@@ -217,11 +217,37 @@ Future<void> replaceFile(
   String contents, {
   Duration retryFor = const Duration(seconds: 2),
   Duration retryEvery = const Duration(milliseconds: 20),
+}) => _replace(
+  path,
+  (temp) => temp.writeAsStringSync(contents, flush: true),
+  retryFor: retryFor,
+  retryEvery: retryEvery,
+);
+
+/// Replaces the file at [path] with [bytes] in one step, as [replaceFile]
+/// does with text.
+Future<void> replaceFileBytes(
+  String path,
+  List<int> bytes, {
+  Duration retryFor = const Duration(seconds: 2),
+  Duration retryEvery = const Duration(milliseconds: 20),
+}) => _replace(
+  path,
+  (temp) => temp.writeAsBytesSync(bytes, flush: true),
+  retryFor: retryFor,
+  retryEvery: retryEvery,
+);
+
+Future<void> _replace(
+  String path,
+  void Function(File temp) write, {
+  required Duration retryFor,
+  required Duration retryEvery,
 }) async {
   final temp = File('$path.tmp');
   try {
     File(path).parent.createSync(recursive: true);
-    temp.writeAsStringSync(contents, flush: true);
+    write(temp);
   } on FileSystemException catch (error) {
     try {
       if (temp.existsSync()) temp.deleteSync();

@@ -38,6 +38,7 @@ export 'src/knowledge/knowledge_sync.dart';
 export 'src/knowledge/knowledge_write_exception.dart';
 export 'src/knowledge/markdown_front_matter.dart';
 export 'src/knowledge/platform_sync.dart';
+export 'src/map/analyzer_cache.dart';
 export 'src/map/ast_values.dart';
 export 'src/map/dependencies.dart';
 export 'src/map/interface_library.dart';
