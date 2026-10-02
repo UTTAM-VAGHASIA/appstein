@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:appstein_protocol/appstein_protocol.dart';
@@ -10,10 +9,10 @@ import '../host/file_errors.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../knowledge/generated_file.dart';
-import '../knowledge/input_hash.dart';
 import '../packs/pack.dart';
 import 'dependencies.dart';
 import 'layers.dart';
+import 'map_inputs.dart';
 import 'project_analysis.dart';
 import 'project_packages.dart';
 import 'symbols.dart';
@@ -77,7 +76,7 @@ final class MapBuild {
   const MapBuild({
     required this.files,
     required this.report,
-    this.inputHash,
+    this.inputs,
     this.delta,
   });
 
@@ -87,8 +86,11 @@ final class MapBuild {
   /// What happened.
   final MapReport report;
 
+  /// What the map was built from; null when the map was skipped.
+  final MapInputs? inputs;
+
   /// The input hash every map file shares; null when the map was skipped.
-  final String? inputHash;
+  String? get inputHash => inputs?.inputHash;
 
   /// The deprecated, removed and moved APIs the project can reach, for the
   /// version delta (spec §6.4); null when the map was skipped.
@@ -247,16 +249,24 @@ final class MapSync {
         deltaErrorType = '${error.runtimeType}';
       }
 
-      final hash = _inputHash(
+      final inputs = readMapInputs(
         projectRoot,
-        lockFile: lockFile,
+        workspaceRoot: status.workspaceRoot,
         flutterVersion: flutterVersion,
+        flutterRoot: flutterRoot,
+        packs: packs,
+        appsteinVersion: appsteinVersion,
+        environment: environment,
       );
       final paths = bodies.keys.toList()..sort();
       return MapBuild(
         files: [
           for (final path in paths)
-            GeneratedFile(path: path, body: bodies[path]!, inputHash: hash),
+            GeneratedFile(
+              path: path,
+              body: bodies[path]!,
+              inputHash: inputs.inputHash,
+            ),
         ],
         report: MapReport(
           packages: action,
@@ -264,7 +274,7 @@ final class MapSync {
           deltaError: deltaError,
           deltaErrorType: deltaErrorType,
         ),
-        inputHash: hash,
+        inputs: inputs,
         delta: delta,
       );
     } on DependenciesException catch (error) {
@@ -289,55 +299,6 @@ final class MapSync {
       );
     } finally {
       await analysis.dispose();
-    }
-  }
-
-  /// One hash for every map file (P9): every `.dart` file under
-  /// [ProjectAnalysis.folders], `pubspec.yaml`, the lock file, the project's
-  /// `analysis_options.yaml`, the Flutter version, and the packs' ids and
-  /// versions.
-  String _inputHash(
-    String projectRoot, {
-    required String lockFile,
-    required String flutterVersion,
-  }) {
-    final inputs = <String, List<int>?>{
-      'pubspec.yaml': _bytes(p.join(projectRoot, 'pubspec.yaml')),
-      'pubspec.lock': _bytes(lockFile),
-      // Its `exclude:` changes which files the map covers.
-      'analysis_options.yaml': _bytes(
-        p.join(projectRoot, 'analysis_options.yaml'),
-      ),
-      'flutter': utf8.encode(flutterVersion),
-      'packs': utf8.encode(
-        [for (final pack in packs) '${pack.id}@${pack.version}'].join(','),
-      ),
-    };
-    for (final folder in ProjectAnalysis.folders) {
-      final directory = Directory(p.join(projectRoot, folder));
-      if (!directory.existsSync()) continue;
-      for (final entity in directory.listSync(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is File && entity.path.endsWith('.dart')) {
-          final relative = p.split(p.relative(entity.path, from: projectRoot));
-          inputs['project:${relative.join('/')}'] = _bytes(entity.path);
-        }
-      }
-    }
-    return inputHash(
-      inputs,
-      appsteinVersion: appsteinVersion,
-      formatVersion: knowledgeFormatVersion,
-    );
-  }
-
-  static List<int>? _bytes(String path) {
-    try {
-      return File(path).readAsBytesSync();
-    } on FileSystemException {
-      return null;
     }
   }
 }

@@ -43,6 +43,7 @@ export 'src/map/ast_values.dart';
 export 'src/map/dependencies.dart';
 export 'src/map/interface_library.dart';
 export 'src/map/layers.dart';
+export 'src/map/map_inputs.dart';
 export 'src/map/map_extractor.dart';
 export 'src/map/map_sync.dart';
 export 'src/map/project_analysis.dart';

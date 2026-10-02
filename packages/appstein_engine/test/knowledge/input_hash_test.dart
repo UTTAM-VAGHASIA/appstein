@@ -11,6 +11,24 @@ void main() {
     );
   });
 
+  test('inputHashOfDigests gives inputHash from the inputs\' digests', () {
+    final inputs = <String, List<int>?>{
+      'a': [1, 2],
+      'b': null,
+    };
+    expect(
+      inputHashOfDigests(
+        {
+          'a': sha256Hex([1, 2]),
+          'b': null,
+        },
+        appsteinVersion: '0.1.0-dev',
+        formatVersion: 1,
+      ),
+      inputHash(inputs, appsteinVersion: '0.1.0-dev', formatVersion: 1),
+    );
+  });
+
   group('inputHash', () {
     String hash(
       Map<String, List<int>?> inputs, {
