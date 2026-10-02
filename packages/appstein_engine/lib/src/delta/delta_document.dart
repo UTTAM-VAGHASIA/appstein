@@ -117,7 +117,7 @@ String renderDelta(DeltaInputs inputs) {
   final usable = <CuratedNote>[];
   final later = <CuratedNote>[];
   for (final note in inputs.notes) {
-    (_needsNewerLanguage(note, inputs.languageVersion) ? later : usable).add(
+    (needsNewerLanguage(note, inputs.languageVersion) ? later : usable).add(
       note,
     );
   }
@@ -245,7 +245,10 @@ String _deprecatedLine(DeprecatedApi api) {
   return '- `${api.name}`: ${parts.join(' ')}';
 }
 
-bool _needsNewerLanguage(CuratedNote note, String? languageVersion) {
+/// Whether [note] needs a newer Dart language version than the project's
+/// [languageVersion]: such notes are listed apart in `delta.md` and left
+/// out of `INDEX.md`. False when either version is unknown.
+bool needsNewerLanguage(CuratedNote note, String? languageVersion) {
   final needed = note.languageVersion;
   if (needed == null || languageVersion == null) return false;
   final neededMinor = flutterMinorOf(needed);

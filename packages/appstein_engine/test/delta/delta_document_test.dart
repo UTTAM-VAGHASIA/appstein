@@ -38,6 +38,13 @@ void main() {
     avoid: 'Primary constructors below language version 3.13.',
     source: 'https://dart.dev/language/constructors',
   );
+  test('needsNewerLanguage: a note for a newer language version than the '
+      "project's", () {
+    expect(needsNewerLanguage(primaryConstructors, '3.12'), isTrue);
+    expect(needsNewerLanguage(primaryConstructors, '3.13'), isFalse);
+    expect(needsNewerLanguage(popScope, '3.12'), isFalse);
+    expect(needsNewerLanguage(primaryConstructors, null), isFalse);
+  });
   const facts = DeltaFacts(
     deprecated: [
       DeprecatedApi(
