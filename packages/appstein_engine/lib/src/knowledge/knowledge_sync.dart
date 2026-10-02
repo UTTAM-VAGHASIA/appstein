@@ -7,6 +7,7 @@ import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../index/index_document.dart';
 import '../index/index_sources.dart';
+import '../map/analyzer_cache.dart';
 import '../map/map_sync.dart';
 import '../native/native_extractor.dart';
 import '../native/native_sync.dart';
@@ -16,6 +17,7 @@ import '../sdk/sdk_detector.dart';
 import 'generated_file.dart';
 import 'input_hash.dart';
 import 'knowledge_store.dart';
+import 'knowledge_write_exception.dart';
 import 'platform_sync.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2, §6.3): the platform
@@ -37,6 +39,7 @@ final class KnowledgeSync {
     this.lockTimeout = const Duration(seconds: 10),
     this.baseline = '3.16',
     this.deltaCollector,
+    this.analyzerCache = true,
   }) : notes = notes ?? CuratedNotes.bundled(),
        runner = runner ?? const SystemProcessRunner();
 
@@ -65,6 +68,11 @@ final class KnowledgeSync {
   /// Collects the delta's facts; [collectDelta] when null. For tests.
   final DeltaCollector? deltaCollector;
 
+  /// Whether the analyzer keeps its work in `.dart_tool/appstein/` between
+  /// syncs (spec §6.2). Only tests turn it off, to compare the knowledge
+  /// with and without it.
+  final bool analyzerCache;
+
   final DateTime Function()? _clock;
 
   /// Syncs the project at [projectRoot]. [sdk] is the SDK detection to use
@@ -81,6 +89,9 @@ final class KnowledgeSync {
   ///
   /// `INDEX.md` is written last, after every other file, since it summarizes
   /// them; when the map was skipped, it says so.
+  ///
+  /// The analyzer cache in `.dart_tool/appstein/` (spec §6.2) is read first
+  /// and saved last; what happened to it is in [SyncReport.analyzerCache].
   ///
   /// When only collecting the delta's facts fails (an Appstein bug), the
   /// map and the platform layer are written, `delta.md` holds only the
@@ -101,6 +112,9 @@ final class KnowledgeSync {
       notes: notes,
       clock: _clock,
     ).build(projectRoot, sdk: sdk);
+    final cache = analyzerCache
+        ? AnalyzerCache.open(analyzerCachePath(projectRoot))
+        : null;
     final map =
         await MapSync(
           environment: environment,
@@ -113,6 +127,7 @@ final class KnowledgeSync {
           flutterVersion: platform.sdk.flutterVersion,
           flutterRoot: platform.location.root,
           dartSdkPath: dartSdkPath,
+          cache: cache,
         );
     // Native config needs no analysis, so it is built even when the map was
     // skipped. It runs after MapSync because a `flutter pub get` the map ran
@@ -131,21 +146,40 @@ final class KnowledgeSync {
     // Last: it summarizes the other files.
     final index = _index(projectRoot, platform, map, native, delta);
     final store = KnowledgeStore(projectRoot, clock: _clock);
-    return store.locked(
-      () async => SyncReport(
+    return store.locked(() async {
+      final files = await store.writeAll(
+        [...platform.files, delta, ...map.files, ?native.file, index],
+        appsteinVersion: appsteinVersion,
+        sdkVersion: platform.sdk.flutterVersion,
+      );
+      // After the knowledge, inside the lock, so two syncs never write the
+      // same temporary file. The cache only makes the next sync faster, so
+      // failing to save it is a warning.
+      String? saveError;
+      if (map.cache case final used? when used.changed) {
+        try {
+          await used.save();
+        } on KnowledgeWriteException catch (error) {
+          saveError = error.reason;
+        }
+      }
+      return SyncReport(
         sdk: platform.sdk,
-        files: await store.writeAll(
-          [...platform.files, delta, ...map.files, ?native.file, index],
-          appsteinVersion: appsteinVersion,
-          sdkVersion: platform.sdk.flutterVersion,
-        ),
+        files: files,
         newestNotes: platform.newestNotes,
         fallbacks: platform.fallbacks,
         map: map.report,
         native: native.report,
-      ),
-      timeout: lockTimeout,
-    );
+        analyzerCache: cache == null
+            ? null
+            : AnalyzerCacheReport(
+                load: cache.load,
+                damage: cache.damage,
+                retried: map.cacheRetry,
+                saveError: saveError,
+              ),
+      );
+    }, timeout: lockTimeout);
   }
 
   /// `delta.md`: the notes, and the delta facts when they were collected.

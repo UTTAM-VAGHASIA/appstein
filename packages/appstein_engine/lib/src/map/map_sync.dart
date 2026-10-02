@@ -10,6 +10,7 @@ import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../knowledge/generated_file.dart';
 import '../packs/pack.dart';
+import 'analyzer_cache.dart';
 import 'dependencies.dart';
 import 'layers.dart';
 import 'map_inputs.dart';
@@ -78,7 +79,17 @@ final class MapBuild {
     required this.report,
     this.inputs,
     this.delta,
+    this.cache,
+    this.cacheRetry,
   });
+
+  /// The analyzer cache the analysis used, to be saved; null when the map
+  /// was skipped or there was no cache.
+  final AnalyzerCache? cache;
+
+  /// The analyzer's error, in one line, that made the analysis run again
+  /// with an empty cache; null when it didn't.
+  final String? cacheRetry;
 
   /// The map files; empty when the map was skipped.
   final List<GeneratedFile> files;
@@ -143,11 +154,16 @@ final class MapSync {
   /// incomplete SDK, a damaged `pubspec.lock` or `pubspec.yaml`, or an
   /// unreadable project file is reported in [MapBuild.report], with no
   /// files.
+  ///
+  /// With a [cache], the analyzer keeps its work there. An error inside the
+  /// analyzer while using the cache makes it analyze once more with an empty
+  /// cache ([MapBuild.cacheRetry]).
   Future<MapBuild> build(
     String projectRoot, {
     required String flutterVersion,
     required String flutterRoot,
     String? dartSdkPath,
+    AnalyzerCache? cache,
   }) async {
     var status = checkPackages(projectRoot, flutterVersion: flutterVersion);
     final reason = status.reason;
@@ -175,9 +191,54 @@ final class MapSync {
     }
 
     final sdk = dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk');
+    Future<MapBuild> analyzeWith(AnalyzerCache? cache, {String? retried}) =>
+        catchAnalyzerErrors(
+          () => _analyze(
+            projectRoot,
+            status: status,
+            action: action,
+            reason: reason,
+            flutterVersion: flutterVersion,
+            flutterRoot: flutterRoot,
+            sdk: sdk,
+            cache: cache,
+            retried: retried,
+          ),
+        );
+    try {
+      return await analyzeWith(cache);
+    } on Object catch (error) {
+      // Only an error inside the analyzer, or an Appstein bug, gets here:
+      // the project's own problems are returned as a skipped map. A cache
+      // entry holding garbage is one such error, so analyze once more with
+      // an empty cache, which then replaces the old one. Any other error
+      // happens again and is thrown.
+      if (cache == null) rethrow;
+      return analyzeWith(
+        AnalyzerCache.empty(cache.path),
+        retried: '${error.runtimeType}: ${'$error'.split('\n').first}',
+      );
+    }
+  }
+
+  Future<MapBuild> _analyze(
+    String projectRoot, {
+    required PackagesStatus status,
+    required PackagesAction action,
+    required String reason,
+    required String flutterVersion,
+    required String flutterRoot,
+    required String sdk,
+    required AnalyzerCache? cache,
+    required String? retried,
+  }) async {
     final ProjectAnalysis analysis;
     try {
-      analysis = await ProjectAnalysis.analyze(projectRoot, dartSdkPath: sdk);
+      analysis = await ProjectAnalysis.analyze(
+        projectRoot,
+        dartSdkPath: sdk,
+        cache: cache,
+      );
     } on ProjectAnalysisException catch (error) {
       return MapBuild(
         files: const [],
@@ -276,6 +337,8 @@ final class MapSync {
         ),
         inputs: inputs,
         delta: delta,
+        cache: cache,
+        cacheRetry: retried,
       );
     } on DependenciesException catch (error) {
       return MapBuild(

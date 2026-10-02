@@ -295,3 +295,28 @@ Future<T> catchAnalyzerErrors<T>(Future<T> Function() body) {
   );
   return done.future;
 }
+
+/// What a sync did with the analyzer cache.
+final class AnalyzerCacheReport {
+  /// Creates the report.
+  const AnalyzerCacheReport({
+    required this.load,
+    this.damage,
+    this.retried,
+    this.saveError,
+  });
+
+  /// How the cache opened.
+  final AnalyzerCacheLoad load;
+
+  /// Why the cache file couldn't be used, when it was damaged.
+  final String? damage;
+
+  /// The analyzer's error, in one line, that made the sync analyze again
+  /// with an empty cache; null when it didn't.
+  final String? retried;
+
+  /// Why the cache couldn't be saved. The sync still succeeded; the next one
+  /// is slower.
+  final String? saveError;
+}

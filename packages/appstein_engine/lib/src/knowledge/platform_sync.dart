@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../host/host_environment.dart';
+import '../map/analyzer_cache.dart';
 import '../map/map_sync.dart';
 import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
@@ -40,7 +41,13 @@ final class SyncReport {
     required this.fallbacks,
     this.map,
     this.native,
+    this.analyzerCache,
   });
+
+  /// What happened to the analyzer cache; null when the sync ran without
+  /// one (the platform layer alone, or `KnowledgeSync(analyzerCache:
+  /// false)`).
+  final AnalyzerCacheReport? analyzerCache;
 
   /// What the native-config part of the sync did; null when only the
   /// platform layer was synced ([PlatformSync.run]).
