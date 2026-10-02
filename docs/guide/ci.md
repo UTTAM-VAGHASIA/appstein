@@ -150,5 +150,21 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
   - one file with the plugin.
 - A deliberate layer violation, the canary, proves the plugin really ran: with the plugin on, the whole-project run must report `layer_imports`.
 - The table goes to the job summary and, through `tee`, to the log.
-- **A full sync of a 200-file app.** [`tool/measure_sync.dart`](../../tool/measure_sync.dart) generates an official_mvvm app with 200 Dart files, gives it a new app's `android/` and `ios/` files (copied from the engine's native template fixture) and runs a whole `appstein sync` with the platform packs, so `native.json` is part of the time. It runs it twice: first as a new project, with a real `flutter pub get` (so it needs the network), then again after deleting `.appstein/`, with fresh packages. Spec §15 sets a target of under 30 s, and **this tool does fail**: it exits 1 when the second, full sync takes 30 s or more, or when the map was skipped, or when any native section is not `read` (so the time always includes the native work). Its table and a line with each native section's outcome go to the job summary and the log. On the Windows development machine, the full sync took 13.6 s and the first one 25.7 s.
+- **Syncing a 200-file app, and `sync --detect`.** [`tool/measure_sync.dart`](../../tool/measure_sync.dart) generates an official_mvvm app with 200 Dart files, gives it a new app's `android/` and `ios/` files (copied from the engine's native template fixture) and runs `appstein sync` with the platform packs, so `native.json` is part of the time. It first **compiles the `appstein` command** and runs every sync as a new process with `FLUTTER_ROOT` set, the way an agent's hook does. It runs:
+  1. a first sync as a new project, with a real `flutter pub get` (so it needs the network);
+  2. a full sync after deleting `.appstein/` and the analyzer cache, with fresh packages;
+  3. `sync --detect` with nothing changed;
+  4. `sync --detect` after editing a view model, and after editing the router.
+
+  Spec §15 sets the targets, and **this tool does fail**: it exits 1 when the full sync takes 30 s or more, when either `--detect` of 3 and 4 (nothing changed, the view model edit) takes 2 s or more, when the map was skipped, when any native section is not `read`, or when a `--detect` gives the wrong answer (it rebuilt with nothing changed, or didn't report the edit). The same rows for a 1,000-file app are printed for information only and never fail. The table goes to the job summary and the log. On the Windows development machine:
+
+  | Measurement | 200 files | 1,000 files (info) |
+  |---|---|---|
+  | First sync | 10,692 ms | 11,370 ms |
+  | Full sync, no analyzer cache | 6,892 ms | 7,618 ms |
+  | `sync --detect`, nothing changed | 77 ms | 165 ms |
+  | `sync --detect` after a view model edit | 1,102 ms | 2,202 ms |
+  | `sync --detect` after a router edit | 1,167 ms | 2,309 ms |
+
+  See [incremental-sync](incremental-sync.md#measuring) for why each row is measured that way.
 - The analysis measurement reports numbers; it has no time budget to fail. The first numbers (9–16 s for one cold file with the plugin) led the spec to plan warm analysis for fast checks ([spec §9.1](../superpowers/specs/2026-09-29-appstein-design.md#91-fast-checks-after-every-change-changed-files-only-target--5-s)).

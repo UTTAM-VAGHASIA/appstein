@@ -73,14 +73,40 @@ The labels are plain ASCII: `[ok]`, `[info]`, `[warn]`, `[error]` and `[skip]`. 
 
 ## `appstein sync`
 
+`appstein sync` has one option, **`--detect`**: rebuild only when something the knowledge reads changed, found by content hash. It is what an agent's after-edit hook runs (see [incremental-sync](incremental-sync.md)). Without it, `sync` always rebuilds. There is no `--changed` option: the change list is found by hash, not given by the caller (spec §5.3), and passing `--changed` is a usage error.
+
 [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) does four things:
 
 1. **Finds the project** (`--project` or the nearest `pubspec.yaml`).
 2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which packs the project uses and the delta's baseline (`delta.baseline`). [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` **and `packs.platforms`** into a list of packs: `official_mvvm` gives `OfficialMvvmPack`, and `android` and `ios` give `AndroidPack` and `IosPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
-3. **Runs the engine's `KnowledgeSync`** with those packs and that baseline. It writes the platform layer, the version delta, the project map and the native config.
+3. **Runs the engine's `KnowledgeSync`** with those packs and that baseline: `detect` with `--detect`, `run` without. It writes the platform layer, the version delta, the project map and the native config.
 4. **Prints `formatSyncReport`.**
 
-The report is one line for the SDK, one per file (`written` or `unchanged`, the map files and `map/native.json` included), then the lines about the packages and the map, a `Native config:` line, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened:
+The report is one line for the SDK, one per file (`written` or `unchanged`, the map files and `map/native.json` included), then the lines about the packages and the map, a `Native config:` line, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened.
+
+Three more kinds of line come from incremental sync:
+
+- A `--detect` that finds nothing changed prints only this line (and writes nothing):
+
+  ```text
+  Knowledge is current for Flutter 3.47.5 (Dart 3.13.4, stable channel): nothing it reads changed since the last sync.
+  ```
+
+- After the `Synced .appstein/ …` line, a rebuild says what changed, with the first five input names (without the `project:` prefix) and how many more:
+
+  ```text
+  Changed since the last sync: lib/ui/home/view_models/home_view_model.dart, pubspec.yaml and 3 more.
+  ```
+
+  When nothing can be compared with (the first sync), or the change list is empty, a `--detect` that rebuilt says why instead, with the first reason and a count of the rest:
+
+  ```text
+  Rebuilt because no sync has run here yet.
+  ```
+
+- The analyzer cache adds a line only when something went wrong with it: it could not be used, the analyzer failed while reading it and the analysis ran again, or it could not be saved. The wording is in [incremental-sync](incremental-sync.md#the-analyzer-cache).
+
+The map lines look like this:
 
 ```text
 Fetched the packages with `flutter pub get`, because pubspec.yaml changed after they were fetched.
@@ -165,7 +191,8 @@ $ appstein help sync
 Regenerate the knowledge Appstein keeps in .appstein/.
 
 Usage: appstein sync [arguments]
--h, --help    Print this usage information.
+-h, --help      Print this usage information.
+    --detect    Rebuild only when something the knowledge reads changed, found by content hash (the after-edit hook).
 
 Run "appstein help" to see global options.
 ```

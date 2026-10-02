@@ -35,10 +35,10 @@ KnowledgeSync.run
   |
   |-- MapSync.build          (no writing yet)
   |     1. packages          fresh? if not, flutter pub get
-  |     2. ProjectAnalysis   the analyzer resolves lib/, test/, testing/
-  |     3. pack extractors   routes.json, features.json
-  |     4. generic files     symbols.json, layers.json, deps.json
-  |     5. one input hash    shared by every map file
+  |     2. readMapInputs     the files the map is built from, and the one input hash
+  |     3. ProjectAnalysis   the analyzer resolves lib/, test/, testing/ (analyzer cache)
+  |     4. pack extractors   routes.json, features.json
+  |     5. generic files     symbols.json, layers.json, deps.json
   |     6. delta facts       collectDelta, while the analysis is open (version-delta.md)
   |
   |-- NativeSync.build       map/native.json, from the platform packs (no writing yet)
@@ -52,7 +52,7 @@ KnowledgeSync.run
 Two things to notice.
 
 - **Building happens outside the lock, writing happens inside it.** The analysis takes seconds, and holding the lock that long would make any other writer wait. [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) takes the platform files and the map files together and writes `state.json` last, so `state.json` only ever lists files that were written. The consequence: two syncs that run at the same moment are last-writer-wins. Each write is consistent inside itself, and its input hash shows if it was built from something that has since changed.
-- **The map can be skipped without failing the sync.** When the packages can't be fetched, or the project files can't be read, [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns no files and a reason. The platform layer is still written, and so is `delta.md`, with only the notes. `map/native.json` is still written then. A failure while collecting the delta facts (step 6) is kept apart: the map is still written, and `delta.md` says its API lists are missing because of an internal error, which the user should report (see [version-delta](version-delta.md#how-sync-builds-it)). See [A failed fetch](#a-failed-fetch).
+- **The map can be skipped without failing the sync.** When the packages can't be fetched, or the project files can't be read, [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns no files and a reason. The platform layer is still written, and so is `delta.md`, with only the notes. `map/native.json` is still written then. The inputs are read before the analysis on purpose (see [incremental-sync](incremental-sync.md#the-maps-inputs)). A failure while collecting the delta facts (step 6) is kept apart: the map is still written, and `delta.md` says its API lists are missing because of an internal error, which the user should report (see [version-delta](version-delta.md#how-sync-builds-it)). See [A failed fetch](#a-failed-fetch).
 
 ## Packages first
 
@@ -117,7 +117,7 @@ Flutter 3.47's `pub get` may also update the app's `analysis_options.yaml`, addi
 
 ## Resolving the code
 
-[`ProjectAnalysis.analyze`](../../packages/appstein_engine/lib/src/map/project_analysis.dart) asks `package:analyzer` to resolve the whole project once. Every later step reads that one result.
+[`ProjectAnalysis.analyze`](../../packages/appstein_engine/lib/src/map/project_analysis.dart) asks `package:analyzer` to resolve the whole project once. Every later step reads that one result. It takes an optional `AnalyzerCache`, which keeps the analyzer's work between syncs (see [incremental-sync](incremental-sync.md#the-analyzer-cache)).
 
 - **Which folders.** `lib/`, `test/` and `testing/`, whichever exist. `integration_test/`, `tool/` and the platform folders are not part of the map.
 - **Which SDK.** `dart:core` and the other `dart:` libraries come from the Dart SDK inside the Flutter SDK (`bin/cache/dart-sdk`). If that folder has no `lib/core/core.dart`, the map is skipped with "The Dart SDK at … is incomplete".
@@ -127,7 +127,7 @@ Flutter 3.47's `pub get` may also update the app's `analysis_options.yaml`, addi
 
 ### Speed
 
-Spec §15 sets a target: a full sync of a 200-file app in under 30 s. Resolving a 200-file app took about 12 s cold and 3.9 s warm in the spike. The repo's [`tool/measure_sync.dart`](../../tool/measure_sync.dart) measures the whole sync on a generated app of that size: first sync (including a real `flutter pub get`), then a full rebuild with fresh packages, which is held to the 30 s limit. On the Windows development machine, the rebuild took 9.5 s, and 15.4 s for a first sync. CI runs the tool on Linux and Windows (see [ci](ci.md#measure)). There is no on-disk analyzer cache yet; incremental sync (slice 1b.6) will need one.
+Spec §15 sets a target: a full sync of a 200-file app in under 30 s. Resolving a 200-file app took about 12 s cold and 3.9 s warm in the spike. The repo's [`tool/measure_sync.dart`](../../tool/measure_sync.dart) measures the whole sync on a generated app of that size: first sync (including a real `flutter pub get`), then a full rebuild with fresh packages, which is held to the 30 s limit. Before slice 1b.7 the rebuild took 9.5 s on the Windows development machine, and 15.4 s for a first sync. Now the tool compiles the `appstein` command, runs every sync as a new process, and also times `sync --detect`. With the analyzer cache, `--detect` after editing a view model took about 1.1 s on 200 files, and 77 ms when nothing changed; the numbers are in [incremental-sync](incremental-sync.md#the-idea). CI runs the tool on Linux and Windows (see [ci](ci.md#measure)).
 
 ## The generic files
 
@@ -215,7 +215,7 @@ And what each may import:
 
 ### Features
 
-[`features.dart`](../../packages/appstein_engine/lib/src/packs/official_mvvm/features.dart) builds `features.json`. In the fixture app, `home` looks like this:
+[`features.dart`](../../packages/appstein_engine/lib/src/packs/official_mvvm/features.dart) builds `features.json`. `readFeatures` finds each file's feature once; asking per feature was cubic, 25 s at 1,000 files (fixed in 1b.7). `MapSync` likewise builds an index from file to feature once, and uses it for the `feature` of `symbols.json` and `layers.json`; it gives the same answer as `FeaturesMap.featureOf`. In the fixture app, `home` looks like this:
 
 ```text
 "home": {
@@ -290,7 +290,7 @@ The same code must give byte-identical files on every OS (spec §15):
 - files are written by `KnowledgeStore.writeGenerated`, which uses canonical JSON, so key order never varies;
 - paths use `/` and are relative to the project.
 
-**One coarse input hash.** Every map file gets the same `meta.inputHash`: a SHA-256 over every `.dart` file under `lib/`, `test/` and `testing/`, `pubspec.yaml`, the lock file, the project's `analysis_options.yaml` (its `exclude:` changes which files are mapped), the Flutter version, and the packs' ids and versions, plus Appstein's own version. So any change to any of those changes every hash. That is coarse on purpose: it is simple. It does not cover everything yet: the sources of path dependencies are not hashed, which is carried to slice 1b.6. A reader (the future `knowledge.stale` check) can compare a file's hash with a fresh one to see if the file is behind. Finer hashes, per file, come with incremental sync in slice 1b.6.
+**One coarse input hash.** Every map file gets the same `meta.inputHash`. It comes from [`readMapInputs`](../../packages/appstein_engine/lib/src/map/map_inputs.dart): a SHA-256 over every `.dart` file under `lib/`, `test/` and `testing/`, `pubspec.yaml`, the lock file, the project's `analysis_options.yaml` (its `exclude:` changes which files are mapped), the files of the project's **local packages** (path dependencies and workspace siblings, which can change without the lock changing), the Flutter version, and the packs' ids and versions, plus Appstein's own version. So any change to any of those changes every hash. That is coarse on purpose: it is simple. `sync --detect` and the future `knowledge.stale` check compare a file's hash with a fresh one to see if the file is behind. How the inputs are named and read is on [incremental-sync](incremental-sync.md#the-maps-inputs).
 
 ## Tests
 
