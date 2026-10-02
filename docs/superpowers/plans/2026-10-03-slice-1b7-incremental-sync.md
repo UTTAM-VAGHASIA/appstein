@@ -3953,3 +3953,74 @@ Then merge by the owner's PR flow and delete the branch.
   - Markdown edge cases in names;
   - the iOS id line drops the `.xcconfig` note;
   - `.MD`, symlinked and UTF-16 decision files.
+
+## Notes from execution
+
+Run on 2026-10-03 on the branch `slice-1b7`. It was subagent-driven, with one implementer and one reviewer per task, never more than 3 agents at once, and Opus for the riskiest reviews.
+- Subagents never committed. The controller staged each task, reviewed the staged diff against the task's base, and committed after the review, behind the BOM byte gate.
+- Spec edits: `e1fab90` (owner-approved). Plan: `b059596`.
+
+**How it ran**
+
+| Commit | What | Review |
+|---|---|---|
+| `0787ad0` | Task 1: linear `readFeatures`, the `featureOf` index, 3 `checkPackages` tests | clean |
+| `3014111` | Task 2: the analyzer cache file, analyzer pinned to 14.4.0 | clean |
+| `e7a96a6` | Task 3: map inputs with local packages | clean |
+| `7f5483c` | Task 4: sync uses the cache; the guard and retry | clean |
+| `e470228` | Task 5: freshness, `state.json`, `detect` | 1 fix round (Opus review): the map inputs were read **after** the analysis. A file edited during a sync was then recorded with its new hash over an old map, and later detects answered "current". They are now read before the analysis, and a test edits a file mid-sync through the `deltaCollector` seam |
+| `c6a3e51` | Task 6: CLI `--detect` | clean |
+| `fd5756f` | Task 7: `measure_sync` in fresh processes | clean |
+| `da2c5f2` | Task 8: docs | 1 fix round: "four new keys" should have been three, and the reasons table missed `state.json is in format N` |
+| `9159235` | Final-review fix wave | scoped re-review: F1–F9 all addressed |
+
+**The final whole-branch review** (Opus) found the design sound. It also found a Critical and an Important hole in the same function. Both would have let `--detect` answer "current" over a stale map:
+- **Critical:** `_filesUnder` didn't follow links, while the analyzer does. Code behind a symlink or a Windows junction was mapped but never hashed. The reviewer reproduced it with `mklink /J`.
+- **Important:** one unlistable subfolder made the whole top folder a single null input. The analyzer skips only that subfolder.
+
+The fix wave rewrote the walk the way analyzer 14.4.0 does it: one folder at a time, links followed, loops guarded along the current path, and only an unlistable folder recorded as `<name>/` = null.
+
+It also made the remaining cache and hook paths safer:
+- any error saving the cache is now a warning;
+- a busy lock never fails a no-change detect;
+- the report says "the cache was replaced" only when the cache was saved;
+- new tests prove `detect` reaches "current" with the platform packs, and after a decision rebuild.
+
+**Rulings** (all in the ledger; the final summary lists them for the owner):
+- **The Task 1 trailer.** I first ruled that a `Docs-Checked: project-map` trailer (missing `.md`) was harmless, which was wrong: `check_guide --since main` rejects it. I reworded that one commit message with `git filter-branch --msg-filter` on the unpushed branch. The trees were checked to be identical.
+- **The fix wave's loop guard deviated from my fix spec.** It tracks only the folders on the current path, as the analyzer does, instead of every folder already walked. The implementer's probe showed the analyzer maps two links to one folder twice. The spec's rule would have hidden a removed link.
+- **The task trailers** use the `<page>.md` form that the docs hook needs, not the plan's bare page names.
+- **`architecture.md`** also had to change, for the three new engine exports. The plan had left it out.
+
+**Numbers**
+- **The full check at `9159235`:**
+  - analyze and format are clean (279 files), and `dependency_validator` is clean;
+  - tests: CLI 42, engine 725 with 6 skipped, lints 19, protocol 57, repo tools 212, integration 4;
+  - `check_guide --since main` passed and the BOM scan is clean.
+- **`measure_sync`** (Windows, a new process each, after the fix wave):
+
+| Measurement | 200 files | 1,000 files (info) |
+|---|---|---|
+| First sync, with `flutter pub get` | 8,464 ms | 10,195 ms |
+| **Full sync, no analyzer cache** (target under 30 s) | 7,121 ms | 8,034 ms |
+| **`sync --detect`, nothing changed** (target under 2 s) | 120 ms | 324 ms |
+| **`sync --detect` after editing a view model** (target under 2 s) | 1,267 ms | 2,571 ms |
+| `sync --detect` after editing the router | 1,357 ms | 2,589 ms |
+
+  - **Before the fix wave:** 77 ms and 1,102 ms at 200 files. The walk that follows links costs about 40–160 ms.
+  - **Before this slice:** every sync took about 9 s at 200 files, and a full sync of 1,000 files about 34 s (the cubic `readFeatures`).
+
+**Also carried** (on top of "Carried to later slices" above)
+- **A `FLUTTER_ROOT` given as a link path** makes the SDK's packages look local. That costs time on every detect, never correctness. Resolve links before comparing.
+- **Inputs the analyzer reads that the map doesn't hash:**
+  - files outside `lib/`, `test/` and `testing/` reached by a relative import;
+  - a local file `include:`d from `analysis_options.yaml`;
+  - nested `analysis_options.yaml` files;
+  - a folder that can't be listed but whose files can still be opened by path.
+
+  Each is rare. Today they can give a stale "current".
+- **After a delta internal error,** every detect rebuilds with the misleading reason `platform/delta.md is out of date`. Name the delta error instead.
+- **A read-only `.appstein/`** still fails a no-change detect when it empties the change list. The busy-lock case is handled.
+- **Two comments** (`map_inputs.dart`, `incremental-sync.md`) say the analyzer skips an unresolvable folder "too". In fact the analyzer stops reading the rest of that folder's parent, so the inputs hash a superset. The direction is safe; only the wording is inexact.
+- **Two tests** (the platform packs, the decision rebuild) don't assert that the middle detect is current. Only the last one is checked.
+- **The chmod test** for an unreadable folder runs only on POSIX, so CI's Linux job runs it first.
