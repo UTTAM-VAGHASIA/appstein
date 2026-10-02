@@ -2450,3 +2450,63 @@ Then merge by the owner's PR flow and delete the branch.
 - **Known limits, recorded here:**
   - a project whose minimum content alone passes 4,500 bytes gets an INDEX.md over budget (D8);
   - a decision file name with `[` or `]` gives an odd link text.
+
+## Notes from execution
+
+Run on 2026-10-02 on the branch `slice-1b6`. It was subagent-driven, with one implementer and one reviewer per task, and never more than 3 agents at once. Subagents never committed; the controller committed each task after its review, behind the BOM byte gate. PR #11.
+
+**How it ran**
+
+| Commit | What | Review |
+|---|---|---|
+| `33dac2b` | Task 1: `index_sources.dart` | clean; 3 minor findings deferred |
+| `de2e4bb` | Task 2: `index_document.dart`, `needsNewerLanguage` public | 1 fix round: the cut-order and keep-newest-decisions rules were only loosely pinned, so a step-by-step cut-order test and a partial-decisions test were added |
+| `6bd7a05` | Task 3: `KnowledgeSync._index` | clean |
+| `4585951` | Task 4: guide pages (`index-md.md` new; knowledge-store, version-delta, architecture, README) | clean; 4 wording minors deferred |
+| `00e1069` | Final-review fixes | re-review: all addressed |
+| `f942d06` | The owner's cut-order change (spec §6.3) | clean |
+
+**The final whole-branch review** (most capable model) found the core sound:
+- the budget math is exact;
+- the input hash is complete;
+- the output is deterministic;
+- nothing in the project's files can make sync throw.
+
+It asked for these fixes before merge, all done in `00e1069`:
+- a decision file or `current.md` saved with a UTF-8 BOM, which Windows PowerShell 5.1 writes, was listed as "unreadable (it has no front matter)". A leading BOM is now stripped, as the rest of the codebase already does;
+- an id with `${VAR}` or `$VAR` was shown as a real id. Any `$` now makes it `unknown` (§6.5);
+- the notes cut now ends `; ask \`what_changed()\`.`, like the other cuts (§6.3);
+- guide accuracy: the placeholder text, the ÷3 reason (now echoing the spec), the code spans, the rewrite rule, and knowledge-store step 1.
+
+**Owner decision during execution (spec §6.3 edited).** The final review showed that an ordinary app leaves about 550 bytes for Decisions and Current work. The fixture is 3,951 bytes on the real SDK before either. Under the old order those were cut while 10 generic notes stayed, so the owner chose a new order: version notes from 10 down to 5 first, then current work, then decisions, then features down to 5. D8's last resort is unchanged. This replaces the order stated in this plan's header and Task 2 code. A large project at a 4,200-byte budget now shows 12 feature rows and 5 notes, at 4,200 bytes; before it was 5 rows and 8 notes.
+
+**Controller rulings**
+- **Full test suites run from inside each package folder**, as CI does, and not with `fvm dart test packages/…` from the root as Task 5 Step 1 wrote. From the root, the package's `dart_test.yaml` skip of `integration` isn't applied, and `process_runner_test` resolves a helper relative to the working directory.
+- **`_plainId` rejects any `$`**, not only `$(` as D5 said. §6.5 outranks the plan's narrower wording.
+- **Left as they are:**
+  - a YAML list or map title is shown as written (`[a, b]`);
+  - a cut can briefly lengthen the text, but the loop still converges;
+  - the index-md "Real sizes" scratch-app figure was measured before the fixes.
+
+**Numbers**
+- **Full check at `4585951`:**
+  - analyze and format are clean (271 files) and `dependency_validator` is clean;
+  - tests: repo tools 212, CLI 34, engine 655 with 5 skipped, lints 19, protocol 56, integration 7;
+  - `check_guide` passed and the BOM scan is clean.
+- **After the fixes:** engine 659.
+- **`measure_sync` (Windows, 200 files):** the first sync takes 14.2 s; a full sync takes 8.5 s, against the 30 s target.
+- **INDEX.md sizes:**
+  - the fixture on the real SDK: 3,951 bytes;
+  - a fresh `flutter create --platforms=android,ios` app (created by the PATH Flutter 3.38.6, synced on 3.47.5): 3,551 bytes, with 10 notes and "None found." for features.
+
+**Carried** (on top of "Carried to later slices" above)
+- A machine path can reach INDEX.md and `delta.md` through the map's skip reason (`project_analysis.dart:87,121`, an incomplete SDK). This has existed since 1b.5. Give the reason without the path.
+- `ios_native.dart`'s `_variablesNote` checks only `$(`, a 1b.4 gap. Make it match `_plainId`.
+- **Markdown edge cases in names:**
+  - a decision file name with `<`, `>` or `]` breaks its link;
+  - a backtick in a feature name breaks its code span;
+  - `*` or `_` can become emphasis.
+- The iOS id line drops `native.json`'s note that a `.xcconfig` file can override it.
+- **Decision files that are skipped or misreported:**
+  - `.MD` files and symlinked decision files are skipped without a word;
+  - a UTF-16 file (PowerShell 5.1 `>`) is reported as "it has no front matter".

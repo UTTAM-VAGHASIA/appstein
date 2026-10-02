@@ -94,12 +94,14 @@ milestones:
           - id: 1b.6
             title: INDEX.md
             summary: The always-in-view `INDEX.md` (at most 1,500 tokens), built from the platform layer, the map and the delta.
-            status: next
+            status: done
             plan: 2026-10-02-slice-1b6-index-md.md
+            pr: 11
+            finished: 2026-10-02
           - id: 1b.7
             title: Incremental sync
             summary: "`sync --changed` and `--detect`: rebuild only what changed, under 2 s, with per-file hashes and a persistent analyzer cache."
-            status: planned
+            status: next
           - id: 1b.8
             title: Package skills
             summary: "`sync` runs `dart run skills@ get` when `pubspec.yaml` or `pubspec.lock` changes, and warns when it can't."
