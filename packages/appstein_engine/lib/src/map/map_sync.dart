@@ -203,7 +203,17 @@ final class MapSync {
       final features = featuresBody == null
           ? null
           : FeaturesMap.fromJson(featuresBody);
-      String? featureOf(String file) => features?.featureOf(file);
+      // Built once: FeaturesMap.featureOf scans every feature's file list,
+      // and it is asked once per file. The first feature that lists a file
+      // wins, as in featureOf.
+      final featureByFile = <String, String>{};
+      for (final MapEntry(key: name, value: feature)
+          in features?.features.entries ?? <MapEntry<String, Feature>>[]) {
+        for (final file in [...feature.files, ...feature.tests]) {
+          featureByFile.putIfAbsent(file, () => name);
+        }
+      }
+      String? featureOf(String file) => featureByFile[file];
       final rules = packs
           .where((pack) => pack.kind == PackKind.stack)
           .firstOrNull

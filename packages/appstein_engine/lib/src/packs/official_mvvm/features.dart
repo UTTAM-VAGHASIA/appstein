@@ -1,3 +1,4 @@
+import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
@@ -20,10 +21,13 @@ FeaturesMap readFeatures(
 }) {
   final libFiles = <String>[];
   final testFiles = <String>[];
+  // Each file's units, so a feature reads only its own files.
+  final unitsByFile = <String, List<ResolvedUnitResult>>{};
   for (final library in analysis.libraries) {
     for (final unit in library.result.units) {
       final file = analysis.relativePath(unit.path);
       if (file == null) continue;
+      (unitsByFile[file] ??= []).add(unit);
       if (file.startsWith('lib/ui/')) libFiles.add(file);
       if (file.startsWith('test/ui/')) testFiles.add(file);
     }
@@ -41,6 +45,29 @@ FeaturesMap readFeatures(
     return best;
   }
 
+  // Each file's feature, found once: asking per feature made this cubic.
+  final filesOf = <String, List<String>>{};
+  for (final file in libFiles) {
+    if (owner(file, 'lib/ui') case final name?) {
+      (filesOf[name] ??= []).add(file);
+    }
+  }
+  final testsOf = <String, List<String>>{};
+  for (final file in testFiles) {
+    if (owner(file, 'test/ui') case final name?) {
+      (testsOf[name] ??= []).add(file);
+    }
+  }
+  // Every class of the project with its file, in library order.
+  final classes = <(ClassElement, String)>[];
+  for (final library in analysis.libraries) {
+    for (final element in library.result.element.classes) {
+      if (analysis.locationOf(element.firstFragment) case final location?) {
+        classes.add((element, location.file));
+      }
+    }
+  }
+
   CodeRef? refOf(Element element) {
     final name = element.name;
     final location = analysis.locationOf(element.firstFragment);
@@ -50,27 +77,17 @@ FeaturesMap readFeatures(
 
   final features = <String, Feature>{};
   for (final name in names.toList()..sort()) {
-    final files = [
-      for (final file in libFiles)
-        if (owner(file, 'lib/ui') == name) file,
-    ]..sort();
-    final tests = [
-      for (final file in testFiles)
-        if (owner(file, 'test/ui') == name) file,
-    ]..sort();
+    final files = [...?filesOf[name]]..sort();
+    final fileSet = files.toSet();
+    final tests = [...?testsOf[name]]..sort();
 
-    final viewModels = <ClassElement>[];
-    for (final library in analysis.libraries) {
-      for (final element in library.result.element.classes) {
-        final location = analysis.locationOf(element.firstFragment);
-        if (location != null &&
-            files.contains(location.file) &&
-            location.file.startsWith('lib/ui/$name/view_models/') &&
-            _isViewModel(element)) {
-          viewModels.add(element);
-        }
-      }
-    }
+    final viewModels = [
+      for (final (element, file) in classes)
+        if (fileSet.contains(file) &&
+            file.startsWith('lib/ui/$name/view_models/') &&
+            _isViewModel(element))
+          element,
+    ];
 
     final repositories = <CodeRef>[];
     final services = <CodeRef>[];
@@ -92,10 +109,8 @@ FeaturesMap readFeatures(
     }
 
     final models = <CodeRef>[];
-    for (final library in analysis.libraries) {
-      for (final unit in library.result.units) {
-        final file = analysis.relativePath(unit.path);
-        if (file == null || !files.contains(file)) continue;
+    for (final file in files) {
+      for (final unit in unitsByFile[file] ?? const <ResolvedUnitResult>[]) {
         for (final import in analysis.importsOf(unit)) {
           // Use cases are domain code, but not data the feature uses (P4).
           if (matcher.tagFor(import.file) != 'domain' ||
@@ -113,7 +128,7 @@ FeaturesMap readFeatures(
     final screens = [
       for (final route in routes.routes)
         if (route.screen case final screen?
-            when files.contains(screen.file) &&
+            when fileSet.contains(screen.file) &&
                 screen.file.startsWith('lib/ui/$name/widgets/'))
           screen,
     ];
