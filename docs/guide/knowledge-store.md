@@ -7,7 +7,7 @@ tool/src/notes_bundle.dart
 
 # The knowledge store and `appstein sync`
 
-`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. Slice 1b.3 added the **project map** of the app's Dart code, which has [its own page](project-map.md). Slice 1b.5 added the **version delta**, `delta.md`, which has [its own page](version-delta.md). Slice 1b.4 added **native config**, `map/native.json`, which has [its own page](native-config.md). Slice 1b.6 added **`INDEX.md`**, the page an agent always reads, which has [its own page](index-md.md). Incremental sync (1b.7) comes in a later slice.
+`appstein sync` writes what an agent needs to know about a project into the project's `.appstein/` folder (spec §6.1–6.2). Slice 1b.2 built the store itself and the **platform layer**. Slice 1b.3 added the **project map** of the app's Dart code, which has [its own page](project-map.md). Slice 1b.5 added the **version delta**, `delta.md`, which has [its own page](version-delta.md). Slice 1b.4 added **native config**, `map/native.json`, which has [its own page](native-config.md). Slice 1b.6 added **`INDEX.md`**, the page an agent always reads, which has [its own page](index-md.md). Slice 1b.7 added **`sync --detect`** and the analyzer cache, which have [their own page](incremental-sync.md).
 
 ## What `sync` writes now
 
@@ -22,7 +22,7 @@ Every row is also rewritten when the file was hand-edited or damaged, because th
 | `.appstein/map/features.json`, `routes.json` | What the stack pack reads: features, screens and routes | the same inputs as the rows above, or the file was hand-edited or damaged |
 | `.appstein/map/native.json` | The Android and iOS setup, each value with where it was found (see [native-config](native-config.md)) | a native file, `pubspec.yaml`, the SwiftPM setting outside the project, the Flutter version or a pack changes, or the file was hand-edited or damaged |
 | `.appstein/INDEX.md` | The always-in-view summary: project, rules, features, layers, top notes, decisions, current work (see [index-md](index-md.md)) | any file it summarizes, a decision file, `memory/current.md`, `pubspec.yaml` or the platform folders changes, or the file was hand-edited or damaged |
-| `.appstein/state.json` | When `sync` last ran, and each generated file's input hash. When the map was skipped, it lists only the platform files, `delta.md`, `map/native.json` and `INDEX.md` | every sync |
+| `.appstein/state.json` | When `sync` last ran, and each generated file's input hash. When the map was skipped, it lists only the platform files, `delta.md`, `map/native.json` and `INDEX.md`. It also holds `sources` (the hash of each file the map reads), `written` (the hash of each file's bytes) and `changed` (what the last rebuild found changed); see [incremental-sync](incremental-sync.md) | every rebuild |
 | `.appstein/.lock` | Nothing: it exists to be locked | never |
 
 All of it is generated and meant to be git-ignored (spec §6.2). `integrate` (slice 1e) writes the `.gitignore` entries, so until then a project shows `.appstein/` as untracked.
@@ -32,21 +32,22 @@ All of it is generated and meant to be git-ignored (spec §6.2). `integrate` (sl
 ```mermaid
 flowchart LR
   cli["SyncCommand (CLI)"] --> run["KnowledgeSync.run"]
-  run --> platform["PlatformSync.build:<br/>SDK, notes, toolchain"]
-  run --> map["MapSync.build:<br/>packages, analysis, map"]
-  run --> native["NativeSync.build:<br/>native.json"]
-  run --> delta["renderDelta:<br/>delta.md"]
-  run --> index["INDEX.md:<br/>renderIndex"]
-  run --> store["KnowledgeStore.locked:<br/>writeAll"]
+  run --> prepare["_prepare:<br/>platform, packages, map inputs,<br/>native, INDEX.md sources"]
+  prepare --> cache["AnalyzerCache.open"]
+  cache --> map["MapSync.build:<br/>packages, analysis, map"]
+  map --> native["NativeSync.build:<br/>native.json"]
+  native --> delta["renderDelta:<br/>delta.md"]
+  delta --> index["INDEX.md:<br/>renderIndex"]
+  index --> store["KnowledgeStore.locked:<br/>writeAll, then save the cache"]
 ```
 
-1. [`KnowledgeSync.run`](../../packages/appstein_engine/lib/src/knowledge/knowledge_sync.dart) is what `appstein sync` calls. It first builds the platform layer, then the project map, then the native config, then the version delta, then `INDEX.md` (which summarizes the others, see [index-md](index-md.md)), and writes all of them under one lock.
+1. [`KnowledgeSync.run`](../../packages/appstein_engine/lib/src/knowledge/knowledge_sync.dart) is what `appstein sync` calls. It first runs the cheap steps in `_prepare` (the platform layer, the packages check, the map's inputs, the native config and INDEX.md's sources), then opens the analyzer cache and builds the project map, then the native config again, then the version delta, then `INDEX.md` (which summarizes the others, see [index-md](index-md.md)), and writes all of them under one lock. `appstein sync --detect` calls `KnowledgeSync.detect`, which runs `_prepare` and compares first: **`--detect` compares first and may stop here**, and when it finds a change it goes on as `run` does; see [incremental-sync](incremental-sync.md).
 2. [`PlatformSync.build`](../../packages/appstein_engine/lib/src/knowledge/platform_sync.dart) detects the Flutter SDK, with the same detection `appstein doctor` uses. No usable SDK is a `SyncException`, which the CLI prints with its fix before exiting 3. It reads the SDK facts, the notes coverage and the toolchain, and returns a `PlatformBuild`: the facts plus two `GeneratedFile`s (a path, a body and an input hash), not yet written. `PlatformSync.run` is the platform layer alone, without the map.
 3. [`MapSync.build`](../../packages/appstein_engine/lib/src/map/map_sync.dart) returns the map's `GeneratedFile`s, or none and a reason when the map is skipped. See [project-map](project-map.md#how-sync-builds-it).
 4. [`NativeSync.build`](../../packages/appstein_engine/lib/src/native/native_sync.dart) returns `map/native.json`, built by the platform packs from the project's native files. It needs no analysis, so it is built even when the map was skipped, and it runs after `MapSync` because a `flutter pub get` the map ran rewrites a file it reads. With no platform pack there is no file. See [native-config](native-config.md#how-sync-builds-it).
 5. [`renderDelta`](../../packages/appstein_engine/lib/src/delta/delta_document.dart) turns the curated notes and the map's delta facts into `delta.md`, a `GeneratedFile.markdown`. When the map was skipped, or collecting the facts failed, it holds only the notes and says why the rest is missing. See [version-delta](version-delta.md).
 6. `KnowledgeSync._index` builds `INDEX.md` from the files above, still in memory, and from the project's decision files and `memory/current.md`. See [index-md](index-md.md).
-7. Under the lock, [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) writes each `GeneratedFile` (JSON with `writeGenerated`, Markdown with `writeGeneratedMarkdown`), in the order: platform files, `delta.md`, map files, `native.json`, `INDEX.md`, then `state.json` last, listing exactly the files it was given. A reader that finds `state.json` can trust the files it names.
+7. Under the lock, [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) writes each `GeneratedFile` (JSON with `writeGenerated`, Markdown with `writeGeneratedMarkdown`), in the order: platform files, `delta.md`, map files, `native.json`, `INDEX.md`, then `state.json` last, listing exactly the files it was given, with the map's `sources`, the hash of each file's bytes (`written`) and the `changed` input names. A reader that finds `state.json` can trust the files it names. Still inside the lock, after `state.json`, the analyzer cache is saved when it changed; failing to save it, for any reason, is a warning, never a failed sync.
 
 Everything is built **before** taking the lock. Parsing and analysis take seconds, and holding the lock only while writing keeps another writer's wait to milliseconds.
 

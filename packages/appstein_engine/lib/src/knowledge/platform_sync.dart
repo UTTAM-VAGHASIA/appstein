@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../host/host_environment.dart';
+import '../map/analyzer_cache.dart';
 import '../map/map_sync.dart';
 import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
@@ -40,7 +41,34 @@ final class SyncReport {
     required this.fallbacks,
     this.map,
     this.native,
+    this.analyzerCache,
+    this.current = false,
+    this.changed = const [],
+    this.rebuiltBecause = const [],
+    this.timings = const {},
   });
+
+  /// How long each step took, in the order the steps first ran
+  /// (`SyncTimings`); empty when nothing timed the sync.
+  final Map<String, Duration> timings;
+
+  /// True when `sync --detect` found nothing changed, so nothing was rebuilt
+  /// or written; [files] is then empty.
+  final bool current;
+
+  /// The input files that changed since the last sync, by input name
+  /// (`Freshness.changed`); empty when there was no earlier sync to compare
+  /// with.
+  final List<String> changed;
+
+  /// Why `sync --detect` rebuilt (`Freshness.reasons`); empty for a plain
+  /// sync.
+  final List<String> rebuiltBecause;
+
+  /// What happened to the analyzer cache; null when the sync ran without
+  /// one (the platform layer alone, or `KnowledgeSync(analyzerCache:
+  /// false)`).
+  final AnalyzerCacheReport? analyzerCache;
 
   /// What the native-config part of the sync did; null when only the
   /// platform layer was synced ([PlatformSync.run]).

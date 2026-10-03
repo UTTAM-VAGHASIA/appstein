@@ -100,12 +100,15 @@ milestones:
             finished: 2026-10-02
           - id: 1b.7
             title: Incremental sync
-            summary: "`sync --changed` and `--detect`: rebuild only what changed, under 2 s, with per-file hashes and a persistent analyzer cache."
-            status: next
+            summary: "`sync --detect`: rebuild only when an input changed, under 2 s, with per-file hashes, the changed files recorded for verify, and a persistent analyzer cache."
+            status: done
+            plan: 2026-10-03-slice-1b7-incremental-sync.md
+            pr: 12
+            finished: 2026-10-03
           - id: 1b.8
             title: Package skills
             summary: "`sync` runs `dart run skills@ get` when `pubspec.yaml` or `pubspec.lock` changes, and warns when it can't."
-            status: planned
+            status: next
       - id: 1c
         title: MCP server
         summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.

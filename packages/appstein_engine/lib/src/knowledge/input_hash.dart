@@ -18,16 +18,29 @@ String inputHash(
   Map<String, List<int>?> inputs, {
   required String appsteinVersion,
   required int formatVersion,
+}) => inputHashOfDigests(
+  {
+    for (final MapEntry(:key, :value) in inputs.entries)
+      key: value == null ? null : sha256Hex(value),
+  },
+  appsteinVersion: appsteinVersion,
+  formatVersion: formatVersion,
+);
+
+/// [inputHash] from each input's SHA-256 ([sha256Hex] of its bytes), or null
+/// when it is missing, instead of its bytes. For the same inputs it gives
+/// the same hash as [inputHash]. The map uses it: it keeps each file's
+/// digest for `state.json` (spec §6.2).
+String inputHashOfDigests(
+  Map<String, String?> digests, {
+  required String appsteinVersion,
+  required int formatVersion,
 }) {
-  final names = inputs.keys.toList()..sort();
+  final names = digests.keys.toList()..sort();
   final lines = [
     'appstein $appsteinVersion',
     'format $formatVersion',
-    for (final name in names)
-      '$name ${switch (inputs[name]) {
-        null => 'missing',
-        final bytes => sha256Hex(bytes),
-      }}',
+    for (final name in names) '$name ${digests[name] ?? 'missing'}',
   ];
   return sha256Hex(utf8.encode(lines.join('\n')));
 }

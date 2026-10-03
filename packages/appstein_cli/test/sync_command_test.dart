@@ -109,6 +109,53 @@ void main() {
     );
   });
 
+  test('--detect with no earlier sync rebuilds and says why', () async {
+    expect(await run(['sync', '--detect']), ExitCodes.ok, reason: '$err');
+    final text = out.toString();
+    expect(text, startsWith('Synced .appstein/ for Flutter 3.47.5'));
+    expect(text, contains('Rebuilt because no sync has run here yet.\n'));
+  });
+
+  test('--timings adds a line per step after the report; without it there '
+      'are none', () async {
+    expect(await run(['sync', '--timings']), ExitCodes.ok, reason: '$err');
+    final lines = out.toString().split('\n');
+    final timings = lines.where((line) => line.startsWith('timing ')).toList();
+    expect(timings, isNotEmpty);
+    // A part of the step before it keeps its two-space indent.
+    expect(
+      timings,
+      everyElement(matches(RegExp(r'^timing +\d+ ms  (  )?\S.*$'))),
+    );
+    expect(
+      timings.indexWhere((line) => line.endsWith('ms  knowledge write')),
+      lessThan(timings.indexWhere((line) => line.contains('    knowledge: '))),
+    );
+    expect(timings, contains(matches(RegExp(r'ms  platform$'))));
+    // After the report.
+    expect(
+      lines.indexOf(timings.first),
+      greaterThan(lines.indexWhere((line) => line.startsWith('Curated notes'))),
+    );
+    out.clear();
+    expect(await run(['sync']), ExitCodes.ok);
+    expect(out.toString(), isNot(contains('timing ')));
+  });
+
+  test('--timings is a measuring aid, left out of the help', () async {
+    expect(await run(['sync', '--help']), ExitCodes.ok);
+    expect(out.toString(), contains('--detect'));
+    expect(out.toString(), isNot(contains('--timings')));
+  });
+
+  test('--changed is no longer an option (spec §5.3)', () async {
+    expect(
+      await run(['sync', '--changed', 'lib/main.dart']),
+      ExitCodes.appsteinFailed,
+    );
+    expect(err.toString(), contains('changed'));
+  });
+
   test('--project works from another folder', () async {
     expect(
       await run(['--project', 'my app', 'sync'], workingDirectory: work.path),
@@ -346,5 +393,139 @@ void main() {
         'are for 3.47.',
       ),
     );
+  });
+
+  const sdkInfo = SdkInfo(
+    flutterVersion: '3.47.5',
+    dartVersion: '3.13.4',
+    channel: 'stable',
+    notesCoverage: NotesCoverage.complete,
+  );
+
+  test('a current report is one line', () {
+    expect(
+      formatSyncReport(
+        const SyncReport(
+          sdk: sdkInfo,
+          files: {},
+          newestNotes: '3.47',
+          fallbacks: [],
+          current: true,
+        ),
+      ),
+      'Knowledge is current for Flutter 3.47.5 (Dart 3.13.4, stable '
+      'channel): nothing it reads changed since the last sync.\n',
+    );
+  });
+
+  test('the report names what changed, at most five, without project:', () {
+    final text = formatSyncReport(
+      const SyncReport(
+        sdk: sdkInfo,
+        files: {'map/symbols.json': true},
+        newestNotes: '3.47',
+        fallbacks: [],
+        changed: [
+          'local-package:core/lib/a.dart',
+          'project:lib/a.dart',
+          'project:lib/b.dart',
+          'project:lib/c.dart',
+          'project:lib/d.dart',
+          'project:lib/e.dart',
+          'pubspec.lock',
+        ],
+        rebuiltBecause: ['map/symbols.json is out of date'],
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'Changed since the last sync: local-package:core/lib/a.dart, '
+        'lib/a.dart, lib/b.dart, lib/c.dart, lib/d.dart and 2 more.\n',
+      ),
+    );
+    expect(text, isNot(contains('Rebuilt because')));
+  });
+
+  test('with nothing changed in the sources, the report gives the first '
+      'reason', () {
+    final text = formatSyncReport(
+      const SyncReport(
+        sdk: sdkInfo,
+        files: {'INDEX.md': true},
+        newestNotes: '3.47',
+        fallbacks: [],
+        rebuiltBecause: ['INDEX.md is out of date', 'x'],
+      ),
+    );
+    expect(
+      text,
+      contains('Rebuilt because INDEX.md is out of date (and 1 more).\n'),
+    );
+  });
+
+  test('the report says what went wrong with the analyzer cache', () {
+    final text = formatSyncReport(
+      const SyncReport(
+        sdk: sdkInfo,
+        files: {'map/symbols.json': true},
+        newestNotes: '3.47',
+        fallbacks: [],
+        analyzerCache: AnalyzerCacheReport(
+          load: AnalyzerCacheLoad.damaged,
+          damage: 'it is cut short',
+          retried: 'RangeError: bad',
+          saveError: 'Access is denied.',
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'The analyzer cache could not be used (it is cut short), so this sync '
+        'analyzed without it.\n'
+        // The save failed, so the cache was not replaced.
+        'The analyzer failed while reading its cache (RangeError: bad), so the '
+        'analysis ran again without it.\n'
+        'warning: the analyzer cache could not be saved (Access is denied.); '
+        'the next sync will be slower.\n',
+      ),
+    );
+  });
+
+  test('after a retry whose save succeeded, the cache was replaced', () {
+    final text = formatSyncReport(
+      const SyncReport(
+        sdk: sdkInfo,
+        files: {'map/symbols.json': true},
+        newestNotes: '3.47',
+        fallbacks: [],
+        analyzerCache: AnalyzerCacheReport(
+          load: AnalyzerCacheLoad.loaded,
+          retried: 'RangeError: bad',
+        ),
+      ),
+    );
+    expect(
+      text,
+      contains(
+        'The analyzer failed while reading its cache (RangeError: bad), so the '
+        'analysis ran again without it and the cache was replaced.\n',
+      ),
+    );
+    expect(text, isNot(contains('could not be saved')));
+  });
+
+  test('a healthy cache adds no line', () {
+    final text = formatSyncReport(
+      const SyncReport(
+        sdk: sdkInfo,
+        files: {'map/symbols.json': true},
+        newestNotes: '3.47',
+        fallbacks: [],
+        analyzerCache: AnalyzerCacheReport(load: AnalyzerCacheLoad.loaded),
+      ),
+    );
+    expect(text, isNot(contains('analyzer cache')));
   });
 }

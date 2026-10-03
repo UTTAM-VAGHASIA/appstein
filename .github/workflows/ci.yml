@@ -205,6 +205,10 @@ jobs:
         # `tee` also puts the table in the log, which `gh run view --log` can
         # read; job summaries aren't available through the CLI or API.
         run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Measure a full sync of a 200-file app (spec §15)
+      - name: Measure a full sync and sync --detect (spec §15)
         shell: bash
-        run: dart run tool/measure_sync.dart | tee -a "$GITHUB_STEP_SUMMARY"
+        # The apps go in the runner's temporary folder, on the disk that
+        # holds the checkout. On Windows that is D:; the system temp folder
+        # is on C:, a remote disk where writing the analyzer cache took
+        # 0.6-3.8 s instead of 0.07 s (actions/runner-images#8755).
+        run: dart run tool/measure_sync.dart --work "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"

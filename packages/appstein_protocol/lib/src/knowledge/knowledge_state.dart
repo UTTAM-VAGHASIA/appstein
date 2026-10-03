@@ -1,7 +1,9 @@
 import '../json_fields.dart';
 
-/// The contents of `.appstein/state.json` (spec §6.2): when the knowledge
-/// was last synced, and the input hash of each generated file.
+/// The contents of `.appstein/state.json` (spec §6.2): when the knowledge was
+/// last synced, the input hash of each generated file and the hash of its
+/// bytes, the hash of each file the map is built from, and what changed in the
+/// last sync.
 final class KnowledgeState {
   /// Creates the state.
   const KnowledgeState({
@@ -9,6 +11,9 @@ final class KnowledgeState {
     required this.appsteinVersion,
     required this.lastSync,
     required this.files,
+    required this.sources,
+    required this.written,
+    required this.changed,
   });
 
   /// Reads the state from its JSON form.
@@ -22,6 +27,9 @@ final class KnowledgeState {
       appsteinVersion: fields.string('appsteinVersion'),
       lastSync: fields.string('lastSync'),
       files: fields.stringMap('files'),
+      sources: fields.stringMap('sources'),
+      written: fields.stringMap('written'),
+      changed: fields.strings('changed'),
     );
   }
 
@@ -38,11 +46,27 @@ final class KnowledgeState {
   /// with `/` separators, such as `platform/sdk.json`.
   final Map<String, String> files;
 
+  /// The SHA-256 of each file the project map is built from, by input name
+  /// (such as `project:lib/main.dart`), or `missing` (spec §6.2).
+  final Map<String, String> sources;
+
+  /// The SHA-256 of each generated file as it was written, by its path
+  /// inside `.appstein/`. A file whose bytes differ was changed by hand.
+  final Map<String, String> written;
+
+  /// The input names whose hash changed in the sync that wrote this state,
+  /// sorted. The next `sync --detect` that finds nothing changed empties it
+  /// (spec §5.4), so `verify --fast` checks each change once.
+  final List<String> changed;
+
   /// The JSON form.
   Map<String, Object?> toJson() => {
     'formatVersion': formatVersion,
     'appsteinVersion': appsteinVersion,
     'lastSync': lastSync,
     'files': files,
+    'sources': sources,
+    'written': written,
+    'changed': changed,
   };
 }

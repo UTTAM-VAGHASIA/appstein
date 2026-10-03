@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:appstein_protocol/appstein_protocol.dart';
@@ -10,10 +9,12 @@ import '../host/file_errors.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../knowledge/generated_file.dart';
-import '../knowledge/input_hash.dart';
+import '../knowledge/sync_timings.dart';
 import '../packs/pack.dart';
+import 'analyzer_cache.dart';
 import 'dependencies.dart';
 import 'layers.dart';
+import 'map_inputs.dart';
 import 'project_analysis.dart';
 import 'project_packages.dart';
 import 'symbols.dart';
@@ -77,9 +78,19 @@ final class MapBuild {
   const MapBuild({
     required this.files,
     required this.report,
-    this.inputHash,
+    this.inputs,
     this.delta,
+    this.cache,
+    this.cacheRetry,
   });
+
+  /// The analyzer cache the analysis used, to be saved; null when the map
+  /// was skipped or there was no cache.
+  final AnalyzerCache? cache;
+
+  /// The analyzer's error, in one line, that made the analysis run again
+  /// with an empty cache; null when it didn't.
+  final String? cacheRetry;
 
   /// The map files; empty when the map was skipped.
   final List<GeneratedFile> files;
@@ -87,8 +98,11 @@ final class MapBuild {
   /// What happened.
   final MapReport report;
 
+  /// What the map was built from; null when the map was skipped.
+  final MapInputs? inputs;
+
   /// The input hash every map file shares; null when the map was skipped.
-  final String? inputHash;
+  String? get inputHash => inputs?.inputHash;
 
   /// The deprecated, removed and moved APIs the project can reach, for the
   /// version delta (spec §6.4); null when the map was skipped.
@@ -141,21 +155,36 @@ final class MapSync {
   /// incomplete SDK, a damaged `pubspec.lock` or `pubspec.yaml`, or an
   /// unreadable project file is reported in [MapBuild.report], with no
   /// files.
+  ///
+  /// With a [cache], the analyzer keeps its work there. An error inside the
+  /// analyzer while using the cache makes it analyze once more with an empty
+  /// cache ([MapBuild.cacheRetry]).
+  ///
+  /// [timings] hears how long each step took.
   Future<MapBuild> build(
     String projectRoot, {
     required String flutterVersion,
     required String flutterRoot,
     String? dartSdkPath,
+    AnalyzerCache? cache,
+    SyncTimings? timings,
   }) async {
-    var status = checkPackages(projectRoot, flutterVersion: flutterVersion);
+    final timed = timings ?? SyncTimings();
+    var status = timed.time(
+      'packages check',
+      () => checkPackages(projectRoot, flutterVersion: flutterVersion),
+    );
     final reason = status.reason;
     var action = PackagesAction.upToDate;
     if (!status.fresh) {
-      final failure = await fetchPackages(
-        projectRoot,
-        flutterRoot: flutterRoot,
-        os: environment.os,
-        runner: runner,
+      final failure = await timed.timeAsync(
+        'flutter pub get',
+        () => fetchPackages(
+          projectRoot,
+          flutterRoot: flutterRoot,
+          os: environment.os,
+          runner: runner,
+        ),
       );
       if (failure != null) {
         return MapBuild(
@@ -169,13 +198,83 @@ final class MapSync {
       }
       action = PackagesAction.fetched;
       // A first fetch may have created the workspace reference.
-      status = checkPackages(projectRoot, flutterVersion: flutterVersion);
+      status = timed.time(
+        'packages check',
+        () => checkPackages(projectRoot, flutterVersion: flutterVersion),
+      );
     }
 
     final sdk = dartSdkPath ?? p.join(flutterRoot, 'bin', 'cache', 'dart-sdk');
+    Future<MapBuild> analyzeWith(AnalyzerCache? cache, {String? retried}) =>
+        catchAnalyzerErrors(
+          () => _analyze(
+            projectRoot,
+            status: status,
+            action: action,
+            reason: reason,
+            flutterVersion: flutterVersion,
+            flutterRoot: flutterRoot,
+            sdk: sdk,
+            cache: cache,
+            retried: retried,
+            timings: timed,
+          ),
+        );
+    try {
+      return await analyzeWith(cache);
+    } on Object catch (error) {
+      // Only an error inside the analyzer, or an Appstein bug, gets here:
+      // the project's own problems are returned as a skipped map. A cache
+      // entry holding garbage is one such error, so analyze once more with
+      // an empty cache, which then replaces the old one. Any other error
+      // happens again and is thrown.
+      if (cache == null) rethrow;
+      // The failed analysis is abandoned, not disposed: its futures never
+      // complete and it may still use CPU during the retry; the process
+      // still exits normally.
+      return analyzeWith(
+        AnalyzerCache.empty(cache.path),
+        retried: '${error.runtimeType}: ${'$error'.split('\n').first}',
+      );
+    }
+  }
+
+  Future<MapBuild> _analyze(
+    String projectRoot, {
+    required PackagesStatus status,
+    required PackagesAction action,
+    required String reason,
+    required String flutterVersion,
+    required String flutterRoot,
+    required String sdk,
+    required AnalyzerCache? cache,
+    required String? retried,
+    required SyncTimings timings,
+  }) async {
+    // Read before the analysis, not after: a file edited while it runs must
+    // leave the old hash behind, so the next `sync --detect` rebuilds.
+    final inputs = timings.time(
+      'map inputs',
+      () => readMapInputs(
+        projectRoot,
+        workspaceRoot: status.workspaceRoot,
+        flutterVersion: flutterVersion,
+        flutterRoot: flutterRoot,
+        packs: packs,
+        appsteinVersion: appsteinVersion,
+        environment: environment,
+      ),
+    );
     final ProjectAnalysis analysis;
     try {
-      analysis = await ProjectAnalysis.analyze(projectRoot, dartSdkPath: sdk);
+      analysis = await timings.timeAsync(
+        'analysis',
+        () => ProjectAnalysis.analyze(
+          projectRoot,
+          dartSdkPath: sdk,
+          cache: cache,
+        ),
+      );
     } on ProjectAnalysisException catch (error) {
       return MapBuild(
         files: const [],
@@ -187,6 +286,7 @@ final class MapSync {
       );
     }
     try {
+      final extracting = Stopwatch()..start();
       final bodies = <String, Map<String, Object?>>{};
       for (final pack in packs) {
         for (final extractor in pack.extractors) {
@@ -203,7 +303,17 @@ final class MapSync {
       final features = featuresBody == null
           ? null
           : FeaturesMap.fromJson(featuresBody);
-      String? featureOf(String file) => features?.featureOf(file);
+      // Built once: FeaturesMap.featureOf scans every feature's file list,
+      // and it is asked once per file. The first feature that lists a file
+      // wins, as in featureOf.
+      final featureByFile = <String, String>{};
+      for (final MapEntry(key: name, value: feature)
+          in features?.features.entries ?? <MapEntry<String, Feature>>[]) {
+        for (final file in [...feature.files, ...feature.tests]) {
+          featureByFile.putIfAbsent(file, () => name);
+        }
+      }
+      String? featureOf(String file) => featureByFile[file];
       final rules = packs
           .where((pack) => pack.kind == PackKind.stack)
           .firstOrNull
@@ -221,6 +331,7 @@ final class MapSync {
         featureOf: featureOf,
       ).toJson();
       bodies[MapFiles.deps] = buildDeps(analysis, lockFile: lockFile).toJson();
+      timings.add('extractors', extracting.elapsed);
       // While the analysis is still open: the delta walks what the imports
       // expose.
       // Any failure here (an analyzer internal, a bug) must not cost the
@@ -230,23 +341,25 @@ final class MapSync {
       String? deltaError;
       String? deltaErrorType;
       try {
-        delta = await deltaCollector(analysis, dartSdkPath: sdk);
+        delta = await timings.timeAsync(
+          'delta facts',
+          () => deltaCollector(analysis, dartSdkPath: sdk),
+        );
       } on Object catch (error) {
         delta = null;
         deltaError = '$error';
         deltaErrorType = '${error.runtimeType}';
       }
 
-      final hash = _inputHash(
-        projectRoot,
-        lockFile: lockFile,
-        flutterVersion: flutterVersion,
-      );
       final paths = bodies.keys.toList()..sort();
       return MapBuild(
         files: [
           for (final path in paths)
-            GeneratedFile(path: path, body: bodies[path]!, inputHash: hash),
+            GeneratedFile(
+              path: path,
+              body: bodies[path]!,
+              inputHash: inputs.inputHash,
+            ),
         ],
         report: MapReport(
           packages: action,
@@ -254,8 +367,10 @@ final class MapSync {
           deltaError: deltaError,
           deltaErrorType: deltaErrorType,
         ),
-        inputHash: hash,
+        inputs: inputs,
         delta: delta,
+        cache: cache,
+        cacheRetry: retried,
       );
     } on DependenciesException catch (error) {
       return MapBuild(
@@ -278,56 +393,7 @@ final class MapSync {
         ),
       );
     } finally {
-      await analysis.dispose();
-    }
-  }
-
-  /// One hash for every map file (P9): every `.dart` file under
-  /// [ProjectAnalysis.folders], `pubspec.yaml`, the lock file, the project's
-  /// `analysis_options.yaml`, the Flutter version, and the packs' ids and
-  /// versions.
-  String _inputHash(
-    String projectRoot, {
-    required String lockFile,
-    required String flutterVersion,
-  }) {
-    final inputs = <String, List<int>?>{
-      'pubspec.yaml': _bytes(p.join(projectRoot, 'pubspec.yaml')),
-      'pubspec.lock': _bytes(lockFile),
-      // Its `exclude:` changes which files the map covers.
-      'analysis_options.yaml': _bytes(
-        p.join(projectRoot, 'analysis_options.yaml'),
-      ),
-      'flutter': utf8.encode(flutterVersion),
-      'packs': utf8.encode(
-        [for (final pack in packs) '${pack.id}@${pack.version}'].join(','),
-      ),
-    };
-    for (final folder in ProjectAnalysis.folders) {
-      final directory = Directory(p.join(projectRoot, folder));
-      if (!directory.existsSync()) continue;
-      for (final entity in directory.listSync(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is File && entity.path.endsWith('.dart')) {
-          final relative = p.split(p.relative(entity.path, from: projectRoot));
-          inputs['project:${relative.join('/')}'] = _bytes(entity.path);
-        }
-      }
-    }
-    return inputHash(
-      inputs,
-      appsteinVersion: appsteinVersion,
-      formatVersion: knowledgeFormatVersion,
-    );
-  }
-
-  static List<int>? _bytes(String path) {
-    try {
-      return File(path).readAsBytesSync();
-    } on FileSystemException {
-      return null;
+      await timings.timeAsync('analysis dispose', analysis.dispose);
     }
   }
 }

@@ -131,6 +131,27 @@ void main() {
     expect(status.workspaceRoot, project);
   });
 
+  test('a pubspec.yaml that cannot be read means pub get, with the '
+      'reason', () {
+    writeFetched(project);
+    File(p.join(project, 'pubspec.yaml')).deleteSync();
+    final status = check();
+    expect(status.fresh, isFalse);
+    expect(status.reason, startsWith('they could not be checked ('));
+  });
+
+  test('a workspace reference without workspaceRoot falls back to the '
+      'project', () {
+    Directory(p.join(project, '.dart_tool', 'pub')).createSync();
+    File(
+      p.join(project, '.dart_tool', 'pub', 'workspace_ref.json'),
+    ).writeAsStringSync(jsonEncode({'other': 1}));
+    writeFetched(project);
+    final status = check();
+    expect(status.fresh, isTrue);
+    expect(status.workspaceRoot, project);
+  });
+
   group('fetchPackages', () {
     final flutter = p.join(
       'sdk',
@@ -225,6 +246,38 @@ void main() {
         '`flutter pub get` finished but did not create '
         '.dart_tool/package_config.json',
       );
+    });
+
+    test("in a pub workspace member, the workspace root's package config "
+        'counts', () async {
+      final root = p.join(tempDir().path, 'work space');
+      final member = p.join(root, 'packages', 'app');
+      Directory(
+        p.join(member, '.dart_tool', 'pub'),
+      ).createSync(recursive: true);
+      File(
+        p.join(member, '.dart_tool', 'pub', 'workspace_ref.json'),
+      ).writeAsStringSync(
+        jsonEncode({'workspaceRoot': p.join('..', '..', '..', '..')}),
+      );
+      final runner = FakeProcessRunner()
+        ..when(flutter, ['pub', 'get'], const RunResult(exitCode: 0));
+      Future<String?> fetchMember() => fetchPackages(
+        member,
+        flutterRoot: 'sdk',
+        os: HostOs.current,
+        runner: runner,
+      );
+      expect(
+        await fetchMember(),
+        '`flutter pub get` finished but did not create '
+        '.dart_tool/package_config.json',
+      );
+      File(p.join(root, '.dart_tool', 'package_config.json'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{}');
+      expect(await fetchMember(), isNull);
+      expect(runner.workingDirectories, [member, member]);
     });
   });
 }

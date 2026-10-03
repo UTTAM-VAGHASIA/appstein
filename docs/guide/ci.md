@@ -90,7 +90,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 2. `subosito/flutter-action@v2`
 3. `dart pub get --enforce-lockfile`
 4. Measure cold analysis with the plugin (spec §9.1)
-5. Measure a full sync of a 200-file app (spec §15)
+5. Measure a full sync and sync --detect (spec §15)
 
 <!-- /generated:ci-jobs -->
 
@@ -150,5 +150,23 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
   - one file with the plugin.
 - A deliberate layer violation, the canary, proves the plugin really ran: with the plugin on, the whole-project run must report `layer_imports`.
 - The table goes to the job summary and, through `tee`, to the log.
-- **A full sync of a 200-file app.** [`tool/measure_sync.dart`](../../tool/measure_sync.dart) generates an official_mvvm app with 200 Dart files, gives it a new app's `android/` and `ios/` files (copied from the engine's native template fixture) and runs a whole `appstein sync` with the platform packs, so `native.json` is part of the time. It runs it twice: first as a new project, with a real `flutter pub get` (so it needs the network), then again after deleting `.appstein/`, with fresh packages. Spec §15 sets a target of under 30 s, and **this tool does fail**: it exits 1 when the second, full sync takes 30 s or more, or when the map was skipped, or when any native section is not `read` (so the time always includes the native work). Its table and a line with each native section's outcome go to the job summary and the log. On the Windows development machine, the full sync took 13.6 s and the first one 25.7 s.
+- **Syncing a 200-file app, and `sync --detect`.** [`tool/measure_sync.dart`](../../tool/measure_sync.dart) generates an official_mvvm app with 200 Dart files, gives it a new app's `android/` and `ios/` files (copied from the engine's native template fixture) and runs `appstein sync` with the platform packs, so `native.json` is part of the time. It first **compiles the `appstein` command** and runs every sync as a new process with `FLUTTER_ROOT` set, the way an agent's hook does. CI passes `--work "$RUNNER_TEMP"`, so the apps are made on the disk that holds the checkout (see "The measured app's disk" below). It runs:
+  1. a first sync as a new project, with a real `flutter pub get` (so it needs the network);
+  2. a full sync after deleting `.appstein/` and the analyzer cache, with fresh packages;
+  3. `sync --detect` with nothing changed, three times;
+  4. `sync --detect` after each of three edits of a view model, and of the router.
+
+  Spec §15 sets the targets, and **this tool does fail**: it exits 1 when the full sync takes 30 s or more, when either `--detect` of 3 and 4 (nothing changed, the view model edit) takes 2 s or more as the median of three runs (CI machines vary by about 2× in speed; see [incremental-sync](incremental-sync.md#measuring)), when the map was skipped, when any native section is not `read`, or when a `--detect` gives the wrong answer (it rebuilt with nothing changed, or didn't report the edit). The same rows are measured for a 1,000-file app: their times are printed for information only and never held to a target, but a broken run there (a failed sync, a skipped map, a native section not `read`, a wrong `--detect` answer) still exits 1. A second table says where the time of each full sync and edit went, step by step (see [incremental-sync](incremental-sync.md#where-the-time-goes)), so a missed target shows its cause in the same log. Both tables go to the job summary and the log. On the Windows development machine:
+
+  | Measurement | 200 files | 1,000 files (info) |
+  |---|---|---|
+  | First sync | 10,692 ms | 11,370 ms |
+  | Full sync, no analyzer cache | 6,892 ms | 7,618 ms |
+  | `sync --detect`, nothing changed | 77 ms | 165 ms |
+  | `sync --detect` after a view model edit | 1,102 ms | 2,202 ms |
+  | `sync --detect` after a router edit | 1,167 ms | 2,309 ms |
+
+  See [incremental-sync](incremental-sync.md#measuring) for why each row is measured that way.
+
+  **The measured app's disk.** GitHub's standard Windows runners keep the checkout and `RUNNER_TEMP` on D:, a fast local disk, while the system temp folder (`%TEMP%`) is on C:, a remote disk that is much slower to write ([actions/runner-images#8755](https://github.com/actions/runner-images/issues/8755)). The first public CI runs of 1b.7 made the apps on C:, and writing the 57 MB analyzer cache took 0.6–3.8 s there, against 0.07 s on D:, so an edit's `--detect` missed 2 s on Windows only (1.7–4.9 s). With the apps on D: it took 1.6 s. A developer's project lives on their working disk, not on a cloud machine's system disk, so CI measures there. On Linux every folder is on one disk. Defender was ruled out: real-time protection is off on these runners.
 - The analysis measurement reports numbers; it has no time budget to fail. The first numbers (9–16 s for one cold file with the plugin) led the spec to plan warm analysis for fast checks ([spec §9.1](../superpowers/specs/2026-09-29-appstein-design.md#91-fast-checks-after-every-change-changed-files-only-target--5-s)).
