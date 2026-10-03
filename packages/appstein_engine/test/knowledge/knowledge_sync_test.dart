@@ -93,6 +93,7 @@ void main() {
       'platform/sdk.json': true,
       'platform/toolchain.json': true,
       'platform/delta.md': true,
+      'platform/delta.json': true,
       for (final path in MapFiles.all) path: true,
       'INDEX.md': true,
     });
@@ -109,6 +110,7 @@ void main() {
         'platform/sdk.json',
         'platform/toolchain.json',
         'platform/delta.md',
+        'platform/delta.json',
         ...MapFiles.all,
         'INDEX.md',
       ]),
@@ -124,6 +126,30 @@ void main() {
     );
     expect(meta.sdkVersion, '3.47.5');
     expect(meta.generatedAt, '2026-10-01T09:00:00Z');
+  });
+
+  test('the sync writes delta.json beside delta.md, with the same input '
+      'hash and the same APIs', () async {
+    final app = copyFixtureApp();
+    final report = await sync().run(app, dartSdkPath: testDartSdk);
+    expect(report.files['platform/delta.json'], isTrue);
+    final json =
+        jsonDecode(
+              File(
+                p.join(app, '.appstein', 'platform', 'delta.json'),
+              ).readAsStringSync(),
+            )
+            as Map<String, Object?>;
+    final meta = KnowledgeMeta.fromJson(json['meta']! as Map<String, Object?>);
+    final markdownMeta = readFrontMatter(delta(app))!;
+    expect(meta.inputHash, markdownMeta.inputHash);
+    final knowledge = DeltaKnowledge.fromJson(json);
+    for (final api in knowledge.apis!.deprecated) {
+      expect(delta(app), contains('`${api.name}`'), reason: api.name);
+    }
+    for (final note in knowledge.notes) {
+      expect(delta(app), contains('**${note.id}**'), reason: note.id);
+    }
   });
 
   test('a second sync changes nothing', () async {
@@ -164,6 +190,7 @@ void main() {
       'platform/sdk.json',
       'platform/toolchain.json',
       'platform/delta.md',
+      'platform/delta.json',
       'INDEX.md',
     ]);
     expect(report.map!.packages, PackagesAction.fetchFailed);
@@ -172,6 +199,7 @@ void main() {
     expect(Directory(p.join(app, '.appstein', 'map')).existsSync(), isFalse);
     expect((state(app)['files']! as Map).keys, [
       'INDEX.md',
+      'platform/delta.json',
       'platform/delta.md',
       'platform/sdk.json',
       'platform/toolchain.json',
@@ -254,6 +282,7 @@ void main() {
       'platform/sdk.json',
       'platform/toolchain.json',
       'platform/delta.md',
+      'platform/delta.json',
       'INDEX.md',
     ]);
     expect(report.map!.skipped, contains('pubspec.lock is not valid YAML'));
@@ -287,6 +316,7 @@ void main() {
     }, before);
     expect((state(app)['files']! as Map).keys, [
       'INDEX.md',
+      'platform/delta.json',
       'platform/delta.md',
       'platform/sdk.json',
       'platform/toolchain.json',
@@ -343,6 +373,7 @@ void main() {
       'platform/sdk.json',
       'platform/toolchain.json',
       'platform/delta.md',
+      'platform/delta.json',
       MapFiles.deps,
       MapFiles.layers,
       MapFiles.symbols,

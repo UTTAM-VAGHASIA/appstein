@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../delta/delta_document.dart';
+import '../delta/delta_json.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../index/index_document.dart';
@@ -28,7 +29,7 @@ import 'platform_sync.dart';
 import 'sync_timings.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2, §6.3): the platform
-/// layer, the version delta, the project map, the native config and
+/// layer, the version delta (`delta.md` and `delta.json`), the project map, the native config and
 /// `INDEX.md`. All are built first, then written under one lock, with a
 /// `state.json` that lists them.
 ///
@@ -340,11 +341,14 @@ final class KnowledgeSync {
       'native config',
       () => _native(projectRoot, platform),
     );
-    final delta = timings.time('delta', () => _delta(platform, map));
+    final (delta, deltaJson) = timings.time(
+      'delta',
+      () => _delta(platform, map),
+    );
     // Last: it summarizes the other files.
     final index = timings.time(
       'INDEX.md',
-      () => _index(platform, map, native, delta, prepared.sources),
+      () => _index(platform, map, native, [delta, deltaJson], prepared.sources),
     );
     // The map read its inputs after any fetch, which may change
     // pubspec.lock.
@@ -356,7 +360,14 @@ final class KnowledgeSync {
       final files = await timings.timeAsync(
         'knowledge write',
         () => store.writeAll(
-          [...platform.files, delta, ...map.files, ?native.file, index],
+          [
+            ...platform.files,
+            delta,
+            deltaJson,
+            ...map.files,
+            ?native.file,
+            index,
+          ],
           appsteinVersion: appsteinVersion,
           sdkVersion: platform.sdk.flutterVersion,
           sources: sources,
@@ -476,6 +487,7 @@ final class KnowledgeSync {
       for (final path in state.files.keys)
         if (path.startsWith('map/') && path != MapFiles.native) path: mapHash,
       deltaPath: _deltaHash(platform.sdk, mapHash),
+      deltaJsonPath: _deltaHash(platform.sdk, mapHash),
     };
     expected[indexPath] = _indexHash(expected, prepared.sources);
     for (final path in {
@@ -512,11 +524,12 @@ final class KnowledgeSync {
         ),
       );
 
-  /// `delta.md`: the notes, and the delta facts when they were collected.
-  /// Its input hash covers the map's own hash (so the project's code,
-  /// packages and Flutter version) or, with no facts, the reason they are
-  /// missing, plus the notes, the baseline and the language version.
-  GeneratedFile _delta(PlatformBuild platform, MapBuild map) {
+  /// `delta.md` and `delta.json`: the notes, and the delta facts when they
+  /// were collected, as Markdown and as data. Both have one input hash,
+  /// covering the map's own hash (so the project's code, packages and
+  /// Flutter version) or, with no facts, the reason they are missing, plus
+  /// the notes, the baseline and the language version.
+  (GeneratedFile, GeneratedFile) _delta(PlatformBuild platform, MapBuild map) {
     final sdk = platform.sdk;
     final internalError = map.report.deltaErrorType;
     // With no facts, the hashed reason is what delta.md says: the map's skip
@@ -526,35 +539,41 @@ final class KnowledgeSync {
         map.report.skipped ??
         (internalError == null ? null : 'internal error ($internalError)');
     final facts = map.delta;
-    final markdown = renderDelta(
-      DeltaInputs(
+    final inputs = DeltaInputs(
+      flutterVersion: sdk.flutterVersion,
+      languageVersion: sdk.languageVersion,
+      baseline: baseline,
+      coverage: sdk.notesCoverage ?? NotesCoverage.partial,
+      newestNotes: platform.newestNotes,
+      notes: deltaNotes(
+        notes,
         flutterVersion: sdk.flutterVersion,
-        languageVersion: sdk.languageVersion,
         baseline: baseline,
-        coverage: sdk.notesCoverage ?? NotesCoverage.partial,
-        newestNotes: platform.newestNotes,
-        notes: deltaNotes(
-          notes,
-          flutterVersion: sdk.flutterVersion,
-          baseline: baseline,
-        ),
-        facts: facts,
-        skipped: map.report.skipped,
-        internalError: map.report.skipped == null ? internalError : null,
       ),
+      facts: facts,
+      skipped: map.report.skipped,
+      internalError: map.report.skipped == null ? internalError : null,
     );
-    return GeneratedFile.markdown(
-      path: deltaPath,
-      markdown: markdown,
-      inputHash: _deltaHash(
-        sdk,
-        // Facts exist only when the map ran, so then its hash is there.
-        facts == null ? 'skipped: $skipped' : map.inputHash!,
+    final hash = _deltaHash(
+      sdk,
+      // Facts exist only when the map ran, so then its hash is there.
+      facts == null ? 'skipped: $skipped' : map.inputHash!,
+    );
+    return (
+      GeneratedFile.markdown(
+        path: deltaPath,
+        markdown: renderDelta(inputs),
+        inputHash: hash,
+      ),
+      GeneratedFile(
+        path: deltaJsonPath,
+        body: deltaJsonBody(inputs),
+        inputHash: hash,
       ),
     );
   }
 
-  /// The input hash of `delta.md`: [mapPart] (the map's input hash, or why
+  /// The input hash of `delta.md` and `delta.json`: [mapPart] (the map's input hash, or why
   /// there are no facts), the notes, the baseline, the language version and
   /// the Flutter version.
   String _deltaHash(SdkInfo sdk, String mapPart) => inputHash(
@@ -577,12 +596,17 @@ final class KnowledgeSync {
     PlatformBuild platform,
     MapBuild map,
     NativeBuild native,
-    GeneratedFile delta,
+    List<GeneratedFile> deltaFiles,
     IndexSources sources,
   ) {
     final sdk = platform.sdk;
     final hash = _indexHash({
-      for (final file in [...platform.files, delta, ...map.files, ?native.file])
+      for (final file in [
+        ...platform.files,
+        ...deltaFiles,
+        ...map.files,
+        ?native.file,
+      ])
         file.path: file.inputHash,
     }, sources);
     final stack = packs

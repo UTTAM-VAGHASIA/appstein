@@ -1,0 +1,116 @@
+{
+  "apis": {
+    "deprecated": [
+      {
+        "kind": "implement",
+        "library": "dart:core",
+        "message": "This class will become 'final' in a future release. 'Pattern' may be a more appropriate interface to implement.",
+        "migrations": [],
+        "name": "RegExp",
+        "rule": "don't implement it."
+      },
+      {
+        "kind": "use",
+        "library": "package:flutter",
+        "message": null,
+        "migrations": [],
+        "name": "Text.new(textScaleFactor)",
+        "rule": null
+      },
+      {
+        "kind": "use",
+        "library": "package:flutter",
+        "message": "Use PopScope instead. This feature was deprecated after v3.12.0-1.0.pre.",
+        "migrations": [
+          "Migrate to 'PopScope'"
+        ],
+        "name": "WillPopScope",
+        "rule": null
+      },
+      {
+        "kind": "optional",
+        "library": "package:go_router",
+        "message": null,
+        "migrations": [],
+        "name": "GoRouter.new(label)",
+        "rule": "always pass this argument: it will become required."
+      }
+    ],
+    "migrated": [
+      {
+        "library": "package:flutter",
+        "name": "Stack.new(overflow)",
+        "status": "removed",
+        "title": "Migrate to 'clipBehavior'"
+      },
+      {
+        "library": "package:flutter",
+        "name": "Stack.overflow",
+        "status": "removed",
+        "title": "Migrate to 'clipBehavior'"
+      },
+      {
+        "library": "package:go_router",
+        "name": "GoRouterState.location",
+        "status": "removed",
+        "title": "Replaces 'location' in 'GoRouterState' with `uri.toString()`"
+      }
+    ],
+    "moved": [
+      {
+        "from": "package:flutter/material.dart",
+        "title": "Migrate from flutter/material.dart to material_ui/material_ui.dart.",
+        "to": "package:material_ui/material_ui.dart"
+      }
+    ],
+    "unread": [
+      {
+        "file": "package:delta_kit/fix_data/fix_broken.yaml",
+        "reason": "line 2: A transform needs an \"element\" map or a \"library\"."
+      }
+    ]
+  },
+  "baseline": "3.16",
+  "coverage": "complete",
+  "flutterVersion": "3.47.5",
+  "languageVersion": "3.12",
+  "laterNotes": [
+    {
+      "area": "dart",
+      "avoid": "Primary constructors below language version 3.13.",
+      "id": "dart-primary-constructors",
+      "languageVersion": "3.13",
+      "priority": 2,
+      "since": "3.47",
+      "source": "https://dart.dev/language/constructors",
+      "summary": "Primary constructors declare fields in the class header.",
+      "use": "`class Point(final int x, final int y);`."
+    }
+  ],
+  "missing": null,
+  "newestNotes": "3.47",
+  "notes": [
+    {
+      "area": "framework",
+      "avoid": "`WillPopScope`.",
+      "id": "popscope-not-willpopscope",
+      "languageVersion": null,
+      "priority": 1,
+      "since": "3.16",
+      "source": "https://docs.flutter.dev/release/breaking-changes/android-predictive-back",
+      "summary": "PopScope replaces WillPopScope.",
+      "use": "`PopScope` with `canPop` and `onPopInvokedWithResult`."
+    },
+    {
+      "area": "dart",
+      "avoid": "Shorthands below language version 3.10.",
+      "id": "dot-shorthands",
+      "languageVersion": "3.10",
+      "priority": 2,
+      "since": "3.38",
+      "source": "https://dart.dev/language/dot-shorthands",
+      "summary": "Dot shorthands omit the type name.",
+      "use": "`mainAxisAlignment: .center`."
+    }
+  ]
+}

@@ -312,6 +312,19 @@ void main() {
       expect(fileOf('.appstein/INDEX.md').existsSync(), isTrue);
     });
 
+    test('a deleted delta.json makes detect rebuild', () async {
+      await full();
+      await detect();
+      fileOf('.appstein/platform/delta.json').deleteSync();
+      final report = await detect();
+      expect(report.current, isFalse);
+      expect(
+        report.rebuiltBecause,
+        contains('platform/delta.json is missing'),
+      );
+      expect(fileOf('.appstein/platform/delta.json').existsSync(), isTrue);
+    });
+
     test('a damaged state.json', () async {
       fileOf('.appstein/state.json').writeAsStringSync('{not json');
       final report = await detect();

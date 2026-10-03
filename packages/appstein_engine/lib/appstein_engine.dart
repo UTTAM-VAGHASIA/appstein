@@ -8,6 +8,7 @@ export 'src/config/config_loader.dart';
 export 'src/delta/delta_collector.dart';
 export 'src/delta/delta_document.dart';
 export 'src/delta/delta_facts.dart';
+export 'src/delta/delta_json.dart';
 export 'src/delta/fix_data.dart';
 export 'src/doctor/check_helpers.dart';
 export 'src/doctor/checks/agents_check.dart';
