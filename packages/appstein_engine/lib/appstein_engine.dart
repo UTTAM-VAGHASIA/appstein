@@ -52,6 +52,8 @@ export 'src/map/map_sync.dart';
 export 'src/map/project_analysis.dart';
 export 'src/map/project_packages.dart';
 export 'src/map/symbols.dart';
+export 'src/mcp/knowledge_snapshot.dart';
+export 'src/mcp/tool_answer.dart';
 export 'src/native/native_extractor.dart';
 export 'src/native/native_files.dart';
 export 'src/native/native_sync.dart';
