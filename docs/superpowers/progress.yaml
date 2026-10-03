@@ -55,6 +55,7 @@ milestones:
             summary: The Apache-2.0 license, contributing and security guides, issue and PR templates, and slices merged in the old private repo shown by their merge commit.
             status: next
             tooling: true
+            plan: 2026-10-03-slice-1a5-public-ready.md
       - id: 1b
         title: Knowledge layers 1–2
         summary: What an agent needs to know about the SDK, the native toolchain and the project, written into `.appstein/`.
