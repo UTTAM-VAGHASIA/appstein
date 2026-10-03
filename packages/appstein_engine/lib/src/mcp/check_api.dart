@@ -16,8 +16,13 @@ import 'tool_answer.dart';
 /// An entry whose name equals [name] matches exactly. Only when no such
 /// entry exists does a looser match apply: a member of the same name under
 /// any class (the delta names an inherited member by its declaring class).
-/// A looser match is never answered `ok`, and the summary names the entry
-/// that matched, with its library, so the caller can judge. The matches are:
+/// A looser match answers like an exact one (`deprecated` or `removed`; `ok`
+/// when the deprecation is of a kind other than `use`), and the summary names
+/// the entry that matched, with its library, so the caller can judge. Type
+/// arguments (`MaterialStateProperty<Color>`) are ignored. When nothing is
+/// deprecated or removed, a member of a deprecated or removed class
+/// (`MaterialStateProperty.all`, `WillPopScope.new`) answers like its class,
+/// and the summary names the class. The matches are:
 /// - the deprecated and the removed or changed APIs;
 /// - the parameters of a member ([name] `Text.new` lists
 ///   `Text.new(textScaleFactor)` without changing the status);
@@ -51,6 +56,13 @@ ToolAnswer checkApi(String name, DeltaKnowledge delta) {
   }
   if (hits.any((hit) => hit.how == _How.exact)) {
     hits.removeWhere((hit) => hit.how == _How.loose);
+  }
+  if (apis != null &&
+      query.container != null &&
+      !hits.any((hit) => hit.status != 'ok')) {
+    // The delta lists only elements with their own `@Deprecated`, so a member
+    // of a deprecated or removed class isn't in it: ask about the class.
+    hits.addAll(_classHits(apis, query.container!));
   }
   final matches = <Map<String, Object?>>[];
   final removals = <_Hit>[];
@@ -103,7 +115,9 @@ ToolAnswer checkApi(String name, DeltaKnowledge delta) {
   String headline(String verb, List<_Hit> list) {
     final hit = list.first;
     final text = _withFullStop(hit.text);
-    final lead = hit.name == display
+    final lead = hit.how == _How.container
+        ? '`$display`: its class `${hit.name}` is $verb (${hit.library}): $text'
+        : hit.name == display
         ? '`$display` is $verb: $text'
         : '`$display` is $verb in `${hit.name}` (${hit.library}): $text';
     return list.length > 1
@@ -197,11 +211,59 @@ List<_Hit> _collect(DeltaApis apis, _Query query) {
   return hits;
 }
 
+/// The entries that deprecate or remove the class [container] itself, for a
+/// query about one of its members. Another deprecation kind than `use`
+/// forbids only that use, so it isn't listed.
+List<_Hit> _classHits(DeltaApis apis, String container) {
+  final hits = <_Hit>[];
+  for (final api in apis.deprecated) {
+    if (api.name != container || api.kind != 'use') continue;
+    hits.add(
+      _Hit(
+        how: _How.container,
+        name: api.name,
+        library: api.library,
+        status: 'deprecated',
+        text: api.message ?? 'deprecated, with no message',
+        json: {
+          'kind': 'deprecated',
+          'library': api.library,
+          'name': api.name,
+          'deprecationKind': api.kind,
+          'message': ?api.message,
+          if (api.migrations.isNotEmpty) 'migrations': api.migrations,
+        },
+      ),
+    );
+  }
+  for (final api in apis.migrated) {
+    if (api.name != container || api.status != 'removed') continue;
+    hits.add(
+      _Hit(
+        how: _How.container,
+        name: api.name,
+        library: api.library,
+        status: 'removed',
+        text: api.title,
+        json: {
+          'kind': api.status,
+          'library': api.library,
+          'name': api.name,
+          'migration': api.title,
+        },
+      ),
+    );
+  }
+  return hits;
+}
+
 /// How an entry matches the query. [exact]: its name is the query's.
 /// [loose]: the member's name matches, under another class or receiver.
 /// [owner]: the query names the member that owns a deprecated parameter.
 /// [parameterName]: the query is that parameter's name.
-enum _How { exact, loose, owner, parameterName }
+/// [container]: the query is a member of the class the entry deprecates or
+/// removes.
+enum _How { exact, loose, owner, parameterName, container }
 
 final class _Hit {
   _Hit({
@@ -227,6 +289,26 @@ final class _Hit {
 
 final _identifier = RegExp(r'^[A-Za-z_$][A-Za-z0-9_$]*$');
 
+/// The first named argument of an argument list: `textScaleFactor: 1.2`.
+final _namedArgument = RegExp(r'^([A-Za-z_$][A-Za-z0-9_$]*)\s*:(?!:)');
+
+/// [text] without its `<...>` type arguments, nested ones included:
+/// `Map<String, List<int>>.new` is `Map.new`.
+String _withoutTypeArguments(String text) {
+  final buffer = StringBuffer();
+  var depth = 0;
+  for (final unit in text.split('')) {
+    if (unit == '<') {
+      depth++;
+    } else if (unit == '>' && depth > 0) {
+      depth--;
+    } else if (depth == 0) {
+      buffer.write(unit);
+    }
+  }
+  return buffer.toString();
+}
+
 /// A name as an agent writes it, taken apart for matching.
 final class _Query {
   _Query._({
@@ -237,6 +319,7 @@ final class _Query {
     required this.bareParameter,
     required this.noteTerms,
     required this.uri,
+    required this.container,
   });
 
   /// Parses what the agent wrote: an expression, a constructor, a name.
@@ -256,8 +339,12 @@ final class _Query {
       final arguments = text
           .substring(open + 1, close > open ? close : text.length)
           .trim();
-      if (_identifier.hasMatch(arguments)) parameter = arguments;
+      // `Text(textScaleFactor)` or `Text(textScaleFactor: 1.2)`.
+      parameter = _identifier.hasMatch(arguments)
+          ? arguments
+          : _namedArgument.firstMatch(arguments)?.group(1);
     }
+    head = _withoutTypeArguments(head).trim();
     if (head.endsWith('=')) head = head.substring(0, head.length - 1);
     final uri = head.contains(':') || head.contains('/');
     final segments = uri ? [head] : head.split('.');
@@ -283,6 +370,9 @@ final class _Query {
           last,
       },
       uri: uri ? head : null,
+      container: !uri && segments.length > 1 && segments.first.isNotEmpty
+          ? segments.sublist(0, segments.length - 1).join('.')
+          : null,
     );
   }
 
@@ -306,6 +396,10 @@ final class _Query {
 
   /// The library URI, when the query is one.
   final String? uri;
+
+  /// What owns the member, when the query has two or more segments: the part
+  /// before the last one (`MaterialStateProperty` for `.all`, and for `.new`).
+  final String? container;
 
   /// The same query without its parameter.
   _Query withoutParameter() =>

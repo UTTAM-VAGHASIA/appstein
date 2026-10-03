@@ -212,7 +212,12 @@ Run "appstein help" to see global options.
 
 ```text
 $ appstein help mcp
+Serve Appstein's MCP tools over stdio (started by agents).
 
+Usage: appstein mcp [arguments]
+-h, --help    Print this usage information.
+
+Run "appstein help" to see global options.
 ```
 
 ```text

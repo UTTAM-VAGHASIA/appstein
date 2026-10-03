@@ -242,6 +242,146 @@ void main() {
     expect(reply.summary, startsWith('Only the curated notes were checked'));
   });
 
+  group('a member of a deprecated or removed class', () {
+    // The delta lists only elements with their own `@Deprecated`, so the
+    // members of these classes are not in it.
+    final delta = DeltaKnowledge(
+      flutterVersion: '3.47.5',
+      languageVersion: '3.12',
+      baseline: '3.16',
+      coverage: 'complete',
+      newestNotes: '3.47',
+      notes: const [],
+      laterNotes: const [],
+      apis: DeltaApis(
+        deprecated: [
+          ...sampleDelta.apis!.deprecated,
+          const DeltaDeprecatedApi(
+            library: 'package:flutter',
+            name: 'MaterialStateProperty',
+            kind: 'use',
+            message: 'Use WidgetStateProperty instead.',
+          ),
+        ],
+        migrated: [
+          ...sampleDelta.apis!.migrated,
+          const DeltaMigratedApi(
+            library: 'package:flutter',
+            name: 'OldWidget',
+            status: 'removed',
+            title: "Migrate to 'NewWidget'",
+          ),
+        ],
+        moved: const [],
+        unread: const [],
+      ),
+    );
+
+    test('a member, a call and a constructor are deprecated with it', () {
+      for (final form in [
+        'MaterialStateProperty.all',
+        'MaterialStateProperty.all(Colors.red)',
+        'MaterialStateProperty.all(red)',
+        'WillPopScope.new',
+      ]) {
+        expect(ask(form, delta).result['status'], 'deprecated', reason: form);
+      }
+    });
+
+    test('the summary names the class and its library', () {
+      final reply = ask('MaterialStateProperty.all', delta);
+      expect(matches(reply).first['name'], 'MaterialStateProperty');
+      expect(
+        reply.summary,
+        '`MaterialStateProperty.all`: its class `MaterialStateProperty` is '
+        'deprecated (package:flutter): Use WidgetStateProperty instead.',
+      );
+      expectMatchesSchema(
+        ToolSchemas.checkApiResult,
+        withoutNulls(reply.result),
+      );
+    });
+
+    test('a member of a removed class is removed', () {
+      final reply = ask('OldWidget.build', delta);
+      expect(reply.result['status'], 'removed');
+      expect(
+        reply.summary,
+        "`OldWidget.build`: its class `OldWidget` is removed "
+        "(package:flutter): Migrate to 'NewWidget'.",
+      );
+    });
+
+    test('a class whose deprecation is of another kind stays ok', () {
+      expect(ask('RegExp.new', delta).result['status'], 'ok');
+      expect(ask('RegExp.firstMatch', delta).result['status'], 'ok');
+    });
+
+    test('a member of a class nothing lists stays ok', () {
+      expect(ask('Container.new', delta).result['status'], 'ok');
+      expect(ask('Colors.red', delta).result['status'], 'ok');
+    });
+
+    test('a deprecated member beats a clean class, removed beats both', () {
+      expect(ask('Color.withOpacity', delta).result['status'], 'deprecated');
+      expect(ask('Stack.overflow', delta).result['status'], 'removed');
+    });
+  });
+
+  test('type arguments are ignored, nested ones too', () {
+    final delta = sampleDelta;
+    for (final form in [
+      'withOpacity<T>',
+      'color.withOpacity<T>(0.5)',
+      'WillPopScope<Foo>',
+      'WillPopScope<Map<String, List<int>>>()',
+    ]) {
+      final reply = ask(form, delta);
+      expect(reply.result['status'], 'deprecated', reason: form);
+    }
+    expect(ask('withOpacity<T>').result['name'], 'withOpacity');
+  });
+
+  test('type arguments on a deprecated class with a member', () {
+    final delta = DeltaKnowledge(
+      flutterVersion: '3.47.5',
+      languageVersion: '3.12',
+      baseline: '3.16',
+      coverage: 'complete',
+      newestNotes: '3.47',
+      notes: const [],
+      laterNotes: const [],
+      apis: const DeltaApis(
+        deprecated: [
+          DeltaDeprecatedApi(
+            library: 'package:flutter',
+            name: 'MaterialStateProperty',
+            kind: 'use',
+            message: 'Use WidgetStateProperty instead.',
+          ),
+        ],
+        migrated: [],
+        moved: [],
+        unread: [],
+      ),
+    );
+    for (final form in [
+      'MaterialStateProperty<Color>',
+      'MaterialStateProperty<Color?>.all',
+      'MaterialStateProperty<List<Color>>.all(Colors.red)',
+    ]) {
+      expect(ask(form, delta).result['status'], 'deprecated', reason: form);
+    }
+  });
+
+  test('a named argument is the parameter of that name', () {
+    final reply = ask('Text(textScaleFactor: 1.2)');
+    expect(reply.result['status'], 'deprecated');
+    expect(matches(reply).single['name'], 'Text.new(textScaleFactor)');
+    expect(ask('Text.new(textScaleFactor:1.2)').result['status'], 'deprecated');
+    expect(ask('Text(style: s)').result['status'], 'ok');
+  });
+
   test('an empty name is refused', () {
     expect(
       (checkApi('  ', sampleDelta) as ToolRefusal).message,

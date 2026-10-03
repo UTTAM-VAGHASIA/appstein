@@ -50,6 +50,7 @@ Future<int> runAppstein(
       ..addCommand(SyncCommand(out: output, err: errors, environment: machine))
       ..addCommand(
         McpCommand(
+          out: output,
           err: errors,
           environment: machine,
           channel: mcpChannel ?? () => stdioMcpChannel(stdin, stdout),

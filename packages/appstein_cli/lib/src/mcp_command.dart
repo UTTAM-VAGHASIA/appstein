@@ -19,10 +19,16 @@ final class McpCommand extends Command<int> {
   /// Creates the command. [channel] gives the connection to serve: stdin
   /// and stdout, or a test's channel.
   McpCommand({
+    required this.out,
     required this.err,
     required this.environment,
     required this.channel,
   });
+
+  /// Where `appstein help mcp` writes its usage. A user-invoked help request
+  /// only: while serving, stdout belongs to the protocol and nothing else is
+  /// written to it.
+  final StringSink out;
 
   /// Where startup problems go. stdout belongs to the protocol.
   final StringSink err;
@@ -39,6 +45,9 @@ final class McpCommand extends Command<int> {
   @override
   String get description =>
       "Serve Appstein's MCP tools over stdio (started by agents).";
+
+  @override
+  void printUsage() => out.writeln(usage);
 
   @override
   Future<int> run() async {

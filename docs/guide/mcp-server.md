@@ -130,13 +130,14 @@ Input: `name`. The agent may write the name the way it appears in code. These fo
 | `withOpacity`, `.withOpacity`, `color.withOpacity` | a member name alone |
 | `withOpacity(0.5)` | the same, with the argument list dropped |
 | `Text()` | the unnamed constructor `Text.new`, or the class `Text` |
-| `Text.new(textScaleFactor)`, `Text(textScaleFactor)` | a parameter of that constructor |
+| `Text.new(textScaleFactor)`, `Text(textScaleFactor)`, `Text(textScaleFactor: 1.2)` | a parameter of that constructor (a named argument is the parameter of that name) |
+| `MaterialStateProperty<Color>.all`, `withOpacity<T>` | the same name without its type arguments (nested ones too) |
 | `textScaleFactor` | a parameter name on its own |
 | `package:flutter/material.dart` | a library (matches a moved library) |
 
 A setter matches with or without its `=`.
 
-**Matching.** The name is compared with the entries of `delta.json`. An entry whose name equals the query matches *exactly*. Only when nothing matches exactly does it fall back to *looser* matches: the same member name under any class (the delta lists an inherited member under the class that declares it, and an agent usually writes `color.withOpacity`, not the declaring class). The summary then names the entry that matched and its library, such as "`color.withOpacity` is deprecated in `Color.withOpacity` (dart:ui)" for a query of `color.withOpacity`, so the agent can judge whether it is the one it meant. When a query names a member that owns a deprecated parameter, the parameters are listed in `matches` without changing the status.
+**Matching.** The name is compared with the entries of `delta.json`. An entry whose name equals the query matches *exactly*. Only when nothing matches exactly does it fall back to *looser* matches: the same member name under any class (the delta lists an inherited member under the class that declares it, and an agent usually writes `color.withOpacity`, not the declaring class). The summary then names the entry that matched and its library, such as "`color.withOpacity` is deprecated in `Color.withOpacity` (dart:ui)" for a query of `color.withOpacity`, so the agent can judge whether it is the one it meant. **The class check.** The delta lists only elements that carry their own `@Deprecated`, so the members of a deprecated class (`MaterialStateProperty.all`) or its constructors (`WillPopScope.new`) are not in it. When nothing matches as deprecated or removed and the query has two or more segments, `check_api` also looks up the part before the last segment (for `X.new`, that is `X`). A class that is deprecated (kind `use`) or removed makes the member answer the same way, and the summary names the class and its library: "`MaterialStateProperty.all`: its class `MaterialStateProperty` is deprecated (package:flutter): Use WidgetStateProperty instead." A class whose deprecation is of another kind forbids only that one use, so its members stay `ok`. When a query names a member that owns a deprecated parameter, the parameters are listed in `matches` without changing the status.
 
 **Statuses.** `removed` beats `deprecated`, and `deprecated` beats `ok`:
 
