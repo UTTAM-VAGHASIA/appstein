@@ -163,7 +163,8 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 - it sets `FLUTTER_ROOT` to the Flutter SDK whose Dart runs the tool;
 - it makes the apps in a new folder inside `--work` (the system temp folder by default). CI passes its own temporary folder, on the disk that holds the checkout: on Windows runners the system temp folder is on a slow remote disk, which made the cache's write cost up to 3.8 s (see [ci](ci.md#measure));
 - the **full sync row is cold**: it deletes `.appstein/` and the cache folder first, so it is the 30 s worst case;
-- before the "nothing changed" row it runs `--detect` once to empty the change list, then times the second;
+- before the "nothing changed" row it runs `--detect` once to empty the change list, then times the next ones;
+- each **detect row is the median of three runs** (owner decision, after the first public CI runs), and the table shows the three times beside it. The edit rows make three different edits, each followed by a detect. A CI machine's speed varies from run to run, so one slow run must not fail the target, while a real slowdown still moves the median. The full sync stays one run: it is cold, and far under its 30 s;
 - the 1,000-file rows' **times are information only** (owner decision): they are printed and never held to a target. The 200-file rows' times are held to spec §15 (full sync under 30 s, each detect under 2 s).
 
 At both sizes the tool still fails (exit 1) when a run is broken: a sync that fails, a run that isn't a real sync (a skipped map, unread native config), or an edit that isn't reported as changed. So a fast wrong answer can't pass.
