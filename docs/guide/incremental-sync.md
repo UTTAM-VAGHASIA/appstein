@@ -18,6 +18,8 @@ An agent's hook runs `appstein sync --detect` after every edit (spec §5.4). It 
 
 So what `--detect` writes can never differ from what a full sync writes. There is no second way to build a file, and so no second way to get one wrong.
 
+Either way, it then refreshes package skills when they are due, as a full sync does, except that it doesn't retry a run that failed with the same inputs (see [package-skills](package-skills.md#when-it-runs)).
+
 The speed comes from the **analyzer cache**: the Dart analyzer keeps what it worked out about each library, so a rebuild only analyzes what changed. Everything else in a sync is cheap.
 
 Before this slice every sync took about 9 s on a 200-file app, and a full sync of 1,000 files took about 34 s (most of it a cubic loop in `readFeatures`, see [project-map](project-map.md#features)). Measured with [`tool/measure_sync.dart`](../../tool/measure_sync.dart) on the Windows development machine, each sync a new process:
@@ -173,7 +175,7 @@ At both sizes the tool still fails (exit 1) when a run is broken: a sync that fa
 
 A total alone can't say why a run is slow, and the slow run may be on a CI machine nobody can log in to. So every sync times its own steps, and the tool prints them as a second table, one column per full sync and edit.
 
-- [`SyncTimings`](../../packages/appstein_engine/lib/src/knowledge/sync_timings.dart) adds up each step's time, in the order the steps started. `KnowledgeSync` times its steps (the platform layer, the packages check, the map's inputs, the freshness check, the cache load and save, the knowledge write), and `MapSync.build` times its own (`flutter pub get`, the analysis, the extractors, the delta's facts, closing the analysis). The result is `SyncReport.timings`.
+- [`SyncTimings`](../../packages/appstein_engine/lib/src/knowledge/sync_timings.dart) adds up each step's time, in the order the steps started. `KnowledgeSync` times its steps (the platform layer, the packages check, the map's inputs, the freshness check, the cache load and save, the knowledge write, package skills), and `MapSync.build` times its own (`flutter pub get`, the analysis, the extractors, the delta's facts, closing the analysis). The result is `SyncReport.timings`.
 - A name that starts with two spaces is **part of the step before it**: the temporary-file writes and renames inside the knowledge write and the cache save. They come from `replaceFile`'s `onTimed` (the store passes its `onReplace`), which also counts the renames Windows refused and that were retried. Only the other steps add up to the run.
 - The CLI prints the steps with the hidden `--timings` flag (see [cli](cli.md#appstein-sync)). The tool adds a row for the time outside every step, which is starting and ending the process.
 

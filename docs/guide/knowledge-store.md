@@ -39,6 +39,7 @@ flowchart LR
   native --> delta["renderDelta:<br/>delta.md"]
   delta --> index["INDEX.md:<br/>renderIndex"]
   index --> store["KnowledgeStore.locked:<br/>writeAll, then save the cache"]
+  store --> skills["PackageSkills.refresh:<br/>package skills, outside the lock"]
 ```
 
 1. [`KnowledgeSync.run`](../../packages/appstein_engine/lib/src/knowledge/knowledge_sync.dart) is what `appstein sync` calls. It first runs the cheap steps in `_prepare` (the platform layer, the packages check, the map's inputs, the native config and INDEX.md's sources), then opens the analyzer cache and builds the project map, then the native config again, then the version delta, then `INDEX.md` (which summarizes the others, see [index-md](index-md.md)), and writes all of them under one lock. `appstein sync --detect` calls `KnowledgeSync.detect`, which runs `_prepare` and compares first: **`--detect` compares first and may stop here**, and when it finds a change it goes on as `run` does; see [incremental-sync](incremental-sync.md).
@@ -48,6 +49,7 @@ flowchart LR
 5. [`renderDelta`](../../packages/appstein_engine/lib/src/delta/delta_document.dart) turns the curated notes and the map's delta facts into `delta.md`, a `GeneratedFile.markdown`. When the map was skipped, or collecting the facts failed, it holds only the notes and says why the rest is missing. See [version-delta](version-delta.md).
 6. `KnowledgeSync._index` builds `INDEX.md` from the files above, still in memory, and from the project's decision files and `memory/current.md`. See [index-md](index-md.md).
 7. Under the lock, [`writeAll`](../../packages/appstein_engine/lib/src/knowledge/knowledge_store.dart) writes each `GeneratedFile` (JSON with `writeGenerated`, Markdown with `writeGeneratedMarkdown`), in the order: platform files, `delta.md`, map files, `native.json`, `INDEX.md`, then `state.json` last, listing exactly the files it was given, with the map's `sources`, the hash of each file's bytes (`written`) and the `changed` input names. A reader that finds `state.json` can trust the files it names. Still inside the lock, after `state.json`, the analyzer cache is saved when it changed; failing to save it, for any reason, is a warning, never a failed sync.
+8. After the lock is released, [`PackageSkills.refresh`](../../packages/appstein_engine/lib/src/skills/package_skills.dart) runs package:skills when the dependencies or the set-up agents changed (`SyncReport.packageSkills`). A run takes seconds and the knowledge never depends on it, so it is outside the knowledge lock, and a failure is a warning. See [package-skills](package-skills.md).
 
 Everything is built **before** taking the lock. Parsing and analysis take seconds, and holding the lock only while writing keeps another writer's wait to milliseconds.
 

@@ -46,6 +46,7 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [version-delta](version-delta.md) | How `appstein sync` builds `delta.md`: the deprecations, removed and moved APIs the project can reach, and the curated notes |
 | [index-md](index-md.md) | How `appstein sync` builds `INDEX.md`, the always-in-view page, and keeps it within 1,500 tokens |
 | [incremental-sync](incremental-sync.md) | How `appstein sync --detect` decides whether to rebuild, and the analyzer cache that makes a rebuild take about 1 s |
+| [package-skills](package-skills.md) | How `appstein sync` runs package:skills when the dependencies change, for the agents set up in the project |
 | [native-config](native-config.md) | How `appstein sync` reads the Android and iOS setup into `native.json`, and why a value is found, unknown or absent |
 | [toolchain](toolchain.md) | How the native toolchain matrix is read from the Flutter SDK, and when it falls back to the notes |
 | [running-tools](running-tools.md) | How the engine reads the environment and runs external tools safely |

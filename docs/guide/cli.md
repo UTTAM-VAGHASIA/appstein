@@ -80,15 +80,23 @@ A second flag, **`--timings`**, is a measuring aid and is hidden from the help. 
 [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) does four things:
 
 1. **Finds the project** (`--project` or the nearest `pubspec.yaml`).
-2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which packs the project uses and the delta's baseline (`delta.baseline`). [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` **and `packs.platforms`** into a list of packs: `official_mvvm` gives `OfficialMvvmPack`, and `android` and `ios` give `AndroidPack` and `IosPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
-3. **Runs the engine's `KnowledgeSync`** with those packs and that baseline: `detect` with `--detect`, `run` without. It writes the platform layer, the version delta, the project map and the native config.
+2. **Reads `appstein.yaml`** with `loadConfig` (a project with no file gets the defaults), to learn which packs the project uses, the delta's baseline (`delta.baseline`) and the agents (`integrations.agents`, for package skills). [`packsFor`](../../packages/appstein_cli/lib/src/packs.dart) turns `packs.stack` **and `packs.platforms`** into a list of packs: `official_mvvm` gives `OfficialMvvmPack`, and `android` and `ios` give `AndroidPack` and `IosPack`. This is where a pack reaches the engine, which never imports one (see [project-map](project-map.md#packs-and-the-core)).
+3. **Runs the engine's `KnowledgeSync`** with those packs, that baseline and those agents: `detect` with `--detect`, `run` without. It writes the platform layer, the version delta, the project map and the native config, then refreshes package skills when they are due (see [package-skills](package-skills.md)).
 4. **Prints `formatSyncReport`.**
 
-The report is one line for the SDK, one per file (`written` or `unchanged`, the map files and `map/native.json` included), then the lines about the packages and the map, a `Native config:` line, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened.
+The report is one line for the SDK, one per file (`written` or `unchanged`, the map files and `map/native.json` included), then the lines about the packages and the map, a `Native config:` line, a package skills line, the notes coverage, and a `toolchain.fallback (info):` line for each part of the toolchain that came from the notes. The lines about the map appear only when something happened, and so does the package skills line ([`formatPackageSkills`](../../packages/appstein_cli/lib/src/sync_command.dart)):
+
+```text
+Package skills: refreshed for claude, codex.
+Package skills: skipped, because no agent in integrations.agents is set up in this project (claude needs .claude/; codex needs .agents/ or AGENTS.md).
+warning: package skills could not be refreshed (the packages could not be fetched); the next appstein sync tries again.
+```
+
+A failure reason of several lines keeps its first line in the warning and prints the rest below it, indented. A record that couldn't be saved adds `warning: the package skills record could not be saved (<why>), so the next sync runs package:skills again.` See [package-skills](package-skills.md#what-sync-prints).
 
 Three more kinds of line come from incremental sync:
 
-- A `--detect` that finds nothing changed prints only this line (and writes nothing):
+- A `--detect` that finds nothing changed prints only this line (and writes no knowledge), plus the package skills line when they ran:
 
   ```text
   Knowledge is current for Flutter 3.47.5 (Dart 3.13.4, stable channel): nothing it reads changed since the last sync.
