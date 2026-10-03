@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -9,7 +11,9 @@ import 'package:path/path.dart' as p;
 /// - `sync --detect` on that app when nothing changed, and after one edit of
 ///   a view model: each under 2 s, as the median of three runs (three
 ///   different edits), because a CI machine's speed varies by about 2x
-///   from run to run. The table shows the three times beside the median.
+///   from run to run. The table shows the three times beside the median;
+/// - each MCP tool's answer on that app, from fresh knowledge, in one
+///   `appstein mcp` process: under 1 s, as the median of three;
 ///
 /// The same rows are measured for a 1,000-file app. Their times are printed
 /// for information only and never held to a target (owner decision, slice
@@ -70,6 +74,7 @@ Future<void> main(List<String> args) async {
     // The runs whose steps the second table breaks down.
     final broken = <String, _Run>{};
     var missed = <String>[];
+    final mcp = <String, List<Duration>>{};
     for (final (files, held) in const [(200, true), (1000, false)]) {
       final app = p.join(work.path, 'app $files');
       _generateApp(app, features: (files - 2) ~/ 2);
@@ -172,6 +177,29 @@ Future<void> main(List<String> args) async {
       broken['router edit (median), $files'] = _median(router);
 
       if (held) {
+        // The knowledge is fresh after the last detect, so these measure
+        // spec §15's "MCP tool responses < 1 s from fresh knowledge". The
+        // first call starts the server; it is not counted.
+        final session = await _McpSession.start(exe, app, flutterRoot);
+        try {
+          await session.call('overview', const {});
+          for (final (tool, arguments) in _mcpCalls) {
+            final three = <Duration>[];
+            for (var i = 0; i < 3; i++) {
+              three.add(await session.call(tool, arguments));
+            }
+            mcp[tool] = three;
+          }
+        } on StateError catch (error) {
+          stderr.writeln('appstein mcp: ${error.message}');
+          exitCode = 1;
+          return;
+        } finally {
+          await session.close();
+        }
+      }
+
+      if (held) {
         String took(String row) => '${times[row]!.inMilliseconds} ms';
         missed = [
           if (full.elapsed >= const Duration(seconds: 30))
@@ -182,6 +210,10 @@ Future<void> main(List<String> args) async {
           if (times['viewModel']! >= const Duration(seconds: 2))
             'a detect after one edit took ${took('viewModel')}, the median '
                 'of three (under 2 s)',
+          for (final MapEntry(key: tool, value: three) in mcp.entries)
+            if ((three.toList()..sort())[1] >= const Duration(seconds: 1))
+              'the MCP tool $tool took ${(three.toList()..sort())[1].inMilliseconds} ms, '
+                  'the median of three (under 1 s)',
         ];
       }
     }
@@ -205,6 +237,11 @@ ${line('**`sync --detect` after editing a view model**, median of 3 (target unde
 ${line('`sync --detect` after editing the router, median of 3', 'router')}
 ''');
     stdout.writeln(_breakdown(broken));
+    stdout.writeln('''
+| MCP answer on the 200-file app (one `appstein mcp` process) | median of 3 (target under 1 s) |
+|---|---|
+${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(three.toList()..sort())[1].inMilliseconds} ms (${three.map((d) => d.inMilliseconds).join(', ')}) |'].join('\n')}
+''');
     if (missed.isNotEmpty) {
       stderr.writeln('Spec §15 targets missed on the 200-file app:');
       for (final miss in missed) {
@@ -220,6 +257,95 @@ ${line('`sync --detect` after editing the router, median of 3', 'router')}
         'warning: could not delete ${work.path}; remove it by hand',
       );
     }
+  }
+}
+
+/// The tool calls timed on the 200-file app, each three times (spec §15:
+/// MCP answers under 1 s from fresh knowledge).
+const _mcpCalls = [
+  ('overview', <String, Object?>{}),
+  ('where_is', <String, Object?>{'query': 'feature 5 view model'}),
+  ('feature', <String, Object?>{'name': 'feature_5'}),
+  ('route', <String, Object?>{'path': '/feature-7'}),
+  ('check_api', <String, Object?>{'name': 'withOpacity'}),
+  ('what_changed', <String, Object?>{}),
+  ('toolchain', <String, Object?>{}),
+];
+
+/// One `appstein mcp` process and a minimal JSON-RPC client over its stdin
+/// and stdout: enough to time tool calls as an agent makes them.
+final class _McpSession {
+  _McpSession._(this._process, this._lines);
+
+  final Process _process;
+  final StreamIterator<String> _lines;
+  var _id = 0;
+
+  static Future<_McpSession> start(
+    String exe,
+    String app,
+    String flutterRoot,
+  ) async {
+    final process = await Process.start(
+      exe,
+      ['--project', app, 'mcp'],
+      environment: {'FLUTTER_ROOT': flutterRoot},
+    );
+    unawaited(process.stderr.drain<void>());
+    final session = _McpSession._(
+      process,
+      StreamIterator(
+        process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
+      ),
+    );
+    await session._request('initialize', {
+      'protocolVersion': '2025-11-25',
+      'capabilities': <String, Object?>{},
+      'clientInfo': {'name': 'measure_sync', 'version': '1'},
+    });
+    session._send({'jsonrpc': '2.0', 'method': 'notifications/initialized'});
+    return session;
+  }
+
+  void _send(Map<String, Object?> message) =>
+      _process.stdin.writeln(jsonEncode(message));
+
+  Future<Map<String, Object?>> _request(
+    String method,
+    Map<String, Object?> params,
+  ) async {
+    final id = ++_id;
+    _send({'jsonrpc': '2.0', 'id': id, 'method': method, 'params': params});
+    while (await _lines.moveNext()) {
+      final message = jsonDecode(_lines.current) as Map<String, Object?>;
+      if (message['id'] != id) continue;
+      if (message['error'] case final error?) {
+        throw StateError('$method failed: $error');
+      }
+      return message['result']! as Map<String, Object?>;
+    }
+    throw StateError('appstein mcp exited before answering $method');
+  }
+
+  /// How long [tool] took to answer; throws when it answered with an error.
+  Future<Duration> call(String tool, Map<String, Object?> arguments) async {
+    final watch = Stopwatch()..start();
+    final result = await _request('tools/call', {
+      'name': tool,
+      'arguments': arguments,
+    });
+    watch.stop();
+    if (result['isError'] == true) {
+      throw StateError(
+        '$tool answered with an error: ${jsonEncode(result['content'])}',
+      );
+    }
+    return watch.elapsed;
+  }
+
+  Future<void> close() async {
+    await _process.stdin.close();
+    await _process.exitCode;
   }
 }
 
