@@ -528,4 +528,147 @@ void main() {
     );
     expect(text, isNot(contains('analyzer cache')));
   });
+
+  group('package skills', () {
+    SyncReport withSkills(
+      PackageSkillsReport? skills, {
+      bool current = false,
+    }) => SyncReport(
+      sdk: sdkInfo,
+      files: const {},
+      newestNotes: '3.47',
+      fallbacks: const [],
+      current: current,
+      packageSkills: skills,
+    );
+
+    test('refreshed names the agents', () {
+      expect(
+        formatSyncReport(
+          withSkills(
+            const PackageSkillsReport(
+              outcome: PackageSkillsOutcome.refreshed,
+              agents: ['claude', 'codex'],
+            ),
+          ),
+        ),
+        contains('Package skills: refreshed for claude, codex.\n'),
+      );
+    });
+
+    test('no agent set up says what each agent needs', () {
+      expect(
+        formatSyncReport(
+          withSkills(
+            const PackageSkillsReport(outcome: PackageSkillsOutcome.noAgents),
+          ),
+        ),
+        contains(
+          'Package skills: skipped, because no agent in integrations.agents '
+          'is set up in this project (claude needs .claude/; codex needs '
+          '.agents/ or AGENTS.md).\n',
+        ),
+      );
+    });
+
+    test('a failure is a warning; a long reason is indented below', () {
+      final text = formatSyncReport(
+        withSkills(
+          const PackageSkillsReport(
+            outcome: PackageSkillsOutcome.failed,
+            agents: ['claude'],
+            reason:
+                'it failed with exit code 255:\n  Got socket error trying to '
+                'find package skills',
+          ),
+        ),
+      );
+      expect(
+        text,
+        contains(
+          'warning: package skills could not be refreshed (it failed with '
+          'exit code 255:); the next appstein sync tries again.\n'
+          '    Got socket error trying to find package skills\n',
+        ),
+      );
+    });
+
+    test('a record that could not be saved adds a warning', () {
+      expect(
+        formatSyncReport(
+          withSkills(
+            const PackageSkillsReport(
+              outcome: PackageSkillsOutcome.refreshed,
+              agents: ['claude'],
+              recordError: 'Access is denied.',
+            ),
+          ),
+        ),
+        contains(
+          'warning: the package skills record could not be saved (Access is '
+          'denied.), so the next sync runs package:skills again.\n',
+        ),
+      );
+    });
+
+    test(
+      'a current report keeps its one line, then the package skills line',
+      () {
+        final text = formatSyncReport(
+          withSkills(
+            const PackageSkillsReport(
+              outcome: PackageSkillsOutcome.refreshed,
+              agents: ['claude'],
+            ),
+            current: true,
+          ),
+        );
+        final lines = text.trimRight().split('\n');
+        expect(lines, hasLength(2));
+        expect(lines.first, startsWith('Knowledge is current for Flutter'));
+        expect(lines.last, 'Package skills: refreshed for claude.');
+      },
+    );
+
+    test('nothing due adds no line', () {
+      expect(
+        formatSyncReport(withSkills(null)),
+        isNot(contains('Package skills')),
+      );
+      expect(
+        formatSyncReport(
+          withSkills(null, current: true),
+        ).trimRight().split('\n'),
+        hasLength(1),
+      );
+    });
+  });
+
+  test('sync passes integrations.agents from appstein.yaml', () async {
+    File(
+      p.join(project, 'appstein.yaml'),
+    ).writeAsStringSync('integrations:\n  agents: [codex]\n');
+    Directory(p.join(project, '.claude')).createSync();
+    expect(await run(['sync']), ExitCodes.ok, reason: '$err');
+    expect(
+      out.toString(),
+      contains(
+        'Package skills: skipped, because no agent in integrations.agents',
+      ),
+    );
+    expect(Directory(p.join(project, '.agents')).existsSync(), isFalse);
+  });
+
+  test('with the default agents and .claude/, a sync whose packages could '
+      'not be fetched warns about package skills', () async {
+    Directory(p.join(project, '.claude')).createSync();
+    expect(await run(['sync']), ExitCodes.ok, reason: '$err');
+    expect(
+      out.toString(),
+      contains(
+        'warning: package skills could not be refreshed (the packages could '
+        'not be fetched); the next appstein sync tries again.\n',
+      ),
+    );
+  });
 }
