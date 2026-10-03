@@ -3,8 +3,12 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../knowledge/canonical_json.dart';
+import '../knowledge/knowledge_lock.dart';
+import '../knowledge/knowledge_store.dart';
+import '../knowledge/knowledge_write_exception.dart';
 
 /// The version of package:skills that `sync` runs (spec §6.6), pinned
 /// exactly; it moves with Appstein releases.
@@ -175,4 +179,191 @@ String _quote(String printed) {
   if (printed.isEmpty) return '';
   final lines = const LineSplitter().convert(printed).take(10);
   return ':\n${lines.map((line) => '  $line').join('\n')}';
+}
+
+/// The `dart` command of the Flutter SDK at [flutterRoot]: `bin/dart`, or
+/// `bin\dart.bat` on Windows. Never the `dart` on PATH, which may be another
+/// SDK.
+String dartCommand(String flutterRoot, HostOs os) =>
+    p.join(flutterRoot, 'bin', os == HostOs.windows ? 'dart.bat' : 'dart');
+
+/// What a package skills refresh did.
+enum PackageSkillsOutcome {
+  /// package:skills ran and installed the skills for
+  /// [PackageSkillsReport.agents].
+  refreshed,
+
+  /// No agent in `integrations.agents` is set up in the project, so nothing
+  /// ran.
+  noAgents,
+
+  /// The run failed or couldn't start; [PackageSkillsReport.reason] says
+  /// why.
+  failed,
+}
+
+/// What `sync` did about package skills (spec §6.6).
+final class PackageSkillsReport {
+  /// Creates the report.
+  const PackageSkillsReport({
+    required this.outcome,
+    this.agents = const [],
+    this.reason,
+    this.recordError,
+  });
+
+  /// What happened.
+  final PackageSkillsOutcome outcome;
+
+  /// The agents it ran for; empty for [PackageSkillsOutcome.noAgents].
+  final List<String> agents;
+
+  /// Why it failed; set only for [PackageSkillsOutcome.failed].
+  final String? reason;
+
+  /// Why the record couldn't be saved, so the next sync runs package:skills
+  /// again; null when it was saved.
+  final String? recordError;
+}
+
+/// Runs package:skills for a project when its dependencies changed (spec
+/// §6.6).
+final class PackageSkills {
+  /// Creates the refresher. [runner] runs `dart`, on [os].
+  const PackageSkills({
+    required this.runner,
+    required this.os,
+    this.timeout = packageSkillsTimeout,
+  });
+
+  /// Runs `dart run skills@…`.
+  final ProcessRunner runner;
+
+  /// The operating system, which names the `dart` command.
+  final HostOs os;
+
+  /// How long a run may take before it is stopped.
+  final Duration timeout;
+
+  /// Runs package:skills for the project at [projectRoot] when it is due,
+  /// with the Flutter SDK at [flutterRoot].
+  ///
+  /// It is due when the record ([PackageSkillsRecord]) is missing or has
+  /// other inputs: [pubspecHash], [lockHash], the agents of
+  /// [configuredAgents] that are set up ([setUpAgents]) and
+  /// [packageSkillsVersion]. A failed run with the same inputs is due again
+  /// only when [retryFailure] is true (a full sync, not `--detect`).
+  ///
+  /// With no agent set up, it runs nothing and records that, so it reports
+  /// [PackageSkillsOutcome.noAgents] once per change. When the packages
+  /// couldn't be fetched ([packagesReady] false), it fails without running.
+  /// When another sync holds the lock on `.dart_tool/appstein/`, it returns
+  /// null at once: that sync is running it.
+  ///
+  /// Returns null when nothing was due. Never throws for a failed run or a
+  /// file it can't write; those are in the report.
+  Future<PackageSkillsReport?> refresh(
+    String projectRoot, {
+    required String flutterRoot,
+    required List<String> configuredAgents,
+    required String? pubspecHash,
+    required String? lockHash,
+    required bool packagesReady,
+    required bool retryFailure,
+  }) async {
+    final agents = setUpAgents(projectRoot, configuredAgents);
+    final wanted = PackageSkillsRecord(
+      pubspec: pubspecHash,
+      lock: lockHash,
+      agents: agents,
+      version: packageSkillsVersion,
+      succeeded: true,
+    );
+    bool due(PackageSkillsRecord? last) =>
+        last == null ||
+        !last.sameInputs(wanted) ||
+        (!last.succeeded && retryFailure);
+    if (!due(PackageSkillsRecord.read(projectRoot))) return null;
+    if (agents.isEmpty) {
+      return PackageSkillsReport(
+        outcome: PackageSkillsOutcome.noAgents,
+        recordError: await _save(projectRoot, wanted),
+      );
+    }
+    if (!packagesReady) {
+      return _failed(
+        projectRoot,
+        wanted,
+        agents,
+        'the packages could not be fetched',
+      );
+    }
+    final KnowledgeLock lock;
+    try {
+      lock = await KnowledgeLock.acquire(
+        p.dirname(packageSkillsRecordPath(projectRoot)),
+        timeout: Duration.zero,
+      );
+    } on KnowledgeLockTimeout {
+      return null;
+    } on KnowledgeWriteException catch (error) {
+      return PackageSkillsReport(
+        outcome: PackageSkillsOutcome.failed,
+        agents: agents,
+        reason: 'its lock could not be created (${error.reason})',
+      );
+    }
+    try {
+      // Another sync may have finished a run since the check above.
+      if (!due(PackageSkillsRecord.read(projectRoot))) return null;
+      final result = await runner.run(
+        dartCommand(flutterRoot, os),
+        [
+          'run',
+          'skills@$packageSkillsVersion',
+          '-C',
+          projectRoot,
+          'get',
+          '--all',
+          for (final agent in agents) ...['--agent', agent],
+        ],
+        timeout: timeout,
+        workingDirectory: projectRoot,
+      );
+      final failure = packageSkillsFailure(result, agents);
+      if (failure != null) {
+        // Awaited, so the record is saved before the lock is released.
+        return await _failed(projectRoot, wanted, agents, failure);
+      }
+      return PackageSkillsReport(
+        outcome: PackageSkillsOutcome.refreshed,
+        agents: agents,
+        recordError: await _save(projectRoot, wanted),
+      );
+    } finally {
+      lock.release();
+    }
+  }
+
+  Future<PackageSkillsReport> _failed(
+    String projectRoot,
+    PackageSkillsRecord wanted,
+    List<String> agents,
+    String reason,
+  ) async => PackageSkillsReport(
+    outcome: PackageSkillsOutcome.failed,
+    agents: agents,
+    reason: reason,
+    recordError: await _save(projectRoot, wanted.withSucceeded(false)),
+  );
+
+  /// Saves [record]; returns why it couldn't, or null.
+  Future<String?> _save(String projectRoot, PackageSkillsRecord record) async {
+    try {
+      await replaceFile(packageSkillsRecordPath(projectRoot), record.toText());
+      return null;
+    } on KnowledgeWriteException catch (error) {
+      return error.reason;
+    }
+  }
 }

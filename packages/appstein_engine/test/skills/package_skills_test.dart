@@ -5,6 +5,7 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/fake_process_runner.dart';
 import '../support/temp.dart';
 
 /// Real package:skills 1.0.3 output, captured on Windows (see the plan).
@@ -13,6 +14,10 @@ const _installedBoth =
     'Installed 1 skill(s) for claude at .claude/skills.\n'
     '  [generic] Installed skill-pkg-demo\n'
     'Installed 1 skill(s) for generic at .agents/skills.\n';
+
+const _claudeOnly =
+    '  [claude] Installed skill-pkg-demo\n'
+    'Installed 1 skill(s) for claude at .claude/skills.\n';
 
 const _nothingShipped =
     'Installed 0 skill(s) for claude at .claude/skills.\n'
@@ -272,6 +277,209 @@ void main() {
       )!;
       expect(failure, contains('line 10'));
       expect(failure, isNot(contains('line 11')));
+    });
+  });
+
+  group('PackageSkills.refresh', () {
+    late String project;
+    late String flutter;
+    late FakeProcessRunner runner;
+
+    setUp(() {
+      project = tempDir().path;
+      flutter = p.join(tempDir().path, 'flutter');
+      runner = FakeProcessRunner();
+    });
+
+    String dart() => dartCommand(flutter, HostOs.current);
+
+    List<String> args(List<String> agents) => [
+      'run',
+      'skills@1.0.3',
+      '-C',
+      project,
+      'get',
+      '--all',
+      for (final agent in agents) ...['--agent', agent],
+    ];
+
+    void answer(List<String> agents, RunResult result) =>
+        runner.when(dart(), args(agents), result);
+
+    Future<PackageSkillsReport?> refresh({
+      List<String> configured = const ['claude', 'codex'],
+      String? pubspec = 'p1',
+      String? lock = 'l1',
+      bool packagesReady = true,
+      bool retryFailure = true,
+    }) => PackageSkills(runner: runner, os: HostOs.current).refresh(
+      project,
+      flutterRoot: flutter,
+      configuredAgents: configured,
+      pubspecHash: pubspec,
+      lockHash: lock,
+      packagesReady: packagesReady,
+      retryFailure: retryFailure,
+    );
+
+    void setUpClaude() => Directory(p.join(project, '.claude')).createSync();
+
+    test("the command is the SDK's own dart", () {
+      expect(
+        dartCommand(r'C:\fl utter', HostOs.windows),
+        p.join(r'C:\fl utter', 'bin', 'dart.bat'),
+      );
+      expect(
+        dartCommand('/opt/flutter', HostOs.linux),
+        p.join('/opt/flutter', 'bin', 'dart'),
+      );
+    });
+
+    test('with no agent set up, it runs nothing, creates no agent folder, '
+        'and says so once', () async {
+      final first = await refresh();
+      expect(first?.outcome, PackageSkillsOutcome.noAgents);
+      expect(runner.calls, isEmpty);
+      expect(Directory(p.join(project, '.claude')).existsSync(), isFalse);
+      expect(Directory(p.join(project, '.agents')).existsSync(), isFalse);
+      expect(await refresh(), isNull);
+      expect(runner.calls, isEmpty);
+    });
+
+    test('a first run installs for the set-up agents and records it', () async {
+      setUpClaude();
+      answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+      final report = await refresh();
+      expect(report?.outcome, PackageSkillsOutcome.refreshed);
+      expect(report?.agents, ['claude']);
+      expect(report?.recordError, isNull);
+      expect(runner.calls, [
+        [
+          dart(),
+          ...args(['claude']),
+        ].join(' '),
+      ]);
+      expect(runner.workingDirectories, [project]);
+      final record = PackageSkillsRecord.read(project)!;
+      expect(record.succeeded, isTrue);
+      expect(record.agents, ['claude']);
+      expect(record.pubspec, 'p1');
+      expect(record.lock, 'l1');
+      expect(record.version, packageSkillsVersion);
+    });
+
+    test('unchanged inputs run nothing', () async {
+      setUpClaude();
+      answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+      await refresh();
+      expect(await refresh(), isNull);
+      expect(await refresh(retryFailure: false), isNull);
+      expect(runner.calls, hasLength(1));
+    });
+
+    test(
+      'a changed pubspec.yaml, pubspec.lock or agent list runs again',
+      () async {
+        setUpClaude();
+        answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+        await refresh();
+        await refresh(pubspec: 'p2');
+        await refresh(pubspec: 'p2', lock: 'l2');
+        expect(runner.calls, hasLength(3));
+        File(p.join(project, 'AGENTS.md')).writeAsStringSync('# Agents\n');
+        answer([
+          'claude',
+          'codex',
+        ], const RunResult(exitCode: 0, stdout: _installedBoth));
+        final report = await refresh(pubspec: 'p2', lock: 'l2');
+        expect(report?.agents, ['claude', 'codex']);
+        expect(runner.calls, hasLength(4));
+      },
+    );
+
+    test(
+      'a failure is a warning with the reason, recorded as failed',
+      () async {
+        setUpClaude();
+        answer(['claude'], const RunResult(exitCode: 0, stdout: _badAgent));
+        final report = await refresh();
+        expect(report?.outcome, PackageSkillsOutcome.failed);
+        expect(report?.reason, contains('is not an allowed value'));
+        expect(PackageSkillsRecord.read(project)!.succeeded, isFalse);
+      },
+    );
+
+    test('a full sync retries a failure; detect does not', () async {
+      setUpClaude();
+      answer([
+        'claude',
+      ], const RunResult(exitCode: 255, stderr: 'Got socket error'));
+      await refresh();
+      expect(await refresh(retryFailure: false), isNull);
+      expect(runner.calls, hasLength(1));
+      final again = await refresh();
+      expect(again?.outcome, PackageSkillsOutcome.failed);
+      expect(runner.calls, hasLength(2));
+      answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+      expect((await refresh())?.outcome, PackageSkillsOutcome.refreshed);
+      expect(await refresh(), isNull);
+      expect(runner.calls, hasLength(3));
+    });
+
+    test('detect still runs when the inputs changed after a failure', () async {
+      setUpClaude();
+      answer(['claude'], const RunResult(exitCode: 1));
+      await refresh();
+      answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+      final report = await refresh(lock: 'l2', retryFailure: false);
+      expect(report?.outcome, PackageSkillsOutcome.refreshed);
+    });
+
+    test('packages that could not be fetched fail without a run', () async {
+      setUpClaude();
+      final report = await refresh(packagesReady: false);
+      expect(report?.outcome, PackageSkillsOutcome.failed);
+      expect(report?.reason, 'the packages could not be fetched');
+      expect(runner.calls, isEmpty);
+      expect(PackageSkillsRecord.read(project)!.succeeded, isFalse);
+    });
+
+    test('while another sync holds the lock, it prints nothing and runs '
+        'nothing, without waiting', () async {
+      setUpClaude();
+      answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+      final held = await KnowledgeLock.acquire(
+        p.dirname(packageSkillsRecordPath(project)),
+      );
+      addTearDown(held.release);
+      final watch = Stopwatch()..start();
+      expect(await refresh(), isNull);
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(runner.calls, isEmpty);
+      held.release();
+      expect((await refresh())?.outcome, PackageSkillsOutcome.refreshed);
+    });
+
+    test(
+      'a record that cannot be saved is reported with the outcome',
+      () async {
+        setUpClaude();
+        answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+        // A folder where the record file goes makes the rename fail.
+        Directory(packageSkillsRecordPath(project)).createSync(recursive: true);
+        final report = await refresh();
+        expect(report?.outcome, PackageSkillsOutcome.refreshed);
+        expect(report?.recordError, isNotNull);
+      },
+    );
+
+    test('a damaged record means one more run', () async {
+      setUpClaude();
+      answer(['claude'], const RunResult(exitCode: 0, stdout: _claudeOnly));
+      await refresh();
+      File(packageSkillsRecordPath(project)).writeAsStringSync('{');
+      expect((await refresh())?.outcome, PackageSkillsOutcome.refreshed);
+      expect(runner.calls, hasLength(2));
     });
   });
 }
