@@ -2,6 +2,9 @@
 # is written: `fvm dart run tool/gen_docs.dart` renders it into the spec's
 # visual page, and the guide check fails when the page, the plans or spec
 # §18 disagree with it. See docs/guide/docs-tooling.md#progress.
+#
+# Slices finished before 2026-10-03 give their merge commit (`merge`): their
+# pull requests were in the old private repo, which no longer exists.
 repository: https://github.com/UTTAM-VAGHASIA/appstein
 milestones:
   - id: M1
@@ -13,7 +16,7 @@ milestones:
         summary: The pub workspace with four packages, the `appstein` CLI with `doctor`, and CI on Linux, macOS and Windows.
         status: done
         plan: 2026-09-29-slice-1a-workspace-cli-doctor.md
-        pr: 1
+        merge: 758c535
         finished: 2026-09-30
         slices:
           - id: 1a.1
@@ -22,7 +25,7 @@ milestones:
             status: done
             tooling: true
             plan: 2026-09-30-slice-1a1-docs-freshness.md
-            pr: 2
+            merge: 1c05b4c
             finished: 2026-09-30
           - id: 1a.2
             title: Warn when the knowledge graph is behind
@@ -30,7 +33,7 @@ milestones:
             status: done
             tooling: true
             plan: 2026-09-30-slice-1a2-graph-staleness.md
-            pr: 3
+            merge: fc5e52b
             finished: 2026-09-30
           - id: 1a.3
             title: The knowledge graph repairs itself
@@ -38,7 +41,7 @@ milestones:
             status: done
             tooling: true
             plan: 2026-10-01-slice-1a3-graph-self-repair.md
-            pr: 5
+            merge: 93d6a28
             finished: 2026-10-01
           - id: 1a.4
             title: Project progress on the visual page
@@ -46,7 +49,7 @@ milestones:
             status: done
             tooling: true
             plan: 2026-10-01-slice-1a4-progress.md
-            pr: 6
+            merge: 14d2e06
             finished: 2026-10-01
           # 1a.5 came after 1b.7 (2026-10-03): the repo went public and
           # open source, so it needed a license and community files first.
@@ -65,21 +68,21 @@ milestones:
             summary: Build-tools and platforms, the aapt/adb fallback, macOS Android Studio discovery, FVM channel pins and cache, and file error reasons, on every OS.
             status: done
             plan: 2026-09-30-slice-1b1-sdk-gaps.md
-            pr: 4
+            merge: a52fc1a
             finished: 2026-10-01
           - id: 1b.2
             title: Knowledge store and platform layer
             summary: The `.appstein/` store with its lock and freshness state, `sdk.json`, curated notes for Flutter 3.44–3.47, `toolchain.json` and `appstein sync`.
             status: done
             plan: 2026-10-01-slice-1b2-knowledge-store.md
-            pr: 7
+            merge: 2cf55dd
             finished: 2026-10-01
           - id: 1b.3
             title: Project map (Dart code)
             summary: "The map of the user's Dart code through `official_mvvm`: features, symbols with doc-comment summaries, routes, layers and dependencies, from the resolved AST; `sync` runs `flutter pub get` when Flutter would."
             status: done
             plan: 2026-10-01-slice-1b3-project-map.md
-            pr: 8
+            merge: 31fd665
             finished: 2026-10-01
           # 1b.5 is built before 1b.4 (owner decision, 2026-10-01): the delta
           # serves success criterion #1. The ids keep their spec numbering.
@@ -88,14 +91,14 @@ milestones:
             summary: "`delta.md`: every deprecated or removed API the project's imports expose, from the deprecations and `fix_data` of the SDKs and packages, plus the curated notes since the baseline."
             status: done
             plan: 2026-10-01-slice-1b5-version-delta.md
-            pr: 9
+            merge: de9e977
             finished: 2026-10-02
           - id: 1b.4
             title: Native config map
             summary: "`native.json` from the platform packs: Android Gradle and manifest settings, iOS plist, build settings, Podfile and SwiftPM state, each value with where it was found."
             status: done
             plan: 2026-10-02-slice-1b4-native-config.md
-            pr: 10
+            merge: 8bc5725
             finished: 2026-10-02
           # 1b.6 was split in three (owner decision, 2026-10-02): INDEX.md
           # first, since it is the first knowledge that reaches agents.
@@ -104,14 +107,14 @@ milestones:
             summary: The always-in-view `INDEX.md` (at most 1,500 tokens), built from the platform layer, the map and the delta.
             status: done
             plan: 2026-10-02-slice-1b6-index-md.md
-            pr: 11
+            merge: 02d5ebe
             finished: 2026-10-02
           - id: 1b.7
             title: Incremental sync
             summary: "`sync --detect`: rebuild only when an input changed, under 2 s, with per-file hashes, the changed files recorded for verify, and a persistent analyzer cache."
             status: done
             plan: 2026-10-03-slice-1b7-incremental-sync.md
-            pr: 12
+            pr: 1
             finished: 2026-10-03
           - id: 1b.8
             title: Package skills
