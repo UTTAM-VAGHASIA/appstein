@@ -16,6 +16,7 @@ Appstein is currently:
 - shared data models;
 - an analyzer plugin with one lint rule, `layer_imports`;
 - the knowledge Appstein writes into a project's `.appstein/`: the platform layer, the version delta (see [version-delta](version-delta.md)) and the project map of the app's Dart code (see [project-map](project-map.md)) and the native config of its Android and iOS files (see [native-config](native-config.md)), and `INDEX.md`, the short summary an agent always has in view (see [index-md](index-md.md));
+- package skills: `sync` runs package:skills when the dependencies change, so the agents set up in the project get the skills packages ship (see [package-skills](package-skills.md));
 - three packs: `official_mvvm`, which knows Flutter's recommended app architecture, and `android` and `ios`, which read the native files.
 
 The verifier, more packs and the MCP server come in later slices ([spec §18](../superpowers/specs/2026-09-29-appstein-design.md#18-milestones)).
@@ -101,6 +102,7 @@ The engine's core (everything outside the pack folders `lib/src/packs/official_m
 | `native/` | Native config: the extractor seam and `NativeSync`, which writes `native.json` from the platform packs | [native-config](native-config.md) |
 | `delta/` | The version delta: `fix_data` migrations, the deprecations the imports expose, the Markdown | [version-delta](version-delta.md) |
 | `index/` | `INDEX.md`: what it reads from the project, and the renderer that keeps it within 1,500 tokens | [index-md](index-md.md) |
+| `skills/` | Package skills: running package:skills for the agents set up in the project when the dependencies change | [package-skills](package-skills.md) |
 | `packs/` | The `Pack` interface; `official_mvvm/`: its layer rules, features and routes; `android/` and `ios/`: the readers behind `native.json` | [project-map](project-map.md), [native-config](native-config.md) |
 | `notes/` | The curated notes, parsed and compiled in | [knowledge-store](knowledge-store.md) |
 | `toolchain/` | Reads the native toolchain matrix from the Flutter SDK | [toolchain](toolchain.md) |

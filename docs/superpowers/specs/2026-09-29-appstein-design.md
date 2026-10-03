@@ -264,7 +264,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 - **Every generated file carries** `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and a hash of its inputs. JSON files carry it in a `meta` key, Markdown files in a YAML front-matter block at the top. This makes staleness detectable: `verify` fails with `knowledge.stale` if a hash doesn't match.
 - **A generated file is rewritten only when its content would change:** Appstein rebuilds it with the `generatedAt` already in the file and compares the bytes. So syncing unchanged inputs changes no bytes, `generatedAt` included, and a hand-edited file is put back (§15).
 - **`INDEX.md` is generated too.** `AGENTS.md` / `CLAUDE.md` point to it. On a fresh clone it is created by the SessionStart hook, or by the `overview` MCP tool for agents without that hook (§5.4).
-- **The analyzer cache isn't knowledge.** `sync` keeps the Dart analyzer's work in `.dart_tool/appstein/`, where Dart tools keep their caches (Flutter's template already git-ignores `.dart_tool/`, and `flutter clean` deletes it). It only makes syncs faster: deleting it, or a damaged one, costs one slow sync and never changes the knowledge.
+- **The analyzer cache isn't knowledge.** `sync` keeps the Dart analyzer's work in `.dart_tool/appstein/`, where Dart tools keep their caches (Flutter's template already git-ignores `.dart_tool/`, and `flutter clean` deletes it). It only makes syncs faster: deleting it, or a damaged one, costs one slow sync and never changes the knowledge. The package skills record (§6.6) lives there too; deleting it costs one extra package skills run.
 
 **Git policy for everything Appstein touches in a project:**
 
@@ -348,7 +348,13 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
 
 ### 6.6 Package skills
 
-When `pubspec.yaml` or `pubspec.lock` changes, `sync` runs `dart run skills@ get` for the project's agents. This installs skills that packages ship themselves, so agents get the API for the **installed** version of each package. If the command is unavailable or fails, `sync` records a warning and continues.
+When `pubspec.yaml` or `pubspec.lock` changes, `sync` runs `package:skills` for the project's agents. This installs skills that packages ship themselves, so agents get the API for the **installed** version of each package.
+
+- **The command:** `dart run skills@<pinned> -C <project> get --all --agent <agent>…`, using the `dart` of the project's own Flutter SDK, after the knowledge is written (so after any `flutter pub get` sync ran, whose package config package:skills reads). The version is pinned exactly and moves with Appstein releases. `--all` is needed because without a terminal `get` installs nothing; it recopies every skill package:skills manages, so local edits to those skills are overwritten.
+- **The agents:** those in `integrations.agents` (§7) that are already set up in the project: Claude Code when `.claude/` exists (skills go to `.claude/skills/`), Codex when `.agents/` or `AGENTS.md` exists (`.agents/skills/`). `sync` never creates an agent's folder; when no agent is set up, it says so in one line and runs nothing.
+- **When it runs:** `.dart_tool/appstein/package_skills.json` records the hashes of `pubspec.yaml` and `pubspec.lock`, the agents and the pinned version from the last run, and whether it succeeded. A run happens when any of them differ or there is no record. Two syncs never run it at once: a sync that finds another one running it skips it.
+- **Failures are warnings:** package:skills exits 0 on most errors, so success is judged from its output too. A failure, or a run longer than 120 s (it is stopped), is a warning; `sync` continues and the knowledge is unaffected. A full `sync` retries a failed run; `sync --detect` retries only when the inputs above change again, so being offline doesn't slow every edit.
+- **Outside the project:** package:skills keeps its own state in `dart_skills/global_config.json` in the user's application-data folder (`%APPDATA%` on Windows) and rewrites it on every run that installs anything. It is that tool's own bookkeeping, not agent config or credentials, and package:skills offers no way to skip it. It also sends the package names and versions to osv.dev to check for advisories, and `--all` also installs skills from git repositories the user listed in that file or in the project's `.config/dart_skills/`.
 
 ### 6.7 Decision record format
 
@@ -792,7 +798,7 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 
 | Area | Requirement |
 |---|---|
-| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync (`sync --detect` after one edit) of a 200-file app < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change |
+| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync (`sync --detect` after one edit) of a 200-file app < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change. The sync targets leave out a package skills run (§6.6): it happens only when dependencies change, and its time depends on the network |
 | **Startup** | Hooks invoke a compiled executable (AOT), not `dart run`, so start-up stays under 200 ms |
 | **Platforms** | Appstein runs on Windows, macOS and Linux (x64 and arm64 where Dart supports AOT). Paths with spaces and non-ASCII characters are supported |
 | **Concurrency** | Writes to `.appstein/` take an operating-system lock on `.appstein/.lock`, waiting up to a timeout, so two hooks or two agents never corrupt knowledge. The operating system releases the lock if a writer crashes, so a stale lock never blocks. Each file is written beside its target and then renamed over it, so readers never block and never see a half-written file |

@@ -16,6 +16,7 @@ import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
 import '../packs/pack.dart';
 import '../sdk/sdk_detector.dart';
+import '../skills/package_skills.dart';
 import 'canonical_json.dart';
 import 'freshness.dart';
 import 'generated_file.dart';
@@ -36,8 +37,9 @@ import 'sync_timings.dart';
 final class KnowledgeSync {
   /// Creates the sync. [packs] are the project's packs (the CLI chooses
   /// them from `appstein.yaml`), [notes] default to the compiled-in curated
-  /// notes, [runner] runs `flutter pub get`, [clock] gives the time, and
-  /// [baseline] is `delta.baseline` from `appstein.yaml`.
+  /// notes, [runner] runs `flutter pub get` and package:skills, [clock]
+  /// gives the time, [baseline] is `delta.baseline` from `appstein.yaml`,
+  /// and [agents] is its `integrations.agents`.
   KnowledgeSync({
     required this.environment,
     required this.appsteinVersion,
@@ -49,6 +51,7 @@ final class KnowledgeSync {
     this.baseline = '3.16',
     this.deltaCollector,
     this.analyzerCache = true,
+    this.agents = const ['claude', 'codex'],
   }) : notes = notes ?? CuratedNotes.bundled(),
        runner = runner ?? const SystemProcessRunner();
 
@@ -64,8 +67,13 @@ final class KnowledgeSync {
   /// The curated notes.
   final CuratedNotes notes;
 
-  /// Runs `flutter pub get`.
+  /// Runs `flutter pub get` and package:skills.
   final ProcessRunner runner;
+
+  /// The agents `integrations.agents` names (spec §7); package skills are
+  /// installed for those already set up in the project (spec §6.6). The
+  /// default is the config's default.
+  final List<String> agents;
 
   /// How long to wait for another writer's lock.
   final Duration lockTimeout;
@@ -111,6 +119,11 @@ final class KnowledgeSync {
   /// [SyncReport.changed] lists the input files that changed since the last
   /// sync, and `state.json` records them for `verify --fast` (spec §5.4).
   ///
+  /// After the knowledge is written, it runs package skills when the
+  /// dependencies or the set-up agents changed, retrying a run that failed
+  /// (spec §6.6); what happened is in [SyncReport.packageSkills]. Package
+  /// skills never fail the sync.
+  ///
   /// Throws `SyncException` when no usable SDK is found, a
   /// `KnowledgeLockTimeout` when another writer holds the lock too long,
   /// and a `KnowledgeWriteException` when a file can't be written.
@@ -124,6 +137,7 @@ final class KnowledgeSync {
       projectRoot,
       _prepare(projectRoot, sdk: sdk, timings: timings),
       dartSdkPath: dartSdkPath,
+      retryFailure: true,
       timings: timings,
     );
   }
@@ -138,6 +152,10 @@ final class KnowledgeSync {
   /// It does that under the lock, and only if `state.json` is still the one
   /// it checked. When the lock stays busy past [lockTimeout], it leaves the
   /// list for a later call and still reports current.
+  ///
+  /// Either way it runs package skills when they are due, as [run] does,
+  /// except that it doesn't retry a run that failed with the same inputs:
+  /// offline, each try would cost the after-edit hook tens of seconds.
   ///
   /// Throws as [run] does.
   Future<SyncReport> detect(
@@ -157,6 +175,7 @@ final class KnowledgeSync {
         prepared,
         dartSdkPath: dartSdkPath,
         reasons: freshness.reasons,
+        retryFailure: false,
         timings: timings,
       );
     }
@@ -191,11 +210,21 @@ final class KnowledgeSync {
       timings.add('change list clear', clearing.elapsed);
     }
     final platform = prepared.platform;
+    // The knowledge is current, so the packages are fresh.
+    final skills = await _packageSkills(
+      projectRoot,
+      platform,
+      prepared.mapInputs.sources,
+      packagesReady: true,
+      retryFailure: false,
+      timings: timings,
+    );
     return SyncReport(
       sdk: platform.sdk,
       files: const {},
       newestNotes: platform.newestNotes,
       fallbacks: platform.fallbacks,
+      packageSkills: skills,
       current: true,
       timings: timings.steps,
     );
@@ -270,6 +299,7 @@ final class KnowledgeSync {
     String projectRoot,
     _Prepared prepared, {
     required SyncTimings timings,
+    required bool retryFailure,
     String? dartSdkPath,
     List<String> reasons = const [],
   }) async {
@@ -321,7 +351,7 @@ final class KnowledgeSync {
     final sources = map.inputs?.sources ?? prepared.mapInputs.sources;
     final changed = changedSources(previous?.sources, sources);
     final asked = Stopwatch()..start();
-    return store.locked(() async {
+    final (files, saveError) = await store.locked(() async {
       timings.add('lock wait', asked.elapsed);
       final files = await timings.timeAsync(
         'knowledge write',
@@ -356,28 +386,63 @@ final class KnowledgeSync {
           saveError = '$error';
         }
       }
-      return SyncReport(
-        sdk: platform.sdk,
-        files: files,
-        newestNotes: platform.newestNotes,
-        fallbacks: platform.fallbacks,
-        map: map.report,
-        native: native.report,
-        // With no earlier state there is nothing to compare with.
-        changed: previous == null ? const [] : changed,
-        rebuiltBecause: reasons,
-        analyzerCache: cache == null
-            ? null
-            : AnalyzerCacheReport(
-                load: cache.load,
-                damage: cache.damage,
-                retried: map.cacheRetry,
-                saveError: saveError,
-              ),
-        timings: timings.steps,
-      );
+      return (files, saveError);
     }, timeout: lockTimeout);
+    // After the knowledge and outside its lock: a run can take seconds, and
+    // the knowledge never depends on it.
+    final skills = await _packageSkills(
+      projectRoot,
+      platform,
+      sources,
+      packagesReady: map.report.packages != PackagesAction.fetchFailed,
+      retryFailure: retryFailure,
+      timings: timings,
+    );
+    return SyncReport(
+      sdk: platform.sdk,
+      files: files,
+      newestNotes: platform.newestNotes,
+      fallbacks: platform.fallbacks,
+      map: map.report,
+      native: native.report,
+      packageSkills: skills,
+      // With no earlier state there is nothing to compare with.
+      changed: previous == null ? const [] : changed,
+      rebuiltBecause: reasons,
+      analyzerCache: cache == null
+          ? null
+          : AnalyzerCacheReport(
+              load: cache.load,
+              damage: cache.damage,
+              retried: map.cacheRetry,
+              saveError: saveError,
+            ),
+      timings: timings.steps,
+    );
   }
+
+  /// Runs package skills (spec §6.6) after the knowledge is written, timed
+  /// as `package skills`. [sources] are the map's inputs, read after any
+  /// fetch, so they hold the hashes of `pubspec.yaml` and `pubspec.lock`.
+  Future<PackageSkillsReport?> _packageSkills(
+    String projectRoot,
+    PlatformBuild platform,
+    Map<String, String?> sources, {
+    required bool packagesReady,
+    required bool retryFailure,
+    required SyncTimings timings,
+  }) => timings.timeAsync(
+    'package skills',
+    () => PackageSkills(runner: runner, os: environment.os).refresh(
+      projectRoot,
+      flutterRoot: platform.location.root,
+      configuredAgents: agents,
+      pubspecHash: sources['pubspec.yaml'],
+      lockHash: sources['pubspec.lock'],
+      packagesReady: packagesReady,
+      retryFailure: retryFailure,
+    ),
+  );
 
   Freshness _freshness(String projectRoot, _Prepared prepared) {
     final store = KnowledgeStore(projectRoot);

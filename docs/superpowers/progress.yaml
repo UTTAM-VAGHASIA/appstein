@@ -121,11 +121,14 @@ milestones:
           - id: 1b.8
             title: Package skills
             summary: "`sync` runs `dart run skills@ get` when `pubspec.yaml` or `pubspec.lock` changes, and warns when it can't."
-            status: next
+            status: done
+            plan: 2026-10-03-slice-1b8-package-skills.md
+            pr: 3
+            finished: 2026-10-03
       - id: 1c
         title: MCP server
         summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.
-        status: planned
+        status: next
       - id: 1d
         title: Verifier
         summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale` and suppressions.

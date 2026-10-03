@@ -66,6 +66,7 @@ export 'src/sdk/fvm_pin.dart';
 export 'src/sdk/language_version.dart';
 export 'src/sdk/sdk_detector.dart';
 export 'src/sdk/supported_versions.dart';
+export 'src/skills/package_skills.dart';
 export 'src/text/edit_distance.dart';
 export 'src/toolchain/gradle_plugin_checks_parser.dart';
 export 'src/toolchain/gradle_utils_parser.dart';

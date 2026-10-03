@@ -82,6 +82,7 @@ final class SyncCommand extends Command<int> {
         appsteinVersion: appsteinVersion,
         packs: packsFor(config),
         baseline: config.delta.baseline,
+        agents: config.integrations.agents,
       );
       final report = argResults!['detect'] as bool
           ? await sync.detect(projectRoot)
@@ -114,16 +115,19 @@ final class SyncCommand extends Command<int> {
 /// The text `appstein sync` prints for [report]: the SDK, each file written
 /// or unchanged, what happened to the project's packages (fetched, or why
 /// they could not be), the project map's skip reason and what to do about
-/// it, what native config found for each platform, the notes coverage, and
-/// any toolchain fallback. A `--detect` that found nothing changed is one
-/// line; otherwise it says what changed or why it rebuilt, and any
-/// analyzer-cache problem.
+/// it, what native config found for each platform, what happened to package
+/// skills ([formatPackageSkills]), the notes coverage, and any toolchain
+/// fallback. A `--detect` that found nothing changed is one line, plus the
+/// package skills line when they ran; otherwise it says what changed or why
+/// it rebuilt, and any analyzer-cache problem.
 String formatSyncReport(SyncReport report) {
   final sdk = report.sdk;
   if (report.current) {
+    final skills = report.packageSkills;
     return 'Knowledge is current for Flutter ${sdk.flutterVersion} '
         '(Dart ${sdk.dartVersion}, ${sdk.channel} channel): nothing it reads '
-        'changed since the last sync.\n';
+        'changed since the last sync.\n'
+        '${skills == null ? '' : formatPackageSkills(skills)}';
   }
   final width = report.files.keys.map((path) => path.length).fold(0, max);
   final buffer = StringBuffer()
@@ -204,6 +208,9 @@ String formatSyncReport(SyncReport report) {
       }
     }
   }
+  if (report.packageSkills case final skills?) {
+    buffer.write(formatPackageSkills(skills));
+  }
   if (report.analyzerCache case final cache?) {
     if (cache.damage case final why?) {
       buffer.writeln(
@@ -246,6 +253,45 @@ String formatSyncReport(SyncReport report) {
   }
   for (final fallback in report.fallbacks) {
     buffer.writeln('toolchain.fallback (info): $fallback');
+  }
+  return buffer.toString();
+}
+
+/// The lines `appstein sync` prints for what it did about package skills
+/// (spec §6.6): one line, plus a warning when the record couldn't be saved.
+/// A multi-line failure reason keeps its first line in the warning and
+/// prints the rest below it, indented.
+String formatPackageSkills(PackageSkillsReport report) {
+  final buffer = StringBuffer();
+  switch (report.outcome) {
+    case PackageSkillsOutcome.refreshed:
+      buffer.writeln(
+        'Package skills: refreshed for ${report.agents.join(', ')}.',
+      );
+    case PackageSkillsOutcome.noAgents:
+      buffer.writeln(
+        'Package skills: skipped, because no agent in integrations.agents is '
+        'set up in this project (claude needs .claude/; codex needs .agents/ '
+        'or AGENTS.md).',
+      );
+    case PackageSkillsOutcome.failed:
+      final lines = const LineSplitter().convert(
+        report.reason ?? 'unknown reason',
+      );
+      buffer.writeln(
+        'warning: package skills could not be refreshed '
+        '(${lines.firstOrNull ?? 'unknown reason'}); the next appstein sync '
+        'tries again.',
+      );
+      for (final line in lines.skip(1)) {
+        buffer.writeln('  $line');
+      }
+  }
+  if (report.recordError case final why?) {
+    buffer.writeln(
+      'warning: the package skills record could not be saved ($why), so the '
+      'next sync runs package:skills again.',
+    );
   }
   return buffer.toString();
 }

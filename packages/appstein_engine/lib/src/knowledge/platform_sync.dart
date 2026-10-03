@@ -9,6 +9,7 @@ import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
 import '../sdk/flutter_sdk_locator.dart';
 import '../sdk/sdk_detector.dart';
+import '../skills/package_skills.dart';
 import '../toolchain/toolchain_reader.dart';
 import 'canonical_json.dart';
 import 'generated_file.dart';
@@ -42,11 +43,17 @@ final class SyncReport {
     this.map,
     this.native,
     this.analyzerCache,
+    this.packageSkills,
     this.current = false,
     this.changed = const [],
     this.rebuiltBecause = const [],
     this.timings = const {},
   });
+
+  /// What the sync did about package skills (spec §6.6); null when nothing
+  /// was due, another sync was running them, or only the platform layer was
+  /// synced.
+  final PackageSkillsReport? packageSkills;
 
   /// How long each step took, in the order the steps first ran
   /// (`SyncTimings`); empty when nothing timed the sync.
