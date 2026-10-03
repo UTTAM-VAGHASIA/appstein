@@ -282,4 +282,52 @@ abstract final class ToolSchemas {
       'unread',
     ],
   );
+
+  /// `toolchain`'s result.
+  static final Map<String, Object?> toolchainResult = jsonObject(
+    {
+      'valid': jsonObject(
+        {},
+        description:
+            'The native versions that work with this Flutter: '
+            '`toolchain.json` without its notes.',
+      ),
+      'notes': jsonList(_note),
+      'current': jsonList(
+        jsonObject(
+          {
+            'name': jsonString(),
+            'status': jsonString(
+              values: ['found', 'unknown', 'absent', 'error'],
+            ),
+            'value': jsonString(),
+            'at': jsonString(),
+            'expression': jsonString(),
+            'reason': jsonString(),
+          },
+          required: ['name', 'status'],
+        ),
+      ),
+      'mismatches': jsonList(
+        jsonObject(
+          {
+            'name': jsonString(),
+            'severity': jsonString(values: ['error', 'warning']),
+            'value': jsonString(),
+            'limit': jsonString(),
+            'message': jsonString(),
+            'at': jsonString(),
+          },
+          required: ['name', 'severity', 'value', 'limit', 'message'],
+        ),
+      ),
+      'notComparable': jsonList(
+        jsonObject(
+          {'name': jsonString(), 'reason': jsonString()},
+          required: ['name', 'reason'],
+        ),
+      ),
+    },
+    required: ['valid', 'notes', 'current', 'mismatches', 'notComparable'],
+  );
 }
