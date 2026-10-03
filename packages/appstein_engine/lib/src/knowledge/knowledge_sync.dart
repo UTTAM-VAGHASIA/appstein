@@ -40,7 +40,10 @@ final class KnowledgeSync {
   /// them from `appstein.yaml`), [notes] default to the compiled-in curated
   /// notes, [runner] runs `flutter pub get` and package:skills, [clock]
   /// gives the time, [baseline] is `delta.baseline` from `appstein.yaml`,
-  /// and [agents] is its `integrations.agents`.
+  /// and [agents] is its `integrations.agents`. [packageSkills] false skips
+  /// package skills (spec §8: the MCP server leaves them to the next
+  /// `appstein sync`), and [heldCache] keeps the analyzer cache in memory
+  /// between syncs (spec §8).
   KnowledgeSync({
     required this.environment,
     required this.appsteinVersion,
@@ -53,6 +56,8 @@ final class KnowledgeSync {
     this.deltaCollector,
     this.analyzerCache = true,
     this.agents = const ['claude', 'codex'],
+    this.packageSkills = true,
+    this.heldCache,
   }) : notes = notes ?? CuratedNotes.bundled(),
        runner = runner ?? const SystemProcessRunner();
 
@@ -75,6 +80,16 @@ final class KnowledgeSync {
   /// installed for those already set up in the project (spec §6.6). The
   /// default is the config's default.
   final List<String> agents;
+
+  /// Whether a sync runs package skills when they are due (spec §6.6).
+  /// The MCP server turns it off (spec §8): a run can take up to 120 s,
+  /// and the next `appstein sync` runs them, since their record is left
+  /// alone.
+  final bool packageSkills;
+
+  /// Keeps the analyzer cache in memory between syncs (spec §8); null
+  /// reads the cache file on every rebuild.
+  final HeldAnalyzerCache? heldCache;
 
   /// How long to wait for another writer's lock.
   final Duration lockTimeout;
@@ -314,10 +329,10 @@ final class KnowledgeSync {
     );
     final previous = timings.time('read state', () => store.readState().state);
     final cache = analyzerCache
-        ? timings.time(
-            'analyzer cache load',
-            () => AnalyzerCache.open(analyzerCachePath(projectRoot)),
-          )
+        ? timings.time('analyzer cache load', () {
+            final path = analyzerCachePath(projectRoot);
+            return heldCache?.take(path) ?? AnalyzerCache.open(path);
+          })
         : null;
     final map =
         await MapSync(
@@ -399,6 +414,9 @@ final class KnowledgeSync {
       }
       return (files, saveError);
     }, timeout: lockTimeout);
+    // The cache the analysis used (a retry uses a new one), kept for the
+    // next sync as reading back the saved file would give it.
+    if (map.cache ?? cache case final kept?) heldCache?.keep(kept);
     // After the knowledge and outside its lock: a run can take seconds, and
     // the knowledge never depends on it.
     final skills = await _packageSkills(
@@ -435,6 +453,7 @@ final class KnowledgeSync {
   /// Runs package skills (spec §6.6) after the knowledge is written, timed
   /// as `package skills`. [sources] are the map's inputs, read after any
   /// fetch, so they hold the hashes of `pubspec.yaml` and `pubspec.lock`.
+  /// Returns null at once when [packageSkills] is false.
   Future<PackageSkillsReport?> _packageSkills(
     String projectRoot,
     PlatformBuild platform,
@@ -442,18 +461,21 @@ final class KnowledgeSync {
     required bool packagesReady,
     required bool retryFailure,
     required SyncTimings timings,
-  }) => timings.timeAsync(
-    'package skills',
-    () => PackageSkills(runner: runner, os: environment.os).refresh(
-      projectRoot,
-      flutterRoot: platform.location.root,
-      configuredAgents: agents,
-      pubspecHash: sources['pubspec.yaml'],
-      lockHash: sources['pubspec.lock'],
-      packagesReady: packagesReady,
-      retryFailure: retryFailure,
-    ),
-  );
+  }) async {
+    if (!packageSkills) return null;
+    return timings.timeAsync(
+      'package skills',
+      () => PackageSkills(runner: runner, os: environment.os).refresh(
+        projectRoot,
+        flutterRoot: platform.location.root,
+        configuredAgents: agents,
+        pubspecHash: sources['pubspec.yaml'],
+        lockHash: sources['pubspec.lock'],
+        packagesReady: packagesReady,
+        retryFailure: retryFailure,
+      ),
+    );
+  }
 
   Freshness _freshness(String projectRoot, _Prepared prepared) {
     final store = KnowledgeStore(projectRoot);

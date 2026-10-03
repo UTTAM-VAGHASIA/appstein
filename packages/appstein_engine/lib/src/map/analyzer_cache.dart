@@ -227,6 +227,15 @@ final class AnalyzerCache {
     return bytes;
   }
 
+  /// This cache as the next sync would read it back from the file [save]
+  /// writes: only the entries used since it was opened, as loaded entries.
+  /// The MCP server keeps it in memory between syncs this way (spec §8).
+  /// A cache nobody used settles to itself, so a sync that skipped the
+  /// analysis keeps every entry.
+  AnalyzerCache settled() => _used.isEmpty && _added == 0
+      ? this
+      : AnalyzerCache._(path, AnalyzerCacheLoad.loaded, null, Map.of(_used));
+
   /// Stores [bytes] for [key], unless bytes are already stored for it, and
   /// returns the stored bytes. The entry counts as used.
   Uint8List putGet(String key, Uint8List bytes) {
@@ -244,6 +253,28 @@ final class AnalyzerCache {
   /// hears how long writing and renaming the file took.
   Future<void> save({void Function(ReplaceTiming timing)? onTimed}) =>
       replaceFileBytes(path, encodeAnalyzerCache(_used), onTimed: onTimed);
+}
+
+/// Keeps one project's analyzer cache in memory between syncs, for the MCP
+/// server, which syncs before every answer (spec §8).
+///
+/// A sync [take]s the cache and [keep]s it back after saving it. A cache
+/// file another process wrote in between is not read; that costs only
+/// cache misses, never wrong knowledge.
+final class HeldAnalyzerCache {
+  AnalyzerCache? _cache;
+
+  /// The cache for a sync whose cache file is [path]: the one kept from the
+  /// last sync when it is for [path], otherwise the file opened
+  /// ([AnalyzerCache.open]).
+  AnalyzerCache take(String path) {
+    final kept = _cache;
+    _cache = null;
+    return kept != null && kept.path == path ? kept : AnalyzerCache.open(path);
+  }
+
+  /// Keeps [cache] for the next sync, [AnalyzerCache.settled].
+  void keep(AnalyzerCache cache) => _cache = cache.settled();
 }
 
 /// The analyzer's view of an [AnalyzerCache].
