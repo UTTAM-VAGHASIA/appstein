@@ -52,8 +52,133 @@ void main() {
     expect(found.first['parameter'], isTrue);
     expect(
       reply.summary,
-      startsWith("`overflow` is removed: Migrate to 'clipBehavior'."),
+      startsWith(
+        "`overflow` is removed in `Stack.new(overflow)` (package:flutter): "
+        "Migrate to 'clipBehavior'.",
+      ),
     );
+  });
+
+  test('a setter written with its class, and expression forms', () {
+    for (final form in ['NewBox.colour', 'NewBox.colour=', 'colour']) {
+      expect(ask(form).result['status'], 'deprecated', reason: form);
+    }
+    for (final form in [
+      'color.withOpacity',
+      '.withOpacity',
+      'withOpacity(0.5)',
+      'color.withOpacity(0.5)',
+      'withOpacity( )',
+    ]) {
+      expect(ask(form).result['status'], 'deprecated', reason: form);
+    }
+  });
+
+  test('a member asked through another class names the entry it matched', () {
+    final reply = ask('Sub.withOpacity');
+    expect(reply.result['status'], 'deprecated');
+    expect(matches(reply).first['name'], 'Color.withOpacity');
+    expect(
+      reply.summary,
+      startsWith(
+        '`Sub.withOpacity` is deprecated in `Color.withOpacity` '
+        '(package:flutter): Use .withValues() to avoid precision loss.',
+      ),
+    );
+  });
+
+  test('constructor forms: Owner() is Owner.new, Owner(param) too', () {
+    final delta = DeltaKnowledge(
+      flutterVersion: '3.47.5',
+      languageVersion: '3.12',
+      baseline: '3.16',
+      coverage: 'complete',
+      newestNotes: '3.47',
+      notes: const [],
+      laterNotes: const [],
+      apis: const DeltaApis(
+        deprecated: [
+          DeltaDeprecatedApi(
+            library: 'package:flutter',
+            name: 'Foo.new',
+            kind: 'use',
+            message: 'Use Bar.',
+          ),
+          DeltaDeprecatedApi(
+            library: 'package:flutter',
+            name: 'Text.new(textScaleFactor)',
+            kind: 'use',
+            message: 'Use textScaler instead.',
+          ),
+        ],
+        migrated: [],
+        moved: [],
+        unread: [],
+      ),
+    );
+    expect(ask('Foo()', delta).result['status'], 'deprecated');
+    expect(ask('Foo.new', delta).result['status'], 'deprecated');
+    expect(ask('Text(textScaleFactor)', delta).result['status'], 'deprecated');
+    final owner = ask('Text()', delta);
+    expect(owner.result['status'], 'ok');
+    expect(matches(owner).single['parameter'], isTrue);
+  });
+
+  test('a bare parameter name says it is that parameter', () {
+    final reply = ask('textScaleFactor');
+    expect(reply.result['status'], 'deprecated');
+    expect(matches(reply).single['parameter'], isTrue);
+    expect(
+      reply.summary,
+      '`textScaleFactor` is deprecated in `Text.new(textScaleFactor)` '
+      '(package:flutter): Use textScaler instead.',
+    );
+    expect(reply.summary, isNot(contains('Some of its parameters')));
+    expect(reply.result.containsKey('meaning'), isFalse);
+  });
+
+  test('a library written as a file URI finds its moved entry', () {
+    for (final form in [
+      'package:flutter/material.dart',
+      'flutter/material.dart',
+    ]) {
+      final reply = ask(form);
+      expect(matches(reply).single['kind'], 'moved', reason: form);
+    }
+  });
+
+  test('notes match the identifiers, not "new" or a URI scheme', () {
+    const note = CuratedNote(
+      id: 'noisy',
+      since: '3.16',
+      priority: 1,
+      area: NoteArea.framework,
+      summary: 'Noise.',
+      use: 'Nothing.',
+      avoid: 'dart:io in new projects, package:foo/bar.dart.',
+      source: 'https://example.com',
+    );
+    final delta = DeltaKnowledge(
+      flutterVersion: '3.47.5',
+      languageVersion: '3.12',
+      baseline: '3.16',
+      coverage: 'complete',
+      newestNotes: '3.47',
+      notes: const [note],
+      laterNotes: const [],
+      apis: sampleDelta.apis,
+    );
+    expect(
+      matches(ask('Text.new', delta)).where((m) => m['kind'] == 'note'),
+      isEmpty,
+    );
+    expect(
+      matches(
+        ask('package:flutter/material.dart', delta),
+      ).where((m) => m['kind'] == 'note'),
+      isEmpty,
+    );
+    expect(ask('Text.new', delta).summary, isNot(contains('curated')));
   });
 
   test('a constructor whose parameter is deprecated is itself ok', () {

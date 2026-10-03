@@ -71,6 +71,8 @@ ToolAnswer whatChanged(DeltaKnowledge delta, {String? since, String? library}) {
   if (library != null) {
     wanted = library.trim();
     if (!wanted.contains(':')) wanted = 'package:$wanted';
+    // `package:flutter/material.dart` belongs to `package:flutter`.
+    wanted = _libraryOf(wanted);
     if (apis == null) {
       return ToolRefusal('The API lists are missing: ${delta.missing}.');
     }

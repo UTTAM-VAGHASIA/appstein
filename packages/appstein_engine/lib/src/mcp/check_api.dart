@@ -6,81 +6,69 @@ import 'tool_answer.dart';
 /// for the project, from [delta] (`delta.json`).
 ///
 /// [name] may be a class or function (`WillPopScope`), a member alone or
-/// with its class (`withOpacity`, `Color.withOpacity`), a setter without
-/// its `=` (`colour`), a parameter (`Text.new(textScaleFactor)`), a library
-/// URI, or any of these followed by `()`. It matches:
-/// - the deprecated and the removed or changed APIs: by full name; by a
-///   member's own name when [name] has no `.`; and the parameters of the
-///   member [name] (or a parameter of that name);
+/// with its class (`withOpacity`, `Color.withOpacity`), a setter with or
+/// without its `=`, an expression as written in code (`color.withOpacity`,
+/// `.withOpacity`, `withOpacity(0.5)`), a constructor (`Text()` is
+/// `Text.new`), a parameter (`Text.new(textScaleFactor)`,
+/// `Text(textScaleFactor)` or `textScaleFactor`), or a library URI
+/// (`package:flutter/material.dart`, `flutter/material.dart`).
+///
+/// An entry whose name equals [name] matches exactly. Only when no such
+/// entry exists does a looser match apply: a member of the same name under
+/// any class (the delta names an inherited member by its declaring class).
+/// A looser match is never answered `ok`, and the summary names the entry
+/// that matched, with its library, so the caller can judge. The matches are:
+/// - the deprecated and the removed or changed APIs;
+/// - the parameters of a member ([name] `Text.new` lists
+///   `Text.new(textScaleFactor)` without changing the status);
 /// - the moved libraries, by URI;
-/// - the curated notes whose `avoid` names it as a whole word.
+/// - the curated notes whose `avoid` names the identifier as a whole word.
 ///
 /// The status is `removed` when a removed API matches, otherwise
 /// `deprecated` when an API deprecated for any use matches, otherwise `ok`
 /// (spec §6.4: another deprecation kind forbids only that one use).
-/// Parameters, changed APIs, moved libraries and notes are listed without
-/// changing the status. `ok` means nothing the project imports deprecates
-/// or removes the name; whether it exists isn't checked.
+/// Changed APIs, moved libraries, notes and the parameters of a member are
+/// listed without changing the status. `ok` means nothing the project
+/// imports deprecates or removes the name; whether it exists isn't checked.
 ToolAnswer checkApi(String name, DeltaKnowledge delta) {
-  final input = name.trim().replaceFirst(RegExp(r'\(\)$'), '');
-  if (input.isEmpty) {
+  final query = _Query.parse(name);
+  if (query.display.isEmpty) {
     return const ToolRefusal(
       'Give the name of an API, such as `WillPopScope` or '
       '`Color.withOpacity`.',
     );
   }
   final apis = delta.apis;
+  final hits = <_Hit>[];
+  if (apis != null) {
+    var found = _collect(apis, query);
+    if (found.isEmpty && query.parameter != null) {
+      // `Color.withOpacity(x)`: the identifier was an argument, not a
+      // parameter name.
+      found = _collect(apis, query.withoutParameter());
+    }
+    hits.addAll(found);
+  }
+  if (hits.any((hit) => hit.how == _How.exact)) {
+    hits.removeWhere((hit) => hit.how == _How.loose);
+  }
   final matches = <Map<String, Object?>>[];
-  var removed = false;
-  var deprecated = false;
-  final removals = <String>[];
-  final deprecations = <String>[];
+  final removals = <_Hit>[];
+  final deprecations = <_Hit>[];
   final rules = <String>[];
   var parameters = false;
+  for (final hit in hits) {
+    if (hit.how == _How.owner) parameters = true;
+    if (hit.how != _How.owner && hit.status == 'removed') removals.add(hit);
+    if (hit.how != _How.owner && hit.status == 'deprecated') {
+      deprecations.add(hit);
+    }
+    if (hit.how != _How.owner && hit.rule != null) rules.add(hit.rule!);
+    matches.add(hit.json);
+  }
   if (apis != null) {
-    for (final api in apis.deprecated) {
-      final match = _match(api.name, input);
-      if (match == null) continue;
-      final parameter = match == _Match.parameter;
-      parameters |= parameter;
-      if (!parameter) {
-        if (api.kind == 'use') {
-          deprecated = true;
-          deprecations.add(api.message ?? 'deprecated, with no message');
-        } else if (api.rule case final rule?) {
-          rules.add(rule);
-        }
-      }
-      matches.add({
-        'kind': 'deprecated',
-        'library': api.library,
-        'name': api.name,
-        'deprecationKind': api.kind,
-        'rule': ?api.rule,
-        'message': ?api.message,
-        if (api.migrations.isNotEmpty) 'migrations': api.migrations,
-        if (parameter) 'parameter': true,
-      });
-    }
-    for (final api in apis.migrated) {
-      final match = _match(api.name, input);
-      if (match == null) continue;
-      final parameter = match == _Match.parameter;
-      parameters |= parameter;
-      if (!parameter && api.status == 'removed') {
-        removed = true;
-        removals.add(api.title);
-      }
-      matches.add({
-        'kind': api.status,
-        'library': api.library,
-        'name': api.name,
-        'migration': api.title,
-        if (parameter) 'parameter': true,
-      });
-    }
     for (final moved in apis.moved) {
-      if (moved.from != input) continue;
+      if (!query.namesLibrary(moved.from)) continue;
       matches.add({
         'kind': 'moved',
         'name': moved.from,
@@ -89,10 +77,9 @@ ToolAnswer checkApi(String name, DeltaKnowledge delta) {
       });
     }
   }
-  final terms = {input, if (input.contains('.')) input.split('.').last};
   var notes = 0;
   for (final note in [...delta.notes, ...delta.laterNotes]) {
-    if (!terms.any((term) => _namesWord(note.avoid, term))) continue;
+    if (!query.noteTerms.any((term) => _namesWord(note.avoid, term))) continue;
     notes++;
     matches.add({
       'kind': 'note',
@@ -103,24 +90,37 @@ ToolAnswer checkApi(String name, DeltaKnowledge delta) {
       'source': note.source,
     });
   }
-  final status = removed
+  final status = removals.isNotEmpty
       ? 'removed'
-      : deprecated
+      : deprecations.isNotEmpty
       ? 'deprecated'
       : 'ok';
   final incomplete = apis == null
       ? 'Only the curated notes were checked: the API lists are missing '
             '(${delta.missing}).'
       : null;
+  final display = query.display;
+  String headline(String verb, List<_Hit> list) {
+    final hit = list.first;
+    final text = _withFullStop(hit.text);
+    final lead = hit.name == display
+        ? '`$display` is $verb: $text'
+        : '`$display` is $verb in `${hit.name}` (${hit.library}): $text';
+    return list.length > 1
+        ? '$lead ${list.length - 1} more '
+              '${list.length == 2 ? 'API matches' : 'APIs match'}; see '
+              '`matches`.'
+        : lead;
+  }
+
   final summary = [
     ?incomplete,
     switch (status) {
-      'removed' => '`$input` is removed: ${_withFullStop(removals.first)}',
-      'deprecated' =>
-        '`$input` is deprecated: ${_withFullStop(deprecations.first)}',
+      'removed' => headline('removed', removals),
+      'deprecated' => headline('deprecated', deprecations),
       _ =>
-        '`$input` is ok: nothing the project imports deprecates or removes '
-            'it.',
+        '`$display` is ok: nothing the project imports deprecates or '
+            'removes it.',
     },
     if (status == 'ok' && rules.isNotEmpty)
       'Its deprecation forbids only this: ${rules.first}',
@@ -130,36 +130,228 @@ ToolAnswer checkApi(String name, DeltaKnowledge delta) {
       '$notes curated ${notes == 1 ? 'note mentions' : 'notes mention'} it.',
   ].join(' ');
   return ToolReply({
-    'name': input,
+    'name': display,
     'status': status,
     'matches': matches,
     if (status == 'ok')
       'meaning':
-          'Nothing the project imports deprecates or removes `$input`. '
+          'Nothing the project imports deprecates or removes `$display`. '
           "Whether it exists isn't checked here; the Dart MCP server's "
           'analyzer does that.',
     'incomplete': ?incomplete,
   }, summary);
 }
 
-enum _Match { exact, member, parameter }
-
-/// How the API named [entry] in the delta matches [input], or null.
-_Match? _match(String entry, String input) {
-  if (entry == input) return _Match.exact;
-  if (input.contains('(')) return null;
-  final paren = entry.indexOf('(');
-  if (paren >= 0) {
-    final member = entry.substring(0, paren);
-    final parameter = entry.substring(paren + 1, entry.length - 1);
-    return member == input || parameter == input ? _Match.parameter : null;
+/// Every API entry that matches [query], exactly or loosely.
+List<_Hit> _collect(DeltaApis apis, _Query query) {
+  final hits = <_Hit>[];
+  for (final api in apis.deprecated) {
+    final how = query.classify(api.name);
+    if (how == null) continue;
+    final status = how == _How.owner
+        ? 'ok'
+        : api.kind == 'use'
+        ? 'deprecated'
+        : 'ok';
+    hits.add(
+      _Hit(
+        how: how,
+        name: api.name,
+        library: api.library,
+        status: status,
+        rule: api.kind == 'use' ? null : api.rule,
+        text: api.message ?? 'deprecated, with no message',
+        json: {
+          'kind': 'deprecated',
+          'library': api.library,
+          'name': api.name,
+          'deprecationKind': api.kind,
+          'rule': ?api.rule,
+          'message': ?api.message,
+          if (api.migrations.isNotEmpty) 'migrations': api.migrations,
+          if (how == _How.owner || how == _How.parameterName) 'parameter': true,
+        },
+      ),
+    );
   }
-  if (input.contains('.')) return null;
-  final member = entry.endsWith('=')
-      ? entry.substring(0, entry.length - 1)
-      : entry;
-  return member.split('.').last == input ? _Match.member : null;
+  for (final api in apis.migrated) {
+    final how = query.classify(api.name);
+    if (how == null) continue;
+    hits.add(
+      _Hit(
+        how: how,
+        name: api.name,
+        library: api.library,
+        status: how != _How.owner && api.status == 'removed' ? 'removed' : 'ok',
+        text: api.title,
+        json: {
+          'kind': api.status,
+          'library': api.library,
+          'name': api.name,
+          'migration': api.title,
+          if (how == _How.owner || how == _How.parameterName) 'parameter': true,
+        },
+      ),
+    );
+  }
+  return hits;
 }
+
+/// How an entry matches the query. [exact]: its name is the query's.
+/// [loose]: the member's name matches, under another class or receiver.
+/// [owner]: the query names the member that owns a deprecated parameter.
+/// [parameterName]: the query is that parameter's name.
+enum _How { exact, loose, owner, parameterName }
+
+final class _Hit {
+  _Hit({
+    required this.how,
+    required this.name,
+    required this.library,
+    required this.status,
+    required this.text,
+    required this.json,
+    this.rule,
+  });
+
+  final _How how;
+  final String name;
+  final String library;
+
+  /// `removed`, `deprecated` or `ok`: what this entry does to the status.
+  final String status;
+  final String text;
+  final String? rule;
+  final Map<String, Object?> json;
+}
+
+final _identifier = RegExp(r'^[A-Za-z_$][A-Za-z0-9_$]*$');
+
+/// A name as an agent writes it, taken apart for matching.
+final class _Query {
+  _Query._({
+    required this.display,
+    required this.heads,
+    required this.parameter,
+    required this.looseName,
+    required this.bareParameter,
+    required this.noteTerms,
+    required this.uri,
+  });
+
+  /// Parses what the agent wrote: an expression, a constructor, a name.
+  factory _Query.parse(String raw) {
+    var text = raw.trim();
+    while (text.startsWith('.')) {
+      text = text.substring(1).trim();
+    }
+    var head = text;
+    String? parameter;
+    var hasArguments = false;
+    final open = text.indexOf('(');
+    if (open >= 0) {
+      hasArguments = true;
+      head = text.substring(0, open).trim();
+      final close = text.lastIndexOf(')');
+      final arguments = text
+          .substring(open + 1, close > open ? close : text.length)
+          .trim();
+      if (_identifier.hasMatch(arguments)) parameter = arguments;
+    }
+    if (head.endsWith('=')) head = head.substring(0, head.length - 1);
+    final uri = head.contains(':') || head.contains('/');
+    final segments = uri ? [head] : head.split('.');
+    final last = segments.last;
+    final owner = segments.length == 1 && _isUpper(head);
+    // `Foo(...)` is the unnamed constructor `Foo.new` (or the class `Foo`).
+    final constructor = hasArguments && owner;
+    final heads = constructor ? ['$head.new', head] : [head];
+    final display = parameter == null ? head : '$head($parameter)';
+    return _Query._(
+      display: display,
+      heads: heads,
+      parameter: parameter,
+      looseName: uri || constructor || last == 'new' || last.isEmpty
+          ? null
+          : last,
+      bareParameter: !uri && segments.length == 1 && !hasArguments
+          ? head
+          : null,
+      noteTerms: {
+        if (head.isNotEmpty) head,
+        if (!uri && segments.length > 1 && last != 'new' && last.isNotEmpty)
+          last,
+      },
+      uri: uri ? head : null,
+    );
+  }
+
+  /// The text to show: the query without its argument list.
+  final String display;
+
+  /// Names an entry's member part may equal for an exact match.
+  final List<String> heads;
+
+  /// The parameter named in `Owner.new(param)` or `Owner(param)`.
+  final String? parameter;
+
+  /// The member name a looser match compares, or null when none applies.
+  final String? looseName;
+
+  /// The query as a possible parameter name (`textScaleFactor`).
+  final String? bareParameter;
+
+  /// The identifiers a curated note's `avoid` text is searched for.
+  final Set<String> noteTerms;
+
+  /// The library URI, when the query is one.
+  final String? uri;
+
+  /// The same query without its parameter.
+  _Query withoutParameter() =>
+      _Query.parse(display.replaceFirst(RegExp(r'\([^)]*\)$'), ''));
+
+  /// Whether a moved library's URI [from] is the one named: exactly, with
+  /// `package:` left out, or by its trailing path (`material.dart`).
+  bool namesLibrary(String from) {
+    final uri = this.uri;
+    if (uri == null) return false;
+    if (from == uri || from == 'package:$uri') return true;
+    return !uri.startsWith('package:') && from.endsWith('/$uri');
+  }
+
+  /// How the delta entry [entry] matches, or null.
+  _How? classify(String entry) {
+    var member = entry;
+    String? entryParameter;
+    final paren = entry.indexOf('(');
+    if (paren >= 0) {
+      member = entry.substring(0, paren);
+      entryParameter = entry.substring(paren + 1, entry.length - 1);
+    }
+    if (member.endsWith('=')) member = member.substring(0, member.length - 1);
+    final entryName = member.split('.').last;
+    if (entryParameter == null) {
+      if (heads.contains(member)) return _How.exact;
+      if (looseName != null && entryName == looseName) return _How.loose;
+      return null;
+    }
+    if (parameter != null) {
+      return heads.contains(member) && entryParameter == parameter
+          ? _How.exact
+          : null;
+    }
+    if (heads.contains(member)) return _How.owner;
+    if (looseName != null && entryName == looseName) return _How.owner;
+    if (bareParameter != null && entryParameter == bareParameter) {
+      return _How.parameterName;
+    }
+    return null;
+  }
+}
+
+bool _isUpper(String text) =>
+    text.isNotEmpty && text[0] != text[0].toLowerCase();
 
 /// Whether [text] has [term] as a whole word: not inside a longer name.
 bool _namesWord(String text, String term) => RegExp(

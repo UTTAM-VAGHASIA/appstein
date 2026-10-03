@@ -108,6 +108,25 @@ void main() {
     );
   });
 
+  test('a library given as a file URI or a dart: library normalizes', () {
+    for (final form in [
+      'package:flutter/material.dart',
+      'flutter/material.dart',
+    ]) {
+      final reply = ask(library: form) as ToolReply;
+      final entries = reply.result['library']! as Map<String, Object?>;
+      expect(entries['library'], 'package:flutter', reason: form);
+      expect((entries['moved']! as List), hasLength(1), reason: form);
+    }
+    final core = ask(library: 'dart:core') as ToolReply;
+    final entries = core.result['library']! as Map<String, Object?>;
+    expect(entries['library'], 'dart:core');
+    expect(
+      (entries['deprecated']! as List).single,
+      containsPair('name', 'RegExp'),
+    );
+  });
+
   test('a library with no entries is refused, listing those that have', () {
     expect(
       (ask(library: 'package:nope') as ToolRefusal).message,
