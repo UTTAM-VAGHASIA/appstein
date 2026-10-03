@@ -301,7 +301,7 @@ milestones:
 | `title`, `summary` | A short name, and a sentence on what it delivers. Text in backticks is shown as code |
 | `status` | `done` (finished: its pull request is open or merged), `next` (being built, or the one to build next) or `planned`. At most one slice is `next`. A slice without a status must have sub-slices, and its stage comes from them |
 | `plan` | The plan's file name in `docs/superpowers/plans/` |
-| `pr`, `merge`, `finished` | The pull request number, and the day the slice was marked done (`YYYY-MM-DD`). A slice merged in the old private repo, whose pull requests no longer exist, gives its merge commit as `merge` instead: 7 to 40 lowercase hex digits, in quotes when they are all digits. A done slice needs `plan`, `finished`, and `pr` or `merge` but not both; only a done slice may have `pr`, `merge` or `finished` |
+| `pr`, `merge`, `finished` | The pull request number, and the day the slice was marked done (`YYYY-MM-DD`). A slice merged in the old private repo, whose pull requests no longer exist, gives its merge commit as `merge` instead: 7 to 40 lowercase hex digits, in quotes when YAML would read them as a number (such as `1234567` or `1234e56`). A done slice needs `plan`, `finished`, and `pr` or `merge` but not both; only a done slice may have `pr`, `merge` or `finished` |
 | `tooling` | `true` for a slice that builds tooling for this repo rather than the product. The page tags it, and a slice's progress bar leaves it out, so tooling doesn't make the product look further along |
 | `slices` | Sub-slices, in order |
 

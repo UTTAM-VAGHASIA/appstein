@@ -12,15 +12,17 @@ Thanks for your interest. Appstein is pre-alpha: the design is settled in the [s
 
 Follow [Set up](docs/guide/README.md#set-up) in the developer guide: FVM, `fvm dart pub get`, and the git hooks. Run every command through FVM (`fvm dart …`, `fvm flutter …`); the `dart` on your PATH may be a different SDK.
 
-graphify (`uv tool install graphifyy`) is optional. It keeps the repo's knowledge graph current for coding agents; without it, `install_hooks` skips the graph hooks and says so.
+graphify (`uv tool install graphifyy`) is optional. It keeps the repo's knowledge graph current for coding agents. Without it, `install_hooks` skips graphify's own hooks and says so, and Appstein's graph warnings stay silent because there is no graph.
 
 ## Check your change
 
 ```powershell
 fvm dart format .
 fvm dart analyze --fatal-infos
+fvm dart run dependency_validator
 fvm dart test test                                  # the repo tooling
 cd packages/appstein_engine; fvm dart test; cd ../..  # and each package you changed
+cd packages/appstein_engine; fvm dart doc --dry-run; cd ../..  # API docs, per changed package
 fvm dart run tool/gen_docs.dart
 fvm dart run tool/check_guide.dart --since main
 ```

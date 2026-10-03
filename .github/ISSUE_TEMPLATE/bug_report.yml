@@ -31,6 +31,13 @@ body:
     validations:
       required: true
   - type: input
+    id: commit
+    attributes:
+      label: Appstein commit
+      description: Appstein isn't released yet. Run `git rev-parse --short HEAD` in your Appstein clone.
+    validations:
+      required: true
+  - type: input
     id: flutter
     attributes:
       label: Flutter version
@@ -39,4 +46,5 @@ body:
     id: doctor
     attributes:
       label: Output of appstein doctor
+      description: From your Appstein clone, `fvm dart run packages/appstein_cli/bin/appstein.dart doctor`.
       render: text

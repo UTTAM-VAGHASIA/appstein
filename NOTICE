@@ -3,3 +3,7 @@ Copyright 2026 UTTAM-VAGHASIA
 
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file.
+
+The test fixtures under packages/appstein_engine/test/fixtures/flutter_sdk/
+include files copied from the Flutter SDK, Copyright 2014 The Flutter
+Authors, under a BSD-3-Clause license; see the LICENSE file in that folder.
