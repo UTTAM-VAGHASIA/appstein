@@ -161,6 +161,7 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 
 - it compiles the real `appstein` executable first, and runs every sync as a **new process**. CI's JIT `dart run` would distort the numbers;
 - it sets `FLUTTER_ROOT` to the Flutter SDK whose Dart runs the tool;
+- it makes the apps in a new folder inside `--work` (the system temp folder by default). CI passes its own temporary folder, on the disk that holds the checkout: on Windows runners the system temp folder is on a slow remote disk, which made the cache's write cost up to 3.8 s (see [ci](ci.md#measure));
 - the **full sync row is cold**: it deletes `.appstein/` and the cache folder first, so it is the 30 s worst case;
 - before the "nothing changed" row it runs `--detect` once to empty the change list, then times the second;
 - the 1,000-file rows' **times are information only** (owner decision): they are printed and never held to a target. The 200-file rows' times are held to spec §15 (full sync under 30 s, each detect under 2 s).
