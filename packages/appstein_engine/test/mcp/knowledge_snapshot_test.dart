@@ -47,6 +47,16 @@ void main() {
     );
   });
 
+  test('a file that is not UTF-8 is damaged, not a crash', () {
+    final file = File(p.joinAll([root, '.appstein', 'map', 'features.json']))
+      ..parent.createSync(recursive: true);
+    file.writeAsBytesSync([0xC3, 0x28]);
+    expect(
+      KnowledgeSnapshot(root).features.problem,
+      startsWith('`.appstein/map/features.json` is damaged ('),
+    );
+  });
+
   test('INDEX.md without front matter is damaged', () {
     write('INDEX.md', '# Hand-written\n');
     expect(

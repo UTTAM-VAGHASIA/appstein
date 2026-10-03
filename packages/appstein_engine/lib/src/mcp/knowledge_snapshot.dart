@@ -126,9 +126,9 @@ final class KnowledgeSnapshot {
     final file = File(
       p.joinAll([projectRoot, '.appstein', ...path.split('/')]),
     );
-    final String text;
+    final List<int> bytes;
     try {
-      text = file.readAsStringSync();
+      bytes = file.readAsBytesSync();
     } on FileSystemException catch (error) {
       return KnowledgeRead.missing(
         file.existsSync()
@@ -137,7 +137,7 @@ final class KnowledgeSnapshot {
       );
     }
     try {
-      return KnowledgeRead.loaded(parse(text));
+      return KnowledgeRead.loaded(parse(utf8.decode(bytes)));
     } on FormatException catch (error) {
       return KnowledgeRead.missing('$name is damaged (${error.message})');
     }
