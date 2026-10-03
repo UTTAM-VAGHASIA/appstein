@@ -122,6 +122,7 @@ milestones:
             title: Package skills
             summary: "`sync` runs `dart run skills@ get` when `pubspec.yaml` or `pubspec.lock` changes, and warns when it can't."
             status: next
+            plan: 2026-10-03-slice-1b8-package-skills.md
       - id: 1c
         title: MCP server
         summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.
