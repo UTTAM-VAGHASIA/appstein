@@ -249,6 +249,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ├── platform/   (generated, git-ignored)
 │   ├── sdk.json           {flutter, dart, channel, languageVersion, fvm, appsteinNotesCoverage}
 │   ├── delta.md           version delta for THIS SDK, language version and packages (§6.4)
+│   ├── delta.json         the same delta as structured data, for check_api and what_changed
 │   └── toolchain.json     valid AGP/Gradle/KGP/JDK/NDK/compileSdk/targetSdk/minSdk + iOS/macOS minimums
 ├── map/        (generated, git-ignored)
 │   ├── features.json      feature → screens, view models, repositories, services, models, tests, files
@@ -469,17 +470,28 @@ Unknown keys are an error with a clear message. Every key has a default, so an e
 
 ## 8. MCP server
 
-Transport is stdio; `appstein mcp` is launched by the agent. Every tool returns structured JSON (schemas in `appstein_protocol`) and a short text summary. If the knowledge is stale, the server re-syncs before answering (target < 2 s for incremental).
+Transport is stdio; `appstein mcp` is launched by the agent. Every tool returns structured JSON (schemas in `appstein_protocol`) and a short text summary.
+
+**Freshness.** Before each tool answers, the server runs the check `sync --detect` runs, in its own process, keeping the analyzer cache in memory between calls:
+
+- nothing changed: it answers from the files;
+- an input changed: it rebuilds what changed first (target < 2 s);
+- `.appstein/` is missing (a fresh clone, or an agent without a SessionStart hook): it runs a full sync first;
+- it never runs package skills (§6.6), which can take up to 120 s; the next `appstein sync` runs them.
+
+Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or `stale` (with why). When another sync holds the lock past its timeout, or the sync fails, the server answers from the files on disk marked `stale`, with the reason and, when it helps, "run `appstein doctor`". With no knowledge files at all, the reply is an error.
+
+**Errors.** Bad input, a failed sync with nothing to answer from, and a tool that throws each give a tool result marked as an error, with the reason, and the server keeps running. Only protocol messages go to stdout.
 
 | Tool | Input | Returns |
 |---|---|---|
 | `overview` | – | Contents of INDEX.md plus live freshness status |
 | `where_is` | free text (e.g. "login screen") | Ranked files and symbols with layer and feature |
 | `feature` | feature name | Everything in that feature: screens, view models, repositories, services, models, routes, tests |
-| `route` | path | Screen, feature, nested routes, redirects (if resolvable) |
-| `check_api` | symbol (e.g. `withOpacity`, `WillPopScope`) | Status in this SDK and the project's packages: `ok`, `deprecated` (with the replacement and the library's own deprecation text) or `removed` (with its migration), plus the source |
-| `what_changed` | optional `since` version | Relevant delta entries; `since` narrows the curated notes |
-| `toolchain` | – | Valid native version set for this SDK + current project values + mismatches |
+| `route` | path; a concrete path matches a pattern (`/book/42` → `/book/:id`) | Screen, feature, parent, nested routes, and whether it redirects (the map records that a route redirects, not where to) |
+| `check_api` | a name: `WillPopScope`, `withOpacity`, `Color.withOpacity`, `Text.new(textScaleFactor)` | `removed` (with its migration), `deprecated` (with the replacement and the library's own deprecation text) or `ok`, plus the curated notes whose `avoid` names it, each with its source. `ok` means nothing the project imports deprecates or removes it; whether it exists isn't checked (the Dart MCP server's analyzer does that) |
+| `what_changed` | optional `since` version | The entries of `delta.json`; `since` narrows the curated notes |
+| `toolchain` | – | Valid native version set for this SDK, the project's current values from `native.json`, and mismatches (below) |
 | `package_check` | package name [+ version] | Exists? discontinued? latest version, last publish, publisher (verified?), Flutter Favorite, SwiftPM support, built-in-Kotlin readiness, advisories, **verdict** (`ok` / `warn` / `block`) + reasons |
 | `decisions` / `record_decision` | topic / record | Read or write layer 3 |
 | `memory_read` / `memory_write` | – / `{kind, text}` | Read or write layer 4 |
@@ -487,11 +499,19 @@ Transport is stdio; `appstein mcp` is launched by the agent. Every tool returns 
 
 **`where_is` ranking** is deterministic, with no embeddings:
 
-- the query is tokenized and matched against symbol names (camelCase and snake_case split), file paths, feature names, route paths and screen names;
-- scoring: exact symbol match > route/screen match > feature match > path match > fuzzy (edit distance ≤ 2);
-- it returns the top 10 with the reason for each match.
+- the query is split into lowercase words and matched against symbol names (split at camelCase and snake_case), route paths and screen names, feature names and file paths;
+- each word scores its best match on a candidate: exact symbol word 5, route path or screen 4, feature name 3, file path 2, fuzzy (edit distance ≤ 2) 1. A candidate's score is the sum over the words; ties are broken by name, then file;
+- it returns the top 10, each with its file:line, layer, feature, doc-comment summary and the reason for each match.
 
 This is enough for a well-structured project; semantic search can be added later if the benchmark shows a need.
+
+**`toolchain` mismatches** use only thresholds Flutter itself applies (§12):
+
+- a value below the version at which Flutter's Gradle plugin fails the build is an error, and below the one at which it warns, a warning;
+- a value above the newest version this Flutter knows is a warning;
+- a compileSdk below Flutter's minimum, or an iOS deployment target below the SDK template's, is a warning;
+- a value `native.json` records as `unknown` is reported as not comparable, with its reason;
+- store minimums are shown as the curated notes give them.
 
 The Dart MCP server (`dart mcp-server`) runs **next to** ours. It provides the analyzer, symbols, runtime inspection, hot reload, pub.dev search and package source reading (`read_package_uris`). We don't duplicate those.
 
@@ -869,8 +889,8 @@ The benchmark lives in `benchmark/`.
 |---|---|---|
 | **1a** | Workspace with 4 packages; `appstein` CLI skeleton; `--version`; `config/` + `appstein.yaml`; `sdk/` detection (incl. FVM, language version); `doctor`; CI for our repo; boundary lint on our own repo; AOT build; developer guide skeleton + `public_member_api_docs` + `dart doc` in CI (§19.6) | `doctor` correct on Windows, macOS and Linux CI; CI green; minimum supported Flutter version confirmed; guide "start here" page lets someone build and run the CLI from source |
 | **1b** | Knowledge layers 1–2 (sdk, delta + curated notes for 3.44–3.47, toolchain, map via `official_mvvm` + platform extractors, incl. doc-comment summaries in `symbols.json`), INDEX.md, `sync` (full + incremental), staleness metadata, lock file, package skills refresh | Golden tests pass on fixtures; INDEX ≤ 1,500 tokens; performance targets (§15) met for sync |
-| **1c** | MCP server with all §8 tools; layers 3–4 read/write with formats from §6.7–6.8; human docs renderer + `appstein docs` + pack doc pages (§6.9) | Each tool tested; works from Claude Code on a fixture; golden tests for every doc page; re-rendering unchanged knowledge changes no bytes |
-| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes | Every check has a passing and a failing fixture; fast verify < 5 s |
+| **1c** | MCP server with the §8 tools except `verify` and `package_check`, which 1d builds with their engines; layers 3–4 read/write with formats from §6.7–6.8; human docs renderer + `appstein docs` + pack doc pages (§6.9) | Each tool tested; works from Claude Code on a fixture; golden tests for every doc page; re-rendering unchanged knowledge changes no bytes |
+| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes, the `verify` and `package_check` MCP tools | Every check has a passing and a failing fixture; fast verify < 5 s; both tools tested |
 | **1e** | `create` (incl. CI template and first human docs), `integrate` (Claude Code, Codex, `--remove`, one-Dart-MCP rule, hooks incl. SessionStart, Bash detection, the loop guard and docs rendering at Stop), verification of every "to verify in 1e" item | `create`→`verify --full` green on Linux + macOS CI; integration works end-to-end in both agents; every "to verify" item resolved and the spec updated |
 | **1f** | `upgrade` framework + 3.47 migration; all lifecycle skills + skills CI + smoke-test procedure; benchmark runner and first published run | Skills CI green on current stable and minimum SDK; the 3.47 migration tested on the legacy fixture; benchmark published |
 
