@@ -53,6 +53,7 @@ final class Slice {
     this.status,
     this.plan,
     this.pr,
+    this.merge,
     this.finished,
     this.tooling = false,
     this.slices = const [],
@@ -80,6 +81,11 @@ final class Slice {
 
   /// The number of the pull request that merged it.
   final int? pr;
+
+  /// The commit that merged it, as 7 to 40 lowercase hex digits, for a slice
+  /// whose pull request was in the old private repo, which no longer exists.
+  /// A done slice has [pr] or [merge], not both.
+  final String? merge;
 
   /// The day it was marked done, as `YYYY-MM-DD`.
   final String? finished;
@@ -149,7 +155,8 @@ final class Progress {
   const Progress({required this.repository, required this.milestones});
 
   /// The repository's web address, without a trailing slash. A pull request
-  /// links to `<repository>/pull/<number>`.
+  /// links to `<repository>/pull/<number>`, and a merge commit to
+  /// `<repository>/commit/<id>`.
   final String repository;
 
   /// The milestones, in order.
@@ -232,6 +239,7 @@ ProgressRead parseProgress(String text) {
 final _milestoneId = RegExp(r'^M[1-9][0-9]*$');
 final _sliceId = RegExp(r'^[0-9]+[a-z]+(\.[0-9]+)*$');
 final _day = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
+final _commit = RegExp(r'^[0-9a-f]{7,40}$');
 
 const _fileKeys = {'repository', 'milestones'};
 const _milestoneKeys = {'id', 'title', 'summary', 'slices'};
@@ -242,6 +250,7 @@ const _sliceKeys = {
   'status',
   'plan',
   'pr',
+  'merge',
   'finished',
   'tooling',
   'slices',
@@ -367,6 +376,7 @@ final class _Parser {
       );
     }
     final pr = _positiveInt(map, 'pr', what);
+    final merge = _commitId(map, 'merge', what);
     final finished = _date(map, 'finished', what);
     final tooling = _bool(map, 'tooling', what);
     final children = <Slice>[
@@ -382,14 +392,23 @@ final class _Parser {
     if (status == SliceStatus.done) {
       final missing = [
         if (map.nodes['plan'] == null) 'plan',
-        if (map.nodes['pr'] == null) 'pr',
+        if (map.nodes['pr'] == null && map.nodes['merge'] == null)
+          'pr (or merge)',
         if (map.nodes['finished'] == null) 'finished',
       ];
       if (missing.isNotEmpty) {
         _problem(map, '$what is done, so it needs ${_and(missing)}.');
       }
+      final mergeNode = map.nodes['merge'];
+      if (map.nodes['pr'] != null && mergeNode != null) {
+        _problem(
+          mergeNode,
+          '$what has both pr and merge. Use merge only for a pull request '
+          'that no longer exists.',
+        );
+      }
     } else if (status != null) {
-      for (final key in const ['pr', 'finished']) {
+      for (final key in const ['pr', 'merge', 'finished']) {
         final value = map.nodes[key];
         if (value != null) {
           _problem(value, '$what: $key is only for a done slice.');
@@ -405,6 +424,7 @@ final class _Parser {
       status: status,
       plan: plan,
       pr: pr,
+      merge: merge,
       finished: finished,
       tooling: tooling,
       slices: children,
@@ -479,6 +499,27 @@ final class _Parser {
     final value = node.value;
     if (value is int && value > 0) return value;
     _problem(node, '$what: $key must be a whole number above 0.');
+    return null;
+  }
+
+  String? _commitId(YamlMap map, String key, String what) {
+    final node = map.nodes[key];
+    if (node == null) return null;
+    final value = node.value;
+    if (value is! String) {
+      _problem(
+        node,
+        '$what: $key must be text. Quote a commit id that YAML reads as a '
+        "number, such as '1234567'.",
+      );
+      return null;
+    }
+    if (_commit.hasMatch(value)) return value;
+    _problem(
+      node,
+      '$what: $key must be a commit id of 7 to 40 lowercase hex digits, not '
+      '$value.',
+    );
     return null;
   }
 
