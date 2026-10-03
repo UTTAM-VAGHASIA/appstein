@@ -318,10 +318,7 @@ void main() {
       fileOf('.appstein/platform/delta.json').deleteSync();
       final report = await detect();
       expect(report.current, isFalse);
-      expect(
-        report.rebuiltBecause,
-        contains('platform/delta.json is missing'),
-      );
+      expect(report.rebuiltBecause, contains('platform/delta.json is missing'));
       expect(fileOf('.appstein/platform/delta.json').existsSync(), isTrue);
     });
 

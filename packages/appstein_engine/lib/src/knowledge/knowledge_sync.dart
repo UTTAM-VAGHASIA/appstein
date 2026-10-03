@@ -29,9 +29,9 @@ import 'platform_sync.dart';
 import 'sync_timings.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2, §6.3): the platform
-/// layer, the version delta (`delta.md` and `delta.json`), the project map, the native config and
-/// `INDEX.md`. All are built first, then written under one lock, with a
-/// `state.json` that lists them.
+/// layer, the version delta (`delta.md` and `delta.json`), the project map,
+/// the native config and `INDEX.md`. All are built first, then written under
+/// one lock, with a `state.json` that lists them.
 ///
 /// [run] rebuilds everything; [detect] rebuilds only when something the
 /// knowledge reads changed ([freshness]).
@@ -573,9 +573,9 @@ final class KnowledgeSync {
     );
   }
 
-  /// The input hash of `delta.md` and `delta.json`: [mapPart] (the map's input hash, or why
-  /// there are no facts), the notes, the baseline, the language version and
-  /// the Flutter version.
+  /// The input hash of `delta.md` and `delta.json`: [mapPart] (the map's
+  /// input hash, or why there are no facts), the notes, the baseline, the
+  /// language version and the Flutter version.
   String _deltaHash(SdkInfo sdk, String mapPart) => inputHash(
     {
       'map': utf8.encode(mapPart),

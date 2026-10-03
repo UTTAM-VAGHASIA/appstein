@@ -135,13 +135,14 @@ void main() {
   test('splits the notes the project can use from those that need a newer '
       'language version', () {
     final body = DeltaKnowledge.fromJson(deltaJsonBody(inputs()));
-    expect([for (final n in body.notes) n.id], [
-      'popscope-not-willpopscope',
-      'dot-shorthands',
-    ]);
-    expect([for (final n in body.laterNotes) n.id], [
-      'dart-primary-constructors',
-    ]);
+    expect(
+      [for (final n in body.notes) n.id],
+      ['popscope-not-willpopscope', 'dot-shorthands'],
+    );
+    expect(
+      [for (final n in body.laterNotes) n.id],
+      ['dart-primary-constructors'],
+    );
   });
 
   test('names the library, kind and rule of each deprecation', () {

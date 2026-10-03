@@ -161,7 +161,8 @@ final class DeltaApis {
       for (final api in fields.objects('migrated')) DeltaMigratedApi._read(api),
     ],
     moved: [
-      for (final moved in fields.objects('moved')) DeltaMovedLibrary._read(moved),
+      for (final moved in fields.objects('moved'))
+        DeltaMovedLibrary._read(moved),
     ],
     unread: [
       for (final unread in fields.objects('unread'))

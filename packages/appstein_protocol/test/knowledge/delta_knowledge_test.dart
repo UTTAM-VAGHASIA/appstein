@@ -12,7 +12,8 @@ void main() {
     summary: 'PopScope replaces WillPopScope.',
     use: '`PopScope`.',
     avoid: '`WillPopScope`.',
-    source: 'https://docs.flutter.dev/release/breaking-changes/android-predictive-back',
+    source:
+        'https://docs.flutter.dev/release/breaking-changes/android-predictive-back',
   );
   const knowledge = DeltaKnowledge(
     flutterVersion: '3.47.5',
@@ -54,13 +55,19 @@ void main() {
           title: 'Migrate to material_ui.',
         ),
       ],
-      unread: [DeltaUnreadFile(file: 'package:kit/fix_data.yaml', reason: 'bad')],
+      unread: [
+        DeltaUnreadFile(file: 'package:kit/fix_data.yaml', reason: 'bad'),
+      ],
     ),
   );
 
   test('round-trips through JSON, ignoring meta', () {
-    final json = jsonDecode(jsonEncode(knowledge.toJson())) as Map<String, Object?>;
-    final read = DeltaKnowledge.fromJson({...json, 'meta': {'inputHash': 'x'}});
+    final json =
+        jsonDecode(jsonEncode(knowledge.toJson())) as Map<String, Object?>;
+    final read = DeltaKnowledge.fromJson({
+      ...json,
+      'meta': {'inputHash': 'x'},
+    });
     expect(jsonEncode(read.toJson()), jsonEncode(knowledge.toJson()));
   });
 
