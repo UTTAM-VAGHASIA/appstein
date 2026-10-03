@@ -21,13 +21,31 @@ import 'package:path/path.dart' as p;
 /// Flutter SDK whose Dart runs this tool.
 ///
 /// Usage, from the repo root:
-///   fvm dart run tool/measure_sync.dart
+///   fvm dart run tool/measure_sync.dart [--work <folder>]
+///
+/// The apps are made in a new folder inside `--work` (the system's temporary
+/// folder by default). CI passes its own temporary folder, which is on the
+/// disk that holds the checkout.
 ///
 /// The first sync of each app fetches its packages (go_router needs the
 /// network). Prints a Markdown table, then a second one with where the time
 /// of each full sync and edit went, step by step (`appstein sync --timings`),
 /// and exits 1 when a held row misses its target or a check fails.
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  final Directory parent;
+  switch (args) {
+    case []:
+      parent = Directory.systemTemp;
+    case ['--work', final folder] when Directory(folder).existsSync():
+      parent = Directory(folder);
+    default:
+      stderr.writeln(
+        'Usage: fvm dart run tool/measure_sync.dart [--work <folder>], where '
+        'the folder exists.',
+      );
+      exitCode = 1;
+      return;
+  }
   final flutterRoot = _flutterRoot();
   if (flutterRoot == null) {
     stderr.writeln(
@@ -38,7 +56,8 @@ Future<void> main() async {
     exitCode = 1;
     return;
   }
-  final work = Directory.systemTemp.createTempSync('appstein measure sync ');
+  final work = parent.createTempSync('appstein measure sync ');
+  stderr.writeln('Measuring in ${work.path}');
   try {
     final exe = await _compile(work.path);
     if (exe == null) {

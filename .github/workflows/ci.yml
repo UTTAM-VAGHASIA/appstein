@@ -205,6 +205,12 @@ jobs:
         # `tee` also puts the table in the log, which `gh run view --log` can
         # read; job summaries aren't available through the CLI or API.
         run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
+      # Experiment (slice 1b.7): which disk each folder is on.
+      - name: Show the disks of the temporary folders and the checkout
+        shell: bash
+        run: df -h "${TMPDIR:-${TEMP:-/tmp}}" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
       - name: Measure a full sync and sync --detect (spec §15)
         shell: bash
-        run: dart run tool/measure_sync.dart | tee -a "$GITHUB_STEP_SUMMARY"
+        # The apps go in the runner's temporary folder, on the disk that
+        # holds the checkout.
+        run: dart run tool/measure_sync.dart --work "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
