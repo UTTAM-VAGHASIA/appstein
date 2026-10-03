@@ -7,6 +7,17 @@ abstract final class ToolSchemas {
   /// The input of a tool that takes no arguments.
   static final Map<String, Object?> noInput = jsonObject({});
 
+  /// `overview`'s result.
+  static final Map<String, Object?> overviewResult = jsonObject(
+    {
+      'index': jsonString(
+        description: "The project's INDEX.md, without its front matter.",
+      ),
+      'generatedAt': jsonString(),
+    },
+    required: ['index', 'generatedAt'],
+  );
+
   /// `where_is`'s input.
   static final Map<String, Object?> whereIsInput = jsonObject(
     {

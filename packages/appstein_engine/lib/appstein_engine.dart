@@ -52,6 +52,7 @@ export 'src/map/map_sync.dart';
 export 'src/map/project_analysis.dart';
 export 'src/map/project_packages.dart';
 export 'src/map/symbols.dart';
+export 'src/mcp/appstein_mcp_server.dart';
 export 'src/mcp/check_api.dart';
 export 'src/mcp/feature_query.dart';
 export 'src/mcp/knowledge_snapshot.dart';
