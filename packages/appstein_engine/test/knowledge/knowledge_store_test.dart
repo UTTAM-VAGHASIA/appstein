@@ -379,15 +379,6 @@ void main() {
       expect(File('${target.path}.tmp').existsSync(), isFalse);
     }, testOn: 'windows');
 
-    test('replaceFileBytes without flush still replaces the file in one '
-        'step', () async {
-      final target = File(p.join(project, 'cache.bin'))
-        ..writeAsBytesSync([1, 2, 3]);
-      await replaceFileBytes(target.path, [4, 5], flush: false);
-      expect(target.readAsBytesSync(), [4, 5]);
-      expect(File('${target.path}.tmp').existsSync(), isFalse);
-    });
-
     test('onTimed reports the write and the rename, with no retries', () async {
       final timings = <ReplaceTiming>[];
       await replaceFile(

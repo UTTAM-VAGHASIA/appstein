@@ -323,21 +323,15 @@ Future<void> replaceFile(
 
 /// Replaces the file at [path] with [bytes] in one step, as [replaceFile]
 /// does with text.
-///
-/// With [flush] false, the temporary file is renamed without first waiting
-/// for the disk to have it, which on a slow disk saves most of the time.
-/// Only for a file whose readers can tell a damaged copy and rebuild it
-/// (the analyzer cache): after a power cut it may hold garbage.
 Future<void> replaceFileBytes(
   String path,
   List<int> bytes, {
   Duration retryFor = const Duration(seconds: 2),
   Duration retryEvery = const Duration(milliseconds: 20),
   void Function(ReplaceTiming timing)? onTimed,
-  bool flush = true,
 }) => _replace(
   path,
-  (temp) => temp.writeAsBytesSync(bytes, flush: flush),
+  (temp) => temp.writeAsBytesSync(bytes, flush: true),
   retryFor: retryFor,
   retryEvery: retryEvery,
   onTimed: onTimed,

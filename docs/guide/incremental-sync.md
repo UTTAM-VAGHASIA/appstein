@@ -143,8 +143,6 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 
 **Why one file.** The analyzer's own `FileByteStore` keeps one small file per entry (2,394 files for the probe app). Reading them the first time took 13.5 s on Windows. Its `flush()` also doesn't work there (dart-lang/sdk#64190). One file, read once and replaced in one step (`replaceFileBytes`, the way every generated file is), avoids both.
 
-**Saved without waiting for the disk.** Every generated file is flushed before its rename, so a power cut can't leave half of one. The cache is saved with `flush: false`. Waiting for the disk to have 57 MB cost about 0.6 s on every Windows CI run (0.03 s on Linux), and up to 3.4 s on a slow disk, out of a 2 s budget, for a file that only saves time. A copy a power cut damaged is caught when it is read: a bad header or length makes it empty, and garbage inside an entry makes the analysis run again without it (`catchAnalyzerErrors`, below). The worst case is one slower sync.
-
 **When it fails.** The cache never fails a sync and never changes the knowledge. Each case costs at most one slow sync and one line in the report:
 
 | What happens | What the sync does | The report says |
@@ -164,8 +162,7 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 - it compiles the real `appstein` executable first, and runs every sync as a **new process**. CI's JIT `dart run` would distort the numbers;
 - it sets `FLUTTER_ROOT` to the Flutter SDK whose Dart runs the tool;
 - the **full sync row is cold**: it deletes `.appstein/` and the cache folder first, so it is the 30 s worst case;
-- before the "nothing changed" row it runs `--detect` once to empty the change list, then times the next ones;
-- each **detect row is the median of three runs** (owner decision, after the first public CI runs), and the table shows the three times beside it. The edit rows make three different edits, each followed by a detect. A Windows CI machine's speed varied by about 2× between runs of the same code (one view model edit took 1.7 s, another 2.3 s), so one slow machine must not fail the target, while a real slowdown still moves the median. The full sync stays one run: it is cold, and far under its 30 s;
+- before the "nothing changed" row it runs `--detect` once to empty the change list, then times the second;
 - the 1,000-file rows' **times are information only** (owner decision): they are printed and never held to a target. The 200-file rows' times are held to spec §15 (full sync under 30 s, each detect under 2 s).
 
 At both sizes the tool still fails (exit 1) when a run is broken: a sync that fails, a run that isn't a real sync (a skipped map, unread native config), or an edit that isn't reported as changed. So a fast wrong answer can't pass.
