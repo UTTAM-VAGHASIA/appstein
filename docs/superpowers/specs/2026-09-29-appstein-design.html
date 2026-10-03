@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1b.8</b> Package skills</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1c</b> MCP server</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -674,8 +674,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   <h3>M1 slices</h3>
   <div class="pg-bar">
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
-    <a class="pg-seg pg-underway" href="#pg-1b" style="--fill:88%"><b>1b</b><span>Knowledge layers 1–2</span><i>7 of 8 done</i></a>
-    <a class="pg-seg pg-planned" href="#pg-1c" style="--fill:0%"><b>1c</b><span>MCP server</span><i>0 of 1 done</i></a>
+    <a class="pg-seg pg-done" href="#pg-1b" style="--fill:100%"><b>1b</b><span>Knowledge layers 1–2</span><i>8 of 8 done</i></a>
+    <a class="pg-seg pg-next" href="#pg-1c" style="--fill:0%"><b>1c</b><span>MCP server</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1f" style="--fill:0%"><b>1f</b><span>upgrade, skills, benchmark</span><i>0 of 1 done</i></a>
@@ -713,8 +713,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         </li>
       </ol>
     </li>
-    <li class="pg-item pg-underway" id="pg-1b">
-      <p class="pg-title"><b>1b</b> Knowledge layers 1–2 <span class="tag warn">In progress</span></p>
+    <li class="pg-item pg-done" id="pg-1b">
+      <p class="pg-title"><b>1b</b> Knowledge layers 1–2 <span class="tag ok">Done</span></p>
       <p class="pg-summary">What an agent needs to know about the SDK, the native toolchain and the project, written into <code>.appstein/</code>.</p>
       <ol class="pg-timeline pg-sub">
         <li class="pg-item pg-done" id="pg-1b-1">
@@ -752,15 +752,15 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <p class="pg-summary"><code>sync --detect</code>: rebuild only when an input changed, under 2 s, with per-file hashes, the changed files recorded for verify, and a persistent analyzer cache.</p>
           <p class="pg-meta"><time datetime="2026-10-03">3 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/1">PR #1</a> · <a href="../plans/2026-10-03-slice-1b7-incremental-sync.md">Plan</a></p>
         </li>
-        <li class="pg-item pg-next" id="pg-1b-8">
-          <p class="pg-title"><b>1b.8</b> Package skills <span class="tag info">Next</span></p>
+        <li class="pg-item pg-done" id="pg-1b-8">
+          <p class="pg-title"><b>1b.8</b> Package skills <span class="tag ok">Done</span></p>
           <p class="pg-summary"><code>sync</code> runs <code>dart run skills@ get</code> when <code>pubspec.yaml</code> or <code>pubspec.lock</code> changes, and warns when it can't.</p>
-          <p class="pg-meta"><a href="../plans/2026-10-03-slice-1b8-package-skills.md">Plan</a></p>
+          <p class="pg-meta"><time datetime="2026-10-03">3 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/3">PR #3</a> · <a href="../plans/2026-10-03-slice-1b8-package-skills.md">Plan</a></p>
         </li>
       </ol>
     </li>
-    <li class="pg-item pg-planned" id="pg-1c">
-      <p class="pg-title"><b>1c</b> MCP server <span class="tag neutral">Planned</span></p>
+    <li class="pg-item pg-next" id="pg-1c">
+      <p class="pg-title"><b>1c</b> MCP server <span class="tag info">Next</span></p>
       <p class="pg-summary">The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with <code>appstein docs</code>.</p>
     </li>
     <li class="pg-item pg-planned" id="pg-1d">

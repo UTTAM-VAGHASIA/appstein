@@ -1824,3 +1824,31 @@ These follow the repo's per-slice flow and are not a task for an implementer:
 1. Run every suite from inside each package folder, plus the root `fvm dart test test`, and the integration tests.
 2. Open the PR; once it is open, mark 1b.8 done in `docs/superpowers/progress.yaml` with its `pr` and `finished`, set the next slice `next`, add this plan's notes from execution, run `fvm dart run tool/gen_docs.dart`, read back the rendered progress section, and commit.
 3. Draft the upstream issue for dart-lang/ai ("let `get` skip writing global_config.json") for the owner to post or not. Nothing is posted by an agent.
+
+## Notes from execution
+
+Built natively (the owner chose "native") on `slice-1b8`, 2026-10-03, then one final review on Opus. PR #3.
+
+**Commits:** `a6b4eb2` spec §6.6/§6.2/§15; `8aea539` this plan; `e6fcbef` Task 1; `739d932` Task 2; `5ba71fd` Task 3; `6e84ab8` Task 4; `ca36441` Task 5; `c2fb361` Task 6 (guide); `5653962` final-review fix; then the owner-approved §6.6 wording fix.
+
+**Owner decisions (brainstorming):**
+1. Run package:skills and document its global file, rather than only telling the user, or redirecting `APPDATA`/`HOME` (fragile).
+2. Only configured agents that are already set up in the project; sync never creates agent folders.
+3. After the review: the §6.6 wording says the global file is rewritten on every run that installs anything, and that `--all` also installs from configured git repositories.
+
+**Rulings:**
+- Task 1: two extra test cases (agent order in `sameInputs`, a `toText` round trip). Cost if wrong: none.
+- Task 2: `return _failed(...)` inside the `try` is awaited (the analyzer's `unawaited_return_in_try_block`); otherwise `finally` released the lock before the failure record was saved. No failing test first: the ordering isn't observable with the fake runner.
+- Task 6: the graph update moved to after the PR's notes commit, since those change docs again.
+
+**The final review caught (fixed test-first):** when no dependency ships skills, which is most apps, package:skills prints only `No skills found.` and exits 0, before installing (`get_skills.dart:184-190`). The check expected an `Installed N skill(s)` line per agent, so every full sync of such an app with an agent set up would have warned and rerun package:skills (about 2.6 s). The probe's `Installed 0` lines came from the removed-package case, read wrongly as "nothing ships skills". The integration test now also runs a plain app. The review also corrected three guide claims: package:skills' own `pub get` uses the PATH `flutter` or `dart`; the global file isn't rewritten on a `No skills found.` run; `get --all` also installs from configured git repositories.
+
+**Lesson:** a probe that captures real output must cover the common case (here, an app with nothing to install), not only the cases the design worries about. Reading each captured output's preconditions would have shown that `Installed 0` came from pruning.
+
+**Deferred minors:**
+- The "no agents" and "packages not fetched" outcomes are decided before the lock, so two syncs at the same moment can both print that line.
+- `detect`'s current branch passes `packagesReady: true`, which is right only because freshness counts stale packages as not current; it could pass `prepared.packages.fresh`.
+
+**Carried to later slices:**
+- The upstream issue draft (conditional final save of `global_config.json`, or a flag to skip it) is for the owner to post.
+- The min-sdk CI job doesn't run `package_skills_real_test`, so "`dart run pkg@version` works on Flutter 3.44" is from Dart's changelog, not tested here.
