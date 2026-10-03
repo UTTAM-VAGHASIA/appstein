@@ -837,3 +837,51 @@ Both change the public GitHub repo, so ask the owner first, quoting the commands
 - [ ] **Step 5: Merge** once every CI job has really run and passed (the PR merge flow): `gh pr merge <n> --merge --delete-branch`, `git fetch --prune`, `git switch -C main origin/main`. Then Task 7 Step 3.
 
 - [ ] **Step 6: Memory.** Update the memory notes that cite old commit IDs or old PR numbers, using `.git/filter-repo/commit-map`, and record 1a.5 as done.
+
+## Notes from execution
+
+Built inline (the owner chose native execution) on 2026-10-03, on branch `slice-1a5`, with one final whole-branch review on Opus. PR #2.
+
+| Commit | What |
+|---|---|
+| `a5a8a58` | Spec: Apache-2.0, the published-release wording (§1.1, §19.5, §20, §22); 1a.5 is next |
+| `7a660fc` | This plan |
+| `a15b2d6` | Task 1: the `merge` field is parsed |
+| `cc02ac1` | Task 2: the page links merge commits; `checkMerges`; docs-tooling |
+| `13359e5` | Task 3: the old slices give their merge commits; 1b.7 is PR #1 |
+| `4fa8ffd` | Task 4: LICENSE, NOTICE, README, PRODUCT.md |
+| `d707b48` | Task 5: CONTRIBUTING, SECURITY, the bug-report and PR templates |
+| `1aa5cab` | Task 6: the old commit IDs and old PR numbers in 10 plans |
+| `37060ca` | Final-review fixes |
+| `1d617c6` | Spec §19.6: merge commits (owner-approved after the review) |
+
+**Rulings during execution:**
+- **LICENSE** was downloaded to the scratchpad and checked before it was copied in. It is apache.org's text. GitHub's template differs only by one blank line (leading instead of trailing).
+- **The issue template** was parsed with `package:yaml`, through `fvm dart --packages=.dart_tool/package_config.json`, since graphify's Python has no PyYAML.
+- **`checkMerges`** is called in a cascade with `checkProgress`.
+
+**The final review** found no critical issues and two important ones. Both are fixed:
+- **Spec §19.6 didn't mention merge commits.** The plan wrongly said `a5a8a58` had covered it. The owner approved the wording.
+- **Four Flutter SDK files (BSD-3-Clause), copied as test fixtures, shipped without Flutter's license.** It now sits in `packages/appstein_engine/test/fixtures/flutter_sdk/LICENSE`, and NOTICE names it.
+
+Four of its minor findings were fixed too, because they were wrong or missing statements in files this slice created:
+- what `install_hooks` skips without graphify;
+- two CI steps missing from CONTRIBUTING's checks;
+- the bug template assumed a released binary;
+- when to quote a commit ID.
+
+**Deferred:**
+- **An ambiguous short `merge` ID** gets "is not a commit in this repo". Better: "not a single commit (mistyped, ambiguous or missing from a shallow clone)", with a test for the ambiguous case.
+- **A slice without a status can still carry `pr`, `merge` or `finished`.** This predates the slice for `pr`. Refuse those keys when there is no status.
+
+**GitHub settings** (owner's yes): private vulnerability reporting is enabled, and the topics are `flutter`, `dart`, `ai-agents`, `mcp`, `claude-code`, `codex` and `cli`.
+
+**The graph:** no LLM was needed for 14 of the 22 changed docs.
+- The 10 rule-changed plans' cache entries were moved with the same rules file (`rekey_cache.py`).
+- The spec, the visual page, docs-tooling and the guide's start page had small edits. Their old entries were carried over, stale labels were patched (such as "PR #8" becoming "merged in 31fd665"), and a few hand-written nodes were added for the new facts.
+- Only the 8 new or rewritten docs were extracted.
+
+**Verification (1aa5cab, then again after the fixes):**
+- **Checks:** the BOM scan, format and `analyze --fatal-infos` are clean; dependency_validator and `dart doc --dry-run` are clean.
+- **Tests:** tooling 225, protocol 57, lints 19, CLI 44, engine 736 (6 skipped).
+- **Docs:** `gen_docs` is up to date, and the guide check passes.
