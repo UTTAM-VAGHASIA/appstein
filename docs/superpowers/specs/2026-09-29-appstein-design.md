@@ -490,7 +490,7 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 | `feature` | feature name | Everything in that feature: screens, view models, repositories, services, models, routes, tests |
 | `route` | path; a concrete path matches a pattern (`/book/42` → `/book/:id`) | Screen, feature, parent, nested routes, and whether it redirects (the map records that a route redirects, not where to) |
 | `check_api` | a name: `WillPopScope`, `withOpacity`, `Color.withOpacity`, `Text.new(textScaleFactor)` | `removed` (with its migration), `deprecated` (with the replacement and the library's own deprecation text) or `ok`, plus the curated notes whose `avoid` names it, each with its source. `ok` means nothing the project imports deprecates or removes it; whether it exists isn't checked (the Dart MCP server's analyzer does that) |
-| `what_changed` | optional `since` version | The entries of `delta.json`; `since` narrows the curated notes |
+| `what_changed` | optional `since` version; optional `library` (e.g. `package:go_router`) | The curated notes since `since` (`since` narrows only the notes), and per library the number of deprecated, removed and moved APIs in `delta.json`; with `library`, that library's entries in full. `check_api` answers for one name |
 | `toolchain` | – | Valid native version set for this SDK, the project's current values from `native.json`, and mismatches (below) |
 | `package_check` | package name [+ version] | Exists? discontinued? latest version, last publish, publisher (verified?), Flutter Favorite, SwiftPM support, built-in-Kotlin readiness, advisories, **verdict** (`ok` / `warn` / `block`) + reasons |
 | `decisions` / `record_decision` | topic / record | Read or write layer 3 |
