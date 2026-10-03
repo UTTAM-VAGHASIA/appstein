@@ -48,6 +48,13 @@ milestones:
             plan: 2026-10-01-slice-1a4-progress.md
             pr: 6
             finished: 2026-10-01
+          # 1a.5 came after 1b.7 (2026-10-03): the repo went public and
+          # open source, so it needed a license and community files first.
+          - id: 1a.5
+            title: Public-ready repo
+            summary: The Apache-2.0 license, contributing and security guides, issue and PR templates, and slices merged in the old private repo shown by their merge commit.
+            status: next
+            tooling: true
       - id: 1b
         title: Knowledge layers 1–2
         summary: What an agent needs to know about the SDK, the native toolchain and the project, written into `.appstein/`.
@@ -108,7 +115,7 @@ milestones:
           - id: 1b.8
             title: Package skills
             summary: "`sync` runs `dart run skills@ get` when `pubspec.yaml` or `pubspec.lock` changes, and warns when it can't."
-            status: next
+            status: planned
       - id: 1c
         title: MCP server
         summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.

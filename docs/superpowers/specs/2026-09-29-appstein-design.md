@@ -38,8 +38,8 @@ The long-term goal is a full agentic harness: first a single-agent pipeline, the
 - Brand only on the Einstein pun, for example a messy-hair logo, a chalkboard style, or the line *"Apps = mc²"*. The name must never be tied to any other association in public material, README jokes or commit messages.
 - **Never use Albert Einstein's name, image or signature.** His estate licenses and enforces them.
 - Salesforce has an AI product called "Einstein"; keep our identity clearly separate.
-- Run a trademark check and a domain check before the first public release.
-- Appstein is open source. Whether a paid Pro tier is added later is decided after M1, when the benchmark results are known (§22).
+- Run a trademark check and a domain check before the first published release (pub.dev or GitHub Releases). The public repo alone is not a release.
+- Appstein is open source under the Apache License 2.0. A paid Pro tier may be added later as separate, closed code; whether to add one is decided after M1, when the benchmark results are known (§22).
 
 ---
 
@@ -931,7 +931,7 @@ The benchmark lives in `benchmark/`.
 
 - **Install:** `dart pub global activate appstein` (pub.dev), or a standalone binary from GitHub Releases. Hooks use the compiled executable, and `doctor` tells the user if only the pub snapshot is available.
 - **Versioning:** Appstein follows semver. `appstein_protocol` carries its own version, and `.appstein/` files record the format version so `upgrade` can migrate them.
-- **License:** an open-source license, chosen before the first public release (§22).
+- **License:** the Apache License 2.0 (`LICENSE` at the repo root). Contributions are accepted under the same license (Apache-2.0 §5), with no CLA. Each package gets its own copy of `LICENSE` when it is first published to pub.dev.
 
 ### 19.6 Documentation for humans working on Appstein
 
@@ -987,7 +987,7 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 2. Move `docs/superpowers/specs/2026-09-29-appstein-design.*`, `reports/` and `research_notes/` into the new repo's `docs/`.
 3. Set up graphify in the new repo before writing code.
 4. Archive the old `fluttercraft` repo with a README pointing to Appstein. The uncommitted work on `feature/v0.1.3-tui` stays there for reference; nothing is carried over as code.
-5. Add a deprecation note to the PyPI `fluttercraft` project page pointing to Appstein, at the first public release.
+5. Add a deprecation note to the PyPI `fluttercraft` project page pointing to Appstein, at the first published release.
 
 ---
 
@@ -1012,8 +1012,8 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 | 7 | Open Flutter bugs (e.g. #192167, #192111) affect "valid" toolchains | Recorded as curated notes that steer `create` and `toolchain()` |
 | 8 | Vide (competitor) evolves | Re-assess before M2; our edge is knowledge + verification + multi-agent support |
 | 9 | Antigravity CLI terms not researched | Research before supporting it (post-M1) |
-| 10 | "Appstein" trademark/domain; Einstein-estate sensitivity | Trademark + domain check before the first public release; pun-only branding |
-| 11 | Open-source license; a possible Pro tier | Choose the license before the first public release; decide on Pro after the M1 benchmark |
+| 10 | "Appstein" trademark/domain; Einstein-estate sensitivity | Trademark + domain check before the first published release (pub.dev or GitHub Releases); pun-only branding |
+| 11 | A possible Pro tier | License decided: Apache-2.0 (2026-10-03). Decide on Pro after the M1 benchmark; Pro would be separate, closed code, and the core stays Apache-2.0 |
 | 12 | Routes or native values that can't be resolved statically | Marked `unresolved` / `unknown`, never guessed; improve in later slices |
 | 13 | Real iOS builds impossible on Windows | Static checks locally; real builds on macOS CI |
 | 14 | Minimum supported Flutter version | **Flutter 3.44+** (Dart 3.12, required by the current Dart MCP server; SwiftPM default). Confirmed in slice 1a: CI's `min-sdk` job passes on the newest 3.44 patch (3.44.9 at the time) |
