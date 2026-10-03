@@ -7124,7 +7124,7 @@ Run 2 is the one to trust. Its script asserts that `layer_imports` fired on a ca
 - **CI confirms the decision (c).** Cold single-file analysis took 9.2 s on Linux and 12.1 s on Windows with the plugin. **Even without the plugin, it took 7.9 s and 5.7 s.** So analysis-server start-up alone misses the 5 s budget, and removing or speeding up the plugin can't rescue cold analysis. The plugin's share varies by machine (Linux about 1.2 s, the Windows runner about 6.4 s, the development machine about 12 s), so (b) is still worth doing.
 
 **Notes from execution:**
-- **CI trigger.** ci.yml runs on pushes to `main`, on pull requests and on demand. GitHub never registered the workflow from a `slice-1a`-only push, so CI ran through draft PR #1 (`slice-1a` → `main`). The guide's "every push" wording was fixed.
+- **CI trigger.** ci.yml runs on pushes to `main`, on pull requests and on demand. GitHub never registered the workflow from a `slice-1a`-only push, so CI ran through draft PR #1 in the old private repo (`slice-1a` → `main`). The guide's "every push" wording was fixed.
 - **`startup_check` on Windows.** `Process.run('build/appstein.exe')` fails on Windows: a relative path with forward slashes can't be started. The script now resolves the argument to an absolute path. Without that, the Windows `build` job would have failed.
 - **POSIX-only test failure.** The fake SDK's `bin/flutter` lacked the executable bit, so the PATH-lookup test failed on Linux and macOS (and in `min-sdk`). The fix was in the test support only.
 - **Measure output.** Job summaries can't be read through `gh` or the API, so the measure step now also `tee`s its table into the log.

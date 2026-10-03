@@ -15,7 +15,7 @@
 
 **Tech Stack:** Dart 3.12+ (Flutter 3.47.5 via FVM), `package:analyzer` 14.4.0 (now pinned exactly), `package:crypto`, `package:path`, `package:test`. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. This plan implements, as edited in commit `e1fab90` (owner-approved):
+**Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. This plan implements, as edited in commit `9351601` (owner-approved):
 - §5.3: `appstein sync [--detect]`; `--changed` was dropped;
 - §5.4: `--detect` stops when nothing changed, otherwise rebuilds with the analyzer cache, and records the changed files for `verify --fast`;
 - §6.2:
@@ -3958,20 +3958,20 @@ Then merge by the owner's PR flow and delete the branch.
 
 Run on 2026-10-03 on the branch `slice-1b7`. It was subagent-driven, with one implementer and one reviewer per task, never more than 3 agents at once, and Opus for the riskiest reviews.
 - Subagents never committed. The controller staged each task, reviewed the staged diff against the task's base, and committed after the review, behind the BOM byte gate.
-- Spec edits: `e1fab90` (owner-approved). Plan: `b059596`.
+- Spec edits: `9351601` (owner-approved). Plan: `2bef7c5`.
 
 **How it ran**
 
 | Commit | What | Review |
 |---|---|---|
-| `0787ad0` | Task 1: linear `readFeatures`, the `featureOf` index, 3 `checkPackages` tests | clean |
+| `f579e3a` | Task 1: linear `readFeatures`, the `featureOf` index, 3 `checkPackages` tests | clean |
 | `3014111` | Task 2: the analyzer cache file, analyzer pinned to 14.4.0 | clean |
-| `e7a96a6` | Task 3: map inputs with local packages | clean |
-| `7f5483c` | Task 4: sync uses the cache; the guard and retry | clean |
-| `e470228` | Task 5: freshness, `state.json`, `detect` | 1 fix round (Opus review): the map inputs were read **after** the analysis. A file edited during a sync was then recorded with its new hash over an old map, and later detects answered "current". They are now read before the analysis, and a test edits a file mid-sync through the `deltaCollector` seam |
-| `c6a3e51` | Task 6: CLI `--detect` | clean |
-| `fd5756f` | Task 7: `measure_sync` in fresh processes | clean |
-| `da2c5f2` | Task 8: docs | 1 fix round: "four new keys" should have been three, and the reasons table missed `state.json is in format N` |
+| `8851500` | Task 3: map inputs with local packages | clean |
+| `0a20ad2` | Task 4: sync uses the cache; the guard and retry | clean |
+| `e98afed` | Task 5: freshness, `state.json`, `detect` | 1 fix round (Opus review): the map inputs were read **after** the analysis. A file edited during a sync was then recorded with its new hash over an old map, and later detects answered "current". They are now read before the analysis, and a test edits a file mid-sync through the `deltaCollector` seam |
+| `cd23d0b` | Task 6: CLI `--detect` | clean |
+| `7c6a1de` | Task 7: `measure_sync` in fresh processes | clean |
+| `48f9285` | Task 8: docs | 1 fix round: "four new keys" should have been three, and the reasons table missed `state.json is in format N` |
 | `9159235` | Final-review fix wave | scoped re-review: F1–F9 all addressed |
 
 **The final whole-branch review** (Opus) found the design sound. It also found a Critical and an Important hole in the same function. Both would have let `--detect` answer "current" over a stale map:

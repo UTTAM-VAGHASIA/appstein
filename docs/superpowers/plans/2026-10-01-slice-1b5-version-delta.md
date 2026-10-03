@@ -17,7 +17,7 @@
 **Tech Stack:** Dart 3.12+ (Flutter 3.47.5 via FVM), `package:analyzer` 14.4 (element model and export namespaces), `package:yaml`, `package:path`, `package:test`.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. This plan implements:
-- §6.4 as edited in commit `3e123a5` (owner-approved E1–E7): three sources, the baseline limiting only the notes, filtering by what the imports expose, removed APIs, and the notes-only fallback;
+- §6.4 as edited in commit `81ce50e` (owner-approved E1–E7): three sources, the baseline limiting only the notes, filtering by what the imports expose, removed APIs, and the notes-only fallback;
 - §6.2: `delta.md` and Markdown metadata in front matter;
 - §5.2: the `delta/` component;
 - §15: determinism, Windows paths, offline, and the 30 s full-sync target.
@@ -3552,7 +3552,7 @@ Run `/graphify . --update` until `tool/check_graph.py` reports nothing, with at 
 
 ## Notes from execution (2026-10-02)
 
-Executed in quick subagent-driven mode, with at most 3 subagents at once. There was a task review after each task, then a final whole-branch review on Opus, one fix wave, and a scoped re-review. PR #9.
+Executed in quick subagent-driven mode, with at most 3 subagents at once. There was a task review after each task, then a final whole-branch review on Opus, one fix wave, and a scoped re-review. PR #9 in the old private repo.
 
 **Pre-flight scan.** A read-only agent ran this plan's own code on Dart 3.13.4 and analyzer 14.4 before Task 1. The expected lists, error lines and golden all matched. Six conflicts were ruled on before dispatch:
 - **C1:** `case` isn't allowed in a conditional expression, so `writeAll` uses if-case.

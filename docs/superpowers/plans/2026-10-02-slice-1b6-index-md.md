@@ -18,7 +18,7 @@
 **Tech Stack:** Dart 3.12+ (Flutter 3.47.5 via FVM), `package:yaml`, `package:path`, `package:test`. No new dependencies.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. This plan implements:
-- §6.3 as edited in commit `5353e1c` (owner-approved): the eight sections and where each part comes from, the budget rule (UTF-8 bytes ÷ 3, so 4,500 bytes), the cut order, and the generated time kept in the front matter;
+- §6.3 as edited in commit `778fa6f` (owner-approved): the eight sections and where each part comes from, the budget rule (UTF-8 bytes ÷ 3, so 4,500 bytes), the cut order, and the generated time kept in the front matter;
 - §6.2: `INDEX.md` is generated and git-ignored, and carries its metadata in front matter;
 - §4 principle 5: only `INDEX.md` is always loaded;
 - §15: determinism and Windows paths.
@@ -2453,18 +2453,18 @@ Then merge by the owner's PR flow and delete the branch.
 
 ## Notes from execution
 
-Run on 2026-10-02 on the branch `slice-1b6`. It was subagent-driven, with one implementer and one reviewer per task, and never more than 3 agents at once. Subagents never committed; the controller committed each task after its review, behind the BOM byte gate. PR #11.
+Run on 2026-10-02 on the branch `slice-1b6`. It was subagent-driven, with one implementer and one reviewer per task, and never more than 3 agents at once. Subagents never committed; the controller committed each task after its review, behind the BOM byte gate. PR #11 in the old private repo.
 
 **How it ran**
 
 | Commit | What | Review |
 |---|---|---|
-| `33dac2b` | Task 1: `index_sources.dart` | clean; 3 minor findings deferred |
-| `de2e4bb` | Task 2: `index_document.dart`, `needsNewerLanguage` public | 1 fix round: the cut-order and keep-newest-decisions rules were only loosely pinned, so a step-by-step cut-order test and a partial-decisions test were added |
-| `6bd7a05` | Task 3: `KnowledgeSync._index` | clean |
+| `2042334` | Task 1: `index_sources.dart` | clean; 3 minor findings deferred |
+| `877d51b` | Task 2: `index_document.dart`, `needsNewerLanguage` public | 1 fix round: the cut-order and keep-newest-decisions rules were only loosely pinned, so a step-by-step cut-order test and a partial-decisions test were added |
+| `b386f8c` | Task 3: `KnowledgeSync._index` | clean |
 | `4585951` | Task 4: guide pages (`index-md.md` new; knowledge-store, version-delta, architecture, README) | clean; 4 wording minors deferred |
-| `00e1069` | Final-review fixes | re-review: all addressed |
-| `f942d06` | The owner's cut-order change (spec §6.3) | clean |
+| `8ed222e` | Final-review fixes | re-review: all addressed |
+| `7d0395f` | The owner's cut-order change (spec §6.3) | clean |
 
 **The final whole-branch review** (most capable model) found the core sound:
 - the budget math is exact;
@@ -2472,7 +2472,7 @@ Run on 2026-10-02 on the branch `slice-1b6`. It was subagent-driven, with one im
 - the output is deterministic;
 - nothing in the project's files can make sync throw.
 
-It asked for these fixes before merge, all done in `00e1069`:
+It asked for these fixes before merge, all done in `8ed222e`:
 - a decision file or `current.md` saved with a UTF-8 BOM, which Windows PowerShell 5.1 writes, was listed as "unreadable (it has no front matter)". A leading BOM is now stripped, as the rest of the codebase already does;
 - an id with `${VAR}` or `$VAR` was shown as a real id. Any `$` now makes it `unknown` (§6.5);
 - the notes cut now ends `; ask \`what_changed()\`.`, like the other cuts (§6.3);

@@ -18,7 +18,7 @@
 **Tech Stack:** Dart 3.12+ (Flutter 3.47.5 via FVM), `package:xml` ^6.6.1 (new; the version `flutter_tools` itself pins), `package:yaml`, `package:pub_semver`, `package:path`, `package:test`.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. This plan implements:
-- §6.5 "Native config" and "Resolution", as edited in commit `e43726c` (owner-approved E1–E5);
+- §6.5 "Native config" and "Resolution", as edited in commit `b511c72` (owner-approved E1–E5);
 - §6.2: `map/native.json` and its metadata;
 - §10: platform packs and `nativeExtractor`;
 - §15: determinism, Windows paths, offline, and the 30 s full-sync target.
@@ -7065,7 +7065,7 @@ Run `/graphify . --update` until `tool/check_graph.py` reports nothing, with at 
 
 ## Notes from execution (2026-10-02)
 
-Executed in quick subagent-driven mode, with at most 3 subagents at once. Every task had a task review (Opus for the readers, the section builders and the seam), then came a final whole-branch review on Opus, one fix wave, a scoped re-review, and one more ruled round (below). PR #10.
+Executed in quick subagent-driven mode, with at most 3 subagents at once. Every task had a task review (Opus for the readers, the section builders and the seam), then came a final whole-branch review on Opus, one fix wave, a scoped re-review, and one more ruled round (below). PR #10 in the old private repo.
 
 **Pre-flight scan.** It found no conflicts between tasks. One ruling: each task is committed right after its implementer reports, and fixes land as follow-up commits, so the review script can diff commits while subagents never commit.
 

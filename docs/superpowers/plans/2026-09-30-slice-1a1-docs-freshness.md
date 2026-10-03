@@ -3342,7 +3342,7 @@ The post-commit hook runs the docs check on this commit and must print nothing.
 
 ## Notes from execution (2026-09-30)
 
-Executed subagent-driven. The controller committed every task; each task had a spec-and-quality review, and the whole branch had a final review plus one fix wave. Commits: b7fa659 (spec and plan) through bf2c821 (final fixes).
+Executed subagent-driven. The controller committed every task; each task had a spec-and-quality review, and the whole branch had a final review plus one fix wave. Commits: 071d63e (spec and plan) through 2e20b29 (final fixes).
 
 **What differed from the plan:**
 - **`firstParagraph`** leaves `[x]` inside backtick code alone (Task 4 fix). The plan's regex would have broken a table cell for a doc comment containing `list[0]`.
