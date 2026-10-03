@@ -38,6 +38,23 @@ List<GuideProblem> checkProgress(String repoRoot, Progress progress) => [
   ..._checkSpec(repoRoot, progress),
 ];
 
+/// Checks that every `merge` commit in [progress] is in the repo, using
+/// [hasCommit] (spec §19.6). A mistyped ID would link the visual page to a
+/// commit that doesn't exist. Slices with a `pr` aren't looked up.
+List<GuideProblem> checkMerges(
+  Progress progress,
+  bool Function(String rev) hasCommit,
+) => [
+  for (final slice in progress.allSlices)
+    if (slice.merge case final merge? when !hasCommit(merge))
+      GuideProblem(
+        progressFile,
+        slice.line,
+        'Slice ${slice.id}: merge $merge is not a commit in this repo. A '
+        'shallow clone lacks old commits; run git fetch --unshallow.',
+      ),
+];
+
 List<GuideProblem> _checkPlans(String repoRoot, Progress progress) {
   final problems = <GuideProblem>[];
   final owners = <String, List<Slice>>{};

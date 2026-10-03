@@ -228,4 +228,33 @@ void main() {
       expect(specMilestones('# Spec\n'), isNull);
     });
   });
+
+  group('checkMerges', () {
+    late Progress record;
+
+    setUp(() {
+      record = progressOf(_progress.replaceFirst('pr: 1', 'merge: 758c535'));
+    });
+
+    test('a merge commit in the repo is fine', () {
+      expect(checkMerges(record, (rev) => rev == '758c535'), isEmpty);
+    });
+
+    test('a merge commit not in the repo is a problem', () {
+      expect(checkMerges(record, (rev) => false).map((p) => '$p'), [
+        'docs/superpowers/progress.yaml:7: Slice 1a: merge 758c535 is not a '
+            'commit in this repo. A shallow clone lacks old commits; run git '
+            'fetch --unshallow.',
+      ]);
+    });
+
+    test('slices with a pr are not looked up', () {
+      final looked = <String>[];
+      checkMerges(progressOf(_progress), (rev) {
+        looked.add(rev);
+        return false;
+      });
+      expect(looked, isEmpty);
+    });
+  });
 }

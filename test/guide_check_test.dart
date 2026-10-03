@@ -33,6 +33,63 @@ void main() {
     );
   });
 
+  group('merge commits in progress.yaml', () {
+    // Quoted: a short commit id can be all digits, which YAML reads as a
+    // number.
+    String progressWith(String merge) =>
+        '''
+repository: https://github.com/owner/repo
+milestones:
+  - id: M1
+    title: F
+    summary: S
+    slices:
+      - id: 1a
+        title: W
+        summary: S
+        status: done
+        plan: p.md
+        merge: '$merge'
+        finished: 2026-09-30
+''';
+
+    late Directory repo;
+
+    setUp(() {
+      repo = tempRepo();
+      writeFile(repo, 'docs/guide/README.md', '<!-- covers: none -->\n# G\n');
+      runGit(repo, ['add', '.']);
+      runGit(repo, ['commit', '-q', '-m', 'first']);
+    });
+
+    test('a merge commit that is not in the repo is reported', () async {
+      writeFile(
+        repo,
+        'docs/superpowers/progress.yaml',
+        progressWith('abcdef0'),
+      );
+      final problems = await checkGuide(repo.path);
+      expect(
+        problems.map((problem) => '$problem'),
+        contains(
+          'docs/superpowers/progress.yaml:7: Slice 1a: merge abcdef0 is not a '
+          'commit in this repo. A shallow clone lacks old commits; run git '
+          'fetch --unshallow.',
+        ),
+      );
+    });
+
+    test('a merge commit in the repo is not reported', () async {
+      final head = runGit(repo, ['rev-parse', '--short=7', 'HEAD']).trim();
+      writeFile(repo, 'docs/superpowers/progress.yaml', progressWith(head));
+      final problems = await checkGuide(repo.path);
+      expect(
+        problems.map((problem) => '$problem'),
+        isNot(contains(contains('merge'))),
+      );
+    });
+  });
+
   group('the stale-page check, end to end', () {
     const page = 'docs/guide/README.md';
     const pageText = '<!-- covers: tool/a.dart -->\n# G\n';
