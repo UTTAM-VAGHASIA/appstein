@@ -141,9 +141,11 @@ String _printedName(String agent) => agent == 'codex' ? 'generic' : agent;
 ///
 /// package:skills exits 0 on most errors (an unknown agent, a failed
 /// `pub get`, a usage error), so a run worked only when it exited 0 and
-/// printed `Installed N skill(s) for <agent> at …` for every agent, N being
-/// 0 when no package ships skills. The reason quotes the first 10 lines of
-/// what it printed.
+/// either printed `Installed N skill(s) for <agent> at …` for every agent
+/// (N is 0 when it only pruned the skills of a removed package), or printed
+/// the line `No skills found.`, which it does, and stops, when no
+/// dependency ships skills. The reason quotes the first 10 lines of what it
+/// printed.
 String? packageSkillsFailure(RunResult result, List<String> agents) {
   if (!result.started) {
     return 'Dart could not be started (${result.stderr.trim()})';
@@ -159,6 +161,8 @@ String? packageSkillsFailure(RunResult result, List<String> agents) {
     return 'it failed with exit code ${result.exitCode}${_quote(printed)}';
   }
   final lines = const LineSplitter().convert(result.stdout);
+  // Most apps: nothing to install, for any agent.
+  if (lines.any((line) => line.trim() == 'No skills found.')) return null;
   final missing = [
     for (final agent in agents)
       if (!lines.any(

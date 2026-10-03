@@ -29,7 +29,7 @@
 
 Read from the package:skills 1.0.3 source (dart-lang/ai, `pkgs/skills`) and a real run of `skills@1.0.3` on Windows (Flutter 3.47.5's `dart.bat`, stdin not a terminal):
 
-- The success line, once per agent, even when nothing ships skills: `Installed 1 skill(s) for claude at .claude/skills.` and `Installed 0 skill(s) for generic at .agents/skills.` Codex is printed as `generic` (`--agent codex` is an alias of `generic`, `agent.dart:31`). Each installed skill also prints a line like `  [claude] Installed skill-pkg-demo`.
+- The success line, once per agent: `Installed 1 skill(s) for claude at .claude/skills.` and `Installed 0 skill(s) for generic at .agents/skills.` **Corrected after the final review:** when no dependency ships skills, it prints only `No skills found.` and exits 0, before installing (`get_skills.dart:184-190`); the `Installed 0` lines appear only when it pruned a removed package's skills. Codex is printed as `generic` (`--agent codex` is an alias of `generic`, `agent.dart:31`). Each installed skill also prints a line like `  [claude] Installed skill-pkg-demo`.
 - `--agent nosuch` prints `"nosuch" is not an allowed value for option "--agent".`, then the usage text, and **exits 0**.
 - `get` without `--all` prints `Rerun with \`--skill <name>\`, or \`--all\` …`, installs nothing, and exits 0.
 - With no `.dart_tool/package_config.json`, it runs `dart.exe pub get` with the **PATH** Dart (3.4.1 on the owner's machine), which fails; it prints `Failed to run pub get.` and the usage text, and **exits 0**.

@@ -19,9 +19,13 @@ const _claudeOnly =
     '  [claude] Installed skill-pkg-demo\n'
     'Installed 1 skill(s) for claude at .claude/skills.\n';
 
-const _nothingShipped =
+/// After a package that shipped skills was removed: its skills are pruned.
+const _removedPackage =
     'Installed 0 skill(s) for claude at .claude/skills.\n'
     'Installed 0 skill(s) for generic at .agents/skills.\n';
+
+/// When no dependency ships skills (most apps): it stops before installing.
+const _noSkillsFound = 'No skills found.\n';
 
 const _badAgent =
     '"nosuch" is not an allowed value for option "--agent".\n'
@@ -194,13 +198,41 @@ void main() {
       );
     });
 
-    test('installing nothing still worked: no package ships skills', () {
+    test('installing nothing after a package was removed worked', () {
       expect(
         packageSkillsFailure(
-          const RunResult(exitCode: 0, stdout: _nothingShipped),
+          const RunResult(exitCode: 0, stdout: _removedPackage),
           ['claude', 'codex'],
         ),
         isNull,
+      );
+    });
+
+    test('no dependency shipping skills worked: nothing to install', () {
+      expect(
+        packageSkillsFailure(
+          const RunResult(exitCode: 0, stdout: _noSkillsFound),
+          ['claude', 'codex'],
+        ),
+        isNull,
+      );
+      // Only on a clean exit, and only as the whole line.
+      expect(
+        packageSkillsFailure(
+          const RunResult(exitCode: 1, stdout: _noSkillsFound),
+          ['claude'],
+        ),
+        startsWith('it failed with exit code 1'),
+      );
+      expect(
+        packageSkillsFailure(
+          const RunResult(
+            exitCode: 0,
+            stdout: 'No skills found in the given source package:x.\n',
+          ),
+          ['claude'],
+        ),
+        startsWith('it did not report installing skills for claude'),
       );
     });
 

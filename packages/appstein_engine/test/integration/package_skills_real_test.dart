@@ -82,4 +82,44 @@ void main() {
     expect(PackageSkillsRecord.read(app)?.succeeded, isTrue);
     expect(await refresh(), isNull);
   }, timeout: const Timeout(Duration(minutes: 4)));
+
+  test('a project whose dependencies ship no skills is refreshed, not a '
+      'failure, and a second refresh runs nothing', () async {
+    final sdk = machineSdk(environment);
+    if (sdk == null) return;
+    final app = p.join(tempDir().path, 'plain äpp');
+    File(p.join(app, 'pubspec.yaml'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('name: plain_app\nenvironment:\n  sdk: ^3.10.0\n');
+    Directory(p.join(app, '.claude')).createSync();
+    final flutterRoot = sdk.location!.root;
+    const runner = SystemProcessRunner();
+    final fetch = await fetchPackages(
+      app,
+      flutterRoot: flutterRoot,
+      os: environment.os,
+      runner: runner,
+    );
+    expect(fetch, isNull, reason: 'flutter pub get: $fetch');
+
+    Future<PackageSkillsReport?> refresh() =>
+        PackageSkills(runner: runner, os: environment.os).refresh(
+          app,
+          flutterRoot: flutterRoot,
+          configuredAgents: const ['claude', 'codex'],
+          pubspecHash: 'p',
+          lockHash: 'l',
+          packagesReady: true,
+          retryFailure: true,
+        );
+
+    final first = await refresh();
+    expect(
+      first?.outcome,
+      PackageSkillsOutcome.refreshed,
+      reason: first?.reason,
+    );
+    expect(PackageSkillsRecord.read(app)?.succeeded, isTrue);
+    expect(await refresh(), isNull);
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

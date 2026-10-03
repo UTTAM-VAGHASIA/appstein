@@ -42,7 +42,7 @@ A run is due when the **record** says the inputs changed. The record is [`Packag
 - **The version is pinned exactly** and moves with Appstein releases. `dart run pkg@version` needs Dart 3.12, which every supported Flutter (3.44 and later) has.
 - **`--all`**, because without a terminal `get` only lists what it would install. `--all` also recopies every skill package:skills manages, so local edits to those skills are lost, and it deletes the skills of packages that were removed.
 - **The time limit** is 120 s (`packageSkillsTimeout`); the run is then stopped and counts as failed.
-- **The packages first.** When package:skills finds no `.dart_tool/package_config.json`, it runs `dart pub get` itself, with the `dart` on PATH. So `refresh` doesn't run when the sync couldn't fetch the packages (`packagesReady`); that is a failure with the reason "the packages could not be fetched".
+- **The packages first.** When package:skills finds no `.dart_tool/package_config.json`, it runs `pub get` itself, with the `flutter` (for a Flutter project) or `dart` on PATH, which may be another SDK. So `refresh` doesn't run when the sync couldn't fetch the packages (`packagesReady`); that is a failure with the reason "the packages could not be fetched".
 
 ## Judging a run
 
@@ -52,7 +52,12 @@ package:skills exits 0 on most errors. A real run of 1.0.3 showed it:
 - a failed internal `pub get` prints `Failed to run pub get.` and the usage text, and exits 0;
 - pub.dev unreachable exits 255.
 
-So [`packageSkillsFailure`](../../packages/appstein_engine/lib/src/skills/package_skills.dart) counts a run as working only when it exited 0 **and** printed `Installed N skill(s) for <agent> at …` for every agent it was given. It prints that line even when N is 0 (no package ships skills), and it prints Codex as `generic`, the agent `--agent codex` is an alias of. Otherwise the reason says what happened and quotes the first 10 lines of output.
+So [`packageSkillsFailure`](../../packages/appstein_engine/lib/src/skills/package_skills.dart) counts a run as working only when it exited 0 **and** printed one of:
+
+- the line `No skills found.`: no dependency ships skills, which is most apps today. package:skills stops there, before installing anything;
+- `Installed N skill(s) for <agent> at …` for every agent it was given. N is 0 when it only removed the skills of a package that left the dependencies. It prints Codex as `generic`, the agent `--agent codex` is an alias of.
+
+Otherwise the reason says what happened and quotes the first 10 lines of output. (The first version of this check missed `No skills found.`, which would have warned on every full sync of most apps; the final review caught it, and the integration test now runs a project with no skills.)
 
 ## Two syncs at once
 
@@ -64,9 +69,9 @@ Besides its record, package:skills itself writes:
 
 - the agent skill folders above, and `.config/dart_skills/skills_config.json`, its list of what it installed; both are committed (spec §6.2's git table);
 - `.dart_tool/skills/`, its cache;
-- `dart_skills/global_config.json` in the user's application-data folder (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` or `~/.config` on Linux), rewritten on every run. It is that tool's own bookkeeping, not agent config or credentials, and it offers no way to skip it (spec §6.6).
+- `dart_skills/global_config.json` in the user's application-data folder (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` or `~/.config` on Linux), rewritten on every run that finds skills to install (a `No skills found.` run stops before it). It is that tool's own bookkeeping, not agent config or credentials, and it offers no way to skip it (spec §6.6).
 
-It also sends the package names and versions to osv.dev to check for advisories.
+It also sends the package names and versions to osv.dev to check for advisories. And `get --all` also installs skills from the git repositories listed in that global file and in the project's `.config/dart_skills/skills_config.json`, running `git` to fetch them; repositories a user added globally reach every project Appstein syncs. Appstein adds none.
 
 ## What sync prints
 
