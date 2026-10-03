@@ -205,17 +205,6 @@ jobs:
         # `tee` also puts the table in the log, which `gh run view --log` can
         # read; job summaries aren't available through the CLI or API.
         run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
-      # Experiment (slice 1b.7): Windows runners took 0.6-1.2 s to write the
-      # 57 MB analyzer cache, against 0.04 s on a developer's Windows machine.
-      # If Defender's scanning is the cost, excluding the measured app's
-      # temporary folder brings it down; the status shows whether it is on.
-      - name: Let Defender skip the measured app's folder (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Get-MpComputerStatus | Select-Object AMServiceEnabled, RealTimeProtectionEnabled, OnAccessProtectionEnabled | Format-List
-          Add-MpPreference -ExclusionPath $env:TEMP, "$env:USERPROFILE\AppData\Local\Temp"
-          (Get-MpPreference).ExclusionPath
       - name: Measure a full sync and sync --detect (spec §15)
         shell: bash
         run: dart run tool/measure_sync.dart | tee -a "$GITHUB_STEP_SUMMARY"

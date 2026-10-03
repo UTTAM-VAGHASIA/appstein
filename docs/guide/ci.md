@@ -90,8 +90,7 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 2. `subosito/flutter-action@v2`
 3. `dart pub get --enforce-lockfile`
 4. Measure cold analysis with the plugin (spec §9.1)
-5. Let Defender skip the measured app's folder (Windows)
-6. Measure a full sync and sync --detect (spec §15)
+5. Measure a full sync and sync --detect (spec §15)
 
 <!-- /generated:ci-jobs -->
 
