@@ -4,6 +4,8 @@
 
 This guide is for people working on Appstein's code without an agent. It explains how the code works **now**, and each page is written in the slice that builds what it describes. For *what* was decided and *why*, read the [design spec](../superpowers/specs/2026-09-29-appstein-design.md); this guide is the current system, and it links to the spec instead of repeating it.
 
+Contributing from outside? Read [CONTRIBUTING.md](../../CONTRIBUTING.md) first.
+
 ## Set up
 
 1. Install [FVM](https://fvm.app). The repo pins Flutter 3.47.5 in `.fvmrc`.
