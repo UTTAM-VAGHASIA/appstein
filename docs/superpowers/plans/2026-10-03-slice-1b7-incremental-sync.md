@@ -4024,3 +4024,12 @@ It also made the remaining cache and hook paths safer:
 - **Two comments** (`map_inputs.dart`, `incremental-sync.md`) say the analyzer skips an unresolvable folder "too". In fact the analyzer stops reading the rest of that folder's parent, so the inputs hash a superset. The direction is safe; only the wording is inexact.
 - **Two tests** (the platform packs, the decision rebuild) don't assert that the middle detect is current. Only the last one is checked.
 - **The chmod test** for an unreadable folder runs only on POSIX, so CI's Linux job runs it first.
+
+**After the PR: the first CI runs (2026-10-03)**
+
+The 2 s `--detect` target never ran on CI before this slice: the old private repo's PR #12 started no jobs (the Actions minutes had run out), and the repo was recreated public. In the public repo, Windows CI missed it (1.7–4.9 s) while Linux CI (1.2 s) and the development machine (1.1 s) met it.
+- **Step timings first:** every sync now times its steps (`SyncReport.timings`, the hidden `sync --timings`), and `measure_sync` prints where the time went. On Windows, writing the 57 MB analyzer cache took 0.6–3.8 s (Linux 0.03 s).
+- **Two wrong theories, both reverted:** saving the cache without a flush (no faster), and Defender scanning (real-time protection is off on the runners). A web search first would have found the cause at once.
+- **The cause:** GitHub's standard Windows runners keep the checkout and `RUNNER_TEMP` on D:, a fast local disk, and the system temp folder on C:, a slow remote disk ([actions/runner-images#8755](https://github.com/actions/runner-images/issues/8755)). `measure_sync` made its apps in the system temp folder. With `--work "$RUNNER_TEMP"` the cache's write took 66 ms, and an edit's detect 1.59 s.
+- **Detect rows are the median of three runs** (owner decision): one slow run must not fail the target.
+- **Carried:** an edit still rewrites the whole 57 MB cache. Saving only the new entries would help users on slow disks; it is a design change for a later slice.
