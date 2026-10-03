@@ -4,7 +4,7 @@
 
 **Goal:** Whenever a git operation makes graphify's code rebuild drop a doc's semantic nodes, put them back from graphify's cache by themselves, with no LLM and no manual step, whoever runs git.
 
-**Why this slice exists (the incident, 2026-10-01):** merging PR #4 with `gh pr merge --delete-branch` switched the checkout from `slice-1b1` to the *old* local `main`, which lacked files that were new on the branch, then pulled. graphify's `post-checkout` hook started a background code rebuild on the old `main`. graphify's `_reconcile_existing_graph` drops the nodes of any non-code source that isn't on disk, so the 1b.1 plan's semantic nodes (and the new code files' nodes) were pruned. The pull brought the files back, and our `post-merge` block replayed graphify's rebuild, which restored the code. But a hook can't rebuild semantic doc nodes (that needs an LLM), so the plan stayed "missing from the graph", although its extraction was still in graphify's cache. `tool/check_graph.py` (slice 1a.2) caught it, and the controller repaired it by hand by re-merging the cached extraction. The owner wants this never to need manual action again.
+**Why this slice exists (the incident, 2026-10-01):** merging PR #4 (in the old private repo) with `gh pr merge --delete-branch` switched the checkout from `slice-1b1` to the *old* local `main`, which lacked files that were new on the branch, then pulled. graphify's `post-checkout` hook started a background code rebuild on the old `main`. graphify's `_reconcile_existing_graph` drops the nodes of any non-code source that isn't on disk, so the 1b.1 plan's semantic nodes (and the new code files' nodes) were pruned. The pull brought the files back, and our `post-merge` block replayed graphify's rebuild, which restored the code. But a hook can't rebuild semantic doc nodes (that needs an LLM), so the plan stayed "missing from the graph", although its extraction was still in graphify's cache. `tool/check_graph.py` (slice 1a.2) caught it, and the controller repaired it by hand by re-merging the cached extraction. The owner wants this never to need manual action again.
 
 **Architecture:**
 - **`tool/check_graph.py --repair`** puts every doc that is `missing from the graph` back. Under graphify's own rebuild lock, it runs **graphify's own full code rebuild** (`graphify.watch._rebuild_code`) with the docs' newest cached extractions added to what the rebuild keeps from the existing graph. It adds them by wrapping `graphify.watch._reconcile_existing_graph` for the duration of the call. graphify then finishes the graph exactly as its hook rebuild does: it clusters, remaps communities to the previous numbers, keeps saved labels whose membership signature still matches, names the rest by hub, and writes the report, `graph.html`, the manifest and `built_at_commit`. No LLM runs.
@@ -18,7 +18,7 @@
 
 ## Proof: the scratch experiment (2026-10-01)
 
-Everything below was run before this plan was written: against graphify 0.9.71 (Python 3.11.14, Windows 11), in a `git clone` of this repo at `5dd1d42` with a copy of the real `graphify-out/`, in a folder named `rëpo x`. The real `graphify-out/` was not touched. The code in Tasks 1 and 2 is the code that passed there.
+Everything below was run before this plan was written: against graphify 0.9.71 (Python 3.11.14, Windows 11), in a `git clone` of this repo at `a52fc1a` with a copy of the real `graphify-out/`, in a folder named `rëpo x`. The real `graphify-out/` was not touched. The code in Tasks 1 and 2 is the code that passed there.
 
 1. **Baseline.** graphify's hook rebuild (`_rebuild_code(Path('.'))`, `PYTHONHASHSEED=0`) took 3.1 s and gave 2162 nodes, 2750 links, 21 hyperedges and 173 communities.
 2. **The incident, replayed.** A rebuild with `docs/superpowers/plans/2026-09-30-slice-1a2-graph-staleness.md` and `docs/superpowers/specs/2026-09-29-appstein-design.html` moved away dropped both docs' nodes. Putting them back and rebuilding gave the plan **10 AST heading nodes and none of its 20 semantic nodes**, and the `.html` nothing.
@@ -2111,7 +2111,7 @@ Record slice 1a.3 as done (with the merge commit once merged), including finding
 
 - [ ] **Step 6: Finish the branch, per the owner's merge rule**
 
-Use superpowers:finishing-a-development-branch. Push and open a PR only with the owner's explicit OK. CI runs the new tests on Windows, macOS and Linux against graphify `0.9.71`; read the `check_graph_test.dart` and `hooks_test.dart` results on each OS. Re-run the graph check just before merging; it must report nothing. Merge only with the owner's approval, the same way as PR #4 (`gh pr merge <n> --merge --delete-branch`).
+Use superpowers:finishing-a-development-branch. Push and open a PR only with the owner's explicit OK. CI runs the new tests on Windows, macOS and Linux against graphify `0.9.71`; read the `check_graph_test.dart` and `hooks_test.dart` results on each OS. Re-run the graph check just before merging; it must report nothing. Merge only with the owner's approval, the same way as PR #4 in the old private repo (`gh pr merge <n> --merge --delete-branch`).
 
 - [ ] **Step 7: Prove it live on this merge**
 

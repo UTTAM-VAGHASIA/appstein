@@ -208,6 +208,41 @@ void main() {
       );
     });
 
+    test('links a merge commit in place of a PR', () {
+      const record = Progress(
+        repository: 'https://github.com/owner/repo',
+        milestones: [
+          Milestone(
+            id: 'M1',
+            title: 'Foundation',
+            summary: 'S',
+            line: 1,
+            slices: [
+              Slice(
+                id: '1a',
+                title: 'Workspace',
+                summary: 'S',
+                line: 1,
+                status: SliceStatus.done,
+                plan: '2026-09-29-slice-1a.md',
+                merge: '758c535',
+                finished: '2026-09-30',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(
+        renderProgress(record),
+        contains(
+          '<p class="pg-meta"><time datetime="2026-09-30">30 Sep 2026</time>'
+          ' · <a href="https://github.com/owner/repo/commit/758c535">merged in'
+          ' <code>758c535</code></a>'
+          ' · <a href="../plans/2026-09-29-slice-1a.md">Plan</a></p>',
+        ),
+      );
+    });
+
     test('nests sub-slices and tags tooling', () {
       expect(
         html,

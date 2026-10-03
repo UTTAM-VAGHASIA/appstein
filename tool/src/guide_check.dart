@@ -17,8 +17,8 @@ import 'stale_check.dart';
 /// - every guide page linked from the start page;
 /// - the coverage map;
 /// - generated sections up to date;
-/// - `docs/superpowers/progress.yaml` valid, and consistent with the plans
-///   and spec §18;
+/// - `docs/superpowers/progress.yaml` valid, consistent with the plans and
+///   spec §18, and naming only merge commits that are in the repo;
 /// - the progress sections of the spec's visual page up to date;
 /// - with [since], the stale-page check against the merge base of [since]
 ///   and HEAD. A guide page counts as changed only when its hand-written
@@ -76,7 +76,9 @@ Future<List<GuideProblem>> checkGuide(String repoRoot, {String? since}) async {
   problems.addAll(progress.problems);
   final record = progress.progress;
   if (record != null) {
-    problems.addAll(checkProgress(repoRoot, record));
+    problems
+      ..addAll(checkProgress(repoRoot, record))
+      ..addAll(checkMerges(record, git.hasCommit));
     final visual = regenerateVisualPage(
       repoRoot,
       write: false,

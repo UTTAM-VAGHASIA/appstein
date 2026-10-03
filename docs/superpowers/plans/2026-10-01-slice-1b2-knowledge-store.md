@@ -6178,7 +6178,7 @@ These follow the per-slice workflow (AGENTS.md, spec §19.4):
 
 ## Notes from execution
 
-Built subagent-driven in quick mode (as 1a.4) on 2026-10-01, with PR #7. Tasks 1 and 2 were batched; each task's review ran alongside the next implementer when their files didn't overlap. The reviews of Tasks 13 and 14 and of the helper-imports fix were folded into the final review (Opus). Opus reviewed the risky tasks (4, 9, 10, 12).
+Built subagent-driven in quick mode (as 1a.4) on 2026-10-01, with PR #7 in the old private repo. Tasks 1 and 2 were batched; each task's review ran alongside the next implementer when their files didn't overlap. The reviews of Tasks 13 and 14 and of the helper-imports fix were folded into the final review (Opus). Opus reviewed the risky tasks (4, 9, 10, 12).
 
 - **Owner rulings:**
   - Delta split (2026-10-01): `delta.md` became its own slice 1b.4, after the map; incremental sync, INDEX.md and package skills became 1b.5.

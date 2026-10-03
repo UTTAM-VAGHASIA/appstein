@@ -38,8 +38,8 @@ The long-term goal is a full agentic harness: first a single-agent pipeline, the
 - Brand only on the Einstein pun, for example a messy-hair logo, a chalkboard style, or the line *"Apps = mc²"*. The name must never be tied to any other association in public material, README jokes or commit messages.
 - **Never use Albert Einstein's name, image or signature.** His estate licenses and enforces them.
 - Salesforce has an AI product called "Einstein"; keep our identity clearly separate.
-- Run a trademark check and a domain check before the first public release.
-- Appstein is open source. Whether a paid Pro tier is added later is decided after M1, when the benchmark results are known (§22).
+- Run a trademark check and a domain check before the first published release (pub.dev or GitHub Releases). The public repo alone is not a release.
+- Appstein is open source under the Apache License 2.0. A paid Pro tier may be added later as separate, closed code; whether to add one is decided after M1, when the benchmark results are known (§22).
 
 ---
 
@@ -931,7 +931,7 @@ The benchmark lives in `benchmark/`.
 
 - **Install:** `dart pub global activate appstein` (pub.dev), or a standalone binary from GitHub Releases. Hooks use the compiled executable, and `doctor` tells the user if only the pub snapshot is available.
 - **Versioning:** Appstein follows semver. `appstein_protocol` carries its own version, and `.appstein/` files record the format version so `upgrade` can migrate them.
-- **License:** an open-source license, chosen before the first public release (§22).
+- **License:** the Apache License 2.0 (`LICENSE` at the repo root). Contributions are accepted under the same license (Apache-2.0 §5), with no CLA. Each package gets its own copy of `LICENSE` when it is first published to pub.dev.
 
 ### 19.6 Documentation for humans working on Appstein
 
@@ -966,11 +966,12 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 - **Every source file has a page.** Each page starts with a hidden `<!-- covers: … -->` comment listing the paths it explains. Source means `packages/*/lib/`, `packages/*/bin/`, `tool/` and `.github/workflows/`. The guide check fails if any source file is covered by no page.
 - **Code changes come with their page.** In CI, the check fails when a change edits a covered file but not the hand-written text of any page covering it (a regenerated section alone doesn't count). If the page is still right, a commit trailer `Docs-Checked: <page> - <reason>` says so and clears it. This is the idea behind `docs.stale` (§6.9), applied to our own repo.
 - **Facts the code already knows are generated, not typed.** `tool/gen_docs.dart` writes them between `<!-- generated:<name> -->` markers: the doctor checks, the CLI commands and exit codes, the CI jobs and the package dependency diagram. CI fails if regenerating would change a page.
-- **Progress is data, not prose.** `docs/superpowers/progress.yaml` records every milestone and slice: its status (done, next or planned), its plan, its pull request, the date it finished and what it delivered. `gen_docs` renders it into the spec's visual page as a status line at the top and a progress section with the milestone rail and the slice timeline. The guide check fails when:
+- **Progress is data, not prose.** `docs/superpowers/progress.yaml` records every milestone and slice: its status (done, next or planned), its plan, its pull request (or, for a slice merged in the old private repo, its merge commit), the date it finished and what it delivered. `gen_docs` renders it into the spec's visual page as a status line at the top and a progress section with the milestone rail and the slice timeline. The guide check fails when:
   - the page doesn't match the file;
   - a plan in `docs/superpowers/plans/` belongs to no slice;
   - a plan with notes from execution belongs to a slice that isn't done;
-  - a done slice has no plan or pull request;
+  - a done slice has no plan, or neither a pull request nor a merge commit;
+  - a merge commit isn't in the repo;
   - a §18 slice is missing;
   - more than one slice is next.
 - **CI is the gate; local hooks warn early.** `tool/install_hooks.dart` installs the repo's git hooks: graphify's code rebuild (on commit, checkout, merge and rebase), a post-commit warning when a page is stale or a generated section is out of date, and a graph warning after each commit, merge and rebase naming the docs whose current content isn't in the graph (new, changed or deleted). After each checkout, merge and rebase, a background job waits for graphify's rebuild, rebuilds the code structure once more, and puts back, from graphify's cache and without an LLM, any doc a rebuild dropped from the graph although its extraction is cached; the warning reports those as being repaired and names only what needs `/graphify . --update`. CI can't check the graph because it doesn't have one, so the per-slice rule (§19.4) keeps that warning silent before a merge.
@@ -987,7 +988,7 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 2. Move `docs/superpowers/specs/2026-09-29-appstein-design.*`, `reports/` and `research_notes/` into the new repo's `docs/`.
 3. Set up graphify in the new repo before writing code.
 4. Archive the old `fluttercraft` repo with a README pointing to Appstein. The uncommitted work on `feature/v0.1.3-tui` stays there for reference; nothing is carried over as code.
-5. Add a deprecation note to the PyPI `fluttercraft` project page pointing to Appstein, at the first public release.
+5. Add a deprecation note to the PyPI `fluttercraft` project page pointing to Appstein, at the first published release.
 
 ---
 
@@ -1012,8 +1013,8 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 | 7 | Open Flutter bugs (e.g. #192167, #192111) affect "valid" toolchains | Recorded as curated notes that steer `create` and `toolchain()` |
 | 8 | Vide (competitor) evolves | Re-assess before M2; our edge is knowledge + verification + multi-agent support |
 | 9 | Antigravity CLI terms not researched | Research before supporting it (post-M1) |
-| 10 | "Appstein" trademark/domain; Einstein-estate sensitivity | Trademark + domain check before the first public release; pun-only branding |
-| 11 | Open-source license; a possible Pro tier | Choose the license before the first public release; decide on Pro after the M1 benchmark |
+| 10 | "Appstein" trademark/domain; Einstein-estate sensitivity | Trademark + domain check before the first published release (pub.dev or GitHub Releases); pun-only branding |
+| 11 | A possible Pro tier | License decided: Apache-2.0 (2026-10-03). Decide on Pro after the M1 benchmark; Pro would be separate, closed code, and the core stays Apache-2.0 |
 | 12 | Routes or native values that can't be resolved statically | Marked `unresolved` / `unknown`, never guessed; improve in later slices |
 | 13 | Real iOS builds impossible on Windows | Static checks locally; real builds on macOS CI |
 | 14 | Minimum supported Flutter version | **Flutter 3.44+** (Dart 3.12, required by the current Dart MCP server; SwiftPM default). Confirmed in slice 1a: CI's `min-sdk` job passes on the newest 3.44 patch (3.44.9 at the time) |

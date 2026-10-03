@@ -21,7 +21,7 @@
 **Tech Stack:** Dart 3.12+ (Flutter 3.47.5 via FVM), `package:analyzer` 14.4 (resolved AST and element model), `package:glob`, `package:yaml`, `package:test`, and `analyzer_testing` for the lint.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-appstein-design.md`. This plan implements:
-- §6.5 as edited on 2026-10-01 (commit `cf9d208`): resolution, layer tags, features, symbols, routes, layers and dependencies; native config is slice 1b.4;
+- §6.5 as edited on 2026-10-01 (commit `1ef2508`): resolution, layer tags, features, symbols, routes, layers and dependencies; native config is slice 1b.4;
 - §6.2 (the `map/` files and their metadata);
 - §9.6 (the `layer_imports` `interfaces` rule and the `official_mvvm` layer rules);
 - §10 (the `Pack` interface, members `id`, `kind`, `version`, `extractors`, `layerRules`);
@@ -7194,7 +7194,7 @@ git commit -m "docs: the project map, the official_mvvm pack and the fixture app
 
 ## Notes from execution
 
-Built subagent-driven in quick mode on 2026-10-01, with PR #8.
+Built subagent-driven in quick mode on 2026-10-01, with PR #8 in the old private repo.
 
 - **How it ran:**
   - Tasks 1 and 2 were batched.

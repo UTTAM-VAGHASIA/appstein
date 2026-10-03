@@ -4,7 +4,7 @@ A knowledge and verification layer for AI coding agents that build Flutter apps.
 
 **Guide before. Check after.** Appstein gives agents such as Claude Code and Codex current, project-specific knowledge before they write code (generated from the installed Flutter SDK and the analyzed project), and a deterministic verifier after (analyzer, lint rules, native Android/iOS config audit, package gate, real builds) that blocks "done" until the work is correct.
 
-> **Status:** pre-alpha, milestone 1. Where every slice stands is recorded in [`docs/superpowers/progress.yaml`](docs/superpowers/progress.yaml) and drawn at the top of the [visual summary](docs/superpowers/specs/2026-09-29-appstein-design.html). Start with the [developer guide](docs/guide/README.md).
+> **Status:** pre-alpha, milestone 1, not published yet (no pub.dev package or binary). Where every slice stands is recorded in [`docs/superpowers/progress.yaml`](docs/superpowers/progress.yaml) and drawn at the top of the [visual summary](docs/superpowers/specs/2026-09-29-appstein-design.html). Start with the [developer guide](docs/guide/README.md).
 
 ## Read this first
 
@@ -24,6 +24,10 @@ A knowledge and verification layer for AI coding agents that build Flutter apps.
 
 Details are in §18 of the spec.
 
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. To report a security problem, see [SECURITY.md](SECURITY.md), and please don't open a public issue.
+
 ## License
 
-Not decided yet (see §22 of the spec). All rights reserved until then.
+Appstein is licensed under the [Apache License 2.0](LICENSE). A paid Pro tier may come later, as separate code; the core stays Apache-2.0 (§22 of the spec).

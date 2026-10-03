@@ -2710,7 +2710,7 @@ Executed 2026-10-01 in quick subagent-driven mode (one implementer at a time, ea
 
 **What happened**
 - Tasks 1–4 each passed their task review on the first round (spec ✅, Approved). Task 5 was docs-only, so its review folded into the final whole-branch review.
-- The final review found no Critical or Important issues and eight Minor ones, all fixed in one wave (3edf141) and confirmed by a scoped re-review:
+- The final review found no Critical or Important issues and eight Minor ones, all fixed in one wave (d54ba6f) and confirmed by a scoped re-review:
   - planned timeline text used opacity, which fell below WCAG AA contrast; it now uses the page's `--ink-2`/`--ink-3` colours;
   - the last sub-slice kept its bottom padding (a CSS specificity tie);
   - "done" was described as "merged", but a slice is marked done once its PR is open; `SliceStatus.done` and docs-tooling now say "finished: its pull request is open or merged";

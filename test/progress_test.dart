@@ -201,8 +201,83 @@ milestones:
 ''';
     expect(problemsOf(text), [
       'docs/superpowers/progress.yaml:7: Slice 1a is done, so it needs plan, '
-          'pr and finished.',
+          'pr (or merge) and finished.',
     ]);
+  });
+
+  group('merge', () {
+    test('a done slice may give its merge commit instead of a pr', () {
+      final read = parseProgress(
+        _valid.replaceFirst('pr: 4', 'merge: a52fc1a'),
+      );
+      expect(read.problems, isEmpty);
+      final slice = read.progress!.allSlices.singleWhere((s) => s.id == '1b.1');
+      expect(slice.merge, 'a52fc1a');
+      expect(slice.pr, isNull);
+    });
+
+    test('a full 40-digit commit id is accepted', () {
+      const id = '0123456789abcdef0123456789abcdef01234567';
+      expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: $id')), isEmpty);
+    });
+
+    test('pr and merge together are a problem', () {
+      expect(
+        problemsOf(
+          _valid.replaceFirst('pr: 4\n', 'pr: 4\n            merge: a52fc1a\n'),
+        ),
+        [
+          'docs/superpowers/progress.yaml:33: Slice 1b.1 has both pr and '
+              'merge. Use merge only for a pull request that no longer exists.',
+        ],
+      );
+    });
+
+    test('uppercase hex is a problem', () {
+      expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: A52FC1A')), [
+        'docs/superpowers/progress.yaml:32: Slice 1b.1: merge must be a '
+            'commit id of 7 to 40 lowercase hex digits, not A52FC1A.',
+      ]);
+    });
+
+    test('a commit id shorter than 7 digits is a problem', () {
+      expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: a52fc1')), [
+        'docs/superpowers/progress.yaml:32: Slice 1b.1: merge must be a '
+            'commit id of 7 to 40 lowercase hex digits, not a52fc1.',
+      ]);
+    });
+
+    test('a commit id YAML reads as a number must be quoted', () {
+      const message =
+          'docs/superpowers/progress.yaml:32: Slice 1b.1: merge must be '
+          'text. Quote a commit id that YAML reads as a number, such as '
+          "'1234567'.";
+      expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: 1234567')), [
+        message,
+      ]);
+      expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: 1e12345')), [
+        message,
+      ]);
+      expect(
+        problemsOf(_valid.replaceFirst('pr: 4', "merge: '1234567'")),
+        isEmpty,
+      );
+    });
+
+    test('merge is only for a done slice', () {
+      expect(
+        problemsOf(
+          _valid.replaceFirst(
+            '            status: next\n',
+            '            status: next\n            merge: a52fc1a\n',
+          ),
+        ),
+        [
+          'docs/superpowers/progress.yaml:38: Slice 1b.2: merge is only for '
+              'a done slice.',
+        ],
+      );
+    });
   });
 
   test('pr and finished are only for a done slice', () {

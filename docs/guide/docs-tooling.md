@@ -284,13 +284,13 @@ milestones:
         title: Knowledge layers 1–2
         summary: …
         slices:
-          - id: 1b.1
-            title: doctor agrees with flutter doctor -v
+          - id: 1b.7
+            title: Incremental sync
             summary: …
             status: done
-            plan: 2026-09-30-slice-1b1-sdk-gaps.md
-            pr: 4
-            finished: 2026-10-01
+            plan: 2026-10-03-slice-1b7-incremental-sync.md
+            pr: 1
+            finished: 2026-10-03
 ```
 
 **Fields**, read by [`progress.dart`](../../tool/src/progress.dart):
@@ -301,18 +301,19 @@ milestones:
 | `title`, `summary` | A short name, and a sentence on what it delivers. Text in backticks is shown as code |
 | `status` | `done` (finished: its pull request is open or merged), `next` (being built, or the one to build next) or `planned`. At most one slice is `next`. A slice without a status must have sub-slices, and its stage comes from them |
 | `plan` | The plan's file name in `docs/superpowers/plans/` |
-| `pr`, `finished` | The pull request number and the day it was marked done (`YYYY-MM-DD`). A done slice needs `plan`, `pr` and `finished`; only a done slice may have `pr` or `finished` |
+| `pr`, `merge`, `finished` | The pull request number, and the day the slice was marked done (`YYYY-MM-DD`). A slice merged in the old private repo, whose pull requests no longer exist, gives its merge commit as `merge` instead: 7 to 40 lowercase hex digits, in quotes when YAML would read them as a number (such as `1234567` or `1234e56`). A done slice needs `plan`, `finished`, and `pr` or `merge` but not both; only a done slice may have `pr`, `merge` or `finished` |
 | `tooling` | `true` for a slice that builds tooling for this repo rather than the product. The page tags it, and a slice's progress bar leaves it out, so tooling doesn't make the product look further along |
 | `slices` | Sub-slices, in order |
 
-**What the page shows**, from [`progress_html.dart`](../../tool/src/progress_html.dart): a pill at the top ("Building M1 · next: 1b.2 …") linking to the Progress section; a rail of milestones (done, in progress or planned); for each milestone with slices, a bar with one segment per slice, filled by the share of its product parts that are done; and a timeline of slices and sub-slices with their dates, pull requests and plans. The markup is generated; the page's own CSS styles the `pg-*` classes.
+**What the page shows**, from [`progress_html.dart`](../../tool/src/progress_html.dart): a pill at the top ("Building M1 · next: 1b.2 …") linking to the Progress section; a rail of milestones (done, in progress or planned); for each milestone with slices, a bar with one segment per slice, filled by the share of its product parts that are done; and a timeline of slices and sub-slices with their dates, pull requests (or merge commits) and plans. The markup is generated; the page's own CSS styles the `pg-*` classes.
 
 **What the guide check refuses**, from [`progress_check.dart`](../../tool/src/progress_check.dart):
 
 - a plan in `docs/superpowers/plans/` (a `.md` file directly in the folder) that no slice names, a plan named by two slices, or a slice naming a plan that isn't there;
 - a plan with a `## Notes from execution` heading whose slice isn't done. The notes are written when a slice finishes, so they are the signal;
 - a milestone in spec §18 missing from the file, or one the file has that §18 doesn't; the same for the slices of each milestone §18 has a table for (today only M1). Sub-slices aren't in the spec, so they aren't compared;
-- anything `progress.dart` refuses: an unknown key, a bad status, id or date, a done slice without its plan, pull request or date, more than one slice `next`;
+- anything `progress.dart` refuses: an unknown key, a bad status, id, date or commit ID, a done slice without its plan, pull request (or merge commit) and date, a slice with both `pr` and `merge`, more than one slice `next`;
+- a `merge` commit that isn't in the repo (from `checkMerges`). A shallow clone lacks old commits, so the check needs the full history, as CI's docs job has;
 - the visual page's progress sections not matching the file.
 
 **Through a slice:**
