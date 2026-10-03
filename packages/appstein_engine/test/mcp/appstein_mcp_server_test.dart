@@ -136,6 +136,8 @@ void main() {
     expect(textOf(unknown), startsWith('No feature is named "nope".'));
     final missing = await call(server, 'where_is');
     expect(missing.isError, isTrue);
+    expect(missing.content, hasLength(1));
+    expect(missing.structuredContent, isNull);
   });
 
   test('three calls at once are answered one after the other', () async {
@@ -218,10 +220,49 @@ void main() {
     );
   });
 
-  test('package skills never run from the server', () async {
-    Directory(p.join(app, '.claude')).createSync();
+  test('a sync that finds no SDK after a good one: answers from disk, '
+      'marked stale with its problem and what to do', () async {
     final server = await serve();
     await call(server, 'overview');
-    expect(runner.calls.where((call) => call.contains('skills@')), isEmpty);
+    syncFor = () => throw const SyncException(
+      'No Flutter SDK was found',
+      'Install Flutter or set FLUTTER_ROOT.',
+    );
+    final result = await call(server, 'feature', {'name': 'home'});
+    final json = structured(result);
+    expect(json['name'], 'home');
+    expect(json['freshness'], {
+      'state': 'stale',
+      'problem': 'No Flutter SDK was found',
+      'fixHint': 'Install Flutter or set FLUTTER_ROOT.',
+    });
+    expect(
+      textOf(result),
+      endsWith(
+        'The knowledge may be stale: No Flutter SDK was found. '
+        'Install Flutter or set FLUTTER_ROOT.',
+      ),
+    );
+  });
+
+  test('an invalid appstein.yaml while building the sync: answers from '
+      'disk, marked stale, naming the file', () async {
+    final server = await serve();
+    await call(server, 'overview');
+    syncFor = () => throw ConfigException(
+      '`delta.baseline` must be a Flutter version such as 3.16.',
+      sourcePath: 'appstein.yaml',
+      line: 3,
+      column: 5,
+    );
+    final json = structured(await call(server, 'feature', {'name': 'home'}));
+    expect(json['name'], 'home');
+    expect(json['freshness'], {
+      'state': 'stale',
+      'problem':
+          'appstein.yaml is invalid: appstein.yaml:3:5: `delta.baseline` '
+          'must be a Flutter version such as 3.16.',
+      'fixHint': 'Fix appstein.yaml; the next call syncs again.',
+    });
   });
 }

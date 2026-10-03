@@ -17,9 +17,10 @@ void main() {
     final sdk = fakeFlutter();
     final app = copyFixtureApp();
     final engine = p.dirname(p.dirname(p.dirname(fixtureAppsDir)));
+    // The script itself, not `dart run`: pub never runs, so nothing but the
+    // server can write to the child's stdout.
     final process = await Process.start(Platform.resolvedExecutable, [
-      'run',
-      p.join('test', 'mcp', 'support', 'stdio_server.dart'),
+      p.join(engine, 'test', 'mcp', 'support', 'stdio_server.dart'),
       app,
       sdk,
       testDartSdk,
