@@ -135,12 +135,14 @@ milestones:
           - id: 1c.1
             title: MCP server and read tools
             summary: "`appstein mcp` over stdio with `overview`, `where_is`, `feature`, `route`, `check_api`, `what_changed` and `toolchain`, working from Claude Code on a fixture."
-            status: next
+            status: done
             plan: 2026-10-03-slice-1c1-mcp-server.md
+            pr: 4
+            finished: 2026-10-05
           - id: 1c.2
             title: Decisions and memory
             summary: Knowledge layers 3–4 in the §6.7–6.8 formats, with the `decisions`, `record_decision`, `memory_read` and `memory_write` tools.
-            status: planned
+            status: next
           - id: 1c.3
             title: Human docs
             summary: The `docs/app/` renderer with the pack doc pages and `appstein docs [--check]`, byte-identical for unchanged knowledge.

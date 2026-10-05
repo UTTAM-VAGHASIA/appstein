@@ -5368,3 +5368,53 @@ Write the three questions, the tools Claude Code called, and a one-line summary 
 ## Finish
 
 After Task 12: the final whole-branch review (most capable model), the one fix pass, then the plan's "Notes from execution" (rulings, deferred minors, the measured MCP times, the Claude Code proof), `progress.yaml` (1c.1 done with its PR, 1c.2 next) and `gen_docs`, and the pull request.
+
+## Notes from execution
+
+Built subagent-driven on `slice-1c1`, 2026-10-03 to 2026-10-05: one implementer per task, a fresh reviewer per task (Opus for Tasks 2, 6 and 8), then one whole-branch review on Opus and one fix wave. Subagents never committed; the controller committed each task. PR #4.
+
+**Commits:** `9e311bf` spec; `bc5dec1` this plan; `df9313a` + `a49beea` Task 1; `8546b9d` Task 2; `32df552` + `b1dc565` Task 3; `fbc9f34` Task 4; `289d906` Task 5; `7648af6` + `eff357d` Task 6; `d84e33f` Task 7; `65face1` + `b19a757` Task 8; `e9318c8` Task 9; `1d850dd` Task 10; `cda176b` Task 11 (guide); `3a3e699` final-review fixes.
+
+**Owner decisions (brainstorming):**
+1. 1c is split in three, MCP first; `verify` and `package_check` move to 1d with their engines.
+2. `sync` writes `platform/delta.json`; `check_api`'s "ok" means nothing the project imports deprecates or removes the name, and existence isn't checked.
+3. Freshness: `detect` runs in process before every call.
+4. `what_changed` returns notes and per-library counts; `library` lists one library in full.
+
+**What the reviews caught (all fixed):**
+- Task 1: four files weren't `dart format` clean, which CI checks.
+- Task 3: a knowledge file that isn't UTF-8 crashed the reader; it is now reported as damaged.
+- Task 6 (Opus): `check_api` answered a false "ok" for `Owner.member` forms with no exact entry (a setter without `=`, an inherited member, an instance receiver, a leading dot), for `Foo()`, `Owner(param)` and a bare parameter name, and for names with arguments; note matching pulled in unrelated notes through `new` and `dart`.
+- Task 8 (Opus): the test "package skills never run from the server" could never fail.
+- Final review (Opus): `check_api` answered a false "ok" for a member or constructor of a deprecated class (`MaterialStateProperty.all`, `WillPopScope.new`) and for names with type arguments; `appstein help mcp` printed to the real stdout, so the guide's generated help block was empty.
+
+**Rulings:**
+- Task 3: `dependency_validator` flagged `dart_mcp` and `stream_channel` until Task 8 imported them in `lib/`. Left as it was; clean since Task 8. Cost if wrong: one CI failure.
+- Task 4: the plan's "scores tiers" test queried `booking`, but ten symbols hold that word and fill the top 10, so the test now queries `settings`. The spec's scoring is binding. Cost if wrong: a test rewrite.
+- Task 4 (owner question): with the spec's scoring, a word in 10 or more symbol names hides the matching feature, route and file. The code follows spec §8; changing it needs the owner. Cost if wrong: `where_is booking` lists only symbols until the spec changes.
+- Task 6: when nothing matches exactly, `check_api` falls back to a looser match and names the delta entry it matched, instead of answering "ok". It has no type information, so an inherited or instance form can only match by member name. Cost if wrong: an occasional "deprecated" for a same-named member of another class, with the entry named so the agent can judge.
+- Task 8: the vacuous server test was dropped. The guarantee is tested where the sync is built, in the CLI's `mcpSyncFactory` test, which was mutation-checked. Cost if wrong: none.
+- Task 12: `claude -p` ran with the plan's prompts plus `--tools ""` (built-in tools off), `--output-format stream-json --verbose` (plain `json` doesn't list tool calls) and `--setting-sources project --no-session-persistence` (the owner's personal hooks and plugins don't fire). Cost if wrong: none; a read-only run in a scratch folder.
+
+**Measured (spec §15, limit 1 s):** on the 200-file app, locally, each tool's median is 62–68 ms (`overview` 62, `where_is` 68, `feature` 62, `route` 62, `check_api` 65, `what_changed` 65, `toolchain` 65). On the fixture app with the real SDK, the first call rebuilt everything in 20.4 s; later calls took 27–102 ms.
+
+**Proof from Claude Code (§18 exit criterion):** Claude Code 2.1.289, model `claude-opus-4-8`, on a copy of the fixture app with Flutter 3.47.5; `appstein` connected and the model's only tools were the seven `mcp__appstein__*`.
+1. "Where is the login screen, and which feature is it in?" → `where_is` → `LoginScreen`, `lib/ui/auth/login/widgets/login_screen.dart:6`, feature `auth/login`. Correct.
+2. "May I use WillPopScope in this project? What should I use instead?" → `check_api` → deprecated; use `PopScope`, with the curated note and its source. Correct.
+3. "What does the route /booking/42 show, and does it redirect?" → `route` → matches `/booking/:id`, no screen recorded, redirects, and the map doesn't record where to. Correct.
+
+The model saw only the structured content, with `summary` and `freshness` in it, and never the text blocks. The fact this plan relies on holds.
+
+**Environment notes:**
+- Windows Defender once quarantined a freshly compiled `appstein.exe` in a temp folder (a false positive on an unsigned Dart executable). Nothing in Defender was changed; `fvm dart packages/appstein_cli/bin/appstein.dart --project <app> mcp` serves the same way.
+- `fvm` in a folder without `.fvmrc` falls back to the PATH SDK (Dart 3.10.7 on the owner's machine), so the scratch app needed its own `.fvmrc`.
+- A pipe that closes stdin at once ends the server before queued calls are answered. Claude Code keeps stdin open.
+
+**Carried to later slices:**
+- **Owner questions (spec §8 wording):** the `booking` case above; and the typo rule compares a 4+ letter query word with path words of any length, so `list` matches `lib` and `dart` in every file path.
+- **1d:** on an analyzer retry, `map_sync.dart` abandons the first analysis without disposing it. In the server that is at most one leak per lifetime; revisit when warm analysis runs in the same process.
+- **Server:** a `detect` that never returns would hold up every later call; when stdin closes, queued calls go unanswered; the held cache is dropped after a mid-sync failure; the `what_changed` notes list has no cap (about 8–10k tokens now); a `ConfigException` message names `appstein.yaml` twice.
+- **`check_api`:** a deprecated member of a removed class reports `deprecated`, not `removed`; only the first named argument of a call is read as the parameter.
+- **`where_is`, `route`, `toolchain`:** the word split treats non-ASCII letters as separators; path normalization trims one trailing slash only; `describe` in `route_query.dart` has two dead fields; the "Flutter's Gradle plugin" wording is also used for `minSdk`; a malformed threshold or a `found` value of null in corrupt knowledge would throw (the server's catch-all turns it into a refusal).
+- **Tests to add:** `delta.json` with `apis` absent when the fetch fails; an older `state.json` without `delta.json`; a held cache with a part-way-failed sync, with an edit between server calls, and `loadedEntries > 0`; the "exists but could not be read" branch; `KnowledgeWriteException` and the catch-all in the server; several pattern matches and the 20-item cut in `route`; the tie order in `where_is`; version comparisons such as `8.9.1` and `8.10`; `measure_sync`'s `close()` has no timeout and a non-JSON line throws a `FormatException`.
+- **Process:** two implementers wrote code before the test (Task 5, and the help fix in the final wave); the reviewers judged the tests sound.
