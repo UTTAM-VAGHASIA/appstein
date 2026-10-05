@@ -6,6 +6,7 @@ import 'package:args/command_runner.dart';
 
 import 'doctor_command.dart';
 import 'exit_codes.dart';
+import 'mcp_command.dart';
 import 'sync_command.dart';
 import 'version.dart';
 
@@ -17,6 +18,8 @@ import 'version.dart';
 /// [extraCommands] exist only for tests: they replace the doctor's checks
 /// and add commands, such as one that crashes on purpose. [environmentFactory]
 /// (also for tests) builds the environment when [environment] is null.
+/// [mcpChannel] (also for tests) gives the connection `appstein mcp` serves;
+/// by default stdin and stdout.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -26,6 +29,7 @@ Future<int> runAppstein(
   List<DoctorCheck>? doctorChecks,
   List<Command<int>> extraCommands = const [],
   HostEnvironment Function()? environmentFactory,
+  McpChannel Function()? mcpChannel,
 }) async {
   final output = out ?? stdout;
   final errors = err ?? stderr;
@@ -43,7 +47,15 @@ Future<int> runAppstein(
           checks: doctorChecks,
         ),
       )
-      ..addCommand(SyncCommand(out: output, err: errors, environment: machine));
+      ..addCommand(SyncCommand(out: output, err: errors, environment: machine))
+      ..addCommand(
+        McpCommand(
+          out: output,
+          err: errors,
+          environment: machine,
+          channel: mcpChannel ?? () => stdioMcpChannel(stdin, stdout),
+        ),
+      );
     extraCommands.forEach(runner.addCommand);
     return await runner.run(arguments) ?? ExitCodes.ok;
   } on UsageException catch (error) {

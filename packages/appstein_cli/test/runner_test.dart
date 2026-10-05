@@ -90,6 +90,20 @@ void main() {
     );
   }
 
+  for (final args in [
+    ['help', 'mcp'],
+    ['mcp', '--help'],
+  ]) {
+    test(
+      '${args.join(' ')} prints usage to out and leaves err empty',
+      () async {
+        expect(await run(args), ExitCodes.ok);
+        expect(out.toString(), contains('Usage: appstein mcp'));
+        expect(err.toString(), isEmpty);
+      },
+    );
+  }
+
   test('a failure while building the environment exits 3', () async {
     final code = await runAppstein(
       ['doctor'],

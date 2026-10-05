@@ -157,6 +157,15 @@ Keys are sorted, so the same entries always give the same bytes. A save keeps **
 
 **Why `catchAnalyzerErrors` exists.** The probe found that a cache with garbage entries made the analyzer throw inside **its own scheduler**, where no `await` of ours can catch it. The process died with exit 255, and every later sync would have done the same until someone deleted the file by hand. [`catchAnalyzerErrors`](../../packages/appstein_engine/lib/src/map/analyzer_cache.dart) runs the analysis inside `runZonedGuarded`, so that error becomes the analysis's own error. `MapSync.build` then retries once with `AnalyzerCache.empty`. Without a cache, or when the retry fails too, the error is thrown and the CLI turns it into exit 3 with a crash report. The abandoned first analysis isn't disposed, because its futures never complete; the process still exits normally.
 
+## The held cache
+
+The MCP server runs `detect` before every answer (see [mcp-server](mcp-server.md#one-call-step-by-step)). Opening a 57 MB cache file before every rebuild would waste most of the time a rebuild has, so `KnowledgeSync` takes an optional `heldCache`, a [`HeldAnalyzerCache`](../../packages/appstein_engine/lib/src/map/analyzer_cache.dart), and `appstein sync` doesn't pass one.
+
+- A sync **takes** the cache with `take(path)`: the one kept from the last sync when it is for the same file, otherwise the file opened as before. The held copy is gone from the holder until the sync **keeps** it back, so a sync can't share a cache with another one.
+- After the sync, `keep` stores `AnalyzerCache.settled()`. That is the cache as the next sync would read it back from the file: only the entries the run used, as loaded entries. So the held cache doesn't grow either. A cache nobody used settles to itself, which matters when a sync skipped the analysis: it keeps every entry.
+- A cache file another process wrote meanwhile isn't read. The cost is only cache misses, never wrong knowledge: a cache entry only saves work.
+- The file is still saved when the cache changed, so a later `appstein sync` or the next server start benefits too.
+
 ## Measuring
 
 [`tool/measure_sync.dart`](../../tool/measure_sync.dart) times each sync the way a hook runs it:

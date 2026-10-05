@@ -127,11 +127,29 @@ milestones:
             finished: 2026-10-03
       - id: 1c
         title: MCP server
-        summary: The MCP server with every §8 tool, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.
-        status: next
+        summary: The MCP server with the §8 tools, knowledge layers 3–4 (decisions and memory) and the human docs renderer with `appstein docs`.
+        # 1c was split in three (owner decision, 2026-10-03): the MCP server
+        # first, since it is how knowledge reaches agents. The `verify` and
+        # `package_check` tools move to 1d, which builds their engines.
+        slices:
+          - id: 1c.1
+            title: MCP server and read tools
+            summary: "`appstein mcp` over stdio with `overview`, `where_is`, `feature`, `route`, `check_api`, `what_changed` and `toolchain`, working from Claude Code on a fixture."
+            status: done
+            plan: 2026-10-03-slice-1c1-mcp-server.md
+            pr: 4
+            finished: 2026-10-05
+          - id: 1c.2
+            title: Decisions and memory
+            summary: Knowledge layers 3–4 in the §6.7–6.8 formats, with the `decisions`, `record_decision`, `memory_read` and `memory_write` tools.
+            status: next
+          - id: 1c.3
+            title: Human docs
+            summary: The `docs/app/` renderer with the pack doc pages and `appstein docs [--check]`, byte-identical for unchanged knowledge.
+            status: planned
       - id: 1d
         title: Verifier
-        summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale` and suppressions.
+        summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale`, suppressions, and the `verify` and `package_check` MCP tools.
         status: planned
       - id: 1e
         title: create + integrate

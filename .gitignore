@@ -24,6 +24,9 @@ __pycache__/
 .impeccable/build/
 .impeccable/questions/
 
+# Claude Code local settings (machine-local permissions)
+.claude/
+
 # Editors and OS
 .idea/
 *.iml

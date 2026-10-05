@@ -1,4 +1,7 @@
-<!-- covers: packages/appstein_engine/lib/src/delta/** -->
+<!-- covers:
+packages/appstein_engine/lib/src/delta/**
+packages/appstein_protocol/lib/src/knowledge/delta_knowledge.dart
+-->
 
 # The version delta
 
@@ -83,7 +86,8 @@ KnowledgeSync.run
   |     collectDelta         deprecations + migrations -> DeltaFacts
   |-- deltaNotes             the notes from the baseline up to this SDK
   |-- renderDelta            -> GeneratedFile.markdown('platform/delta.md')
-  `-- KnowledgeStore.locked  writeAll: platform files, delta.md, map files, state.json
+  |-- deltaJsonBody          -> GeneratedFile('platform/delta.json'), same inputs and hash
+  `-- KnowledgeStore.locked  writeAll: platform files, delta.md, delta.json, map files, state.json
 ```
 
 - [`renderDelta`](../../packages/appstein_engine/lib/src/delta/delta_document.dart) is pure: the same inputs give the same text, and a golden file pins it.
@@ -91,9 +95,27 @@ KnowledgeSync.run
 - **When only collecting the delta fails** (an analyzer internal or a bug), `sync` does not fail and the map is not lost. [`MapSync`](../../packages/appstein_engine/lib/src/map/map_sync.dart) catches the error and keeps it in `MapReport.deltaError`, with its type in `MapReport.deltaErrorType`. The map and platform files are written. `delta.md` holds the notes and says: "Deprecated and removed APIs are missing: Appstein couldn't collect them because of an internal error (StateError). Please report it." It names only the error's type, because the message may hold a machine path. It doesn't say "Fix that", because the user can't: it is Appstein's bug. The sync output shows the whole error once, under `Version delta: deprecated and removed APIs are missing because of an internal error in Appstein. Please report it, with this error:` (see [cli](cli.md#appstein-sync)). A sync never fails because of the delta.
 - The file is Markdown with its metadata in front matter (see [knowledge-store](knowledge-store.md#three-rules-every-generated-file-follows)).
 
+## `delta.json`
+
+Sync writes the same delta a second time as data, in `.appstein/platform/delta.json` (spec §6.2). The MCP tools `check_api` and `what_changed` read it, so they never parse Markdown (see [mcp-server](mcp-server.md)). It isn't a second delta: [`deltaJsonBody`](../../packages/appstein_engine/lib/src/delta/delta_json.dart) builds it from the same `DeltaInputs` that `renderDelta` renders, and it shares `delta.md`'s input hash, so the two are rebuilt together and can't disagree.
+
+Its format is [`DeltaKnowledge`](../../packages/appstein_protocol/lib/src/knowledge/delta_knowledge.dart), in the protocol package so the engine writes it and the server reads it with one definition:
+
+| Key | Holds |
+|---|---|
+| `flutterVersion`, `languageVersion`, `baseline`, `coverage`, `newestNotes` | The facts the notes were chosen with |
+| `notes`, `laterNotes` | The notes the project can use, and those that need a newer language version (the split `delta.md` makes) |
+| `apis.deprecated` | Each deprecated API: `library`, `name`, `kind` (`use`, `implement`, `extend`, `subclass`, `instantiate`, `mixin` or `optional`), `rule` (what a kind other than `use` forbids), `message` and `migrations` |
+| `apis.migrated` | Each removed or changed API: `library`, `name`, `status` and the migration's `title` |
+| `apis.moved` | Each moved library: `from`, `to` and `title` |
+| `apis.unread` | The migration files that couldn't be read, and why |
+| `missing` | Why `apis` is absent (it is `null` then): the internal error's type, or the map's skip reason |
+
+`library` is the same grouping the Markdown uses (`package:flutter`, `dart:core`), never a private `src/` file. When the facts couldn't be collected, `apis` is null and only the notes are usable, so `check_api` says it checked only the notes.
+
 ## Freshness
 
-`delta.md`'s input hash covers:
+`delta.md`'s input hash (and `delta.json`'s, which is the same hash) covers:
 - the map's own input hash: the project's Dart files, `pubspec.yaml`, the lock file (so every package version), `analysis_options.yaml`, the Flutter version and the packs. When there are no facts, the text `skipped:` and the reason are hashed instead: the map's skip reason, or, when the collector failed, `internal error (<the error's type>)`, never the error's message, so no machine path is hashed and the same failure on another machine gives the same hash;
 - the notes files;
 - the baseline;

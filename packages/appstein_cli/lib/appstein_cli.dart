@@ -3,6 +3,7 @@ library;
 
 export 'src/doctor_printer.dart';
 export 'src/exit_codes.dart';
+export 'src/mcp_command.dart';
 export 'src/packs.dart';
 export 'src/run_guarded.dart';
 export 'src/runner.dart';

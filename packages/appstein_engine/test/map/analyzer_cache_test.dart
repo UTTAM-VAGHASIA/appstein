@@ -25,6 +25,55 @@ void main() {
     );
   });
 
+  group('settled', () {
+    test('keeps only the entries used since it was opened, as reopening the '
+        'saved file would', () async {
+      final path = p.join(tempDir().path, 'cache.bin');
+      final first = AnalyzerCache.empty(path)
+        ..putGet('a', Uint8List.fromList([1]))
+        ..putGet('b', Uint8List.fromList([2]));
+      await first.save();
+      final reopened = AnalyzerCache.open(path)..get('a');
+      final settled = reopened.settled();
+      expect(settled.load, AnalyzerCacheLoad.loaded);
+      expect(settled.loadedEntries, 1);
+      expect(settled.get('a'), [1]);
+      expect(settled.get('b'), isNull);
+      expect(settled.path, path);
+    });
+
+    test('an unused cache settles to itself', () {
+      final cache = AnalyzerCache.empty(p.join(tempDir().path, 'cache.bin'));
+      expect(identical(cache.settled(), cache), isTrue);
+    });
+  });
+
+  group('HeldAnalyzerCache', () {
+    test('gives back the cache it keeps, settled, without reading the '
+        'file', () {
+      final path = p.join(tempDir().path, 'cache.bin');
+      final held = HeldAnalyzerCache();
+      final cache = held.take(path)..putGet('k', Uint8List.fromList([7]));
+      held.keep(cache);
+      File(path).writeAsStringSync('damaged');
+      final again = held.take(path);
+      expect(again.load, AnalyzerCacheLoad.loaded);
+      expect(again.get('k'), [7]);
+    });
+
+    test('opens the file when it keeps nothing, or a cache of another '
+        'path', () {
+      final dir = tempDir().path;
+      final held = HeldAnalyzerCache();
+      expect(held.take(p.join(dir, 'a.bin')).load, AnalyzerCacheLoad.missing);
+      held.keep(
+        AnalyzerCache.empty(p.join(dir, 'b.bin'))
+          ..putGet('k', Uint8List.fromList([1])),
+      );
+      expect(held.take(p.join(dir, 'a.bin')).get('k'), isNull);
+    });
+  });
+
   group('the cache file', () {
     test('a missing file opens as an empty cache', () {
       final cache = AnalyzerCache.open(path);

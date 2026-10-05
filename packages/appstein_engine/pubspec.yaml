@@ -13,8 +13,10 @@ dependencies:
   analyzer: 14.4.0
   appstein_protocol: ^0.1.0-dev
   crypto: ^3.0.7
+  dart_mcp: 0.5.2
   path: ^1.9.1
   pub_semver: ^2.2.1
+  stream_channel: ^2.1.4
   xml: ^6.6.1
   yaml: ^3.1.4
 dev_dependencies:

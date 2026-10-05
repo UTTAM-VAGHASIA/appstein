@@ -25,6 +25,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`runner.dart`](../../packages/appstein_cli/lib/src/runner.dart) | `runAppstein`, the command runner and `reportCrash` |
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
+| [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command and `mcpSyncFactory` |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |
@@ -162,6 +163,18 @@ Native config (ios): missing because of an internal error in Appstein. Please re
 
 How the files are written is in [knowledge-store](knowledge-store.md), and how the map is built is in [project-map](project-map.md).
 
+## `appstein mcp`
+
+`appstein mcp` serves Appstein's tools to an agent over stdio, until the agent closes the connection. It takes no options of its own. Agents start it themselves, so a project's MCP config carries `--project <path>` when the agent's working folder isn't inside the project. What the server does on each call is in [mcp-server](mcp-server.md).
+
+[`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) does three things:
+
+1. **Finds the project** with `resolveProjectRoot`. There is no fallback: with no `pubspec.yaml` at or above the working folder, it prints two lines to stderr (what is missing, and to start it inside the project or pass `--project`) and exits **3**.
+2. **Builds the server.** `mcpSyncFactory` returns a function that builds a new `KnowledgeSync` for every call. Each time it reads `appstein.yaml` with `loadConfig` (so an edited config takes effect at once, and an invalid one makes the replies `stale` instead of stopping the server), turns it into packs with `packsFor`, and sets two things that differ from `appstein sync`: `packageSkills: false`, and one `HeldAnalyzerCache` shared by every call.
+3. **Waits** for the server to finish (`server.done`), then exits 0.
+
+**stdout belongs to the protocol.** The channel is made from the process's stdin and stdout (`stdioMcpChannel`). The command writes nothing else there, because the agent would try to read it as a message. `runAppstein` takes an `mcpChannel` for tests, so they run the command in-process with a fake connection.
+
 ## Help text
 
 This is the exact text `appstein` prints, generated from the CLI itself:
@@ -181,6 +194,7 @@ Global options:
 
 Available commands:
   doctor   Check your environment and explain how to fix problems.
+  mcp      Serve Appstein's MCP tools over stdio (started by agents).
   sync     Regenerate the knowledge Appstein keeps in .appstein/.
 
 Run "appstein help <command>" for more information about a command.
@@ -191,6 +205,16 @@ $ appstein help doctor
 Check your environment and explain how to fix problems.
 
 Usage: appstein doctor [arguments]
+-h, --help    Print this usage information.
+
+Run "appstein help" to see global options.
+```
+
+```text
+$ appstein help mcp
+Serve Appstein's MCP tools over stdio (started by agents).
+
+Usage: appstein mcp [arguments]
 -h, --help    Print this usage information.
 
 Run "appstein help" to see global options.

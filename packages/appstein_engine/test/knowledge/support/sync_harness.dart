@@ -36,6 +36,8 @@ KnowledgeSync knowledgeSync({
   bool analyzerCache = true,
   DeltaCollector? deltaCollector,
   Duration lockTimeout = const Duration(seconds: 10),
+  bool packageSkills = true,
+  HeldAnalyzerCache? heldCache,
 }) => KnowledgeSync(
   environment: fakeEnvironment({'FLUTTER_ROOT': flutterRoot}),
   appsteinVersion: appsteinVersion,
@@ -46,6 +48,8 @@ KnowledgeSync knowledgeSync({
   analyzerCache: analyzerCache,
   deltaCollector: deltaCollector,
   lockTimeout: lockTimeout,
+  packageSkills: packageSkills,
+  heldCache: heldCache,
 );
 
 /// The text of every file under [project]'s `.appstein/`, by its path

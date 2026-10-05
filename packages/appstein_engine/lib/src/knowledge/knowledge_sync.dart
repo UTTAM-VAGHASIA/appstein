@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../delta/delta_document.dart';
+import '../delta/delta_json.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../index/index_document.dart';
@@ -28,9 +29,9 @@ import 'platform_sync.dart';
 import 'sync_timings.dart';
 
 /// Everything `appstein sync` writes (spec §5.4, §6.2, §6.3): the platform
-/// layer, the version delta, the project map, the native config and
-/// `INDEX.md`. All are built first, then written under one lock, with a
-/// `state.json` that lists them.
+/// layer, the version delta (`delta.md` and `delta.json`), the project map,
+/// the native config and `INDEX.md`. All are built first, then written under
+/// one lock, with a `state.json` that lists them.
 ///
 /// [run] rebuilds everything; [detect] rebuilds only when something the
 /// knowledge reads changed ([freshness]).
@@ -39,7 +40,10 @@ final class KnowledgeSync {
   /// them from `appstein.yaml`), [notes] default to the compiled-in curated
   /// notes, [runner] runs `flutter pub get` and package:skills, [clock]
   /// gives the time, [baseline] is `delta.baseline` from `appstein.yaml`,
-  /// and [agents] is its `integrations.agents`.
+  /// and [agents] is its `integrations.agents`. [packageSkills] false skips
+  /// package skills (spec §8: the MCP server leaves them to the next
+  /// `appstein sync`), and [heldCache] keeps the analyzer cache in memory
+  /// between syncs (spec §8).
   KnowledgeSync({
     required this.environment,
     required this.appsteinVersion,
@@ -52,6 +56,8 @@ final class KnowledgeSync {
     this.deltaCollector,
     this.analyzerCache = true,
     this.agents = const ['claude', 'codex'],
+    this.packageSkills = true,
+    this.heldCache,
   }) : notes = notes ?? CuratedNotes.bundled(),
        runner = runner ?? const SystemProcessRunner();
 
@@ -74,6 +80,16 @@ final class KnowledgeSync {
   /// installed for those already set up in the project (spec §6.6). The
   /// default is the config's default.
   final List<String> agents;
+
+  /// Whether a sync runs package skills when they are due (spec §6.6).
+  /// The MCP server turns it off (spec §8): a run can take up to 120 s,
+  /// and the next `appstein sync` runs them, since their record is left
+  /// alone.
+  final bool packageSkills;
+
+  /// Keeps the analyzer cache in memory between syncs (spec §8); null
+  /// reads the cache file on every rebuild.
+  final HeldAnalyzerCache? heldCache;
 
   /// How long to wait for another writer's lock.
   final Duration lockTimeout;
@@ -313,10 +329,10 @@ final class KnowledgeSync {
     );
     final previous = timings.time('read state', () => store.readState().state);
     final cache = analyzerCache
-        ? timings.time(
-            'analyzer cache load',
-            () => AnalyzerCache.open(analyzerCachePath(projectRoot)),
-          )
+        ? timings.time('analyzer cache load', () {
+            final path = analyzerCachePath(projectRoot);
+            return heldCache?.take(path) ?? AnalyzerCache.open(path);
+          })
         : null;
     final map =
         await MapSync(
@@ -340,11 +356,14 @@ final class KnowledgeSync {
       'native config',
       () => _native(projectRoot, platform),
     );
-    final delta = timings.time('delta', () => _delta(platform, map));
+    final (delta, deltaJson) = timings.time(
+      'delta',
+      () => _delta(platform, map),
+    );
     // Last: it summarizes the other files.
     final index = timings.time(
       'INDEX.md',
-      () => _index(platform, map, native, delta, prepared.sources),
+      () => _index(platform, map, native, [delta, deltaJson], prepared.sources),
     );
     // The map read its inputs after any fetch, which may change
     // pubspec.lock.
@@ -356,7 +375,14 @@ final class KnowledgeSync {
       final files = await timings.timeAsync(
         'knowledge write',
         () => store.writeAll(
-          [...platform.files, delta, ...map.files, ?native.file, index],
+          [
+            ...platform.files,
+            delta,
+            deltaJson,
+            ...map.files,
+            ?native.file,
+            index,
+          ],
           appsteinVersion: appsteinVersion,
           sdkVersion: platform.sdk.flutterVersion,
           sources: sources,
@@ -388,6 +414,9 @@ final class KnowledgeSync {
       }
       return (files, saveError);
     }, timeout: lockTimeout);
+    // The cache the analysis used (a retry uses a new one), kept for the
+    // next sync as reading back the saved file would give it.
+    if (map.cache ?? cache case final kept?) heldCache?.keep(kept);
     // After the knowledge and outside its lock: a run can take seconds, and
     // the knowledge never depends on it.
     final skills = await _packageSkills(
@@ -424,6 +453,7 @@ final class KnowledgeSync {
   /// Runs package skills (spec §6.6) after the knowledge is written, timed
   /// as `package skills`. [sources] are the map's inputs, read after any
   /// fetch, so they hold the hashes of `pubspec.yaml` and `pubspec.lock`.
+  /// Returns null at once when [packageSkills] is false.
   Future<PackageSkillsReport?> _packageSkills(
     String projectRoot,
     PlatformBuild platform,
@@ -431,18 +461,21 @@ final class KnowledgeSync {
     required bool packagesReady,
     required bool retryFailure,
     required SyncTimings timings,
-  }) => timings.timeAsync(
-    'package skills',
-    () => PackageSkills(runner: runner, os: environment.os).refresh(
-      projectRoot,
-      flutterRoot: platform.location.root,
-      configuredAgents: agents,
-      pubspecHash: sources['pubspec.yaml'],
-      lockHash: sources['pubspec.lock'],
-      packagesReady: packagesReady,
-      retryFailure: retryFailure,
-    ),
-  );
+  }) async {
+    if (!packageSkills) return null;
+    return timings.timeAsync(
+      'package skills',
+      () => PackageSkills(runner: runner, os: environment.os).refresh(
+        projectRoot,
+        flutterRoot: platform.location.root,
+        configuredAgents: agents,
+        pubspecHash: sources['pubspec.yaml'],
+        lockHash: sources['pubspec.lock'],
+        packagesReady: packagesReady,
+        retryFailure: retryFailure,
+      ),
+    );
+  }
 
   Freshness _freshness(String projectRoot, _Prepared prepared) {
     final store = KnowledgeStore(projectRoot);
@@ -476,6 +509,7 @@ final class KnowledgeSync {
       for (final path in state.files.keys)
         if (path.startsWith('map/') && path != MapFiles.native) path: mapHash,
       deltaPath: _deltaHash(platform.sdk, mapHash),
+      deltaJsonPath: _deltaHash(platform.sdk, mapHash),
     };
     expected[indexPath] = _indexHash(expected, prepared.sources);
     for (final path in {
@@ -512,11 +546,12 @@ final class KnowledgeSync {
         ),
       );
 
-  /// `delta.md`: the notes, and the delta facts when they were collected.
-  /// Its input hash covers the map's own hash (so the project's code,
-  /// packages and Flutter version) or, with no facts, the reason they are
-  /// missing, plus the notes, the baseline and the language version.
-  GeneratedFile _delta(PlatformBuild platform, MapBuild map) {
+  /// `delta.md` and `delta.json`: the notes, and the delta facts when they
+  /// were collected, as Markdown and as data. Both have one input hash,
+  /// covering the map's own hash (so the project's code, packages and
+  /// Flutter version) or, with no facts, the reason they are missing, plus
+  /// the notes, the baseline and the language version.
+  (GeneratedFile, GeneratedFile) _delta(PlatformBuild platform, MapBuild map) {
     final sdk = platform.sdk;
     final internalError = map.report.deltaErrorType;
     // With no facts, the hashed reason is what delta.md says: the map's skip
@@ -526,37 +561,43 @@ final class KnowledgeSync {
         map.report.skipped ??
         (internalError == null ? null : 'internal error ($internalError)');
     final facts = map.delta;
-    final markdown = renderDelta(
-      DeltaInputs(
+    final inputs = DeltaInputs(
+      flutterVersion: sdk.flutterVersion,
+      languageVersion: sdk.languageVersion,
+      baseline: baseline,
+      coverage: sdk.notesCoverage ?? NotesCoverage.partial,
+      newestNotes: platform.newestNotes,
+      notes: deltaNotes(
+        notes,
         flutterVersion: sdk.flutterVersion,
-        languageVersion: sdk.languageVersion,
         baseline: baseline,
-        coverage: sdk.notesCoverage ?? NotesCoverage.partial,
-        newestNotes: platform.newestNotes,
-        notes: deltaNotes(
-          notes,
-          flutterVersion: sdk.flutterVersion,
-          baseline: baseline,
-        ),
-        facts: facts,
-        skipped: map.report.skipped,
-        internalError: map.report.skipped == null ? internalError : null,
       ),
+      facts: facts,
+      skipped: map.report.skipped,
+      internalError: map.report.skipped == null ? internalError : null,
     );
-    return GeneratedFile.markdown(
-      path: deltaPath,
-      markdown: markdown,
-      inputHash: _deltaHash(
-        sdk,
-        // Facts exist only when the map ran, so then its hash is there.
-        facts == null ? 'skipped: $skipped' : map.inputHash!,
+    final hash = _deltaHash(
+      sdk,
+      // Facts exist only when the map ran, so then its hash is there.
+      facts == null ? 'skipped: $skipped' : map.inputHash!,
+    );
+    return (
+      GeneratedFile.markdown(
+        path: deltaPath,
+        markdown: renderDelta(inputs),
+        inputHash: hash,
+      ),
+      GeneratedFile(
+        path: deltaJsonPath,
+        body: deltaJsonBody(inputs),
+        inputHash: hash,
       ),
     );
   }
 
-  /// The input hash of `delta.md`: [mapPart] (the map's input hash, or why
-  /// there are no facts), the notes, the baseline, the language version and
-  /// the Flutter version.
+  /// The input hash of `delta.md` and `delta.json`: [mapPart] (the map's
+  /// input hash, or why there are no facts), the notes, the baseline, the
+  /// language version and the Flutter version.
   String _deltaHash(SdkInfo sdk, String mapPart) => inputHash(
     {
       'map': utf8.encode(mapPart),
@@ -577,12 +618,17 @@ final class KnowledgeSync {
     PlatformBuild platform,
     MapBuild map,
     NativeBuild native,
-    GeneratedFile delta,
+    List<GeneratedFile> deltaFiles,
     IndexSources sources,
   ) {
     final sdk = platform.sdk;
     final hash = _indexHash({
-      for (final file in [...platform.files, delta, ...map.files, ?native.file])
+      for (final file in [
+        ...platform.files,
+        ...deltaFiles,
+        ...map.files,
+        ?native.file,
+      ])
         file.path: file.inputHash,
     }, sources);
     final stack = packs

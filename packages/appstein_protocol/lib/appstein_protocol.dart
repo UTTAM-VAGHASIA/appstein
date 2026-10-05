@@ -6,6 +6,7 @@ library;
 
 export 'src/config/appstein_config.dart';
 export 'src/knowledge/curated_note.dart';
+export 'src/knowledge/delta_knowledge.dart';
 export 'src/knowledge/knowledge_meta.dart';
 export 'src/knowledge/knowledge_state.dart';
 export 'src/knowledge/notes_coverage.dart';
@@ -20,6 +21,10 @@ export 'src/map/map_files.dart';
 export 'src/map/native_config.dart';
 export 'src/map/routes_map.dart';
 export 'src/map/symbols_map.dart';
+export 'src/mcp/freshness_report.dart';
+export 'src/mcp/json_schema.dart';
+export 'src/mcp/tool_output.dart';
+export 'src/mcp/tool_schemas.dart';
 export 'src/protocol_version.dart';
 export 'src/sdk_info.dart';
 export 'src/severity.dart';
