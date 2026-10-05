@@ -343,9 +343,21 @@ final class _McpSession {
     return watch.elapsed;
   }
 
+  /// Ends the server by closing its stdin, as an agent does.
+  ///
+  /// The iterator is cancelled too: between reads it holds its subscription
+  /// to the server's stdout paused, and a paused subscription keeps this
+  /// process alive after `main` returns.
   Future<void> close() async {
     await _process.stdin.close();
-    await _process.exitCode;
+    await _process.exitCode.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        _process.kill();
+        return _process.exitCode;
+      },
+    );
+    await _lines.cancel();
   }
 }
 
