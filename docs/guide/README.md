@@ -24,7 +24,7 @@ On Windows, everything works in PowerShell, including paths with spaces.
 | Folder | What it holds |
 |---|---|
 | `packages/appstein_protocol/` | Shared data models ([README](../../packages/appstein_protocol/README.md)) |
-| `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor, the knowledge store, the project map, packs and `sync` ([README](../../packages/appstein_engine/README.md)) |
+| `packages/appstein_engine/` | All logic: host access, config, SDK detection, doctor, the knowledge store, the project map, packs, `sync`, the MCP server, the human docs and the verifier ([README](../../packages/appstein_engine/README.md)) |
 | `packages/appstein_cli/` | The `appstein` command, a thin layer over the engine ([README](../../packages/appstein_cli/README.md)) |
 | `packages/appstein_lints/` | The analyzer plugin with our lint rules ([README](../../packages/appstein_lints/README.md)) |
 | `notes/` | The curated notes, compiled into Appstein ([knowledge-store](knowledge-store.md#the-curated-notes)) |
@@ -47,7 +47,8 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [index-md](index-md.md) | How `appstein sync` builds `INDEX.md`, the always-in-view page, and keeps it within 1,500 tokens |
 | [incremental-sync](incremental-sync.md) | How `appstein sync --detect` decides whether to rebuild, and the analyzer cache that makes a rebuild take about 1 s |
 | [package-skills](package-skills.md) | How `appstein sync` runs package:skills when the dependencies change, for the agents set up in the project |
-| [mcp-server](mcp-server.md) | How `appstein mcp` answers agents: the eleven tools, freshness on every call, what a write tool does differently, and the reply format |
+| [mcp-server](mcp-server.md) | How `appstein mcp` answers agents: the twelve tools, freshness on every call, what a write tool does differently, and the reply format |
+| [verify](verify.md) | How `appstein verify` checks a project against its knowledge: one run step by step, each check, findings, suppressions and exit codes |
 | [decisions-and-memory](decisions-and-memory.md) | How decisions and memory are stored, the rules for reading them, and how `record_decision` and `memory_write` change committed files safely |
 | [human-docs](human-docs.md) | How `appstein docs` renders the knowledge into Markdown pages for people, tells its pages from a team's notes, and decides that a page is behind |
 | [native-config](native-config.md) | How `appstein sync` reads the Android and iOS setup into `native.json`, and why a value is found, unknown or absent |
@@ -64,6 +65,7 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [How to: add a curated note](how-to/add-a-curated-note.md) | The steps to add or change a curated note |
 | [How to: add a guide page](how-to/add-a-guide-page.md) | The steps to add a page to this guide |
 | [How to: add a doc page](how-to/add-a-doc-page.md) | The steps to add a page to the human docs a project gets |
+| [How to: add a verify check](how-to/add-a-check.md) | The steps to add a check to `appstein verify`, or one a decision can name |
 
 ## Build and run the CLI from source
 

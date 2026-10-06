@@ -27,6 +27,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
 | [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command and `mcpSyncFactory` |
 | [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) | The `docs` command and `formatDocs` |
+| [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `formatVerify` and `verifyExitCode` |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |
@@ -48,9 +49,10 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 |---|---|---|
 | `UsageException` (a bad option, an unknown command, a bad `--project`) | The message, a blank line, then the usage text | 3 |
 | `ConfigException` | `Invalid appstein.yaml: ` and the error | 3 |
+| `VerifyCheckError` (a check of `verify` threw) | `reportCrash`, with the check's name in the message and the trace of where the check threw | 3 |
 | Anything else | `reportCrash`: "Appstein failed unexpectedly", a hint to run `appstein doctor`, and the stack trace | 3 |
 
-No command reaches the `ConfigException` handler today. `doctor` reports an invalid file as a check error, with exit code 1 (see [doctor](doctor.md)). `sync` catches the exception itself, prints it with a hint, and exits 3 (see [`appstein sync`](#appstein-sync)). The handler is a safety net for any command that loads the config and forgets to catch.
+No command reaches the `ConfigException` handler today. `doctor` reports an invalid file as a check error, with exit code 1 (see [doctor](doctor.md)). `sync`, `docs` and `verify` catch the exception themselves, print it with a hint, and exit 3 (see [`appstein sync`](#appstein-sync)). The handler is a safety net for any command that loads the config and forgets to catch.
 
 ## Global options
 
@@ -196,6 +198,21 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 
 A refusal is exit 1, not 3: the project has something to fix (fetch the packages, move a file), and Appstein itself didn't fail. Unchanged pages are counted and never listed, so a run after one edit prints one or two lines.
 
+## `appstein verify`
+
+`appstein verify` checks the project against its knowledge and prints the findings. What a run does, and every check, is in [verify](verify.md); [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) only starts it and prints.
+
+1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`.
+2. **Finds the project and loads `appstein.yaml`**, as `docs` does: no project, or an invalid file, exits **3**.
+3. **Calls `runVerify`** with the project's packs, `checksFor(packs)` and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`.
+4. **Prints the result to stdout**, as `formatVerify` or as indented JSON, and exits with `verifyExitCode`: **1** when a finding is an error, else **0**.
+
+Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3.
+
+`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`.
+
+The CLI's own tests can't build a project map (their fake Flutter SDK has no Dart SDK), so every run there reports `knowledge.stale`. Runs on a whole project are in the engine's [`verify_fixture_test.dart`](../../packages/appstein_engine/test/verify/verify_fixture_test.dart), and with the compiled binary in [`tool/measure_sync.dart`](../../tool/measure_sync.dart) (see [ci](ci.md)).
+
 ## Help text
 
 This is the exact text `appstein` prints, generated from the CLI itself:
@@ -218,6 +235,7 @@ Available commands:
   doctor   Check your environment and explain how to fix problems.
   mcp      Serve Appstein's MCP tools over stdio (started by agents).
   sync     Regenerate the knowledge Appstein keeps in .appstein/.
+  verify   Check the project against its knowledge (fast or full).
 
 Run "appstein help <command>" for more information about a command.
 ```
@@ -260,6 +278,20 @@ Regenerate the knowledge Appstein keeps in .appstein/.
 Usage: appstein sync [arguments]
 -h, --help      Print this usage information.
     --detect    Rebuild only when something the knowledge reads changed, found by content hash (the after-edit hook).
+
+Run "appstein help" to see global options.
+```
+
+```text
+$ appstein help verify
+Check the project against its knowledge (fast or full).
+
+Usage: appstein verify [arguments]
+-h, --help      Print this usage information.
+    --fast      Run only the fast checks, as after every change.
+    --full      Run every check, as before a task is done (the default).
+    --format    How the findings are printed.
+                [text (default), json]
 
 Run "appstein help" to see global options.
 ```

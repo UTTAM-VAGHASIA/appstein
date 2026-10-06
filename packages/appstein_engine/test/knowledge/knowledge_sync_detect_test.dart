@@ -76,17 +76,18 @@ void main() {
     await full();
     await detect();
     String index() => fileOf('.appstein/INDEX.md').readAsStringSync();
-    expect(index(), isNot(contains('`verify()`')));
-    final report = await knowledgeSync(
-      flutterRoot: sdk,
-      runner: runner,
-      tools: [...mcpToolNames, 'verify'],
-    ).detect(app, dartSdkPath: testDartSdk);
-    expect(report.current, isFalse);
     expect(
       index(),
       contains('- Run `verify()` before you say a task is done.'),
     );
+    expect(index(), isNot(contains('`package_check()`')));
+    final report = await knowledgeSync(
+      flutterRoot: sdk,
+      runner: runner,
+      tools: [...mcpToolNames, 'package_check'],
+    ).detect(app, dartSdkPath: testDartSdk);
+    expect(report.current, isFalse);
+    expect(index(), contains('a package that passes `package_check()`'));
     expect(
       [
         for (final MapEntry(key: path, value: written) in report.files.entries)
@@ -534,4 +535,10 @@ final class _NewerPack implements Pack {
 
   @override
   List<DocPage> get docPages => _pack.docPages;
+
+  @override
+  List<VerifyCheck> get checks => _pack.checks;
+
+  @override
+  List<DecisionCheck> get decisionChecks => _pack.decisionChecks;
 }

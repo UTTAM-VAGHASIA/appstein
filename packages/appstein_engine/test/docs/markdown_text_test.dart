@@ -2,6 +2,22 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('a Mermaid label keeps a # from starting an entity', () {
+    expect(mermaidLabel('C#'), '"C#35;"');
+    expect(mermaidLabel('a "b" <c>'), '"a #quot;b#quot; #lt;c#gt;"');
+  });
+
+  test('a link shows a file name with ~, \$ or & as it is', () {
+    expect(
+      projectLink(
+        docsPath: 'docs',
+        page: 'a.md',
+        target: r'lib/$gen~1&co.dart',
+      ),
+      r'[lib/\$gen\~1&amp;co.dart](../lib/%24gen~1%26co.dart)',
+    );
+  });
+
   group('mdText', () {
     test('escapes what Markdown would read as markup', () {
       expect(mdText(r'a\b'), r'a\\b');
@@ -10,6 +26,11 @@ void main() {
       expect(mdText('*a* _b_'), r'\*a\* \_b\_');
       expect(mdText('[x](y)'), r'\[x\](y)');
       expect(mdText('<br>'), r'\<br\>');
+    });
+
+    test('escapes entities, strike-through and math too', () {
+      expect(mdText(r'a & b ~c~ $x$'), r'a &amp; b \~c\~ \$x\$');
+      expect(mdText('&copy;'), '&amp;copy;');
     });
 
     test('a leading # is not a heading', () {
@@ -48,8 +69,8 @@ void main() {
       expect(mdCode('``'), '``` `` ```');
     });
 
-    test('escapes a pipe, so a table cell survives', () {
-      expect(mdCode('a|b'), r'`a\|b`');
+    test('leaves a pipe alone: only a table needs it escaped', () {
+      expect(mdCode('/a|b'), '`/a|b`');
     });
 
     test('puts several lines on one', () {
@@ -75,6 +96,24 @@ void main() {
         '|---|---|\n'
         '| A | a.dart |\n'
         '| B | b.dart |\n',
+      );
+    });
+
+    test('escapes the pipes in its cells, once', () {
+      expect(
+        mdTable(
+          ['Path', 'Text'],
+          [
+            [mdCode('/a|b'), mdText('x|y')],
+            ['a||b', r'\| c'],
+          ],
+        ),
+        '| Path | Text |\n'
+        '|---|---|\n'
+        r'| `/a\|b` | x\|y |'
+        '\n'
+        r'| a\|\|b | \| c |'
+        '\n',
       );
     });
 

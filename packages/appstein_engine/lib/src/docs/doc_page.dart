@@ -24,6 +24,30 @@ final class DocSection {
   final String markdown;
 }
 
+final _notInFileNames = RegExp(r'[\\/:*?"<>|\x00-\x1f]');
+final _deviceName = RegExp(
+  r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])$',
+  caseSensitive: false,
+);
+
+/// [name] as one segment of a page's path that is a file name on every
+/// system. A page named after something in the project, such as a feature
+/// folder, uses it, so the page has the same path on every machine (spec
+/// §6.9): a folder called `shop:eu` can exist on Linux, and Windows could
+/// never check out a page with that name.
+///
+/// What Windows refuses in a name (`\ / : * ? " < > |`, control characters,
+/// a dot or a space at the end) becomes `_`, and a device name such as
+/// `con` gets a `_` at its end. Two names may become the same one; the
+/// renderer refuses that (`DocPagesCollide`).
+String docFileName(String name) {
+  var safe = name.replaceAll(_notInFileNames, '_');
+  if (safe.endsWith('.') || safe.endsWith(' ')) {
+    safe = '${safe.substring(0, safe.length - 1)}_';
+  }
+  return safe.isEmpty || _deviceName.hasMatch(safe) ? '${safe}_' : safe;
+}
+
 /// A source of human doc pages in a pack (spec §6.9, §10).
 abstract interface class DocPage {
   /// A short name for error messages, such as `features`.

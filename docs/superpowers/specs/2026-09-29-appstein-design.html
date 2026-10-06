@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d</b> Verifier</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d.2</b> Code checks and fast verify</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -676,7 +676,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1b" style="--fill:100%"><b>1b</b><span>Knowledge layers 1–2</span><i>8 of 8 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1c" style="--fill:100%"><b>1c</b><span>MCP server</span><i>5 of 5 done</i></a>
-    <a class="pg-seg pg-next" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
+    <a class="pg-seg pg-underway" href="#pg-1d" style="--fill:17%"><b>1d</b><span>Verifier</span><i>1 of 6 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1f" style="--fill:0%"><b>1f</b><span>upgrade, skills, benchmark</span><i>0 of 1 done</i></a>
   </div>
@@ -790,9 +790,36 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         </li>
       </ol>
     </li>
-    <li class="pg-item pg-next" id="pg-1d">
-      <p class="pg-title"><b>1d</b> Verifier <span class="tag info">Next</span></p>
+    <li class="pg-item pg-underway" id="pg-1d">
+      <p class="pg-title"><b>1d</b> Verifier <span class="tag warn">In progress</span></p>
       <p class="pg-summary">Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, <code>docs.stale</code>, suppressions, and the <code>verify</code> and <code>package_check</code> MCP tools.</p>
+      <ol class="pg-timeline pg-sub">
+        <li class="pg-item pg-done" id="pg-1d-1">
+          <p class="pg-title"><b>1d.1</b> Verify core <span class="tag ok">Done</span></p>
+          <p class="pg-summary"><code>appstein verify</code> with the check interface, findings output, exit codes, suppressions and the <code>verify</code> MCP tool, plus the checks that only read files Appstein already has: <code>knowledge.stale</code>, <code>docs.stale</code>, the decision checks and <code>verify.test_required</code>.</p>
+          <p class="pg-meta"><time datetime="2026-10-06">6 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/9">PR #9</a> · <a href="../plans/2026-10-06-slice-1d1-verify-core.md">Plan</a></p>
+        </li>
+        <li class="pg-item pg-next" id="pg-1d-2">
+          <p class="pg-title"><b>1d.2</b> Code checks and fast verify <span class="tag info">Next</span></p>
+          <p class="pg-summary">Analyze, fix, format and test checks, warm analysis inside the MCP process, the hook exit code, and fast verify measured against 5 s.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1d-3">
+          <p class="pg-title"><b>1d.3</b> Lint rules <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">The five remaining M1 rules in <code>appstein_lints</code>, including <code>document_public_classes</code>; the stack knowledge in the <code>feature</code> and <code>route</code> tools and in <code>INDEX.md</code> moves into the stack pack.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1d-4">
+          <p class="pg-title"><b>1d.4</b> Package gate <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">pub.dev and advisory checks with offline behavior, pub-cache inspection, the <code>package_check</code> MCP tool and the verdict in <code>dependencies.md</code>.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1d-5">
+          <p class="pg-title"><b>1d.5</b> Android checks <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">Toolchain, built-in Kotlin, required values, 16 KB page size, secrets, static release readiness, the cheap gates and the debug build; the Android knowledge in the <code>toolchain</code> tool moves into the Android pack.</p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1d-6">
+          <p class="pg-title"><b>1d.6</b> iOS checks <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary">Deployment target, SwiftPM, UIScene, privacy, usage descriptions with the permission-to-plugin map, and static release readiness; the iOS knowledge in the <code>toolchain</code> tool moves into the iOS pack.</p>
+        </li>
+      </ol>
     </li>
     <li class="pg-item pg-planned" id="pg-1e">
       <p class="pg-title"><b>1e</b> create + integrate <span class="tag neutral">Planned</span></p>
@@ -1092,7 +1119,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <span class="tag err">error</span><span>blocks “done”</span>
       <span class="tag warn">warning</span><span>reported</span>
       <span class="tag info">info</span><span>advisory</span>
-      <span class="muted">· Every suppression needs a written reason, and each run prints how many are active.</span>
+      <span class="muted">· Every suppression needs a written reason, and each run prints how many findings they hide.</span>
     </div>
 
     <div class="gate">

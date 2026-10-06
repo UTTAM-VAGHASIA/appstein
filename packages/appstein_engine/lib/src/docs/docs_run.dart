@@ -1,20 +1,16 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
-import 'package:path/path.dart' as p;
 
 import '../decisions/decision_store.dart';
-import '../index/index_sources.dart';
 import '../knowledge/knowledge_lock.dart';
+import '../knowledge/knowledge_refresh.dart';
 import '../knowledge/knowledge_store.dart';
 import '../knowledge/knowledge_sync.dart';
 import '../knowledge/knowledge_write_exception.dart';
-import '../knowledge/platform_sync.dart';
-import '../map/map_sync.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
 import 'docs_folder.dart';
 import 'docs_knowledge.dart';
-import 'docs_renderer.dart';
-import 'engine_pages.dart';
+import 'docs_prepare.dart';
 
 /// What `appstein docs` did, or why it did nothing (spec §6.9).
 sealed class DocsOutcome {
@@ -87,7 +83,7 @@ const _runAgain = 'Then run `appstein docs` again.';
 DocsRefused _lockBusy(
   DocsRefused Function(String problem, {String? fixHint}) refused,
 ) => refused(
-  'another Appstein process holds the knowledge lock',
+  lockBusyProblem,
   fixHint: 'Run `appstein docs` again when it has finished.',
 );
 
@@ -131,100 +127,43 @@ Future<DocsOutcome> runDocs({
     details: details,
   );
 
-  final SyncReport report;
-  try {
-    report = await sync.detect(projectRoot, dartSdkPath: dartSdkPath);
-  } on SyncException catch (error) {
-    return refused(error.problem, fixHint: error.fixHint);
-  } on KnowledgeLockTimeout {
-    return _lockBusy(refused);
-  } on KnowledgeWriteException catch (error) {
-    return refused(
-      'the knowledge could not be brought up to date ($error)',
-      fixHint:
-          'Check that the project folder is writable and that .appstein is '
-          'a folder. $_runAgain',
-    );
-  }
-  if (report.map?.skipped case final skipped?) {
-    final reason = skipped.endsWith('.')
-        ? skipped.substring(0, skipped.length - 1)
-        : skipped;
-    return refused(
-      'the project map is missing ($reason)',
-      fixHint: report.map!.packages == PackagesAction.fetchFailed
-          ? 'Run `flutter pub get` in the project to see the whole error. '
-                '$_runAgain'
-          : 'Fix that. $_runAgain',
-    );
+  final refresh = await refreshKnowledge(
+    sync,
+    projectRoot,
+    dartSdkPath: dartSdkPath,
+    runAgain: _runAgain,
+  );
+  if (refresh.problem case final problem?) {
+    return problem == lockBusyProblem
+        ? _lockBusy(refused)
+        : refused(problem, fixHint: refresh.fixHint);
   }
 
   final store = KnowledgeStore(projectRoot);
   try {
     return await store.locked(() async {
-      final snapshot = KnowledgeSnapshot(projectRoot);
-      for (final read in <KnowledgeRead<Object>>[
-        snapshot.sdk,
-        snapshot.features,
-        snapshot.symbols,
-        snapshot.routes,
-        snapshot.layers,
-        snapshot.deps,
-        snapshot.native,
-      ]) {
-        if (read.problem case final problem?) {
-          return refused(
-            problem,
-            fixHint: 'Run `appstein sync` in the project to see why.',
-          );
-        }
+      final DocsPlan plan;
+      switch (prepareDocs(
+        projectRoot: projectRoot,
+        config: config,
+        packs: packs,
+        snapshot: KnowledgeSnapshot(projectRoot),
+        decisions: readDecisions(projectRoot),
+      )) {
+        case DocsNotPrepared(:final problem, :final fixHint, :final details):
+          return refused(problem, fixHint: fixHint, details: details);
+        case final DocsPlan prepared:
+          plan = prepared;
       }
-
-      final folder = p.joinAll([projectRoot, ...docsPath.split('/')]);
-      final scan = scanDocsFolder(folder);
-      if (scan.problems.isNotEmpty) {
-        return scan.problems.length == 1
-            ? refused(scan.problems.single)
-            : refused(
-                'the docs folder could not be read',
-                details: scan.problems,
-              );
-      }
-
-      final pages = renderPages(
-        knowledge: DocsKnowledge(
-          docsPath: docsPath,
-          projectName: readIndexSources(projectRoot).projectName,
-          platforms: platformFolders(projectRoot),
-          stack: config.packs.stack,
-          sdk: snapshot.sdk.value!,
-          features: snapshot.features.value!,
-          symbols: snapshot.symbols.value!,
-          routes: snapshot.routes.value!,
-          layers: snapshot.layers.value!,
-          deps: snapshot.deps.value!,
-          native: snapshot.native.value!,
-          decisions: readDecisions(projectRoot),
-          teamNotes: scan.teamNotes,
-        ),
-        sources: [
-          engineDocSource,
-          for (final pack in packs)
-            (id: pack.id, version: pack.version, pages: pack.docPages),
-        ],
-        readme: readmeSection,
-      );
-
-      final plan = planDocs(folder, scan, pages);
       if (plan.blocked.isNotEmpty) {
         return refused('a file is in the way', details: plan.blocked);
       }
-      if (!check) await applyDocs(folder, pages, plan.changes);
+      if (!check) await applyDocs(plan.folder, plan.pages, plan.changes);
       return DocsDone(
         docsPath: docsPath,
         check: check,
         changes: plan.changes,
-        teamNotes: scan.teamNotes,
+        teamNotes: plan.scan.teamNotes,
       );
     }, timeout: sync.lockTimeout);
   } on KnowledgeLockTimeout {

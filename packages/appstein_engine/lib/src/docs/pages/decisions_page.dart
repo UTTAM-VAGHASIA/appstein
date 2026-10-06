@@ -29,10 +29,16 @@ final class DecisionsPage implements DocPage {
     final proposed = having(DecisionStatus.proposed);
     final superseded = having(DecisionStatus.superseded);
     final problems = [
-      if (set.folderProblem case final problem?)
-        "The decisions folder can't be read: ${mdText(problem)}.",
+      // What the operating system says about a file differs from machine to
+      // machine, and a page must not (spec §6.9): `verify` gives the words.
+      if (set.folderProblem != null)
+        'The decisions folder could not be listed; `appstein verify` says '
+            'why.',
       for (final file in set.unreadable)
-        "${mdCode(file.file)} can't be read: ${mdText(file.problem)}.",
+        set.readProblems.containsKey(file.file)
+            ? '${mdCode(file.file)} could not be opened; `appstein verify` '
+                  'says why.'
+            : "${mdCode(file.file)} can't be read: ${mdText(file.problem)}.",
       for (final MapEntry(key: number, value: files) in set.duplicates.entries)
         'The number $number is used by more than one file: '
             '${files.map(mdCode).join(', ')}.',

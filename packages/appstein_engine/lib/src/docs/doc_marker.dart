@@ -7,7 +7,7 @@ import '../knowledge/plain_text.dart';
 /// `dependencies.md`, `decisions.md` and the frame every page shares. Bump
 /// it when one of them changes shape, so the pages it renders show a
 /// one-time diff.
-const docsEngineVersion = '1';
+const docsEngineVersion = '2';
 
 /// The line under the marker of every generated page.
 const docNotice =
@@ -90,15 +90,48 @@ bool isConflictedPage(String text) {
 String plainLines(String text) =>
     withoutBom(text).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
+final _endingBreaks = RegExp(r'\n*$');
+
+/// [text] in the form [plainLines] gives, without the line breaks at its
+/// end. Two pages that are equal in this form differ only in line endings, a
+/// byte order mark, or blank lines at the end, which an editor adds or
+/// strips: they count as the same page (spec §6.9).
+String withoutEndingBreaks(String text) =>
+    plainLines(text).replaceFirst(_endingBreaks, '');
+
+/// Whether [text], found where the page [writing] is about to be written
+/// through a temporary file, is only what a write of a page can leave
+/// behind, so nothing of a person's is lost by replacing it:
+/// - it is empty;
+/// - it is a whole generated page nobody edited (its body matches its own
+///   marker), of this render or an older one;
+/// - it is the start of [writing]: this write, cut short.
+///
+/// The marker is an invisible first line and travels with a copy, so a file
+/// that merely starts like a page may be a copy someone made to keep an
+/// edit. That is never a leftover.
+bool isLeftoverPageWrite(String text, {required String writing}) {
+  final plain = plainLines(text);
+  if (plain.isEmpty) return true;
+  if (DocMarker.of(plain) case final marker?) {
+    if (marker.body == bodyHash(bodyOf(plain))) return true;
+  }
+  return plainLines(writing).startsWith(plain);
+}
+
 /// The text of a generated page: [marker]'s line, then [body].
 String markedPage(DocMarker marker, String body) => '${marker.line}\n$body';
 
 /// The body of a page [text] that has a marker: everything after its first
-/// line, in the form [plainLines] gives.
+/// line, in the form [plainLines] gives, ending in exactly one line break as
+/// every rendered body does. So blank lines added or stripped at the end of
+/// the file never make a page look edited by hand.
 String bodyOf(String text) {
   final plain = plainLines(text);
   final end = plain.indexOf('\n');
-  return end < 0 ? '' : plain.substring(end + 1);
+  if (end < 0) return '';
+  final body = withoutEndingBreaks(plain.substring(end + 1));
+  return body.isEmpty ? '' : '$body\n';
 }
 
 /// The SHA-256 of [body] as hex, in the form [plainLines] gives, so the

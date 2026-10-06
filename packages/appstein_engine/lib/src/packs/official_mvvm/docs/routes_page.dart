@@ -66,7 +66,7 @@ final class RoutesPage implements DocPage {
           : 'has no screen of its own';
       tree.add(
         '${'  ' * depth}- ${mdCode(route.path!)}'
-        '${route.name == null ? '' : ', named ${mdCode(route.name!)},'} '
+        '${(route.name ?? '').trim().isEmpty ? '' : ', named ${mdCode(route.name!)},'} '
         '$what (${link(route.file, route.line)})',
       );
       if (owners[route.path] != route) return;

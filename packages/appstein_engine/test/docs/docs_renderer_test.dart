@@ -123,6 +123,127 @@ void main() {
     );
   });
 
+  test('a title from the project is escaped in the heading, once, by the '
+      'frame', () {
+    final page = _render([
+      _source('official_mvvm', '2', const [
+        DocSection(
+          path: 'features/a.md',
+          title: 'Feature: my_feature*2 # <x>',
+          markdown: 'm',
+        ),
+      ]),
+    ]).singleWhere((page) => page.path == 'features/a.md');
+    expect(page.title, 'Feature: my_feature*2 # <x>');
+    expect(
+      page.text,
+      contains(
+        r'# Feature: my\_feature\*2 # \<x\>'
+        '\n',
+      ),
+    );
+  });
+
+  group('pages that would be one file are refused, not rendered', () {
+    // Names come from the project (feature folders), so this is something
+    // its owner can fix: an exception with a message, not a page source bug.
+    test('two paths that differ only in letter case', () {
+      expect(
+        () => _render([
+          _source('official_mvvm', '2', const [
+            DocSection(path: 'features/Home.md', title: 'T', markdown: 'm'),
+            DocSection(path: 'features/home.md', title: 'T', markdown: 'm'),
+          ]),
+        ]),
+        throwsA(
+          isA<DocPagesCollide>()
+              .having((e) => e.first, 'first', 'features/Home.md')
+              .having((e) => e.second, 'second', 'features/home.md')
+              .having(
+                (e) => e.problem,
+                'problem',
+                'two pages would be the same file where letter case is '
+                    'ignored (`features/Home.md` and `features/home.md`)',
+              ),
+        ),
+      );
+    });
+
+    test('also across sources', () {
+      expect(
+        () => _render([
+          _source('official_mvvm', '2', const [
+            DocSection(path: 'Routes.md', title: 'T', markdown: 'm'),
+          ]),
+          _source('other', '1', const [_routes]),
+        ]),
+        throwsA(isA<DocPagesCollide>()),
+      );
+    });
+
+    test('a page source that finds a collision itself is passed on as it '
+        'is', () {
+      const collision = DocPagesCollide(
+        'features/a_b.md',
+        'features/a_b.md',
+        because: 'the features `a:b` and `a_b` would both be x',
+      );
+      expect(collision.problem, 'the features `a:b` and `a_b` would both be x');
+      expect(
+        () => _render([
+          (
+            id: 'official_mvvm',
+            version: '2',
+            pages: [const FakeDocPage([], failure: collision)],
+          ),
+        ]),
+        throwsA(same(collision)),
+      );
+    });
+
+    test('two sources may still share a page', () {
+      final pages = _render([
+        _source('android', '1', const [
+          DocSection(path: 'native.md', title: 'Native', markdown: 'A.'),
+        ]),
+        _source('ios', '1', const [
+          DocSection(path: 'native.md', title: 'Native', markdown: 'I.'),
+        ]),
+      ]);
+      expect(pages.map((page) => page.path), ['README.md', 'native.md']);
+    });
+  });
+
+  group('docFileName makes a name that is a file name on every system', () {
+    test('keeps ordinary names', () {
+      for (final name in ['login', 'my_feature-2', 'Ünïcode', 'a.b']) {
+        expect(docFileName(name), name);
+      }
+    });
+
+    test('replaces what Windows refuses in a file name', () {
+      expect(docFileName('a:b'), 'a_b');
+      expect(docFileName(r'a\b*c?d"e<f>g|h'), 'a_b_c_d_e_f_g_h');
+      expect(docFileName('tab\there'), 'tab_here');
+      expect(docFileName('dot.'), 'dot_');
+      expect(docFileName('space '), 'space_');
+      expect(docFileName('a/b'), 'a_b');
+    });
+
+    test('never gives a device name of Windows', () {
+      expect(docFileName('con'), 'con_');
+      expect(docFileName('NUL'), 'NUL_');
+      expect(docFileName('com1'), 'com1_');
+      expect(docFileName('console'), 'console');
+    });
+
+    test('never gives an empty name or a dot name', () {
+      expect(docFileName(''), '_');
+      expect(docFileName('.'), '_');
+      expect(docFileName('..'), '._');
+    });
+  });
+
   group(
     'a page source that misbehaves is an error, and nothing is rendered',
     () {
@@ -173,22 +294,6 @@ void main() {
         fails(
           const DocSection(path: 'a.md', title: 'T\nU', markdown: 'm'),
           'title',
-        );
-      });
-
-      test('for two paths that differ only in letter case', () {
-        expect(
-          () => _render([
-            _source('official_mvvm', '2', const [
-              DocSection(path: 'Routes.md', title: 'T', markdown: 'm'),
-            ]),
-            _source('other', '1', const [_routes]),
-          ]),
-          throwsA(
-            isA<DocPageError>()
-                .having((e) => e.source, 'source', 'other')
-                .having((e) => e.message, 'message', contains('Routes.md')),
-          ),
         );
       });
 

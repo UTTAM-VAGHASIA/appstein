@@ -75,6 +75,7 @@ NativeValue swiftPackageManagerEnabled({
       _ => const NativeValue.unknown(
         '`$swiftPackageManagerSetting` in the global flutter config must be '
         'true or false; Flutter stops with an error',
+        resolvedFrom: 'flutter config (global)',
       ),
     };
   }
@@ -93,6 +94,7 @@ NativeValue swiftPackageManagerEnabled({
   } on FormatException {
     return NativeValue.unknown(
       "Flutter $flutterVersion's default isn't known to Appstein",
+      resolvedFrom: 'default',
     );
   }
   if (version >= Version(3, 44, 0)) {
@@ -112,5 +114,6 @@ NativeValue swiftPackageManagerEnabled({
   return NativeValue.unknown(
     "the $channel channel's default before Flutter 3.44 isn't known to "
     'Appstein',
+    resolvedFrom: 'default',
   );
 }

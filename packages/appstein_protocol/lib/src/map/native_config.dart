@@ -67,12 +67,14 @@ final class NativeValue extends NativeNode {
        reason = null,
        errorType = null;
 
-  /// A value Appstein can't read plainly, and why.
-  const NativeValue.unknown(String this.reason, {this.at})
+  /// A value Appstein can't read plainly, and why. [resolvedFrom] says
+  /// where the value would have come from when that isn't a file of the
+  /// project, such as one machine's settings: then [reason] holds for that
+  /// machine only.
+  const NativeValue.unknown(String this.reason, {this.at, this.resolvedFrom})
     : status = NativeStatus.unknown,
       value = null,
       expression = null,
-      resolvedFrom = null,
       note = null,
       errorType = null;
 
@@ -111,6 +113,7 @@ final class NativeValue extends NativeNode {
       NativeStatus.unknown => NativeValue.unknown(
         fields.string('reason'),
         at: at,
+        resolvedFrom: fields.optionalString('resolvedFrom'),
       ),
       NativeStatus.absent => NativeValue.absent(
         fields.string('reason'),

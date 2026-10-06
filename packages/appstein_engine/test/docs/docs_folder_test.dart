@@ -388,10 +388,14 @@ void main() {
     final old = file('routes.md').readAsStringSync();
     // A folder where the temporary file goes makes the write fail on every
     // system.
-    Directory('${file('routes.md').path}.tmp').createSync();
     final newer = _pages({'routes.md': 'One route.'});
+    final changes = plan(newer).changes;
+    Directory('${file('routes.md').path}.tmp').createSync();
+    // A plan made now would name the folder as in the way; this one was
+    // made before it appeared.
+    expect(plan(newer).blocked, hasLength(1));
     await expectLater(
-      applyDocs(folder, newer, plan(newer).changes),
+      applyDocs(folder, newer, changes),
       throwsA(
         isA<KnowledgeWriteException>()
             .having((e) => e.path, 'path', file('routes.md').path)
@@ -418,5 +422,152 @@ void main() {
     expect(summary(planned.changes).keys, isNot(contains('linked/stale.md')));
     await applyDocs(folder, pages, planned.changes);
     expect(File(p.join(outside, 'stale.md')).readAsStringSync(), marked);
+  });
+
+  test('a team note is titled by its first heading outside a code '
+      'fence', () {
+    write(
+      'a.md',
+      'Intro.\n\n```sh\n# install it\n```\n\n~~~\n# also code\n~~~\n\n'
+          '# Real title\n',
+    );
+    write('b.md', '```\n# only in code\n```\n');
+    write('c.md', '    # indented code\n\n# Third\n');
+    expect(
+      {
+        for (final note in scanDocsFolder(folder).teamNotes)
+          note.path: note.title,
+      },
+      {'a.md': 'Real title', 'b.md': 'b.md', 'c.md': 'Third'},
+    );
+  });
+
+  group('blank lines at the end of a page (an editor adds or strips '
+      'them)', () {
+    final routes = pages.singleWhere((page) => page.path == 'routes.md');
+
+    test('a page without its final newline, or with more, is '
+        'unchanged', () async {
+      for (final text in [
+        routes.text.substring(0, routes.text.length - 1),
+        '${routes.text}\n\n',
+        '${routes.text.replaceAll('\n', '\r\n')}\r\n',
+      ]) {
+        await render(pages);
+        write('routes.md', text);
+        final modified = file('routes.md').lastModifiedSync();
+        final planned = plan(pages);
+        expect(summary(planned.changes)['routes.md'], 'unchanged');
+        await applyDocs(folder, pages, planned.changes);
+        expect(file('routes.md').readAsStringSync(), text);
+        expect(file('routes.md').lastModifiedSync(), modified);
+      }
+    });
+
+    test('a page that fell behind and lost its final newline is behind, '
+        'not hand-edited', () async {
+      final old = _pages({
+        'routes.md': 'An older route.',
+      }).singleWhere((page) => page.path == 'routes.md');
+      write('routes.md', old.text.substring(0, old.text.length - 1));
+      expect(summary(plan(pages).changes)['routes.md'], 'write/behind');
+    });
+
+    test('a blank line removed inside the page is still a hand edit', () async {
+      await render(pages);
+      write('routes.md', routes.text.replaceFirst('\n\n# ', '\n# '));
+      expect(
+        summary(plan(pages).changes)['routes.md'],
+        'write/handEdited/handEdits',
+      );
+    });
+
+    test('a leftover page that only lost its final newline is still '
+        'removed', () async {
+      await render(pages);
+      final home = pages.singleWhere((page) => page.path == 'features/home.md');
+      write('features/home.md', home.text.trimRight());
+      final fewer = _pages({'routes.md': 'One route.'});
+      expect(
+        summary(plan(fewer).changes)['features/home.md'],
+        'remove/notRendered',
+      );
+    });
+  });
+
+  group("a person's file where a page's temporary file goes", () {
+    test('blocks the page that would be written', () async {
+      await render(pages);
+      write('routes.md.tmp', 'my scratch notes');
+      final newer = _pages({
+        'routes.md': 'Two routes.',
+        'features/auth/login.md': 'Login.',
+        'features/home.md': 'Home.',
+      });
+      expect(plan(newer).blocked, [
+        '`routes.md.tmp` is in the way: Appstein writes `routes.md` through '
+            'a file of that name. Move or delete it.',
+      ]);
+      expect(file('routes.md.tmp').readAsStringSync(), 'my scratch notes');
+    });
+
+    test('blocks nothing next to a page that is unchanged', () async {
+      await render(pages);
+      write('routes.md.tmp', 'my scratch notes');
+      expect(plan(pages).blocked, isEmpty);
+    });
+
+    test('blocks a page that is missing too', () {
+      write('routes.md.tmp', 'x');
+      expect(plan(pages).blocked, hasLength(1));
+    });
+
+    test('what an interrupted write of a page left behind is not in the '
+        'way', () async {
+      final routes = pages.singleWhere((page) => page.path == 'routes.md');
+      for (final leftover in ['', routes.text.substring(0, 40)]) {
+        write('routes.md.tmp', leftover);
+        await render(pages);
+        expect(file('routes.md').readAsStringSync(), routes.text);
+        expect(file('routes.md.tmp').existsSync(), isFalse);
+        file('routes.md').deleteSync();
+      }
+    });
+
+    test('a copy of a page that a person edited is in the way, and is '
+        'kept', () async {
+      await render(pages);
+      final copy = file(
+        'routes.md',
+      ).readAsStringSync().replaceFirst('One route.', 'One route. My notes.');
+      expect(copy, contains('My notes.'));
+      write('routes.md.tmp', copy);
+      final newer = _pages({
+        'routes.md': 'Two routes.',
+        'features/auth/login.md': 'Login.',
+        'features/home.md': 'Home.',
+      });
+      expect(plan(newer).blocked, hasLength(1));
+      expect(file('routes.md.tmp').readAsStringSync(), copy);
+    });
+  });
+
+  test('a docs folder below a linked folder is refused', () {
+    final root = p.dirname(p.dirname(folder));
+    final real = Directory(p.join(root, 'real'))..createSync(recursive: true);
+    try {
+      Link(p.join(root, 'docs')).createSync(real.path);
+    } on FileSystemException {
+      markTestSkipped('this system does not let the test make a link');
+      return;
+    }
+    for (final existing in [false, true]) {
+      if (existing) Directory(p.join(real.path, 'the app')).createSync();
+      expect(scanDocsFolder(folder, projectRoot: root).problems, [
+        'the docs folder is inside `docs`, which is a link, and Appstein '
+            'does not write through links. Make it a folder, or change '
+            '`docs.path`.',
+      ]);
+    }
   });
 }

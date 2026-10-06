@@ -72,8 +72,64 @@ void main() {
   test('the body is everything after the first line, with plain line ends', () {
     expect(bodyOf('<!-- x -->\n# T\n\ntext\n'), '# T\n\ntext\n');
     expect(bodyOf('<!-- x -->\r\n# T\r\ntext\r\n'), '# T\ntext\n');
-    expect(bodyOf('<!-- x -->\r# T\rtext'), '# T\ntext');
     expect(bodyOf('<!-- x -->'), '');
+  });
+
+  test('the body ends in one line break, whatever the file ends in', () {
+    expect(bodyOf('<!-- x -->\r# T\rtext'), '# T\ntext\n');
+    expect(bodyOf('<!-- x -->\n# T\ntext\n\n\n'), '# T\ntext\n');
+    expect(bodyOf('<!-- x -->\n\n\n'), '');
+    expect(bodyOf('<!-- x -->\n\n# T\n'), '\n# T\n');
+  });
+
+  test('withoutEndingBreaks drops only what an editor adds or strips', () {
+    expect(withoutEndingBreaks('a\r\nb\r\n\r\n'), 'a\nb');
+    expect(withoutEndingBreaks('a\n\nb'), 'a\n\nb');
+    expect(withoutEndingBreaks('a \n'), 'a ');
+    expect(withoutEndingBreaks(''), '');
+  });
+
+  group('isLeftoverPageWrite: only what a write of a page can leave', () {
+    const body = '> note\n\n# Routes\n\nOne route.\n';
+    final page = markedPage(
+      DocMarker(templates: const {'engine': '2'}, body: bodyHash(body)),
+      body,
+    );
+
+    test('an empty file', () {
+      expect(isLeftoverPageWrite('', writing: page), isTrue);
+    });
+
+    test('a whole page nobody edited, of any render', () {
+      expect(isLeftoverPageWrite(page, writing: 'another page'), isTrue);
+      expect(
+        isLeftoverPageWrite(page.replaceAll('\n', '\r\n'), writing: 'x'),
+        isTrue,
+      );
+    });
+
+    test('a write of this page that was cut short', () {
+      expect(isLeftoverPageWrite(page.substring(0, 20), writing: page), isTrue);
+      expect(
+        isLeftoverPageWrite(page.substring(0, page.length - 7), writing: page),
+        isTrue,
+      );
+    });
+
+    test('never a copy of a page that a person edited', () {
+      // The marker travels with a copy; the edit is what must not be lost.
+      final edited = page.replaceFirst('One route.', 'One route, my notes.');
+      expect(isLeftoverPageWrite(edited, writing: page), isFalse);
+      expect(isLeftoverPageWrite('${page}My notes.\n', writing: page), isFalse);
+    });
+
+    test('never a file that is not a page', () {
+      expect(isLeftoverPageWrite('my notes', writing: page), isFalse);
+      expect(
+        isLeftoverPageWrite('<!-- appstein:generated x', writing: page),
+        isFalse,
+      );
+    });
   });
 
   test('the body hash ignores the kind of line ending', () {

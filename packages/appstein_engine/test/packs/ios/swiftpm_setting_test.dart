@@ -21,6 +21,20 @@ void main() {
     channel: channel,
   );
 
+  test('an unknown value says where it would have come from, so a page '
+      'never shows one machine\'s reason', () {
+    expect(decide(global: 'yes').resolvedFrom, 'flutter config (global)');
+    expect(decide(flutter: 'weird').resolvedFrom, 'default');
+    expect(decide(flutter: '3.41.0', channel: 'beta').resolvedFrom, 'default');
+    // The project's own file is the project's: its reason is shown.
+    expect(
+      decide(
+        pubspec: 'flutter:\n  config:\n    enable-swift-package-manager: 3\n',
+      ).resolvedFrom,
+      isNull,
+    );
+  });
+
   test('the default: on from 3.44, off before on stable, unknown before on '
       'other channels', () {
     expect(decide().toJson(), {

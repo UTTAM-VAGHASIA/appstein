@@ -105,6 +105,24 @@ final class KnowledgeSnapshot {
     NativeConfig.fromJson,
   );
 
+  /// Why the project map can't be used: the problem of the first of its
+  /// files that can't be read (the SDK facts it is built on, then the files
+  /// of `map/`); null when all of them were read.
+  String? get mapProblem {
+    for (final read in <KnowledgeRead<Object>>[
+      sdk,
+      features,
+      symbols,
+      routes,
+      layers,
+      deps,
+      native,
+    ]) {
+      if (read.problem case final problem?) return problem;
+    }
+    return null;
+  }
+
   /// A refusal naming the first of [reads] that can't be used, with what
   /// to do; null when all of them were read.
   ToolRefusal? refusalFor(List<KnowledgeRead<Object>> reads) {

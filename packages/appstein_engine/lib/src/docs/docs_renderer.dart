@@ -1,6 +1,7 @@
 import 'doc_marker.dart';
 import 'doc_page.dart';
 import 'docs_knowledge.dart';
+import 'markdown_text.dart';
 
 /// The page every project has, rendered by the engine from the other pages.
 const readmePath = 'README.md';
@@ -66,6 +67,35 @@ final class DocPageError extends Error {
       '${cause == null ? '' : ' ($cause)'}';
 }
 
+/// Two pages would be one file. Page names come from the project, such as
+/// its feature folders, so this is the project's to fix, unlike a
+/// [DocPageError]. Nothing is rendered when it is thrown.
+final class DocPagesCollide implements Exception {
+  /// Creates the exception for the pages at [first] and [second]. A page
+  /// source that finds two of its own names giving one path (`docFileName`)
+  /// passes that path twice and says which names in [because].
+  const DocPagesCollide(this.first, this.second, {this.because});
+
+  /// The path of the page that was rendered first.
+  final String first;
+
+  /// The path of the page that would land on the same file.
+  final String second;
+
+  /// The page source's own words for [problem]; null for two paths that
+  /// differ only in letter case.
+  final String? because;
+
+  /// What is wrong, in words that follow "because".
+  String get problem =>
+      because ??
+      'two pages would be the same file where letter case is ignored '
+          '(`$first` and `$second`)';
+
+  @override
+  String toString() => problem;
+}
+
 final _segment = RegExp(r'^[^/\\:]+$');
 
 String? _pathProblem(String path) {
@@ -99,7 +129,8 @@ String? _pathProblem(String path) {
 /// the same text.
 ///
 /// Throws a [DocPageError], and renders nothing, when a page source throws
-/// or returns a section that can't be used.
+/// or returns a section that can't be used. Throws a [DocPagesCollide] when
+/// two pages would be one file.
 List<RenderedPage> renderPages({
   required DocsKnowledge knowledge,
   required List<DocSource> sources,
@@ -122,6 +153,9 @@ List<RenderedPage> renderPages({
       final List<DocSection> sections;
       try {
         sections = page.sections(knowledge);
+      } on DocPagesCollide {
+        // The project's to fix, not a failure of the page source.
+        rethrow;
       } on Object catch (cause) {
         throw error('it threw', cause);
       }
@@ -134,12 +168,9 @@ List<RenderedPage> renderPages({
           section.path.toLowerCase(),
           () => section.path,
         );
-        if (known != section.path) {
-          throw error(
-            'the paths "$known" and "${section.path}" differ only in letter '
-            'case',
-          );
-        }
+        // Sections with one path are joined on purpose (`native.md`); two
+        // paths a file system can't tell apart are two pages on one file.
+        if (known != section.path) throw DocPagesCollide(known, section.path);
         (drafts[section.path] ??= _Draft(section.title))
           ..templates[source.id] = source.version
           ..sections.add(section.markdown.trim());
@@ -194,7 +225,9 @@ void _checkText(
 RenderedPage _page(String path, _Draft draft) {
   final title = draft.title.trim();
   final body =
-      '$docNotice\n\n# $title\n\n'
+      // The title may hold a name from the project; the frame escapes it,
+      // so no page can forget to.
+      '$docNotice\n\n# ${mdText(title)}\n\n'
       '${plainLines(draft.sections.join('\n\n'))}\n';
   final marker = DocMarker(
     templates: Map.unmodifiable(draft.templates),

@@ -44,7 +44,7 @@ A value is never a bare number. It is an object with a `status`, and what else i
 | Status | Meaning | Holds |
 |---|---|---|
 | `found` | The file states it plainly | `value`, and `at`, `expression`, `resolvedFrom` and `note` when they apply |
-| `unknown` | It is there, but not as a plain value Appstein can read | `reason`, and `at` |
+| `unknown` | It is there, but not as a plain value Appstein can read | `reason`, and `at`; `resolvedFrom` when the value would have come from one machine's setting or the Flutter in use (the iOS SwiftPM setting does this), so the human docs can leave that machine's reason out |
 | `absent` | It isn't set, or its file doesn't exist | `reason`, and sometimes `at` |
 | `error` | The platform pack crashed (an Appstein bug). Only a whole section has this | `errorType` |
 

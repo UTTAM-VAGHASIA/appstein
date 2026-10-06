@@ -9,6 +9,7 @@ import 'doctor_command.dart';
 import 'exit_codes.dart';
 import 'mcp_command.dart';
 import 'sync_command.dart';
+import 'verify_command.dart';
 import 'version.dart';
 
 /// Runs the `appstein` command line and returns the process exit code
@@ -20,7 +21,8 @@ import 'version.dart';
 /// and add commands, such as one that crashes on purpose. [environmentFactory]
 /// (also for tests) builds the environment when [environment] is null.
 /// [mcpChannel] (also for tests) gives the connection `appstein mcp` serves;
-/// by default stdin and stdout.
+/// by default stdin and stdout. [verifyChecks] (also for tests) replaces the
+/// checks `appstein verify` runs.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -31,6 +33,7 @@ Future<int> runAppstein(
   List<Command<int>> extraCommands = const [],
   HostEnvironment Function()? environmentFactory,
   McpChannel Function()? mcpChannel,
+  VerifyChecks? verifyChecks,
 }) async {
   final output = out ?? stdout;
   final errors = err ?? stderr;
@@ -51,6 +54,14 @@ Future<int> runAppstein(
       ..addCommand(SyncCommand(out: output, err: errors, environment: machine))
       ..addCommand(DocsCommand(out: output, err: errors, environment: machine))
       ..addCommand(
+        VerifyCommand(
+          out: output,
+          err: errors,
+          environment: machine,
+          checks: verifyChecks ?? checksFor,
+        ),
+      )
+      ..addCommand(
         McpCommand(
           out: output,
           err: errors,
@@ -68,6 +79,10 @@ Future<int> runAppstein(
     return ExitCodes.appsteinFailed;
   } on ConfigException catch (error) {
     errors.writeln('Invalid appstein.yaml: $error');
+    return ExitCodes.appsteinFailed;
+  } on VerifyCheckError catch (error) {
+    // The message names the check, and the trace is where the check threw.
+    reportCrash(errors, error, error.stackTrace);
     return ExitCodes.appsteinFailed;
   } catch (error, stackTrace) {
     reportCrash(errors, error, stackTrace);

@@ -12,7 +12,8 @@ final class ToolReply extends ToolAnswer {
   const ToolReply(this.result, this.summary);
 
   /// The structured result, without `summary` and `freshness` (the server
-  /// adds them).
+  /// adds them). A result with a `summary` of its own keeps it, and then
+  /// the sentence is in the reply's text only.
   final Map<String, Object?> result;
 
   /// What the answer says, for the agent.

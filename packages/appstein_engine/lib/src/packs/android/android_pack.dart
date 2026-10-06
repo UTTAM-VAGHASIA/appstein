@@ -3,6 +3,8 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import '../../docs/doc_page.dart';
 import '../../map/map_extractor.dart';
 import '../../native/native_extractor.dart';
+import '../../verify/decision_check.dart';
+import '../../verify/verify_check.dart';
 import '../pack.dart';
 import 'android_docs.dart';
 import 'android_native.dart';
@@ -33,6 +35,12 @@ final class AndroidPack implements Pack {
 
   @override
   List<DocPage> get docPages => const [AndroidDocs()];
+
+  @override
+  List<VerifyCheck> get checks => const [];
+
+  @override
+  List<DecisionCheck> get decisionChecks => const [];
 }
 
 /// Writes the `android` section of `map/native.json`.

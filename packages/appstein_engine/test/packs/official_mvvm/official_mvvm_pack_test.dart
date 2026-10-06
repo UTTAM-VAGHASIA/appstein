@@ -12,7 +12,7 @@ void main() {
     expect(pack.kind, PackKind.stack);
     // 2: routes.json gained `redirectTo` (slice 1c.5). The version is part
     // of the map's input hash, so raising it rebuilds every project's map.
-    expect(pack.version, '2');
+    expect(pack.version, '3');
     expect(pack.layerRules, same(officialMvvmLayerRules));
     expect(pack.extractors, hasLength(1));
   });

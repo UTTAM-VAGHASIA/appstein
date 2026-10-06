@@ -64,7 +64,8 @@ void main() {
     test('a list value, and an empty one', () {
       expect(
         _cells(const NativeValue.found(['a.b', 'c|d'])).value,
-        r'`a.b`, `c\|d`',
+        // The table escapes the pipe (mdTable), not the cell.
+        '`a.b`, `c|d`',
       );
       expect(_cells(const NativeValue.found(<String>[])).value, 'none');
     });
@@ -163,6 +164,34 @@ void main() {
             'shown here',
           );
         }
+      });
+
+      test('a value that is unknown for a reason of one machine, or of the '
+          'Flutter in use, does not show that reason', () {
+        const badGlobal = NativeValue.unknown(
+          'the setting in the global flutter config must be true or false',
+          resolvedFrom: 'flutter config (global)',
+        );
+        const noDefault = NativeValue.unknown(
+          "Flutter 3.99.0-weird's default isn't known to Appstein",
+          resolvedFrom: 'flutter',
+        );
+        for (final pinned in [true, false]) {
+          expect(
+            cells(badGlobal, pinned: pinned).value,
+            'set on each machine (`flutter config (global)`), so it is not '
+            'shown here',
+          );
+        }
+        expect(
+          cells(noDefault, pinned: false).value,
+          'follows the Flutter SDK in use',
+        );
+        // Pinned, every machine has that Flutter and that reason.
+        expect(
+          cells(noDefault, pinned: true).value,
+          "unknown: Flutter 3.99.0-weird's default isn't known to Appstein",
+        );
       });
 
       test('shows what the project itself sets, pinned or not', () {

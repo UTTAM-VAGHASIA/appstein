@@ -39,6 +39,12 @@ final class _SecondPack implements Pack {
 
   @override
   List<DocPage> get docPages => const [];
+
+  @override
+  List<VerifyCheck> get checks => const [];
+
+  @override
+  List<DecisionCheck> get decisionChecks => const [];
 }
 
 void main() {

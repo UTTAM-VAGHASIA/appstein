@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import '../host/file_errors.dart';
 import '../knowledge/knowledge_store.dart';
 import '../knowledge/knowledge_write_exception.dart';
-import '../knowledge/plain_text.dart';
 import 'doc_marker.dart';
 import 'docs_knowledge.dart';
 import 'docs_renderer.dart';
@@ -33,20 +32,69 @@ final class DocsFolderScan {
   final List<String> problems;
 }
 
-final _heading = RegExp(r'^# +(.*\S)\s*$', multiLine: true);
+final _heading = RegExp(r'^ {0,3}# +(.*\S)\s*$');
+final _fence = RegExp(r'^ {0,3}(`{3,}|~{3,})');
+
+/// The first `# ` heading of the Markdown [text] that isn't inside a code
+/// block (a fenced one, or one indented by four spaces); null without one.
+/// A `# comment` in a shell example is not the note's title.
+String? _noteTitle(String text) {
+  String? open;
+  for (final line in plainLines(text).split('\n')) {
+    final fence = _fence.firstMatch(line)?.group(1);
+    if (open != null) {
+      // A fence closes with the same character, at least as many of them.
+      if (fence != null &&
+          fence[0] == open[0] &&
+          fence.length >= open.length &&
+          line.trim() == fence) {
+        open = null;
+      }
+      continue;
+    }
+    if (fence != null) {
+      open = fence;
+      continue;
+    }
+    if (_heading.firstMatch(line)?.group(1) case final title?) return title;
+  }
+  return null;
+}
 
 // The replacement character, which decoding puts where bytes aren't UTF-8.
 final _notUtf8 = String.fromCharCode(0xFFFD);
 
 /// Reads the docs folder at [folder]. A folder that doesn't exist yet is an
-/// empty scan.
+/// empty scan. With [projectRoot], a link among the folders between the
+/// project and the docs folder is a problem too: pages are never written
+/// through a link.
 ///
 /// Only `.md` files (in any letter case) are read. A file is Appstein's
 /// when its first line is a marker ([DocMarker.of]); any other is a team
 /// note, titled by its first `# ` heading, or by its path. Links are not
 /// followed. It never throws for the project's own files: what can't be
 /// read is in [DocsFolderScan.problems].
-DocsFolderScan scanDocsFolder(String folder) {
+DocsFolderScan scanDocsFolder(String folder, {String? projectRoot}) {
+  if (projectRoot != null && p.isWithin(projectRoot, folder)) {
+    // The folders between the project and the docs folder, outermost first.
+    final segments = p.split(p.relative(folder, from: projectRoot));
+    for (var i = 1; i < segments.length; i++) {
+      final ancestor = segments.sublist(0, i);
+      if (FileSystemEntity.typeSync(
+            p.joinAll([projectRoot, ...ancestor]),
+            followLinks: false,
+          ) ==
+          FileSystemEntityType.link) {
+        return DocsFolderScan(
+          problems: [
+            'the docs folder is inside `${ancestor.join('/')}`, which is a '
+                'link, and Appstein does not write through links. Make it a '
+                'folder, or change `docs.path`.',
+          ],
+        );
+      }
+    }
+  }
   switch (FileSystemEntity.typeSync(folder, followLinks: false)) {
     case FileSystemEntityType.directory:
       break;
@@ -110,7 +158,7 @@ DocsFolderScan scanDocsFolder(String folder) {
     if (DocMarker.of(text) != null || isConflictedPage(text)) {
       generated[path] = text;
     } else {
-      final title = _heading.firstMatch(withoutBom(text))?.group(1);
+      final title = _noteTitle(text);
       notes.add(
         TeamNote(
           path: path,
@@ -222,6 +270,34 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
   final blocked = <String>[];
   final matched = <String>{};
   final teamNotes = {for (final note in scan.teamNotes) note.path};
+
+  // A page is written through `<page>.tmp` (`replaceFile`). Anything there
+  // that isn't what an interrupted write of a page left behind is a
+  // person's, and writing the page would replace it.
+  bool tempInTheWay(RenderedPage page) {
+    final path = page.path;
+    final temp = p.joinAll([folder, ...'$path.tmp'.split('/')]);
+    final type = FileSystemEntity.typeSync(temp, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return false;
+    if (type == FileSystemEntityType.file) {
+      try {
+        if (isLeftoverPageWrite(
+          utf8.decode(File(temp).readAsBytesSync(), allowMalformed: true),
+          writing: page.text,
+        )) {
+          return false;
+        }
+      } on FileSystemException {
+        // Unreadable: not provably Appstein's, so it is left alone.
+      }
+    }
+    blocked.add(
+      '`$path.tmp` is in the way: Appstein writes `$path` through a file of '
+      'that name. Move or delete it.',
+    );
+    return true;
+  }
+
   for (final page in pages) {
     final segments = page.path.split('/');
     // An ancestor that isn't a folder.
@@ -249,6 +325,7 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
       followLinks: false,
     );
     if (type == FileSystemEntityType.notFound) {
+      if (tempInTheWay(page)) continue;
       changes.add(
         DocChange(
           page.path,
@@ -301,8 +378,10 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
     if (key == null) continue;
     matched.add(key);
     final text = scan.generated[key]!;
-    if (plainLines(text) == page.text) {
+    if (withoutEndingBreaks(text) == withoutEndingBreaks(page.text)) {
       changes.add(DocChange(page.path, DocChangeKind.unchanged));
+    } else if (tempInTheWay(page)) {
+      continue;
     } else if (isConflictedPage(text)) {
       changes.add(
         DocChange(

@@ -3,6 +3,8 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import '../../docs/doc_page.dart';
 import '../../map/map_extractor.dart';
 import '../../native/native_extractor.dart';
+import '../../verify/decision_check.dart';
+import '../../verify/verify_check.dart';
 import '../pack.dart';
 import 'ios_docs.dart';
 import 'ios_native.dart';
@@ -20,7 +22,7 @@ final class IosPack implements Pack {
   PackKind get kind => PackKind.platform;
 
   @override
-  String get version => '1';
+  String get version => '2';
 
   @override
   List<MapExtractor> get extractors => const [];
@@ -33,6 +35,12 @@ final class IosPack implements Pack {
 
   @override
   List<DocPage> get docPages => const [IosDocs()];
+
+  @override
+  List<VerifyCheck> get checks => const [];
+
+  @override
+  List<DecisionCheck> get decisionChecks => const [];
 }
 
 /// Writes the `ios` section of `map/native.json`.

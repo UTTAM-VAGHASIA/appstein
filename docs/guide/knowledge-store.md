@@ -83,6 +83,10 @@ Two hooks or two agents may sync at the same moment (spec §15).
 
 **The lock isn't only for generated files.** The tools that write decisions and memory take the same lock and use `replaceFile` too (see [decisions-and-memory](decisions-and-memory.md#how-a-write-stays-safe)). The small text helpers they share with `INDEX.md` (dropping a byte order mark, putting text on one line, capping its length) are in [`plain_text.dart`](../../packages/appstein_engine/lib/src/knowledge/plain_text.dart).
 
+**Commands that need current knowledge share one refresh.** `appstein docs` and `appstein verify` both start with [`refreshKnowledge`](../../packages/appstein_engine/lib/src/knowledge/knowledge_refresh.dart): it runs `KnowledgeSync.detect` and turns every way that can fail (no SDK, a failed sync, a busy lock, a skipped map, a file that can't be written) into one `KnowledgeRefresh` with a `problem` and a `fixHint`. So both commands describe the same failure in the same words. `docs` refuses to write; `verify` reports the problem as the finding `knowledge.stale` and still runs the checks that don't need the map (see [verify](verify.md)). The MCP server has its own freshness step, and `KnowledgeRefresh.fromFreshness` turns its result into the same type.
+
+Both commands then hold the lock while they read, so a sync can't replace a file between two reads. When the lock stays busy (the refresh already waited for it once, and says "Wait for it to finish"), `docs` refuses, and `verify` reads without it: files are replaced whole, so the reading is safe, and it reports `knowledge.stale` because what it read may be about to change.
+
 On Windows, renaming over a file that another program has open fails with "Access is denied". A spike on the development machine found this. So `replaceFile` retries every 20 ms for up to 2 s. Readers hold a file for milliseconds, so in practice the retry costs nothing. After 2 s it fails with a `KnowledgeWriteException` that says another program may have the file open.
 
 ## The curated notes
