@@ -5,13 +5,13 @@ packages/appstein_protocol/lib/src/mcp/**
 
 # The MCP server
 
-`appstein mcp` lets an agent ask Appstein questions while it works. Instead of reading files or running `appstein sync` and parsing the output, the agent calls a tool such as `where_is` and gets a small, structured answer. This page explains what the server does on each call, and the rules behind each tool. The design is in [spec §8](../superpowers/specs/2026-09-29-appstein-design.md#8-mcp-server).
+`appstein mcp` lets an agent ask Appstein questions while it works. Instead of reading files or running `appstein sync` and parsing the output, the agent calls a tool such as `where_is` and gets a small, structured answer. It also lets the agent record a decision or the task it is working on. This page explains what the server does on each call, and the rules behind each tool. The design is in [spec §8](../superpowers/specs/2026-09-29-appstein-design.md#8-mcp-server).
 
 ## What it is
 
 The agent starts `appstein mcp` as a child process and talks to it over **stdio**: one JSON-RPC message per line on stdin, one on stdout. When the agent closes stdin, the server exits. Nothing but protocol messages may go to stdout, so startup problems go to stderr (see [cli](cli.md#appstein-mcp)).
 
-It serves seven read tools:
+It serves eleven tools. Seven read the generated knowledge:
 
 | Tool | Answers |
 |---|---|
@@ -23,7 +23,16 @@ It serves seven read tools:
 | `what_changed` | The curated notes, and how many deprecated and removed APIs each library has |
 | `toolchain` | The native versions that work with this Flutter, the project's values and every mismatch |
 
-The spec lists more tools. `verify` and `package_check` come in slice 1d, because they need the verifier and the package gate that slice builds. The decision and memory tools come later still. This page covers only what exists.
+Four read and write what people and agents record (see [decisions-and-memory](decisions-and-memory.md)):
+
+| Tool | Does |
+|---|---|
+| `decisions` | Reads the project's decisions: all in force, by words, or for one file |
+| `record_decision` | Adds a decision, replaces one, or accepts a proposed one |
+| `memory_read` | Reads the task in progress and the lessons |
+| `memory_write` | Replaces the task in progress, adds a lesson, or finishes the task |
+
+The spec lists two more tools. `verify` and `package_check` come in slice 1d, because they need the verifier and the package gate that slice builds. This page covers only what exists.
 
 All the code is in the engine and the protocol package, so the CLI stays thin:
 
@@ -34,6 +43,7 @@ All the code is in the engine and the protocol package, so the CLI stays thin:
 | [`knowledge_snapshot.dart`](../../packages/appstein_engine/lib/src/mcp/knowledge_snapshot.dart) | `KnowledgeSnapshot`: reads the knowledge files a call needs |
 | [`tool_answer.dart`](../../packages/appstein_engine/lib/src/mcp/tool_answer.dart) | `ToolReply` and `ToolRefusal`, what a query returns |
 | `where_is.dart`, `feature_query.dart`, `route_query.dart`, `check_api.dart`, `what_changed.dart`, `toolchain_report.dart` (same folder) | One pure function per tool |
+| `decisions_query.dart`, `record_decision.dart`, `memory_tools.dart` (same folder) | The four decision and memory tools: the `decisions` query, the argument checks of `record_decision`, and `memory_read` and `memory_write` |
 | [`tool_schemas.dart`](../../packages/appstein_protocol/lib/src/mcp/tool_schemas.dart) | Each tool's input and result schema |
 | [`freshness_report.dart`](../../packages/appstein_protocol/lib/src/mcp/freshness_report.dart) | `FreshnessReport`, the `freshness` field |
 | [`tool_output.dart`](../../packages/appstein_protocol/lib/src/mcp/tool_output.dart), [`json_schema.dart`](../../packages/appstein_protocol/lib/src/mcp/json_schema.dart) | `withoutNulls`, the output schema, and small schema builders |
@@ -183,6 +193,64 @@ No input. It returns the native versions that work with this Flutter (`valid`, f
 
 `targetSdk` and the NDK version are shown but have no threshold. A value that `native.json` records as `unknown`, or whose platform pack failed, is listed in `notComparable` with its reason instead of being guessed. Versions are compared as dotted numbers, and a `-rc1` suffix is ignored. Without `native.json`, only the valid set is returned and the summary says so.
 
+## Decisions and memory
+
+These four tools work on files the project commits, not on generated knowledge. The formats and rules are on their own page, [decisions-and-memory](decisions-and-memory.md); this section says what each tool takes and returns.
+
+### `decisions`
+
+Input: optional `topic`. The topic decides how the tool searches:
+
+| Topic | Mode | Returns |
+|---|---|---|
+| none, or blank | `all` | Every accepted and proposed decision, in file-name order, and a count of the superseded ones |
+| an absolute path; or no white space, a `/`, a `\` or a file extension, and a first part that exists in the project | `path` | The decisions in force whose `paths` cover that file. `withoutPaths` counts those that list no paths, since they apply everywhere |
+| anything else | `words` | The decisions that mention the words, best first, superseded ones included and marked with `supersededBy` |
+
+**Path mode** exists for one moment: just before an agent edits a file. A Windows path (`lib\ui\home\x.dart`) and a leading `./` are accepted. An absolute path, which is what an agent usually holds, is read from the project folder; one outside the project is covered by nothing, and the summary says it is outside. A pattern covers a file when the glob matches it, or when the pattern names the file or a folder above it, so `lib/routing` covers `lib/routing/router.dart`. A folder is covered when a file in it would be.
+
+**Telling a path from words.** `CI/CD`, `Node.js` and `go_router/provider` have a `/` or a dot but are words. So a topic counts as a path only when its first part (`lib`, `pubspec.yaml`) is a file or folder the project has; a file that doesn't exist yet in an existing folder still counts. Otherwise the topic is searched as words. A wrong guess here would answer "no decision covers it" about something that was never a file. A pattern that isn't a valid glob covers nothing and is named in `problems`.
+
+**Word mode** scores each word by the best place it is found: the decision's number 5, its title 3, a path 2, its reason 1. A decision's score is the sum. Ties go to decisions in force, then to the higher number.
+
+Every reply also lists the unreadable files and the numbers that two files use, whatever the mode, because an agent that never sees them would trust an incomplete list. When a decision's own status line differs from how readers count it, `statusInFile` shows the file's word.
+
+### `record_decision`
+
+Input: `title` and `why` for a new decision, with optional `status` (`proposed` or `accepted`), `paths`, `checks` and `supersedes`; or `accept` alone, with the number of a proposed decision. A number may be written `"0002"`, `"2"` or `2`: the schema gives those two fields no type, because agents send all three and `package:dart_mcp` refuses an argument of the wrong type before the tool runs. The two shapes can't be told apart by a JSON schema that every client accepts, so the schema requires nothing and `_request` in `record_decision.dart` checks the shape and says what is wrong.
+
+The reply has `action` (`added`, `replaced` or `accepted`), the `decision` as it now reads, the `superseded` decision for a replacement, and a `warning` when the old file's status line couldn't be changed. The summary of a proposed decision tells the agent how to accept it later.
+
+### `memory_read`
+
+No input. Returns `current` (the whole text of `memory/current.md`, absent when there is no task), the newest 50 `lessons` in the file's order, and `olderLessons`, how many more the file holds. It never refuses: a file that can't be read is named in `currentProblem` or `lessonsProblem`.
+
+### `memory_write`
+
+Input: `kind` (`current`, `lesson` or `complete`) and `text`. The reply names the file written, the lesson line and whether it was `added`, and for `complete` the file that was `cleared`.
+
+### What a write tool does differently
+
+A read tool runs the freshness step, then answers. A write tool (`_writeTool` in the server) runs it, writes, and runs it **again**:
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant S as AppsteinMcpServer
+  participant K as KnowledgeSync
+  participant F as .appstein/
+  A->>S: tools/call record_decision
+  S->>K: detect
+  S->>F: take the lock, write decisions/0004-….md
+  S->>K: detect again
+  K->>F: rewrite INDEX.md (a decision file changed)
+  S-->>A: the decision, freshness "rebuilt"
+```
+
+A decision file and `current.md` are inputs of `INDEX.md`. Without the second check, `INDEX.md` on disk would miss the new decision until the next call, and an agent that has it in view would read an old list. The reply states the second freshness, so after a decision or a new task it says `rebuilt`, because `INDEX.md` was out of date. A lesson changes no input of `INDEX.md`, so that reply says `current`.
+
+A refused write runs no second check and states the first freshness. Almost every refusal means nothing was written. The exception is finishing a task when `current.md` can't be deleted: the lesson was already saved, and the message says so.
+
 ## Replies for Claude Code
 
 A reply holds the same result three times, because clients read it differently:
@@ -201,12 +269,13 @@ A reply holds the same result three times, because clients read it differently:
 |---|---|
 | `packages/appstein_engine/test/mcp/where_is_test.dart`, `feature_query_test.dart`, `route_query_test.dart`, `check_api_test.dart`, `what_changed_test.dart`, `toolchain_report_test.dart` | Each query on its own, on the fixture app's golden map files (see [testing](testing.md#the-fixture-app-and-goldens)) and a sample delta |
 | `packages/appstein_engine/test/mcp/knowledge_snapshot_test.dart` | A missing, unreadable or damaged file gives a `problem` that names it |
-| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The server through an in-process client: the tool list and schemas, the first call syncing a new project, an edit picked up before the next answer, bad input, three calls at once answered in turn, a lock held by another process, a failing sync, a damaged file, an invalid `appstein.yaml` |
-| `packages/appstein_engine/test/mcp/mcp_stdio_test.dart` | The real thing: a new process over real stdio, in a folder whose name has a space and an umlaut. Every tool answers, and stdout holds only protocol messages |
+| `packages/appstein_engine/test/mcp/decisions_query_test.dart`, `record_decision_test.dart`, `memory_tools_test.dart` | The four decision and memory tools on real folders (see [decisions-and-memory](decisions-and-memory.md#testing-it)) |
+| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The server through an in-process client: the tool list and schemas, the first call syncing a new project, an edit picked up before the next answer, bad input, three calls at once answered in turn, a lock held by another process, a failing sync, a damaged file, an invalid `appstein.yaml`; a recorded decision and a task in progress showing in `INDEX.md` when the reply arrives |
+| `packages/appstein_engine/test/mcp/mcp_stdio_test.dart` | The real thing: a new process over real stdio, in a folder whose name has a space and an umlaut. Every tool answers, the decision and memory files it wrote are on disk, and stdout holds only protocol messages |
 | `packages/appstein_cli/test/mcp_command_test.dart` | The command: it serves until the client closes, writes nothing to its output sink, re-reads `appstein.yaml` on every call, exits 3 outside a project, and its sync factory turns package skills off and shares one held cache |
 | `tool/measure_sync.dart` | The speed target (below) |
 
-**The timing table.** After the sync rows, [`tool/measure_sync.dart`](../../tool/measure_sync.dart) starts one `appstein mcp` process on the 200-file app, with fresh knowledge. It talks to the server with a small JSON-RPC client over the process's stdin and stdout. The first call starts the server and isn't counted. Then it calls each of the seven tools three times and prints a table with the median and the three times. Spec §15 sets the target, MCP answers under 1 s from fresh knowledge, and the tool fails when a median reaches it, or when a call returns an error. Only the 200-file app is measured. See [ci](ci.md#measure).
+**The timing table.** After the sync rows, [`tool/measure_sync.dart`](../../tool/measure_sync.dart) starts one `appstein mcp` process on the 200-file app, with fresh knowledge. It talks to the server with a small JSON-RPC client over the process's stdin and stdout. The first call starts the server and isn't counted. Then it calls each of the seven tools that read generated knowledge three times (the decision and memory tools aren't timed yet) and prints a table with the median and the three times. Spec §15 sets the target, MCP answers under 1 s from fresh knowledge, and the tool fails when a median reaches it, or when a call returns an error. Only the 200-file app is measured. See [ci](ci.md#measure).
 
 **Trying it by hand.** Compile the command, then send it an `initialize` request:
 

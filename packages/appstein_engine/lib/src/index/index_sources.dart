@@ -5,8 +5,10 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import '../decisions/decision_store.dart';
 import '../delta/delta_facts.dart';
 import '../host/file_errors.dart';
+import '../knowledge/plain_text.dart';
 
 /// The platform folders a Flutter project can have, in the order `INDEX.md`
 /// lists them. Flutter decides which platforms a project has by which of
@@ -168,43 +170,18 @@ IndexSources readIndexSources(String projectRoot) {
     'platforms': utf8.encode(platforms.join(',')),
   };
 
-  final decisions = <IndexDecision>[];
-  String? decisionsError;
-  final folder = Directory(p.join(projectRoot, '.appstein', 'decisions'));
-  if (folder.existsSync()) {
-    try {
-      final files = [
-        for (final entity in folder.listSync(followLinks: false))
-          if (entity is File && entity.path.endsWith('.md')) entity,
-      ]..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
-      for (final file in files) {
-        final name = p.basename(file.path);
-        try {
-          final bytes = file.readAsBytesSync();
-          inputs['decisions/$name'] = bytes;
-          final decision = parseDecision(
-            name,
-            utf8.decode(bytes, allowMalformed: true),
-          );
-          if (decision.status != 'superseded') decisions.add(decision);
-        } on FileSystemException catch (error) {
-          final reason = fileErrorReason(error);
-          inputs['decisions/$name'] = utf8.encode('unreadable: $reason');
-          decisions.add(
-            IndexDecision.unreadable(
-              file: name,
-              id: decisionNumber(name),
-              problem: reason,
-            ),
-          );
-        }
-      }
-    } on FileSystemException catch (error) {
-      decisionsError = fileErrorReason(error);
-      inputs['decisions'] = utf8.encode('unreadable: $decisionsError');
-      decisions.clear();
-    }
+  final read = readDecisions(projectRoot);
+  final decisionsError = read.folderProblem;
+  if (decisionsError != null) {
+    inputs['decisions'] = utf8.encode('unreadable: $decisionsError');
   }
+  for (final MapEntry(key: name, value: bytes) in read.bytes.entries) {
+    inputs['decisions/$name'] = bytes;
+  }
+  for (final MapEntry(key: name, value: reason) in read.readProblems.entries) {
+    inputs['decisions/$name'] = utf8.encode('unreadable: $reason');
+  }
+  final decisions = indexDecisions(read);
 
   var currentWork = const <String>[];
   String? currentWorkError;
@@ -356,48 +333,28 @@ List<String> _mainFiles(Feature feature) {
   ];
 }
 
-/// The number a decision file's name starts with, such as `0002` in
-/// `0002-state.md`; null when it doesn't start with digits and `-`.
-String? decisionNumber(String file) =>
-    RegExp(r'^(\d+)-').firstMatch(file)?.group(1);
-
-/// Reads the front matter of the decision file [file] whose text is [text]
-/// (spec §6.7): its title and status. Anything that keeps them from being
-/// read gives an [IndexDecision.unreadable] that says why.
-IndexDecision parseDecision(String file, String text) {
-  text = _withoutBom(text);
-  final id = decisionNumber(file);
-  IndexDecision unreadable(String problem) =>
-      IndexDecision.unreadable(file: file, id: id, problem: problem);
-
-  final lines = const LineSplitter().convert(text);
-  if (lines.isEmpty || lines.first.trimRight() != '---') {
-    return unreadable('it has no front matter');
-  }
-  final end = lines.indexWhere((line) => line.trimRight() == '---', 1);
-  if (end < 0) return unreadable('its front matter has no closing ---');
-  final Object? yaml;
-  try {
-    yaml = loadYaml(lines.sublist(1, end).join('\n'));
-  } on FormatException {
-    return unreadable('its front matter is not valid YAML');
-  }
-  if (yaml is! Map) return unreadable('its front matter is not a map');
-  final title = yaml['title'];
-  if (title == null || '$title'.trim().isEmpty) {
-    return unreadable('it has no title');
-  }
-  final status = yaml['status'];
-  if (status is! String ||
-      !const ['accepted', 'proposed', 'superseded'].contains(status)) {
-    return unreadable('its status is not accepted, proposed or superseded');
-  }
-  return IndexDecision(
-    file: file,
-    id: id,
-    title: _cap(_oneLine('$title'), 120),
-    status: status,
-  );
+/// The decisions `INDEX.md` lists, from the project's [decisions] (spec
+/// §6.3): the accepted and proposed ones and the unreadable files, in
+/// file-name order. A superseded decision is left out, also one that only
+/// a later decision's `supersedes` marks as superseded (spec §6.7).
+List<IndexDecision> indexDecisions(DecisionSet decisions) {
+  // The digits as the file name writes them, so `2-x.md` is listed as 2.
+  String? digits(String file) => RegExp(r'^(\d+)-').firstMatch(file)?.group(1);
+  return [
+    for (final entry in decisions.active)
+      IndexDecision(
+        file: entry.record.file,
+        id: digits(entry.record.file),
+        title: entry.record.title,
+        status: entry.status.jsonName,
+      ),
+    for (final file in decisions.unreadable)
+      IndexDecision.unreadable(
+        file: file.file,
+        id: digits(file.file),
+        problem: file.problem,
+      ),
+  ]..sort((a, b) => a.file.compareTo(b.file));
 }
 
 /// The lines of a `memory/current.md` [text]: any line break, trailing
@@ -405,8 +362,8 @@ IndexDecision parseDecision(String file, String text) {
 /// each line at most 160 characters.
 List<String> currentWorkLines(String text) {
   final lines = [
-    for (final line in const LineSplitter().convert(_withoutBom(text)))
-      _cap(line.trimRight(), 160),
+    for (final line in const LineSplitter().convert(withoutBom(text)))
+      capText(line.trimRight(), 160),
   ];
   while (lines.isNotEmpty && lines.first.isEmpty) {
     lines.removeAt(0);
@@ -415,23 +372,6 @@ List<String> currentWorkLines(String text) {
     lines.removeLast();
   }
   return lines;
-}
-
-/// [text] without a leading byte order mark (Windows PowerShell 5.1 writes
-/// one).
-String _withoutBom(String text) =>
-    text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? text.substring(1) : text;
-
-/// [text] with each run of white space as one space.
-String _oneLine(String text) => text.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-/// [text], or its first [max] - 1 characters and `…` when it is longer. It
-/// counts runes, so a character outside the Basic Multilingual Plane is
-/// never split.
-String _cap(String text, int max) {
-  final runes = text.runes.toList();
-  if (runes.length <= max) return text;
-  return '${String.fromCharCodes(runes.take(max - 1)).trimRight()}…';
 }
 
 List<int>? _bytes(String path) {

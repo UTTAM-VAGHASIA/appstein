@@ -24,7 +24,9 @@ const indexTools = {
   'verify',
   'package_check',
   'decisions',
+  'record_decision',
   'memory_read',
+  'memory_write',
 };
 
 /// What `INDEX.md` is built from (spec §6.3).
@@ -186,8 +188,9 @@ final class _Limits {
 }
 
 /// The rules that matter most. A rule names a tool only when [tools] has
-/// it: without `verify` its rule is left out, and without `package_check`
-/// the dependency rule doesn't name it.
+/// it: without `verify` its rule is left out, as is the rule about
+/// decisions and memory without `record_decision` and `memory_write`, and
+/// without `package_check` the dependency rule doesn't name it.
 List<String> _rules(Set<String> tools) => [
   "- Ask Appstein's MCP tools (`where_is()`, `feature()`, `route()`) before "
       'searching the code.',
@@ -196,6 +199,9 @@ List<String> _rules(Set<String> tools) => [
   '- Never upgrade native toolchain versions (Gradle, the Android Gradle '
       'Plugin, Kotlin, the NDK, SDK levels, the iOS deployment target) '
       'yourself; ask `toolchain()`.',
+  if (tools.contains('record_decision') && tools.contains('memory_write'))
+    '- Record a choice that binds later work with `record_decision()`, and '
+        'keep the task in progress with `memory_write()`.',
   '- Dependencies: pure Dart for small helpers; '
       '${tools.contains('package_check') ? 'a package that passes '
                 '`package_check()`' : 'a well-maintained package'} '

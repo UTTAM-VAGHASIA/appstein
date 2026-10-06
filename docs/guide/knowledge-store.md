@@ -81,6 +81,8 @@ Two hooks or two agents may sync at the same moment (spec §15).
 
 **Readers never take the lock.** `replaceFile` writes `<file>.tmp` and renames it over the target, so a reader sees the old file or the new one, never half of one.
 
+**The lock isn't only for generated files.** The tools that write decisions and memory take the same lock and use `replaceFile` too (see [decisions-and-memory](decisions-and-memory.md#how-a-write-stays-safe)). The small text helpers they share with `INDEX.md` (dropping a byte order mark, putting text on one line, capping its length) are in [`plain_text.dart`](../../packages/appstein_engine/lib/src/knowledge/plain_text.dart).
+
 On Windows, renaming over a file that another program has open fails with "Access is denied". A spike on the development machine found this. So `replaceFile` retries every 20 ms for up to 2 s. Readers hold a file for milliseconds, so in practice the retry costs nothing. After 2 s it fails with a `KnowledgeWriteException` that says another program may have the file open.
 
 ## The curated notes

@@ -177,6 +177,8 @@ void main() {
         '- Never upgrade native toolchain versions (Gradle, the Android '
             'Gradle Plugin, Kotlin, the NDK, SDK levels, the iOS deployment '
             'target) yourself; ask `toolchain()`.',
+        '- Record a choice that binds later work with `record_decision()`, '
+            'and keep the task in progress with `memory_write()`.',
         '- Dependencies: pure Dart for small helpers; a package that passes '
             '`package_check()` for platform features; Pigeon with platform '
             'channels for small native code.',
@@ -225,7 +227,14 @@ void main() {
 
   test('a tool the server does not offer is never named: its rule goes, '
       'and a pointer names the file', () {
-    final offered = mcpToolNames.toSet();
+    // A server without the decision and memory tools, and without 1d's.
+    final offered = mcpToolNames.toSet()
+      ..removeAll([
+        'decisions',
+        'record_decision',
+        'memory_read',
+        'memory_write',
+      ]);
     final inputs = small(
       tools: offered,
       currentWork: [for (var i = 1; i <= 10; i++) 'Step $i of the task.'],
@@ -252,6 +261,39 @@ void main() {
       }
     }
     expect(full, isNot(contains('before you say a task is done')));
+    expect(full, isNot(contains('Record a choice')));
+    // The rule about decisions and memory names two tools: it needs both.
+    for (final missing in ['record_decision', 'memory_write']) {
+      expect(
+        renderIndex(
+          small(tools: mcpToolNames.toSet()..remove(missing)),
+          byteBudget: indexByteBudget,
+        ),
+        isNot(contains('Record a choice')),
+        reason: missing,
+      );
+    }
+    // What this server does offer is named: the rule, and the pointers.
+    final served = small(
+      tools: mcpToolNames.toSet(),
+      currentWork: inputs.currentWork,
+      decisions: inputs.decisions,
+    );
+    final servedFull = renderIndex(served, byteBudget: indexByteBudget);
+    expect(
+      servedFull,
+      contains(
+        '- Record a choice that binds later work with `record_decision()`, '
+        'and keep the task in progress with `memory_write()`.',
+      ),
+    );
+    var servedCut = servedFull;
+    for (var budget = bytes(servedFull) - 1; budget > 0; budget--) {
+      servedCut = renderIndex(served, byteBudget: budget);
+      if (servedCut.contains('older decision')) break;
+    }
+    expect(servedCut, contains('…and 10 more lines; ask `memory_read()`.'));
+    expect(servedCut, contains('…and 1 older decision; ask `decisions()`.'));
     expect(
       full,
       contains(
@@ -405,8 +447,9 @@ void main() {
         if (line.startsWith('| `feature_')) line,
     ];
     // Notes, current work and decisions were all cut, so features give up
-    // rows too, but stay above their floor of 5 at this budget.
-    expect(rows.length, 12);
+    // rows too, but stay above their floor of 5 at this budget. (The rule
+    // about decisions and memory took the room of two rows: 12 before it.)
+    expect(rows.length, 10);
     expect(
       rows.first,
       '| `feature_0` | 300 | `lib/ui/feature_0/`: widgets/screen_0.dart, '

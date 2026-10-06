@@ -248,73 +248,52 @@ void main() {
     });
   });
 
-  group('parseDecision', () {
-    test('reads the title and status, and the number from the file name', () {
-      final decision = parseDecision(
-        '0002-state.md',
-        '---\nid: 0002\ntitle: State management with provider + '
-            'ChangeNotifier\nstatus: accepted\ndate: 2026-10-02\n---\n'
-            'Why: Flutter recommends it.\n',
-      );
-      expect(decision.id, '0002');
-      expect(decision.title, 'State management with provider + ChangeNotifier');
-      expect(decision.status, 'accepted');
-      expect(decision.problem, isNull);
-      expect(decisionNumber('notes.md'), isNull);
-    });
+  group('indexDecisions', () {
+    late String root;
 
-    test('CRLF line ends and a multi-line title are read; the title becomes '
-        'one line', () {
-      final decision = parseDecision(
-        '0003-x.md',
+    void decision(String name, String text) =>
+        File(p.join(root, '.appstein', 'decisions', name))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(text);
+
+    setUp(() => root = tempDir().path);
+
+    test('lists the decisions in force and the unreadable files, by file '
+        'name, with the number as the file name writes it', () {
+      decision(
+        '0002-state.md',
         '---\r\ntitle: |\r\n  Two\r\n  lines\r\nstatus: proposed\r\n---\r\n',
       );
-      expect(decision.title, 'Two lines');
-      expect(decision.status, 'proposed');
-    });
-
-    test('a leading BOM (Windows PowerShell writes one) is ignored', () {
-      final bom = String.fromCharCode(0xFEFF);
-      final decision = parseDecision(
-        '0006-x.md',
-        '$bom---\r\ntitle: Use provider\r\nstatus: accepted\r\n---\r\n',
+      decision('0001-x.md', 'Just text.\n');
+      decision('3-y.md', '---\ntitle: Y\nstatus: accepted\n---\n');
+      decision('0004-old.md', '---\ntitle: Old\nstatus: superseded\n---\n');
+      final listed = indexDecisions(readDecisions(root));
+      expect(
+        [for (final one in listed) one.file],
+        ['0001-x.md', '0002-state.md', '3-y.md'],
       );
-      expect(decision.problem, isNull);
-      expect(decision.title, 'Use provider');
-      expect(decision.status, 'accepted');
+      expect(listed[0].problem, 'it has no front matter');
+      expect(listed[0].id, '0001');
+      expect(listed[0].title, isNull);
+      expect(listed[0].status, isNull);
+      expect(listed[1].title, 'Two lines');
+      expect(listed[1].status, 'proposed');
+      expect(listed[1].problem, isNull);
+      expect(listed[2].id, '3');
     });
 
-    test('a very long title is shortened to 120 characters', () {
-      final decision = parseDecision(
-        '0004-x.md',
-        '---\ntitle: ${'word ' * 60}\nstatus: accepted\n---\n',
+    test('a decision a later one supersedes is left out, even when its own '
+        'status line still says accepted', () {
+      decision('0001-a.md', '---\ntitle: A\nstatus: accepted\n---\n');
+      decision(
+        '0002-b.md',
+        '---\ntitle: B\nstatus: accepted\nsupersedes: 0001\n---\n',
       );
-      expect(decision.title!.runes.length, 120);
-      expect(decision.title, endsWith('…'));
+      expect(
+        [for (final one in readIndexSources(root).decisions) one.file],
+        ['0002-b.md'],
+      );
     });
-
-    for (final (text, problem) in [
-      ('Just text.\n', 'it has no front matter'),
-      (
-        '---\ntitle: x\nstatus: accepted\n',
-        'its front matter has no closing ---',
-      ),
-      ('---\ntitle: [unclosed\n---\n', 'its front matter is not valid YAML'),
-      ('---\n- a\n---\n', 'its front matter is not a map'),
-      ('---\nstatus: accepted\n---\n', 'it has no title'),
-      (
-        '---\ntitle: x\nstatus: done\n---\n',
-        'its status is not accepted, proposed or superseded',
-      ),
-    ]) {
-      test('unreadable: $problem', () {
-        final decision = parseDecision('0005-x.md', text);
-        expect(decision.problem, problem);
-        expect(decision.id, '0005');
-        expect(decision.title, isNull);
-        expect(decision.status, isNull);
-      });
-    }
   });
 
   test('currentWorkLines drops blank lines at the ends and trailing spaces, '

@@ -5,6 +5,7 @@
 library;
 
 export 'src/config/appstein_config.dart';
+export 'src/decisions/decision_record.dart';
 export 'src/knowledge/curated_note.dart';
 export 'src/knowledge/delta_knowledge.dart';
 export 'src/knowledge/knowledge_meta.dart';

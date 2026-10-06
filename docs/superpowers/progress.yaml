@@ -162,11 +162,14 @@ milestones:
           - id: 1c.2
             title: Decisions and memory
             summary: Knowledge layers 3–4 in the §6.7–6.8 formats, with the `decisions`, `record_decision`, `memory_read` and `memory_write` tools.
-            status: next
+            status: done
+            plan: 2026-10-06-slice-1c2-decisions-memory.md
+            pr: 7
+            finished: 2026-10-06
           - id: 1c.3
             title: Human docs
             summary: The `docs/app/` renderer with the pack doc pages and `appstein docs [--check]`, byte-identical for unchanged knowledge.
-            status: planned
+            status: next
       - id: 1d
         title: Verifier
         summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale`, suppressions, and the `verify` and `package_check` MCP tools.
