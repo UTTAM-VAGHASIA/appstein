@@ -12,6 +12,7 @@ import '../map/analyzer_cache.dart';
 import '../map/map_inputs.dart';
 import '../map/map_sync.dart';
 import '../map/project_packages.dart';
+import '../mcp/tool_names.dart';
 import '../native/native_extractor.dart';
 import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
@@ -673,6 +674,7 @@ final class KnowledgeSync {
       decisionsError: sources.decisionsError,
       currentWork: sources.currentWork,
       currentWorkError: sources.currentWorkError,
+      tools: mcpToolNames.toSet(),
     );
     final budget = indexBodyBudget(
       KnowledgeMeta(

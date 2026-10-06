@@ -6,14 +6,20 @@ packages/appstein_engine/lib/src/index/**
 
 `appstein sync` writes `.appstein/INDEX.md`: the one page an agent always has in view (spec §4 principle 5, §6.3). Everything else in `.appstein/` is read on demand. INDEX.md says what the project is and where to look next. It is at most 1,500 tokens, and the rest of this page explains how that is kept.
 
-It names MCP tools (`where_is()`, `feature()`, `verify()`, `decisions()` and others). Those tools arrive in slice 1c, so for now they are pointers to what will exist; the file they point at is already there.
+It names MCP tools, but **only the ones this Appstein offers** (spec §6.3). An agent that is told to call a tool that doesn't exist wastes a turn finding that out. `sync` passes the server's own list, [`mcpToolNames`](../../packages/appstein_engine/lib/src/mcp/tool_names.dart), as `IndexInputs.tools`. Of the tools INDEX.md can name (`indexTools`), four aren't served yet: `verify` and `package_check` (slice 1d), `decisions` and `memory_read` (slice 1c.2). Until each one joins the list:
+
+- the rule "Run `verify()` before you say a task is done" is left out;
+- the dependency rule says "a well-maintained package" where it will say "a package that passes `package_check()`";
+- the pointers for hidden decisions and current work name the file (`decisions/`, `memory/current.md`).
+
+Adding a name to `mcpToolNames` is all it takes for INDEX.md to name the tool.
 
 ## What it holds
 
 | Section | Holds | From |
 |---|---|---|
 | Project | The Flutter, Dart and language versions; the stack pack; the platform folders; the Android and iOS ids | `sdk.json`'s facts, the pack list, the project's platform folders, `map/native.json` |
-| Rules | Four fixed rules: ask the MCP tools before searching, run `verify()` before saying done, never upgrade native toolchain versions yourself, and how to choose dependencies | fixed text in the code |
+| Rules | Up to four fixed rules: ask the MCP tools before searching, run `verify()` before saying done (once that tool exists), never upgrade native toolchain versions yourself, and how to choose dependencies | fixed text in the code |
 | Features | At most 15 rows, most screens first, each with its main files | `map/features.json` |
 | Where things live | The stack pack's layer tags and their globs | the stack pack |
 | Version notes | The top 10 curated notes (summary only) and the counts of `delta.md`'s API lists | the notes, in `delta.md`'s order; the delta facts |
@@ -53,10 +59,10 @@ The generic notes go first because the project's own decisions and current work 
 Each of the four cuts leaves a pointer to the tool that holds the rest, such as:
 
 ```text
-…and 100 older decisions; ask `decisions()`.
+…and 12 more notes; ask `what_changed()`.
 ```
 
-(The others are ``…and N more; ask `feature()`.``, ``…and N more notes; ask `what_changed()`.`` and ``…and N more lines; ask `memory_read()`.``) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
+(The others are ``…and N more; ask `feature()`.``, ``…and N older decisions; ask `decisions()`.`` and ``…and N more lines; ask `memory_read()`.``. While the last two tools aren't served, those pointers read ``…and N older decisions in `decisions/`.`` and ``…and N more lines in `memory/current.md`.``) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
 
 **The last resort.** If the text still doesn't fit with 5 notes and 5 features, features and then notes are cut below 5, one at a time, until it fits or none are left. Without this, a very long app id or layer list could push the file over the cap with nothing left to cut. If even that is not enough, the file is written as it is: the cap is a goal that the loop works toward, not a guarantee that clamps the text.
 

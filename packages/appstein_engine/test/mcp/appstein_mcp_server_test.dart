@@ -134,6 +134,16 @@ void main() {
     expect(unknown.isError, isTrue);
     expect(unknown.structuredContent, isNull);
     expect(textOf(unknown), startsWith('No feature is named "nope".'));
+    // An error has no structured content, so its text says how fresh the
+    // knowledge was: rebuilt by this first call, current on the next.
+    expect(
+      textOf(unknown),
+      endsWith('The knowledge was rebuilt first (no sync has run here yet).'),
+    );
+    expect(
+      textOf(await call(server, 'feature', {'name': 'nope'})),
+      endsWith(' The knowledge was current.'),
+    );
     final missing = await call(server, 'where_is');
     expect(missing.isError, isTrue);
     expect(missing.content, hasLength(1));

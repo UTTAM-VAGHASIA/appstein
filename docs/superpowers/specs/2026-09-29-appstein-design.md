@@ -492,7 +492,7 @@ Transport is stdio; `appstein mcp` is launched by the agent. Every tool returns 
 
 Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or `stale` (with why). When another sync holds the lock past its timeout, or the sync fails, the server answers from the files on disk marked `stale`, with the reason and, when it helps, "run `appstein doctor`". With no knowledge files at all, the reply is an error.
 
-**Errors.** Bad input, a failed sync with nothing to answer from, and a tool that throws each give a tool result marked as an error, with the reason, and the server keeps running. An error reply has no structured content; it states the freshness in its text. Only protocol messages go to stdout.
+**Errors.** Bad input, a failed sync with nothing to answer from, and a tool that throws each give a tool result marked as an error, with the reason, and the server keeps running. An error reply has no structured content; it states the freshness in its text. Arguments that don't fit a tool's input schema are refused before the tool runs, so that reply has no freshness. Only protocol messages go to stdout.
 
 | Tool | Input | Returns |
 |---|---|---|

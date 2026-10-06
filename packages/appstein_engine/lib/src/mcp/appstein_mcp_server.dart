@@ -30,18 +30,6 @@ McpChannel stdioMcpChannel(
   StreamSink<List<int>> output,
 ) => stdioChannel(input: input, output: output);
 
-/// The tools `appstein mcp` serves in slice 1c.1, in the order it lists
-/// them (spec §8). `verify` and `package_check` come with slice 1d.
-const mcpToolNames = [
-  'overview',
-  'where_is',
-  'feature',
-  'route',
-  'check_api',
-  'what_changed',
-  'toolchain',
-];
-
 const _doctor = 'Run `appstein doctor` to see what is wrong.';
 
 /// Appstein's MCP server (spec §8): read tools over the project's
@@ -315,15 +303,11 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     );
   }
 
+  /// An error has no structured content, so its text carries the freshness
+  /// every reply states (spec §8).
   CallToolResult _refuse(String message, FreshnessReport freshness) =>
       CallToolResult(
         isError: true,
-        content: [
-          TextContent(
-            text: freshness.state == FreshnessState.stale
-                ? '$message ${freshness.sentence}'
-                : message,
-          ),
-        ],
+        content: [TextContent(text: '$message ${freshness.sentence}')],
       );
 }

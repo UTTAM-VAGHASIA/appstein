@@ -843,8 +843,13 @@ void main() {
       await sync(packs: platformPacks).run(app, dartSdkPath: testDartSdk);
       final text = index(app);
       expect(utf8.encode(text).length, lessThanOrEqualTo(indexByteBudget));
-      expect(text, contains('; ask `memory_read()`.'));
-      expect(text, contains('; ask `decisions()`.'));
+      // The server doesn't offer `memory_read` and `decisions` yet, so the
+      // pointers name the files (spec §6.3).
+      expect(text, contains(' more lines in `memory/current.md`.'));
+      expect(text, contains(' older decisions in `decisions/`.'));
+      for (final tool in indexTools.difference(mcpToolNames.toSet())) {
+        expect(text, isNot(contains('`$tool()`')), reason: tool);
+      }
       // The fixture has 5 features, the floor, so all of them stay.
       expect(text, contains('| `settings` |'));
     });

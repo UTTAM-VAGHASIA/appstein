@@ -57,8 +57,7 @@ void main() {
   });
 
   test('scores tiers: symbol 5 > route 4 > feature 3 > path 2', () {
-    // "settings", not "booking": ten symbols contain `booking` and would
-    // fill the ten listed places before any route, feature or file.
+    // "settings" has few matches, so every kind's match is listed.
     final found = matches('settings');
     int score(String kind, String name) =>
         found.firstWhere(
@@ -92,6 +91,51 @@ void main() {
         if (m['kind'] == 'symbol') m['name'],
     ];
     expect(symbolsFound, [...symbolsFound]..sort());
+  });
+
+  test('a word in ten or more symbol names still shows the best feature, '
+      'route and file', () {
+    final reply = ask('booking') as ToolReply;
+    final found = (reply.result['matches']! as List)
+        .cast<Map<String, Object?>>();
+    expect(found.length, whereIsLimit);
+    int count(String kind) => found.where((m) => m['kind'] == kind).length;
+    expect(count('feature'), 1);
+    expect(count('route'), 1);
+    expect(count('file'), 1);
+    expect(count('symbol'), whereIsLimit - 3);
+    expect(
+      found.firstWhere((m) => m['kind'] == 'feature'),
+      containsPair('name', 'booking'),
+    );
+    final scores = [for (final m in found) m['score']! as int];
+    expect(scores, [...scores]..sort((a, b) => b.compareTo(a)));
+  });
+
+  test('a best-of-kind match already in the top ten is listed once', () {
+    final found = matches('login screen');
+    final keys = [for (final m in found) '${m['kind']} ${m['name']}'];
+    expect(keys.toSet().length, keys.length);
+    expect(found.length, whereIsLimit);
+  });
+
+  test('fewer than ten matches are each listed once', () {
+    final reply = ask('profile') as ToolReply;
+    final found = (reply.result['matches']! as List)
+        .cast<Map<String, Object?>>();
+    expect(reply.result['total'], lessThan(whereIsLimit));
+    expect(found.length, reply.result['total']);
+    final keys = [for (final m in found) '${m['kind']} ${m['name']}'];
+    expect(keys.toSet().length, keys.length);
+  });
+
+  test('a typo match needs four letters on both sides', () {
+    Iterable<String> reasons(String query) => [
+      for (final m in matches(query)) ...(m['reasons']! as List).cast<String>(),
+    ];
+    expect(reasons('list').where((r) => r.contains('close to `lib`')), isEmpty);
+    expect(reasons('list').where((r) => r.contains('close to `ui`')), isEmpty);
+    expect(reasons('logn'), contains(contains('`logn` is close to `login`')));
   });
 
   test('nothing matched is a reply with no matches', () {

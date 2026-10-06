@@ -30,7 +30,7 @@ Before this slice every sync took about 9 s on a 200-file app, and a full sync o
 | Full sync, no analyzer cache (target under 30 s) | 6,892 ms | 7,618 ms |
 | `sync --detect`, nothing changed (target under 2 s) | 77 ms | 165 ms |
 | `sync --detect` after editing a view model (target under 2 s) | 1,102 ms | 2,202 ms |
-| `sync --detect` after editing the router | 1,167 ms | 2,309 ms |
+| `sync --detect` after editing the router (target under 2 s) | 1,167 ms | 2,309 ms |
 
 ## How `--detect` decides
 
