@@ -6,11 +6,12 @@ packages/appstein_engine/lib/src/index/**
 
 `appstein sync` writes `.appstein/INDEX.md`: the one page an agent always has in view (spec §4 principle 5, §6.3). Everything else in `.appstein/` is read on demand. INDEX.md says what the project is and where to look next. It is at most 1,500 tokens, and the rest of this page explains how that is kept.
 
-It names MCP tools, but **only the ones this Appstein offers** (spec §6.3). An agent that is told to call a tool that doesn't exist wastes a turn finding that out. `sync` passes the server's own list, [`mcpToolNames`](../../packages/appstein_engine/lib/src/mcp/tool_names.dart), as `IndexInputs.tools`. Of the tools INDEX.md can name (`indexTools`), four aren't served yet: `verify` and `package_check` (slice 1d), `decisions` and `memory_read` (slice 1c.2). Until each one joins the list:
+It names MCP tools, but **only the ones this Appstein offers** (spec §6.3). An agent that is told to call a tool that doesn't exist wastes a turn finding that out. `sync` passes the server's own list, [`mcpToolNames`](../../packages/appstein_engine/lib/src/mcp/tool_names.dart), as `IndexInputs.tools`. Of the tools INDEX.md can name (`indexTools`), two aren't served yet: `verify` and `package_check` (slice 1d). Until each one joins the list:
 
 - the rule "Run `verify()` before you say a task is done" is left out;
-- the dependency rule says "a well-maintained package" where it will say "a package that passes `package_check()`";
-- the pointers for hidden decisions and current work name the file (`decisions/`, `memory/current.md`).
+- the dependency rule says "a well-maintained package" where it will say "a package that passes `package_check()`".
+
+The same holds for the decision and memory tools, which are served: a server without `record_decision` and `memory_write` would leave out the rule that names them, and without `decisions` or `memory_read` the pointers for hidden decisions and current work would name the file (`decisions/`, `memory/current.md`).
 
 Adding a name to `mcpToolNames` is all it takes for INDEX.md to name the tool: the names are part of INDEX.md's input hash (below), so the next sync rewrites it.
 
@@ -19,7 +20,7 @@ Adding a name to `mcpToolNames` is all it takes for INDEX.md to name the tool: t
 | Section | Holds | From |
 |---|---|---|
 | Project | The Flutter, Dart and language versions; the stack pack; the platform folders; the Android and iOS ids | `sdk.json`'s facts, the pack list, the project's platform folders, `map/native.json` |
-| Rules | Up to four fixed rules: ask the MCP tools before searching, run `verify()` before saying done (once that tool exists), never upgrade native toolchain versions yourself, and how to choose dependencies | fixed text in the code |
+| Rules | Up to five fixed rules: ask the MCP tools before searching, run `verify()` before saying done (once that tool exists), never upgrade native toolchain versions yourself, record a choice that binds later work with `record_decision()` and keep the task in progress with `memory_write()`, and how to choose dependencies | fixed text in the code |
 | Features | At most 15 rows, most screens first, each with its main files | `map/features.json` |
 | Where things live | The stack pack's layer tags and their globs | the stack pack |
 | Version notes | The top 10 curated notes (summary only) and the counts of `delta.md`'s API lists | the notes, in `delta.md`'s order; the delta facts |
@@ -38,7 +39,7 @@ Some details that are easy to get wrong:
   - A platform folder that doesn't exist gives no line at all.
 - **Features** are ordered by number of screens (most first), then by name. A row shows the feature's folder and its main files: the screens' files, then the view models' files, at most two and then `…`. A feature with neither lists its files instead. Without `features.json` the section says why ("Not available: the project map was skipped: …", or "no stack pack, so no features"). A project with the file but no features says "None found."
 - **Version notes** show each note's summary only; the full text stays in `delta.md`. A note that needs a newer language version than the project's is left out, using the same test as `delta.md` (see [version-delta](version-delta.md)).
-- **Decisions** are read in file-name order. The number comes from the file name (`0002-state.md` is decision `0002`), and the title and status from the file's front matter. Decisions marked `superseded` are left out. A file whose front matter can't be read is still listed, with the reason ("unreadable (it has no title)"), so a broken file is visible and not silently skipped. When `.appstein/decisions/` itself can't be listed, the section says so.
+- **Decisions** are read in file-name order. The number comes from the file name (`0002-state.md` is decision `0002`), and the title and status from the file's front matter. They come from `readDecisions`, the one reader the `decisions` tool uses too (see [decisions-and-memory](decisions-and-memory.md#reading-one-reader-three-rules)), through `indexDecisions`. Superseded decisions are left out: those marked `superseded`, and those a later decision names in `supersedes`, whatever their own status line says. A file whose front matter can't be read is still listed, with the reason ("unreadable (it has no title)"), so a broken file is visible and not silently skipped. When `.appstein/decisions/` itself can't be listed, the section says so.
 - **Current work** is shown as a Markdown quote (`> …`), so a `#` heading inside `current.md` can never become a section of INDEX.md. Lines are cut at 160 characters, and only the first 10 are shown.
 
 ## The budget
@@ -62,11 +63,11 @@ Each of the four cuts leaves a pointer to the tool that holds the rest, such as:
 …and 12 more notes; ask `what_changed()`.
 ```
 
-(The others are ``…and N more; ask `feature()`.``, ``…and N older decisions; ask `decisions()`.`` and ``…and N more lines; ask `memory_read()`.``. While the last two tools aren't served, those pointers read ``…and N older decisions in `decisions/`.`` and ``…and N more lines in `memory/current.md`.``) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
+(The others are ``…and N more; ask `feature()`.``, ``…and N older decisions; ask `decisions()`.`` and ``…and N more lines; ask `memory_read()`.``. A server that doesn't offer the last two tools makes those pointers read ``…and N older decisions in `decisions/`.`` and ``…and N more lines in `memory/current.md`.``) Project, Rules, Where things live and Freshness are never cut: an agent must always know the versions and the layers.
 
 **The last resort.** If the text still doesn't fit with 5 notes and 5 features, features and then notes are cut below 5, one at a time, until it fits or none are left. Without this, a very long app id or layer list could push the file over the cap with nothing left to cut. If even that is not enough, the file is written as it is: the cap is a goal that the loop works toward, not a guarantee that clamps the text.
 
-Real sizes: a fresh `flutter create --platforms=android,ios` app, synced on Flutter 3.47.5, gave a 3,551-byte INDEX.md (10 notes shown with "…and 31 more notes", and features "None found."). The fixture app on the real SDK gave 3,951 bytes. A large synthetic project with a 4,200-byte budget came to 4,200 bytes, with 12 feature rows, 5 of 45 notes, no decisions and no current work.
+Real sizes: a fresh `flutter create --platforms=android,ios` app, synced on Flutter 3.47.5, gave a 3,551-byte INDEX.md (10 notes shown with "…and 31 more notes", and features "None found."). The fixture app on the real SDK gave 3,951 bytes. A large synthetic project with a 4,200-byte budget came to 4,200 bytes, with 12 feature rows, 5 of 45 notes, no decisions and no current work. Those sizes were measured in slice 1b.6. Since slice 1c.2 the rule about decisions and memory adds 127 bytes to every INDEX.md, which costs that synthetic project two feature rows (10 instead of 12). The fixture app without native folders, with one decision recorded, came to 4,062 bytes.
 
 ## How sync builds it
 
@@ -102,7 +103,7 @@ The hash is stored in INDEX.md's front matter, so any change to an input rewrite
 
 ## Tests
 
-- **Sources:** `packages/appstein_engine/test/index/index_sources_test.dart`: the app id rules, the feature order and main files, decision parsing (every reason a file is unreadable), the lines of `current.md`, and what the input list covers.
+- **Sources:** `packages/appstein_engine/test/index/index_sources_test.dart`: the app id rules, the feature order and main files, which decisions are listed (`indexDecisions`; reading a decision file is tested with the decisions code), the lines of `current.md`, and what the input list covers.
 - **Rendering:** `packages/appstein_engine/test/index/index_document_test.dart`: the exact text, the cut order and the pointers, and the large project that has to fit.
 - **Sync:** the `INDEX.md` group in `packages/appstein_engine/test/knowledge/knowledge_sync_test.dart`: it is written, it is stable across syncs, a hand edit is put back, a skipped map still gives one.
 - **Real SDK:** `packages/appstein_engine/test/integration/map_real_sdk_test.dart` syncs the fixture app on the real Flutter SDK and checks INDEX.md's size against the cap.

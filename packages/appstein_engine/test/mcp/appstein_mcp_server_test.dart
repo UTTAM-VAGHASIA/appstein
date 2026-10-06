@@ -43,6 +43,7 @@ void main() {
       syncFor: () => syncFor(),
       appsteinVersion: '0.1.0-dev',
       dartSdkPath: testDartSdk,
+      clock: () => DateTime(2026, 10, 6, 23, 59),
     );
     addTearDown(server.shutdown);
     return connectTo(controller.foreign);
@@ -53,10 +54,11 @@ void main() {
     return result.structuredContent!;
   }
 
-  test('lists the seven tools, each with an output schema', () async {
+  test('lists the eleven tools, each with an output schema', () async {
     final server = await serve();
     final tools = (await server.listTools()).tools;
     expect([for (final tool in tools) tool.name], mcpToolNames);
+    expect(tools, hasLength(11));
     for (final tool in tools) {
       expect(tool.outputSchema, isNotNull, reason: tool.name);
       expect(tool.description, isNotEmpty, reason: tool.name);
@@ -89,7 +91,18 @@ void main() {
       'check_api': {'name': 'WillPopScope'},
       'what_changed': <String, Object?>{},
       'toolchain': <String, Object?>{},
+      'record_decision': {
+        'title': 'Routing with go_router',
+        'why': 'Deep links.',
+        'status': 'accepted',
+        'paths': ['lib/routing/**'],
+        'checks': ['paths.exist'],
+      },
+      'decisions': {'topic': 'routing'},
+      'memory_write': {'kind': 'current', 'text': '# Goal\nShip it.'},
+      'memory_read': <String, Object?>{},
     };
+    expect(calls.keys, unorderedEquals(mcpToolNames));
     for (final MapEntry(key: tool, value: arguments) in calls.entries) {
       final result = await call(server, tool, arguments);
       final json = structured(result);
@@ -108,6 +121,136 @@ void main() {
       await call(server, 'where_is', {'query': 'login screen'}),
     );
     expect(((whereIs['matches']! as List).first as Map)['name'], 'LoginScreen');
+  });
+
+  group('decisions and memory', () {
+    String index(Map<String, Object?> overview) => overview['index']! as String;
+
+    test('a recorded decision is in INDEX.md when the reply arrives, dated '
+        "by the server's clock", () async {
+      final server = await serve();
+      await call(server, 'overview');
+      final recorded = structured(
+        await call(server, 'record_decision', {
+          'title': 'State management with provider',
+          'why': 'One stack pack keeps checks exact.',
+        }),
+      );
+      const file = '.appstein/decisions/0001-state-management-with-provider.md';
+      expect((recorded['decision']! as Map)['file'], file);
+      expect((recorded['decision']! as Map)['date'], '2026-10-06');
+      // The reply states the freshness after the write: what the write
+      // changed was rebuilt.
+      final freshness = recorded['freshness']! as Map<String, Object?>;
+      expect(freshness['state'], 'rebuilt');
+      // INDEX.md on disk already lists it, before any other call.
+      expect(
+        File(p.join(app, '.appstein', 'INDEX.md')).readAsStringSync(),
+        contains(
+          '- 0001 State management with provider (proposed): '
+          '[0001-state-management-with-provider.md]',
+        ),
+      );
+      final overview = structured(await call(server, 'overview'));
+      expect(overview['freshness'], {'state': 'current'});
+      expect(index(overview), contains('State management with provider'));
+      expect(
+        index(overview),
+        contains('with `record_decision()`, and keep the task'),
+      );
+    });
+
+    test('accept, then replace, through the server', () async {
+      final server = await serve();
+      await call(server, 'record_decision', {'title': 'Use dio', 'why': 'x'});
+      final accepted = structured(
+        await call(server, 'record_decision', {'accept': '1'}),
+      );
+      expect(accepted['action'], 'accepted');
+      final replaced = structured(
+        await call(server, 'record_decision', {
+          'title': 'Use package http',
+          'why': 'Fewer dependencies.',
+          'status': 'accepted',
+          'supersedes': '0001',
+        }),
+      );
+      expect(replaced['action'], 'replaced');
+      final all = structured(await call(server, 'decisions'));
+      expect(
+        [for (final one in all['decisions']! as List) (one as Map)['number']],
+        ['0002'],
+      );
+      expect(all['superseded'], 1);
+      final overview = structured(await call(server, 'overview'));
+      expect(index(overview), contains('- 0002 Use package http (accepted)'));
+      expect(index(overview), isNot(contains('Use dio')));
+    });
+
+    test('decisions for a file path', () async {
+      final server = await serve();
+      await call(server, 'record_decision', {
+        'title': 'View models extend ChangeNotifier',
+        'why': 'The pack checks it.',
+        'paths': ['lib/ui/**/view_models/**'],
+      });
+      final covering = structured(
+        await call(server, 'decisions', {
+          'topic': r'lib\ui\home\view_models\home_viewmodel.dart',
+        }),
+      );
+      expect(covering['mode'], 'path');
+      expect((covering['decisions']! as List), hasLength(1));
+    });
+
+    test('the task in progress shows in INDEX.md, and finishing it clears '
+        'it and keeps the lesson', () async {
+      final server = await serve();
+      await call(server, 'memory_write', {
+        'kind': 'current',
+        'text': '# Goal\nShip favorites.',
+      });
+      var overview = structured(await call(server, 'overview'));
+      expect(overview['freshness'], {'state': 'current'});
+      expect(index(overview), contains('> # Goal\n> Ship favorites.'));
+      final done = structured(
+        await call(server, 'memory_write', {
+          'kind': 'complete',
+          'text': 'Favorites shipped.',
+        }),
+      );
+      expect(done['lesson'], '- 2026-10-06: Favorites shipped.');
+      overview = structured(await call(server, 'overview'));
+      expect(
+        index(overview),
+        contains('## Current work\n\nNone recorded yet.'),
+      );
+      final memory = structured(await call(server, 'memory_read'));
+      expect(memory.containsKey('current'), isFalse);
+      expect(memory['lessons'], ['2026-10-06: Favorites shipped.']);
+    });
+
+    test('a refused write is an error result that states the freshness, and '
+        'writes nothing', () async {
+      final server = await serve();
+      await call(server, 'overview');
+      final refused = await call(server, 'record_decision', {'accept': '7'});
+      expect(refused.isError, isTrue);
+      expect(refused.structuredContent, isNull);
+      expect(
+        textOf(refused),
+        'No decision is numbered 0007. The knowledge was current.',
+      );
+      expect(
+        Directory(p.join(app, '.appstein', 'decisions')).existsSync(),
+        isFalse,
+      );
+      final badKind = await call(server, 'memory_write', {
+        'kind': 'note',
+        'text': 'x',
+      });
+      expect(badKind.isError, isTrue);
+    });
   });
 
   test('an edit is picked up before the next answer', () async {

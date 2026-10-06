@@ -44,7 +44,7 @@ void main() {
     final server = await connectTo(StreamChannel(incoming, outgoing.sink));
 
     final tools = (await server.listTools()).tools;
-    expect(tools, hasLength(7), reason: '$errors');
+    expect(tools, hasLength(11), reason: '$errors');
     const calls = {
       'overview': <String, Object?>{},
       'where_is': {'query': 'login screen'},
@@ -53,6 +53,14 @@ void main() {
       'check_api': {'name': 'WillPopScope'},
       'what_changed': <String, Object?>{},
       'toolchain': <String, Object?>{},
+      'record_decision': {
+        'title': 'State management with provider',
+        'why': 'One stack pack keeps checks exact.',
+        'paths': ['lib/ui/**/view_models/**'],
+      },
+      'decisions': {'topic': 'lib/ui/home/view_models/home_viewmodel.dart'},
+      'memory_write': {'kind': 'current', 'text': '# Goal\nShip it.'},
+      'memory_read': <String, Object?>{},
     };
     for (final MapEntry(key: tool, value: arguments) in calls.entries) {
       final result = await call(server, tool, arguments);
@@ -62,6 +70,28 @@ void main() {
         reason: '$tool: ${textOf(result)}\n$errors',
       );
     }
+    // The real process wrote real files, and its own next answers read them.
+    expect(
+      File(
+        p.join(
+          app,
+          '.appstein',
+          'decisions',
+          '0001-state-management-with-provider.md',
+        ),
+      ).readAsStringSync(),
+      contains('status: proposed\n'),
+    );
+    final covering = await call(server, 'decisions', calls['decisions']!);
+    expect(
+      ((covering.structuredContent!['decisions']! as List).single
+          as Map)['number'],
+      '0001',
+    );
+    expect(
+      (await call(server, 'memory_read')).structuredContent!['current'],
+      '# Goal\nShip it.\n',
+    );
     await server.shutdown();
     await outgoing.close();
     expect(

@@ -11,9 +11,13 @@ import '../knowledge/knowledge_lock.dart';
 import '../knowledge/knowledge_sync.dart';
 import '../knowledge/knowledge_write_exception.dart';
 import '../knowledge/platform_sync.dart';
+import '../decisions/decision_store.dart';
 import 'check_api.dart';
+import 'decisions_query.dart';
 import 'feature_query.dart';
 import 'knowledge_snapshot.dart';
+import 'memory_tools.dart';
+import 'record_decision.dart';
 import 'route_query.dart';
 import 'tool_answer.dart';
 import 'toolchain_report.dart';
@@ -33,7 +37,9 @@ McpChannel stdioMcpChannel(
 const _doctor = 'Run `appstein doctor` to see what is wrong.';
 
 /// Appstein's MCP server (spec §8): read tools over the project's
-/// knowledge, each answered from fresh knowledge.
+/// knowledge, each answered from fresh knowledge, and the two tools that
+/// write its decisions and memory. [clock] gives the date those writes
+/// record; the machine's clock when it is left out.
 ///
 /// Before each answer it syncs as `appstein sync --detect` does, with
 /// [syncFor]'s `KnowledgeSync` (the CLI builds one from `appstein.yaml` on
@@ -50,7 +56,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     required this.syncFor,
     required String appsteinVersion,
     this.dartSdkPath,
-  }) : super.fromStreamChannel(
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now,
+       super.fromStreamChannel(
          implementation: Implementation(
            name: 'appstein',
            version: appsteinVersion,
@@ -60,7 +68,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
              'delta, the native toolchain and the project map. Call '
              '`overview` first. Ask `where_is` before searching files, '
              '`check_api` before using an API you are unsure of, and '
-             '`toolchain` before changing native versions.',
+             '`toolchain` before changing native versions. Read '
+             '`memory_read` when you resume work, and record a choice that '
+             'binds later work with `record_decision`.',
        ) {
     _tool(
       'overview',
@@ -175,6 +185,58 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
           knowledge.refusalFor([knowledge.toolchain]) ??
           toolchainInfo(knowledge.toolchain.value!, knowledge.native.value),
     );
+    _tool(
+      'decisions',
+      "The project's recorded decisions (architecture, state management, "
+          'conventions) with the reason for each. Without a topic: every '
+          'decision in force. With words, such as "state management": the '
+          'decisions that mention them. With a file path, such as '
+          '`lib/ui/home/widgets/home_screen.dart`: the decisions that cover '
+          'that file. Check it before a change that a decision may already '
+          'settle. Only an accepted decision binds.',
+      input: ToolSchemas.decisionsInput,
+      result: ToolSchemas.decisionsResult,
+      answer: (_, arguments) => decisionsInfo(
+        readDecisions(projectRoot),
+        topic: arguments['topic'] as String?,
+      ),
+    );
+    _writeTool(
+      'record_decision',
+      'Record a choice that binds later work, with its reason. Pass `title` '
+          'and `why` (and `paths`, the patterns it applies to); it is saved '
+          'as proposed. Pass `status: accepted` only when the user agreed to '
+          'this decision in this conversation. To replace an older decision, '
+          'add `supersedes` with its number. To accept a proposed decision '
+          'once the user agrees, pass only `accept` with its number. The '
+          'text of an existing decision is never rewritten. The file is '
+          'committed: never put secrets in it.',
+      input: ToolSchemas.recordDecisionInput,
+      result: ToolSchemas.recordDecisionResult,
+      write: (arguments) =>
+          recordDecision(projectRoot, arguments, today: _today()),
+    );
+    _tool(
+      'memory_read',
+      'The task in progress (goal, plan, status, open questions) and the '
+          'lessons recorded so far. Read it when you start or resume work.',
+      input: ToolSchemas.noInput,
+      result: ToolSchemas.memoryReadResult,
+      answer: (_, _) => memoryRead(projectRoot),
+    );
+    _writeTool(
+      'memory_write',
+      "Keep the project's memory. `kind: current` replaces the task in "
+          'progress with `text` (goal, plan, status, open questions). '
+          '`kind: lesson` appends `text` to the lessons as one dated line. '
+          '`kind: complete` finishes the task: `text` is your one-paragraph '
+          'summary, which is saved as a lesson, and the task in progress is '
+          'cleared. The files are committed: never put secrets in them.',
+      input: ToolSchemas.memoryWriteInput,
+      result: ToolSchemas.memoryWriteResult,
+      write: (arguments) =>
+          memoryWrite(projectRoot, arguments, today: _today()),
+    );
   }
 
   /// The project's folder.
@@ -186,7 +248,55 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// Where `dart:` libraries are read from; null for the Flutter SDK's.
   final String? dartSdkPath;
 
+  final DateTime Function() _clock;
+
   Future<void> _last = Future.value();
+
+  /// Today's date on this machine, as decision records and lessons write
+  /// it: `2026-10-06`.
+  String _today() {
+    final now = _clock();
+    String two(int number) => '$number'.padLeft(2, '0');
+    return '${'${now.year}'.padLeft(4, '0')}-${two(now.month)}-${two(now.day)}';
+  }
+
+  /// Registers a tool that changes files the project commits (spec §8,
+  /// Writes). After a write that worked, the freshness check runs again, so
+  /// `INDEX.md` shows the new decision or task when the reply arrives, and
+  /// the reply states that second freshness.
+  void _writeTool(
+    String name,
+    String description, {
+    required Map<String, Object?> input,
+    required Map<String, Object?> result,
+    required Future<ToolAnswer> Function(Map<String, Object?> arguments) write,
+  }) => registerTool(
+    Tool(
+      name: name,
+      description: description,
+      inputSchema: ObjectSchema.fromMap(input),
+      outputSchema: ObjectSchema.fromMap(toolOutputSchema(result)),
+    ),
+    (request) => _oneAtATime(() async {
+      final before = await _freshen();
+      try {
+        return switch (await write(request.arguments ?? const {})) {
+          ToolReply(:final result, :final summary) => _reply(
+            result,
+            summary,
+            await _freshen(),
+          ),
+          ToolRefusal(:final message) => _refuse(message, before),
+        };
+      } on Object catch (error) {
+        return _refuse(
+          'Appstein failed to write: $error. $_doctor If this keeps '
+          'happening, please report it.',
+          before,
+        );
+      }
+    }),
+  );
 
   void _tool(
     String name,

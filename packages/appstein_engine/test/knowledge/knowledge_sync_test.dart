@@ -843,10 +843,10 @@ void main() {
       await sync(packs: platformPacks).run(app, dartSdkPath: testDartSdk);
       final text = index(app);
       expect(utf8.encode(text).length, lessThanOrEqualTo(indexByteBudget));
-      // The server doesn't offer `memory_read` and `decisions` yet, so the
-      // pointers name the files (spec §6.3).
-      expect(text, contains(' more lines in `memory/current.md`.'));
-      expect(text, contains(' older decisions in `decisions/`.'));
+      // The server offers `memory_read` and `decisions`, so the pointers
+      // name them (spec §6.3).
+      expect(text, contains(' more lines; ask `memory_read()`.'));
+      expect(text, contains(' older decisions; ask `decisions()`.'));
       for (final tool in indexTools.difference(mcpToolNames.toSet())) {
         expect(text, isNot(contains('`$tool()`')), reason: tool);
       }

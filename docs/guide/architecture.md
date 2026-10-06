@@ -12,7 +12,7 @@ This is the overview. It shows the parts and how they connect, then points to th
 Appstein is currently:
 
 - a command line, `appstein`, with `--version` and three commands, `doctor`, `sync` and `mcp`;
-- an MCP server, `appstein mcp`, that answers an agent's questions from the knowledge, with seven read tools (see [mcp-server](mcp-server.md));
+- an MCP server, `appstein mcp`, that answers an agent's questions from the knowledge, with seven read tools, and reads and writes the project's decisions and memory with four more (see [mcp-server](mcp-server.md) and [decisions-and-memory](decisions-and-memory.md));
 - an engine behind it, which holds all the logic;
 - shared data models;
 - an analyzer plugin with one lint rule, `layer_imports`;
@@ -38,7 +38,7 @@ An arrow means "depends on". Read from each package's `pubspec.yaml`; dev depend
 
 <!-- /generated:package-graph -->
 
-- **protocol** holds data only: `SdkInfo`, `AppsteinConfig` (with one class per section of `appstein.yaml`), `LayerRules`, `Severity` and the `protocolVersion` constant. It imports nothing that touches the machine. See [`appstein_protocol.dart`](../../packages/appstein_protocol/lib/appstein_protocol.dart). Since slice 1b.2 it also defines the `.appstein/` file formats (`KnowledgeMeta`, `KnowledgeState`, `SdkInfo` with notes coverage, `CuratedNote`, `Toolchain`), so the CLI, the future MCP server and the UIs read one format (spec §4 principle 4). Since slice 1b.3 it also defines the **map formats** (`SymbolsMap`, `LayersMap`, `DepsMap`, `FeaturesMap`, `RoutesMap` and, since slice 1b.4, `NativeConfig`, in `src/map/`), and `LayerMatcher`, which both the `layer_imports` lint and the engine's `layers.json` use, so a file has the same layer tag in the editor and in the map. Slice 1c.1 added `DeltaKnowledge` (the format of `delta.json`) and `src/mcp/`: the MCP tools' input and result schemas, `FreshnessReport` and `withoutNulls`.
+- **protocol** holds data only: `SdkInfo`, `AppsteinConfig` (with one class per section of `appstein.yaml`), `LayerRules`, `Severity` and the `protocolVersion` constant. It imports nothing that touches the machine. See [`appstein_protocol.dart`](../../packages/appstein_protocol/lib/appstein_protocol.dart). Since slice 1b.2 it also defines the `.appstein/` file formats (`KnowledgeMeta`, `KnowledgeState`, `SdkInfo` with notes coverage, `CuratedNote`, `Toolchain`), so the CLI, the future MCP server and the UIs read one format (spec §4 principle 4). Since slice 1b.3 it also defines the **map formats** (`SymbolsMap`, `LayersMap`, `DepsMap`, `FeaturesMap`, `RoutesMap` and, since slice 1b.4, `NativeConfig`, in `src/map/`), and `LayerMatcher`, which both the `layer_imports` lint and the engine's `layers.json` use, so a file has the same layer tag in the editor and in the map. Slice 1c.1 added `DeltaKnowledge` (the format of `delta.json`) and `src/mcp/`: the MCP tools' input and result schemas, `FreshnessReport` and `withoutNulls`. Slice 1c.2 added `DecisionRecord` and `DecisionStatus` in `src/decisions/`, the shape of one decision record, and the schemas of the four decision and memory tools.
 - **engine** holds all behaviour. Environment variables and processes go through two small types in `packages/appstein_engine/lib/src/host/`:
   - `HostEnvironment` for environment variables, the PATH and the OS;
   - `ProcessRunner` for running tools.
@@ -102,7 +102,9 @@ The engine's core (everything outside the pack folders `lib/src/packs/official_m
 | `map/` | The project map: packages, analysis, symbols, layers, deps; the map's inputs and the analyzer cache | [project-map](project-map.md), [incremental-sync](incremental-sync.md) |
 | `native/` | Native config: the extractor seam and `NativeSync`, which writes `native.json` from the platform packs | [native-config](native-config.md) |
 | `delta/` | The version delta: `fix_data` migrations, the deprecations the imports expose, the Markdown | [version-delta](version-delta.md) |
-| `mcp/` | The MCP server: the tool list, the queue, the freshness step, and one pure query per tool | [mcp-server](mcp-server.md) |
+| `mcp/` | The MCP server: the tool list, the queue, the freshness step, and one function per tool | [mcp-server](mcp-server.md) |
+| `decisions/` | Decision records: the text of one file, and the store that reads the folder by the spec's rules and writes under the lock | [decisions-and-memory](decisions-and-memory.md) |
+| `memory/` | The memory files: where they are, and how a lesson line is appended | [decisions-and-memory](decisions-and-memory.md) |
 | `index/` | `INDEX.md`: what it reads from the project, and the renderer that keeps it within 1,500 tokens | [index-md](index-md.md) |
 | `skills/` | Package skills: running package:skills for the agents set up in the project when the dependencies change | [package-skills](package-skills.md) |
 | `packs/` | The `Pack` interface; `official_mvvm/`: its layer rules, features and routes; `android/` and `ios/`: the readers behind `native.json` | [project-map](project-map.md), [native-config](native-config.md) |
