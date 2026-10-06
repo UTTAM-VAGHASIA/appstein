@@ -534,4 +534,10 @@ final class _NewerPack implements Pack {
 
   @override
   List<DocPage> get docPages => _pack.docPages;
+
+  @override
+  List<VerifyCheck> get checks => _pack.checks;
+
+  @override
+  List<DecisionCheck> get decisionChecks => _pack.decisionChecks;
 }

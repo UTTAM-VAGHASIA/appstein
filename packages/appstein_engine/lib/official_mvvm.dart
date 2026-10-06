@@ -8,3 +8,4 @@ export 'src/packs/official_mvvm/docs/feature_pages.dart';
 export 'src/packs/official_mvvm/docs/routes_page.dart';
 export 'src/packs/official_mvvm/layer_rules.dart';
 export 'src/packs/official_mvvm/official_mvvm_pack.dart';
+export 'src/packs/official_mvvm/stack_provider_check.dart';

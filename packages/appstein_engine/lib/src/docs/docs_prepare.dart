@@ -80,21 +80,11 @@ DocsPrepared prepareDocs({
   required DecisionSet decisions,
 }) {
   final docsPath = config.docs.path;
-  for (final read in <KnowledgeRead<Object>>[
-    snapshot.sdk,
-    snapshot.features,
-    snapshot.symbols,
-    snapshot.routes,
-    snapshot.layers,
-    snapshot.deps,
-    snapshot.native,
-  ]) {
-    if (read.problem case final problem?) {
-      return DocsNotPrepared(
-        problem,
-        fixHint: 'Run `appstein sync` in the project to see why.',
-      );
-    }
+  if (snapshot.mapProblem case final problem?) {
+    return DocsNotPrepared(
+      problem,
+      fixHint: 'Run `appstein sync` in the project to see why.',
+    );
   }
 
   final folder = p.joinAll([projectRoot, ...docsPath.split('/')]);

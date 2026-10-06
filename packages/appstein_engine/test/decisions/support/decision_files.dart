@@ -11,6 +11,7 @@ String handDecision(
   String status = 'accepted',
   String? supersedes,
   List<String> paths = const [],
+  List<String> checks = const [],
   String why = 'because.',
   String eol = '\n',
 }) {
@@ -24,6 +25,7 @@ String handDecision(
         'date: 2026-10-01',
         if (supersedes != null) 'supersedes: $supersedes',
         if (paths.isNotEmpty) 'paths: [${paths.join(', ')}]',
+        if (checks.isNotEmpty) 'checks: [${checks.join(', ')}]',
         '---',
         'Why: $why',
         '',

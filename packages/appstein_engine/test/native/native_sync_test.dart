@@ -41,6 +41,12 @@ final class _Pack implements Pack {
 
   @override
   LayerRules? get layerRules => null;
+
+  @override
+  List<VerifyCheck> get checks => const [];
+
+  @override
+  List<DecisionCheck> get decisionChecks => const [];
 }
 
 void main() {

@@ -67,20 +67,9 @@ Future<VerifyResult> runVerify({
     var stale = refresh.problem;
     var staleFix = refresh.fixHint;
     if (stale == null) {
-      for (final read in <KnowledgeRead<Object>>[
-        knowledge.sdk,
-        knowledge.features,
-        knowledge.symbols,
-        knowledge.routes,
-        knowledge.layers,
-        knowledge.deps,
-        knowledge.native,
-      ]) {
-        if (read.problem case final problem?) {
-          stale = problem;
-          staleFix = 'Run `appstein sync` in the project to see why.';
-          break;
-        }
+      if (knowledge.mapProblem case final problem?) {
+        stale = problem;
+        staleFix = 'Run `appstein sync` in the project to see why.';
       }
     }
 

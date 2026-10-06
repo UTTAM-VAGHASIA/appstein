@@ -3,6 +3,8 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import '../docs/doc_page.dart';
 import '../map/map_extractor.dart';
 import '../native/native_extractor.dart';
+import '../verify/decision_check.dart';
+import '../verify/verify_check.dart';
 
 /// Whether a pack describes how an app is built (its architecture) or a
 /// platform it runs on (spec §10).
@@ -44,4 +46,10 @@ abstract interface class Pack {
   /// [version] is their template version too: a pack that changes a page's
   /// shape gets a new version.
   List<DocPage> get docPages;
+
+  /// The checks it adds to `appstein verify` (spec §9).
+  List<VerifyCheck> get checks;
+
+  /// The checks a decision record can name in `checks:` (spec §6.7).
+  List<DecisionCheck> get decisionChecks;
 }
