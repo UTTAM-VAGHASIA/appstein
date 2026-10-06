@@ -11,7 +11,7 @@ packages/appstein_protocol/lib/src/mcp/**
 
 The agent starts `appstein mcp` as a child process and talks to it over **stdio**: one JSON-RPC message per line on stdin, one on stdout. When the agent closes stdin, the server exits. Nothing but protocol messages may go to stdout, so startup problems go to stderr (see [cli](cli.md#appstein-mcp)).
 
-It serves eleven tools. Seven read the generated knowledge:
+It serves twelve tools. Seven read the generated knowledge:
 
 | Tool | Answers |
 |---|---|
@@ -32,7 +32,13 @@ Four read and write what people and agents record (see [decisions-and-memory](de
 | `memory_read` | Reads the task in progress and the lessons |
 | `memory_write` | Replaces the task in progress, adds a lesson, or finishes the task |
 
-The spec lists two more tools. `verify` and `package_check` come in slice 1d, because they need the verifier and the package gate that slice builds. This page covers only what exists.
+One runs the verifier:
+
+| Tool | Does |
+|---|---|
+| `verify` | Checks the project against its knowledge and returns the findings (see [`verify`](#verify) below and [verify](verify.md)) |
+
+The spec lists one more tool. `package_check` comes in slice 1d.4, with the package gate. This page covers only what exists.
 
 All the code is in the engine and the protocol package, so the CLI stays thin:
 
@@ -40,7 +46,8 @@ All the code is in the engine and the protocol package, so the CLI stays thin:
 |---|---|
 | [`appstein_mcp_server.dart`](../../packages/appstein_engine/lib/src/mcp/appstein_mcp_server.dart) | `AppsteinMcpServer`: each tool's registration, the queue, the freshness step and the reply |
 | [`tool_names.dart`](../../packages/appstein_engine/lib/src/mcp/tool_names.dart) | `mcpToolNames`: the names of the tools served, in order. `sync` reads it too, so [INDEX.md](index-md.md) names only these |
-| [`knowledge_snapshot.dart`](../../packages/appstein_engine/lib/src/mcp/knowledge_snapshot.dart) | `KnowledgeSnapshot`: reads the knowledge files a call needs. `appstein docs` reads through it too, which is why it also reads `sdk.json` and `deps.json`, files no tool asks for yet |
+| [`knowledge_snapshot.dart`](../../packages/appstein_engine/lib/src/mcp/knowledge_snapshot.dart) | `KnowledgeSnapshot`: reads the knowledge files a call needs. `appstein docs` and `appstein verify` read through it too, which is why it also reads `sdk.json` and `deps.json`, files no read tool asks for. `mapProblem` says why the project map can't be used (the first of its files that can't be read), the one test `docs` and `verify` share |
+| [`verify_tool.dart`](../../packages/appstein_engine/lib/src/mcp/verify_tool.dart) | `verifyAnswer`: a `VerifyResult` as the tool's reply, with its sentence |
 | [`tool_answer.dart`](../../packages/appstein_engine/lib/src/mcp/tool_answer.dart) | `ToolReply` and `ToolRefusal`, what a query returns |
 | `where_is.dart`, `feature_query.dart`, `route_query.dart`, `check_api.dart`, `what_changed.dart`, `toolchain_report.dart` (same folder) | One pure function per tool |
 | `decisions_query.dart`, `record_decision.dart`, `memory_tools.dart` (same folder) | The four decision and memory tools: the `decisions` query, the argument checks of `record_decision`, and `memory_read` and `memory_write` |
@@ -251,6 +258,18 @@ A decision file and `current.md` are inputs of `INDEX.md`. Without the second ch
 
 A refused write runs no second check and states the first freshness. Almost every refusal means nothing was written. The exception is finishing a task when `current.md` can't be deleted: the lesson was already saved, and the message says so.
 
+## `verify`
+
+Input: `scope`, `fast` or `full`. The reply is what `appstein verify --format json` prints: `findings`, `summary` (the counts), `suppressed` and `notRun`, plus `freshness`. What the checks are is in [verify](verify.md).
+
+`_verify` in the server differs from the other tools in three ways:
+
+- **The knowledge is refreshed once.** The freshness step every call runs is the refresh `verify` needs. The server hands its result to `runVerify` (`KnowledgeRefresh.fromFreshness`) and reuses the sync it built, so nothing is synced twice.
+- **Stale knowledge is a finding, not an error reply.** Another tool with no file to answer from returns an error. `verify` always has an answer: `knowledge.stale` as an error finding, the checks that could not run in `notRun`, and a `freshness` marked `stale`. An agent that asks "may I say done?" gets "no, and here is why".
+- **`summary` is the counts**, an object, where every other tool's is a sentence (see [below](#replies-for-claude-code)). The sentence (`Full verify: 1 error, 2 warnings, 0 info. Fix the error before the task is done.`) is in the reply's text.
+
+It reads `appstein.yaml` on every call, for `verify.severity` and `suppressions`. An invalid file is an error reply that names it, and so is a sync that can't be built: without packs there is no list of checks. A check that throws becomes the usual "Appstein failed to answer" error.
+
 ## Replies for Claude Code
 
 A reply holds the same result three times, because clients read it differently:
@@ -261,6 +280,8 @@ A reply holds the same result three times, because clients read it differently:
 
 **Why `summary` and `freshness` are inside the structured result.** Claude Code shows the model only `structuredContent` when a tool returns it, and drops the text blocks ([claude-code#55677](https://github.com/anthropics/claude-code/issues/55677)). A summary that lived only in the text would never reach the model. So every output schema is the tool's result schema plus `summary` and `freshness` (`toolOutputSchema`), and the server adds both to the result.
 
+**One exception: a result with a `summary` of its own keeps it.** `verify`'s result already has `summary`, the counts of errors, warnings and info, because spec §9.3 gives the tool the same JSON as `appstein verify --format json`. `toolOutputSchema` and the server leave it alone, so in Claude Code the model sees the counts and the findings, and not the sentence. The sentence adds nothing the counts and the tool's description don't say.
+
 **Why replies never hold null.** `withoutNulls` removes null values from maps and lists at every depth, so a missing value is an absent key. That keeps the schemas simple: none uses a type array such as `["string", "null"]`, which not every client's schema checker handles, and an optional field is just one that isn't `required`.
 
 ## Testing it
@@ -270,7 +291,8 @@ A reply holds the same result three times, because clients read it differently:
 | `packages/appstein_engine/test/mcp/where_is_test.dart`, `feature_query_test.dart`, `route_query_test.dart`, `check_api_test.dart`, `what_changed_test.dart`, `toolchain_report_test.dart` | Each query on its own, on the fixture app's golden map files (see [testing](testing.md#the-fixture-app-and-goldens)) and a sample delta |
 | `packages/appstein_engine/test/mcp/knowledge_snapshot_test.dart` | A missing, unreadable or damaged file gives a `problem` that names it |
 | `packages/appstein_engine/test/mcp/decisions_query_test.dart`, `record_decision_test.dart`, `memory_tools_test.dart` | The four decision and memory tools on real folders (see [decisions-and-memory](decisions-and-memory.md#testing-it)) |
-| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The server through an in-process client: the tool list and schemas, the first call syncing a new project, an edit picked up before the next answer, bad input, three calls at once answered in turn, a lock held by another process, a failing sync, a damaged file, an invalid `appstein.yaml`; a recorded decision and a task in progress showing in `INDEX.md` when the reply arrives |
+| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The server through an in-process client: the tool list and schemas, the first call syncing a new project, an edit picked up before the next answer, bad input, three calls at once answered in turn, a lock held by another process, a failing sync, a damaged file, an invalid `appstein.yaml`; a recorded decision and a task in progress showing in `INDEX.md` when the reply arrives; `verify` in both scopes, with a suppression from `appstein.yaml`, a bad `scope`, knowledge that can't be refreshed (a finding, and the sync built once) and an invalid `appstein.yaml` |
+| `packages/appstein_engine/test/mcp/verify_tool_test.dart` | `verifyAnswer`: the result matches the schema, and each form of the sentence |
 | `packages/appstein_engine/test/mcp/mcp_stdio_test.dart` | The real thing: a new process over real stdio, in a folder whose name has a space and an umlaut. Every tool answers, the decision and memory files it wrote are on disk, and stdout holds only protocol messages |
 | `packages/appstein_cli/test/mcp_command_test.dart` | The command: it serves until the client closes, writes nothing to its output sink, re-reads `appstein.yaml` on every call, exits 3 outside a project, and its sync factory turns package skills off and shares one held cache |
 | `tool/measure_sync.dart` | The speed target (below) |
