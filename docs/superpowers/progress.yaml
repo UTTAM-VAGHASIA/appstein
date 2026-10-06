@@ -145,12 +145,14 @@ milestones:
           - id: 1c.4
             title: Spec and code agree again
             summary: "`where_is` always shows the best feature, route and file; error replies state their freshness; `INDEX.md` names only the tools that exist; the spec text caught up with the code."
-            status: next
+            status: done
             plan: 2026-10-06-slice-1c4-spec-alignment.md
+            pr: 5
+            finished: 2026-10-06
           - id: 1c.2
             title: Decisions and memory
             summary: Knowledge layers 3–4 in the §6.7–6.8 formats, with the `decisions`, `record_decision`, `memory_read` and `memory_write` tools.
-            status: planned
+            status: next
           - id: 1c.3
             title: Human docs
             summary: The `docs/app/` renderer with the pack doc pages and `appstein docs [--check]`, byte-identical for unchanged knowledge.

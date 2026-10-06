@@ -119,6 +119,41 @@ The owner asked for a check of the whole project after 1c.1. All tests passed (1
 - [ ] All four suites, analyze, format, `dependency_validator` per package, the BOM scan.
 - [ ] Commit.
 
+## Notes from execution
+
+Built natively on `slice-1c4`, 2026-10-06, then one whole-branch review on Opus and one fix pass. PR #5.
+
+**Commits:** `4fc70f1` spec edits and this plan; `e2991b4` Tasks 1–5; `4253a45` the review's fixes.
+
+**Rulings:**
+- **One commit for Tasks 1–5**, not one per task: the tasks share guide pages, and each is a few lines. Cost if wrong: a coarser history.
+- **Spec §8, error replies:** one sentence was added to the approved wording. Arguments that don't fit a tool's input schema are refused by `package:dart_mcp` before the tool runs, so no sync happened and that reply has no freshness. Cost if wrong: one sentence of spec text.
+- **Spec §6.3, the tool rule** was applied to the "…and N more" pointers too, not only to the Rules section: they named `decisions()` and `memory_read()`, which aren't served either. They name the file instead (`decisions/`, `memory/current.md`, relative to `.appstein/` like INDEX.md's own links, not `.appstein/decisions/` as Task 3 says).
+- **`IndexInputs.tools` defaults to `indexTools`** (every tool INDEX.md can name), not to `mcpToolNames` as Task 3 says: the default is the finished product's text, which the existing tests pin, and `sync` always passes the served list. `KnowledgeSync.tools` defaults to `mcpToolNames`. Cost if wrong: a caller other than `sync` that omits `tools` names tools that don't exist; there is none.
+- **Task 3 was written code-first.** The existing sync test then failed on the new text, which shows the wiring is real, and the review confirmed the new index test fails when the fix is reverted.
+
+**What the review caught (fixed):**
+- **Important:** the served tool names weren't in INDEX.md's input hash. A project synced before a tool is added would keep an INDEX.md that names the old set through `sync --detect` and the MCP server's own check, until another input changed. That is the gap this slice set out to close, and it would have come back in 1c.2 and 1d. `KnowledgeSync.tools` is now hashed; a test proves an Appstein that serves another tool rewrites INDEX.md and nothing else.
+- **Minor:** the `what_changed` description, refusal and schema left out "changed"; spec §6.2's `state.json` sentence read as if the file had two fields; the guide's file table didn't list `tool_names.dart`; one assertion (`list` close to `ui`) could never fail.
+
+**Left as they are (minor):** the two `where_is` tests "listed once" and "fewer than ten" pass with the old code too; they guard the new code against listing a match twice.
+
+**Measured** with `tool/measure_sync.dart` (Windows, the compiled command, a new process each):
+
+| Measurement | 200 files | 1,000 files (info) |
+|---|---|---|
+| Full sync, no analyzer cache (under 30 s) | 7,843 ms | 10,130 ms |
+| `sync --detect`, nothing changed (under 2 s) | 156 ms | 468 ms |
+| `sync --detect` after a view model edit (under 2 s) | 1,576 ms | 3,580 ms |
+| `sync --detect` after a router edit (under 2 s) | 1,542 ms | 3,547 ms |
+| Each MCP tool (under 1 s) | about 85 ms | – |
+
+The tool exited by itself with code 0.
+
+**The check that started this slice** (2026-10-06, on `main` at `7a75acf`): 1,230 tests passed; a real `doctor`, `sync` (with a real `flutter pub get`), `sync --detect` and three MCP calls over stdio worked on a copy of the fixture app; three audits compared the code with spec §5–§8, §12, §15 and the principles. Clean: no credentials, telemetry or network code of our own, no store policies, no agent launching, the package directions, the brand rule.
+
+**Watch in CI:** the router row is now held to 2 s. Windows CI ran the view model edit at about 1.6 s; the router edit is a few percent slower.
+
 ## Carried to later slices
 
 - **1d:** move the platform and stack knowledge out of `mcp/toolchain_report.dart`, `mcp/feature_query.dart`, `mcp/route_query.dart` and `index/` into the packs (principle 3). Remove `IndexInputs.tools`' fallbacks as each tool arrives.
