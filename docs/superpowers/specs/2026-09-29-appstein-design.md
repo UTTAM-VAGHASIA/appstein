@@ -192,7 +192,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 |---|---|
 | `appstein create <name>` | New project with the right structure, tokens and native config, plus knowledge and agent setup; must pass `verify` (§13.1) |
 | `appstein sync [--detect]` | Regenerate knowledge. A plain `sync` rebuilds everything; `--detect` compares content hashes with `state.json` and rebuilds only when an input changed (§5.4) |
-| `appstein verify [--fast\|--full] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks; exit codes in §9.5 |
+| `appstein verify [--fast\|--full] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks (§9); with neither `--fast` nor `--full`, it runs the full checks. Exit codes in §9.5 |
 | `appstein mcp` | Start the MCP server over stdio (launched by agents) |
 | `appstein docs [--check]` | Bring the knowledge up to date, then render the human docs into `docs/app/` (§6.9); `--check` writes no page and exits 1 if any page is stale |
 | `appstein upgrade [--dry-run]` | Apply versioned migrations after an SDK or Appstein upgrade (§13.2) |
@@ -402,10 +402,12 @@ The title, reason, paths and checks of an existing decision are never rewritten:
 
 The verifier checks every accepted decision that lists `checks`. In M1 the built-in decision checks are:
 
-- `stack.provider`: the detected state management matches.
-- `paths.exist`: listed paths still match files.
+- `stack.provider` (from the `official_mvvm` pack): `provider` is a direct dependency, and no file under `lib/` imports another state-management package. The pack owns the list of those packages. The finding names the files that import one. It doesn't judge how the view models are written.
+- `paths.exist` (from the engine): every listed path or glob still matches at least one file. The finding lists the ones that match nothing. A pattern that could leave the project is reported and never expanded.
 
-A mismatch is reported as a `decision.drift` warning.
+A mismatch is reported as a `decision.drift` warning on the decision's file. So is a check that no pack of the project provides, such as `stack.provider` in a project on another stack.
+
+The verifier also reports what the reading rules above call for: a file whose front matter can't be read is a `decision.unreadable` warning, and two files with one number are a `decision.duplicate` warning.
 
 ### 6.8 Memory format
 
@@ -413,7 +415,7 @@ A mismatch is reported as a `decision.drift` warning.
 - **`memory/lessons.md`**: dated one-line lessons, one list item each, e.g. `- 2026-10-03: plugin X needs minSdk 26`. `memory_write` with `kind: lesson` appends one with today's date; line breaks in the text become spaces. Lines already in the file are never changed, and a lesson the file already holds isn't added twice.
 - **Finishing a task:** `memory_write` with `kind: complete` takes the agent's one-paragraph summary of the task as its text, appends it to `lessons.md` as a lesson and deletes `current.md`. Appstein doesn't write the summary itself. Without a text, or with no task in progress, the call is refused and `current.md` is left alone.
 - **Both files are committed**, so secrets never belong in them. The tools say so; Appstein can't detect a secret reliably and doesn't claim to.
-- **Size limits:** `lessons.md` over 200 lines produces an info finding suggesting consolidation. Nothing is deleted automatically.
+- **Size limits:** `lessons.md` over 200 lines produces an info finding (`memory.lessons_long`, a full check) suggesting consolidation. Nothing is deleted automatically.
 
 ### 6.9 Human documentation (`docs/app/`)
 
@@ -542,7 +544,7 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 | `record_decision` | `{title, why, status?, paths?, checks?, supersedes?}` to add or replace; `{accept}` with a decision's number to accept | The decision as written and its file; for a replacement, also the decision it superseded (§6.7) |
 | `memory_read` | – | The text of `memory/current.md`, or that no task is in progress, and the newest 50 lessons with a count of the older ones in `memory/lessons.md` |
 | `memory_write` | `{kind, text}`; `kind` is `current`, `lesson` or `complete` | What was written and to which file (§6.8) |
-| `verify` | scope (`fast`, `full`, or file list) | Findings (§9.3) |
+| `verify` | `scope`: `fast` or `full` (a file list joins in slice 1d.2) | What `appstein verify --format json` prints (§9.3): the findings, their counts, the number suppressed and the checks that did not run. The server's own freshness check is the one verify uses, so the knowledge is refreshed once |
 
 **`where_is` ranking** is deterministic, with no embeddings:
 
@@ -566,6 +568,17 @@ The Dart MCP server (`dart mcp-server`) runs **next to** ours. It provides the a
 ---
 
 ## 9. Verifier
+
+**How `verify` runs.** A check has stable IDs, a mode (fast, or full only) and returns findings (§9.3). The engine contributes the checks that hold for every project, and each pack contributes its own (§10), so stack and platform knowledge stays in its pack. `appstein verify` and the `verify` MCP tool run the same code:
+
+1. **Knowledge first.** It brings the knowledge up to date, as `sync --detect` does.
+2. **When that can't be done** (the code doesn't resolve, `pub get` fails, another process holds the lock, a knowledge file can't be read), it reports `knowledge.stale` as an **error** with the reason and the fix. The checks that read the project map are not run, and the output names each of them, so nothing is judged against old knowledge and nothing is skipped silently. The checks that don't need the map still run.
+3. **One reading.** Holding the knowledge lock, it reads the knowledge once and hands that reading to every check of the chosen mode.
+4. **Overrides, then suppressions.** It applies the `verify.severity` overrides from `appstein.yaml` (§7), then the suppressions (§9.7).
+
+A check that throws is Appstein failing (exit `3`, §9.5), and the message names the check.
+
+**Built in slices.** Slice 1d.1 builds this frame with the checks that only read files Appstein already has: `knowledge.stale`, `docs.stale`, the decision checks (§6.7), `memory.lessons_long` (§6.8) and `verify.test_required`. Slice 1d.2 adds the analyze, fix, format and test checks, warm analysis, `--files`, `--hook` and the Dart suppression comments. Slice 1d.3 adds the lint rules (§9.6), 1d.4 the package gate (§9.4), 1d.5 the Android checks and 1d.6 the iOS checks.
 
 ### 9.1 Fast checks (after every change, changed files only, target < 5 s)
 
@@ -591,9 +604,10 @@ The measurements are recorded in the 1a plan.
 **Code checks**
 - first apply `dart fix --apply` and `dart format` (safe at Stop), then all fast checks on the whole project
 - `flutter test`, including accessibility guideline tests (`meetsGuideline`: `androidTapTargetGuideline`, `iOSTapTargetGuideline`, `labeledTapTargetGuideline`, `textContrastGuideline`)
-- `verify.test_required` (warning): every feature folder has at least one test file
+- `verify.test_required` (warning): every feature in `features.json` has at least one test file. The finding is on the feature's folder
 - decisions ↔ code consistency (§6.7)
-- `docs.stale` (warning): the human docs match the current knowledge and haven't been hand-edited (§6.9). Skipped when `docs.enabled` is `false`
+- `memory.lessons_long` (info, §6.8)
+- `docs.stale` (warning): the human docs match the current knowledge and haven't been hand-edited (§6.9). It renders every page as `appstein docs --check` does, with the same code, and reports one finding per page that differs, with the reason: missing, behind, edited by hand, in a merge conflict, no longer rendered, or a person's file in the way. It never writes a page. Skipped when `docs.enabled` is `false`
 
 **Android (platform pack)**
 - **Toolchain:** the Gradle wrapper, AGP, KGP (when used), JDK and NDK fall inside `toolchain.json`. A version newer than Flutter's "max known" (e.g. AGP 9.4 today) is an error.
@@ -646,7 +660,9 @@ The measurements are recorded in the 1a plan.
 
 - **Severities:** `error` blocks "done"; `warning` is reported only; `info` is advisory.
 - **Check IDs** follow `<pack or area>.<check>` and are stable once released.
-- **Text output** groups findings by file, errors first, and ends with a one-line summary.
+- **Text output** groups findings by file, errors first, then lists the checks that did not run with the reason, and ends with a one-line summary: the number of errors, warnings and info findings, and the number of active suppressions.
+- **JSON output** (`--format json`, and the `verify` tool) is one object: `findings` (each in the shape above), `summary` (`errors`, `warnings`, `info`), `suppressed` (a count) and `notRun` (each check's ID and the reason).
+- A finding with no file, such as `knowledge.stale`, is listed first, under the project.
 
 ### 9.4 Package gate
 
@@ -703,8 +719,11 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 Professionals need an escape hatch that stays visible:
 
 - **Dart code:** `// appstein:ignore <check-id> — <reason>` on the line, or `// appstein:ignore-file <check-id> — <reason>`. Lint rules also honour the analyzer's standard `// ignore:` comments.
-- **Native and other files:** a `suppressions:` list in `appstein.yaml` with `id`, `path` and `reason`.
-- **A reason is mandatory.** A suppression without a reason is itself an error.
+- **Native and other files:** a `suppressions:` list in `appstein.yaml` with `id`, `path` and `reason`. `path` is a file or a glob from the project root; the entry hides the findings of that check on the files it matches.
+- **A reason is mandatory.** A suppression without a reason is itself an error (`suppression.no_reason`), and it hides nothing.
+- **A check ID must exist.** An `id` that no check of the project has is an error (`suppression.unknown_check`), so a typo never looks like a working suppression.
+- **A suppression that hides nothing** is a warning (`suppression.unused`) naming its line in `appstein.yaml`, so a line left behind can't hide the same finding when it comes back. It is reported only by the full checks, where every check ran.
+- **What can't be suppressed:** the three `suppression.*` findings and `knowledge.stale`.
 - `verify` prints a count of active suppressions, so they never disappear silently.
 
 ---
@@ -718,7 +737,8 @@ abstract interface class Pack {
   String get version;                     // pack version, for migrations
   List<Extractor> get extractors;         // contribute to layer 2 (and platform facts)
   NativeExtractor? get nativeExtractor;   // platform packs: map/native.json (§6.5)
-  List<Check> get checks;                 // contribute to verify
+  List<VerifyCheck> get checks;           // contribute to verify (§9)
+  List<DecisionCheck> get decisionChecks; // checks a decision can name (§6.7)
   LayerRules? get layerRules;             // tag rules for layer_imports (stack packs)
   List<SkillSource> get skills;           // pack-specific skills/references
   ProjectTemplate? get template;          // used by `create`
@@ -728,7 +748,7 @@ abstract interface class Pack {
 ```
 
 - **M1 packs:** `official_mvvm` (stack), `android` and `ios` (platform).
-- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`. Slice 1b.4 adds `nativeExtractor`. Slice 1c.3 adds `docPages`.
+- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`. Slice 1b.4 adds `nativeExtractor`. Slice 1c.3 adds `docPages`. Slice 1d.1 adds `checks` and `decisionChecks`.
 - **Later packs:** `riverpod` and `bloc` (M3, together with support for existing projects), then `web`, `windows`, `macos` and `linux` (M4+). **The final goal is every platform Flutter supports.**
 - **Community packs** defined in code (inspired by Twenty's `defineObject`) and a pack scaffold: M3+.
 - **A pack must never read another pack's data directly.** Shared facts (e.g. the resolved plugin graph) are provided by the engine through the protocol.
@@ -938,7 +958,7 @@ The benchmark lives in `benchmark/`.
 | **1a** | Workspace with 4 packages; `appstein` CLI skeleton; `--version`; `config/` + `appstein.yaml`; `sdk/` detection (incl. FVM, language version); `doctor`; CI for our repo; boundary lint on our own repo; AOT build; developer guide skeleton + `public_member_api_docs` + `dart doc` in CI (§19.6) | `doctor` correct on Windows, macOS and Linux CI; CI green; minimum supported Flutter version confirmed; guide "start here" page lets someone build and run the CLI from source |
 | **1b** | Knowledge layers 1–2 (sdk, delta + curated notes for 3.44–3.47, toolchain, map via `official_mvvm` + platform extractors, incl. doc-comment summaries in `symbols.json`), INDEX.md, `sync` (full + incremental), staleness metadata, lock file, package skills refresh | Golden tests pass on fixtures; INDEX ≤ 1,500 tokens; performance targets (§15) met for sync |
 | **1c** | MCP server with the §8 tools except `verify` and `package_check`, which 1d builds with their engines; layers 3–4 read/write with formats from §6.7–6.8; human docs renderer + `appstein docs` + pack doc pages (§6.9) | Each tool tested; works from Claude Code on a fixture; golden tests for every doc page; re-rendering unchanged knowledge changes no bytes |
-| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes, the `verify` and `package_check` MCP tools | Every check has a passing and a failing fixture; fast verify < 5 s; both tools tested |
+| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes, the `verify` and `package_check` MCP tools | Every check has a passing and a failing fixture; fast verify < 5 s; both tools tested. Built as six slices, 1d.1–1d.6 (§9): the verify frame first, then code checks and fast verify, lint rules, the package gate, Android, iOS |
 | **1e** | `create` (incl. CI template and first human docs), `integrate` (Claude Code, Codex, `--remove`, one-Dart-MCP rule, hooks incl. SessionStart, Bash detection, the loop guard and docs rendering at Stop), verification of every "to verify in 1e" item | `create`→`verify --full` green on Linux + macOS CI; integration works end-to-end in both agents; every "to verify" item resolved and the spec updated |
 | **1f** | `upgrade` framework + 3.47 migration; all lifecycle skills + skills CI + smoke-test procedure; benchmark runner and first published run | Skills CI green on current stable and minimum SDK; the 3.47 migration tested on the legacy fixture; benchmark published |
 

@@ -176,7 +176,34 @@ milestones:
       - id: 1d
         title: Verifier
         summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale`, suppressions, and the `verify` and `package_check` MCP tools.
-        status: next
+        # 1d was split in six (owner decision, 2026-10-06): the frame every
+        # check plugs into first, then the checks in the order they depend
+        # on each other.
+        slices:
+          - id: 1d.1
+            title: Verify core
+            summary: "`appstein verify` with the check interface, findings output, exit codes, suppressions and the `verify` MCP tool, plus the checks that only read files Appstein already has: `knowledge.stale`, `docs.stale`, the decision checks and `verify.test_required`."
+            status: next
+          - id: 1d.2
+            title: Code checks and fast verify
+            summary: Analyze, fix, format and test checks, warm analysis inside the MCP process, the hook exit code, and fast verify measured against 5 s.
+            status: planned
+          - id: 1d.3
+            title: Lint rules
+            summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.
+            status: planned
+          - id: 1d.4
+            title: Package gate
+            summary: pub.dev and advisory checks with offline behavior, pub-cache inspection, the `package_check` MCP tool and the verdict in `dependencies.md`.
+            status: planned
+          - id: 1d.5
+            title: Android checks
+            summary: Toolchain, built-in Kotlin, required values, 16 KB page size, secrets, static release readiness, the cheap gates and the debug build; the Android knowledge in the `toolchain` tool moves into the Android pack.
+            status: planned
+          - id: 1d.6
+            title: iOS checks
+            summary: Deployment target, SwiftPM, UIScene, privacy, usage descriptions with the permission-to-plugin map, and static release readiness; the iOS knowledge in the `toolchain` tool moves into the iOS pack.
+            status: planned
       - id: 1e
         title: create + integrate
         summary: "`appstein create` with its CI template and first human docs, and `integrate` for Claude Code and Codex with hooks."
