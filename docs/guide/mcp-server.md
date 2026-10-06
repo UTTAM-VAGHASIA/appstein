@@ -29,7 +29,8 @@ All the code is in the engine and the protocol package, so the CLI stays thin:
 
 | Where | What it holds |
 |---|---|
-| [`appstein_mcp_server.dart`](../../packages/appstein_engine/lib/src/mcp/appstein_mcp_server.dart) | `AppsteinMcpServer`: the tool list, the queue, the freshness step and the reply |
+| [`appstein_mcp_server.dart`](../../packages/appstein_engine/lib/src/mcp/appstein_mcp_server.dart) | `AppsteinMcpServer`: each tool's registration, the queue, the freshness step and the reply |
+| [`tool_names.dart`](../../packages/appstein_engine/lib/src/mcp/tool_names.dart) | `mcpToolNames`: the names of the tools served, in order. `sync` reads it too, so [INDEX.md](index-md.md) names only these |
 | [`knowledge_snapshot.dart`](../../packages/appstein_engine/lib/src/mcp/knowledge_snapshot.dart) | `KnowledgeSnapshot`: reads the knowledge files a call needs |
 | [`tool_answer.dart`](../../packages/appstein_engine/lib/src/mcp/tool_answer.dart) | `ToolReply` and `ToolRefusal`, what a query returns |
 | `where_is.dart`, `feature_query.dart`, `route_query.dart`, `check_api.dart`, `what_changed.dart`, `toolchain_report.dart` (same folder) | One pure function per tool |

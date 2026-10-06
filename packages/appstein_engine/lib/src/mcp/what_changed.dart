@@ -78,7 +78,8 @@ ToolAnswer whatChanged(DeltaKnowledge delta, {String? since, String? library}) {
     }
     if (!counts.containsKey(wanted)) {
       return ToolRefusal(
-        'No library "$wanted" has deprecated, removed or moved APIs in the '
+        'No library "$wanted" has deprecated, removed, changed or moved APIs in '
+        'the '
         'delta. Libraries that do: ${names.join(', ')}.',
       );
     }

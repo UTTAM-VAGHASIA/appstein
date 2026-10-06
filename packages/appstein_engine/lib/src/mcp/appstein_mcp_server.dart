@@ -147,7 +147,8 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     _tool(
       'what_changed',
       'The curated notes about what changed in Flutter and Dart, and how '
-          'many deprecated, removed and moved APIs each library has. '
+          'many deprecated, removed, changed and moved APIs each library '
+          'has. '
           '`since` (a Flutter version such as `3.27`) narrows the notes; '
           "`library` (such as `package:go_router`) lists that library's "
           'APIs.',

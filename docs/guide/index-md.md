@@ -12,7 +12,7 @@ It names MCP tools, but **only the ones this Appstein offers** (spec §6.3). An 
 - the dependency rule says "a well-maintained package" where it will say "a package that passes `package_check()`";
 - the pointers for hidden decisions and current work name the file (`decisions/`, `memory/current.md`).
 
-Adding a name to `mcpToolNames` is all it takes for INDEX.md to name the tool.
+Adding a name to `mcpToolNames` is all it takes for INDEX.md to name the tool: the names are part of INDEX.md's input hash (below), so the next sync rewrites it.
 
 ## What it holds
 
@@ -95,6 +95,7 @@ INDEX.md's input hash covers:
 - each decision file's bytes, by name (an unreadable one is hashed as `unreadable:` and its reason);
 - `memory/current.md`'s bytes;
 - the packs' ids and versions;
+- the names of the MCP tools served, so an Appstein that serves another tool rewrites INDEX.md on the next sync or `--detect`, even when no project file changed;
 - the Appstein and format versions.
 
 The hash is stored in INDEX.md's front matter, so any change to an input rewrites the file, even when no visible line changes: any Dart edit (through the map's hash), a decision's body, or a `pubspec.yaml` change that keeps the name. Syncing again with nothing changed writes no byte, `generatedAt` included. A hand-edited or damaged INDEX.md is put back, like every generated file (see [knowledge-store](knowledge-store.md#three-rules-every-generated-file-follows)).

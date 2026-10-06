@@ -71,6 +71,31 @@ void main() {
     expect(again.files.values, everyElement(isFalse));
   }
 
+  test('an Appstein that serves another tool rewrites INDEX.md, and only '
+      'INDEX.md, though no project file changed', () async {
+    await full();
+    await detect();
+    String index() => fileOf('.appstein/INDEX.md').readAsStringSync();
+    expect(index(), isNot(contains('`verify()`')));
+    final report = await knowledgeSync(
+      flutterRoot: sdk,
+      runner: runner,
+      tools: [...mcpToolNames, 'verify'],
+    ).detect(app, dartSdkPath: testDartSdk);
+    expect(report.current, isFalse);
+    expect(
+      index(),
+      contains('- Run `verify()` before you say a task is done.'),
+    );
+    expect(
+      [
+        for (final MapEntry(key: path, value: written) in report.files.entries)
+          if (written) path,
+      ],
+      ['INDEX.md'],
+    );
+  });
+
   group('nothing changed', () {
     test(
       'detect writes no byte, and leaves every modified time alone',

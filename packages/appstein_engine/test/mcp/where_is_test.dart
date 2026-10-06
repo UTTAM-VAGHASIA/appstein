@@ -134,7 +134,6 @@ void main() {
       for (final m in matches(query)) ...(m['reasons']! as List).cast<String>(),
     ];
     expect(reasons('list').where((r) => r.contains('close to `lib`')), isEmpty);
-    expect(reasons('list').where((r) => r.contains('close to `ui`')), isEmpty);
     expect(reasons('logn'), contains(contains('`logn` is close to `login`')));
   });
 

@@ -38,7 +38,9 @@ KnowledgeSync knowledgeSync({
   Duration lockTimeout = const Duration(seconds: 10),
   bool packageSkills = true,
   HeldAnalyzerCache? heldCache,
+  List<String> tools = mcpToolNames,
 }) => KnowledgeSync(
+  tools: tools,
   environment: fakeEnvironment({'FLUTTER_ROOT': flutterRoot}),
   appsteinVersion: appsteinVersion,
   packs: packs,
