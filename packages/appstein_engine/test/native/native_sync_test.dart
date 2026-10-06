@@ -28,6 +28,9 @@ final class _Pack implements Pack {
   final NativeExtractor? nativeExtractor;
 
   @override
+  List<DocPage> get docPages => const [];
+
+  @override
   PackKind get kind => PackKind.platform;
 
   @override

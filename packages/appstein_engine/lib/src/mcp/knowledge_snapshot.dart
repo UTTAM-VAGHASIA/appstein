@@ -51,6 +51,18 @@ final class KnowledgeSnapshot {
     );
   });
 
+  /// `platform/sdk.json`.
+  late final KnowledgeRead<SdkInfo> sdk = _json(
+    'platform/sdk.json',
+    SdkInfo.fromJson,
+  );
+
+  /// `map/deps.json`.
+  late final KnowledgeRead<DepsMap> deps = _json(
+    MapFiles.deps,
+    DepsMap.fromJson,
+  );
+
   /// `platform/toolchain.json`.
   late final KnowledgeRead<Toolchain> toolchain = _json(
     'platform/toolchain.json',

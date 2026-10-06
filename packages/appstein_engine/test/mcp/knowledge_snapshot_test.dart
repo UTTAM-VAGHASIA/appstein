@@ -28,6 +28,44 @@ void main() {
     expect(index.generatedAt, '2026-10-01T09:00:00Z');
   });
 
+  test('reads sdk.json and deps.json', () {
+    write(
+      'platform/sdk.json',
+      '{"flutter": "3.47.5", "dart": "3.13.4", "channel": "stable", '
+          '"languageVersion": "3.12", "fvm": null}',
+    );
+    write(
+      'map/deps.json',
+      '{"packages": {"go_router": {"constraint": "^18.0.0", "version": '
+          '"18.1.0", "dependency": "direct main", "source": "hosted", '
+          '"usages": ["lib/routing/router.dart"]}}}',
+    );
+    final snapshot = KnowledgeSnapshot(root);
+    expect(snapshot.sdk.value!.flutterVersion, '3.47.5');
+    expect(snapshot.deps.value!.packages['go_router']!.version, '18.1.0');
+  });
+
+  test('a missing or damaged sdk.json or deps.json is a problem', () {
+    expect(
+      KnowledgeSnapshot(root).sdk.problem,
+      '`.appstein/platform/sdk.json` is missing',
+    );
+    expect(
+      KnowledgeSnapshot(root).deps.problem,
+      '`.appstein/map/deps.json` is missing',
+    );
+    write('platform/sdk.json', '{"flutter": 3}');
+    write('map/deps.json', '[]');
+    expect(
+      KnowledgeSnapshot(root).sdk.problem,
+      startsWith('`.appstein/platform/sdk.json` is damaged ('),
+    );
+    expect(
+      KnowledgeSnapshot(root).deps.problem,
+      startsWith('`.appstein/map/deps.json` is damaged ('),
+    );
+  });
+
   test('a missing file is a problem that names it', () {
     final read = KnowledgeSnapshot(root).features;
     expect(read.value, isNull);

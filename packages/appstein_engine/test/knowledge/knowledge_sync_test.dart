@@ -46,6 +46,9 @@ final class _BrokenPack implements Pack {
 
   @override
   NativeExtractor get nativeExtractor => const _BrokenExtractor();
+
+  @override
+  List<DocPage> get docPages => const [];
 }
 
 void main() {

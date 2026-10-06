@@ -531,4 +531,7 @@ final class _NewerPack implements Pack {
 
   @override
   NativeExtractor? get nativeExtractor => _pack.nativeExtractor;
+
+  @override
+  List<DocPage> get docPages => _pack.docPages;
 }

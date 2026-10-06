@@ -1,5 +1,6 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
+import '../../docs/doc_page.dart';
 import '../../map/map_extractor.dart';
 import '../../native/native_extractor.dart';
 import '../pack.dart';
@@ -28,6 +29,9 @@ final class AndroidPack implements Pack {
 
   @override
   NativeExtractor get nativeExtractor => const AndroidNativeExtractor();
+
+  @override
+  List<DocPage> get docPages => const [];
 }
 
 /// Writes the `android` section of `map/native.json`.
