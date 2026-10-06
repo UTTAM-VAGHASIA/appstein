@@ -19,7 +19,13 @@ import 'package:path/path.dart' as p;
 ///   then with nothing to write, and `docs --check`, each under 2 s (the
 ///   last two as the median of three). It also checks what the real command
 ///   does: the pages are written, a second run changes nothing, and
-///   `--check` after a hand edit exits 1, names the page and writes nothing.
+///   `--check` after a hand edit exits 1, names the page and writes nothing;
+/// - `appstein verify --fast` on that app, from fresh knowledge: under 5 s
+///   (spec §9.1), as the median of three. The full `appstein verify` is
+///   timed the same way and printed, with no target (the spec sets none).
+///   It also checks what the real command does: both exit 0 with warnings
+///   only, and `--format json` reports the page edited by hand as the one
+///   `docs.stale` finding.
 ///
 /// The same rows are measured for a 1,000-file app. Their times are printed
 /// for information only and never held to a target (owner decision, slice
@@ -262,6 +268,57 @@ Future<void> main(List<String> args) async {
       }
 
       if (held) {
+        // The knowledge is still fresh, and `routes.md` is edited by hand:
+        // these measure spec §9.1's "fast verify under 5 s" and record the
+        // full run, and check what the real command prints. Warnings alone
+        // (a feature without a test, the edited page) exit 0.
+        Future<_Run> verify([List<String> flags = const []]) =>
+            _run(exe, app, flutterRoot, flags, command: 'verify');
+        for (final (row, flags, ending) in const [
+          (
+            'verifyFast',
+            ['--fast'],
+            '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
+          ),
+          ('verifyFull', <String>[], ' info. No findings suppressed.\n'),
+        ]) {
+          final three = <_Run>[];
+          for (var i = 0; i < 3; i++) {
+            final run = await verify(flags);
+            if (run.exitCode != 0 || !run.stdout.endsWith(ending)) {
+              stderr.writeln(
+                'appstein verify ${flags.join(' ')}: exit code '
+                '${run.exitCode}, expected 0 and output ending "$ending":\n'
+                '${run.stdout}${run.stderr}',
+              );
+              exitCode = 1;
+              return;
+            }
+            three.add(run);
+          }
+          record(row, three);
+        }
+        final json = await verify(const ['--format', 'json']);
+        final stalePages = json.exitCode != 0
+            ? null
+            : [
+                for (final finding
+                    in (jsonDecode(json.stdout) as Map)['findings'] as List)
+                  if ((finding as Map)['id'] == 'docs.stale') finding['file'],
+              ];
+        if (stalePages?.join(',') != 'docs/app/routes.md') {
+          stderr.writeln(
+            'appstein verify --format json after a hand edit of routes.md: '
+            'exit code ${json.exitCode}, and docs.stale on $stalePages; '
+            'expected exit code 0 and only docs/app/routes.md:\n'
+            '${json.stderr}',
+          );
+          exitCode = 1;
+          return;
+        }
+      }
+
+      if (held) {
         String took(String row) => '${times[row]!.inMilliseconds} ms';
         missed = [
           for (final (row, what) in const [
@@ -272,6 +329,9 @@ Future<void> main(List<String> args) async {
               '$what took ${took(row)}, the median of three (under 2 s)',
           if (times['docsFirst']! >= const Duration(seconds: 2))
             'the first appstein docs took ${took('docsFirst')} (under 2 s)',
+          if (times['verifyFast']! >= const Duration(seconds: 5))
+            'appstein verify --fast took ${took('verifyFast')}, the median '
+                'of three (under 5 s)',
           if (full.elapsed >= const Duration(seconds: 30))
             'a full sync took ${full.elapsed.inMilliseconds} ms (under 30 s)',
           if (times['unchanged']! >= const Duration(seconds: 2))
@@ -291,7 +351,7 @@ Future<void> main(List<String> args) async {
       }
     }
     String cell(int files, String row) {
-      // The docs rows are measured on the 200-file app only.
+      // The docs and verify rows are measured on the 200-file app only.
       if (!columns[files]!.containsKey(row)) return 'not measured';
       final median = '${columns[files]![row]!.inMilliseconds} ms';
       final three = spreads[files]![row];
@@ -313,6 +373,8 @@ ${line('**`sync --detect` after editing the router**, median of 3 (target under 
 ${line('**`docs`, writing every page** (target under 2 s)', 'docsFirst')}
 ${line('**`docs`, nothing to write**, median of 3 (target under 2 s)', 'docs')}
 ${line('**`docs --check`**, median of 3 (target under 2 s)', 'docsCheck')}
+${line('**`verify --fast`**, median of 3 (target under 5 s)', 'verifyFast')}
+${line('`verify` (full), median of 3 (no target)', 'verifyFull')}
 ''');
     stdout.writeln(_breakdown(broken));
     stdout.writeln('''
