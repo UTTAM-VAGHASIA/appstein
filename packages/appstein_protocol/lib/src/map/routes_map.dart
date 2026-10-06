@@ -10,6 +10,7 @@ final class MapRoute {
     this.screen,
     this.parent,
     this.redirect = false,
+    this.redirectTo,
     required this.file,
     required this.line,
     this.unresolved = false,
@@ -24,6 +25,8 @@ final class MapRoute {
       screen: screen == null ? null : CodeRef.read(screen),
       parent: fields.optionalString('parent'),
       redirect: fields.boolean('redirect'),
+      // Absent in a map written before slice 1c.5.
+      redirectTo: fields.optionalString('redirectTo'),
       file: fields.string('file'),
       line: fields.integer('line'),
       unresolved: fields.boolean('unresolved'),
@@ -48,6 +51,11 @@ final class MapRoute {
   /// Whether the route has its own `redirect:`.
   final bool redirect;
 
+  /// The path the route redirects to, when its `redirect:` is a function
+  /// that only returns one constant path; null for any other redirect (a
+  /// condition, a computed path), which is never guessed (spec §6.5).
+  final String? redirectTo;
+
   /// The file that declares the route.
   final String file;
 
@@ -67,6 +75,7 @@ final class MapRoute {
     'screen': screen?.toJson(),
     'parent': parent,
     'redirect': redirect,
+    'redirectTo': redirectTo,
     'file': file,
     'line': line,
     'unresolved': unresolved,

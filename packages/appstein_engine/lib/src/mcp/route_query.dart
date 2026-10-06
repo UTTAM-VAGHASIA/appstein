@@ -9,8 +9,13 @@ import 'tool_answer.dart';
 /// with a query or fragment, which are ignored. An exact path wins;
 /// otherwise a concrete path matches a pattern (`/booking/42` matches
 /// `/booking/:id`). Routes whose path couldn't be resolved are never
-/// matched. The map records that a route or its router redirects, not
-/// where to, and the reply says so.
+/// matched.
+///
+/// A redirect is never left as a bare "it redirects": an agent stops
+/// looking when the map answers. When the map knows where a route
+/// redirects to, the reply gives that path with its screen and feature;
+/// when it doesn't, and for a router's own redirect, the reply names the
+/// file and line to read.
 ToolAnswer routeInfo(
   String path, {
   required RoutesMap routes,
@@ -61,6 +66,25 @@ ToolAnswer routeInfo(
   String? featureOfScreen(CodeRef? screen) =>
       screen == null ? null : features.featureOf(screen.file);
 
+  // Where a route redirects to, with the screen and feature of the route at
+  // that path when there is one.
+  Map<String, Object?>? redirectsTo(MapRoute route) {
+    final to = route.redirectTo;
+    if (to == null) return null;
+    final target = known.where((r) => r.path == to).firstOrNull;
+    return {
+      'path': to,
+      'screen': ?target?.screen?.toJson(),
+      'feature': ?featureOfScreen(target?.screen),
+    };
+  }
+
+  String? redirectHint(MapRoute route) =>
+      route.redirect && route.redirectTo == null
+      ? 'The map does not know where this route redirects to: read '
+            '${route.file}:${route.line}.'
+      : null;
+
   Map<String, Object?> describe(MapRoute route) {
     final children = [
       for (final child in routes.routes)
@@ -75,6 +99,8 @@ ToolAnswer routeInfo(
       'children': [for (final child in children) ?child.path]..sort(),
       'unresolvedChildren': children.where((c) => c.path == null).length,
       'redirect': route.redirect,
+      'redirectsTo': ?redirectsTo(route),
+      'redirectHint': ?redirectHint(route),
       'file': route.file,
       'line': route.line,
       if (route.unresolved) 'unresolved': true,
@@ -84,15 +110,26 @@ ToolAnswer routeInfo(
 
   final first = matched.first;
   final firstFeature = featureOfScreen(first.screen);
+  final firstTarget = redirectsTo(first);
+  final redirecting = [
+    for (final router in routes.routers)
+      if (router.redirect) '${router.file}:${router.line}',
+  ];
+  final routersAt = redirecting.length == 1
+      ? 'The router at ${redirecting.single}'
+      : 'The routers at ${redirecting.join(' and ')}';
   return ToolReply(
     {
       'path': wanted,
       'match': match,
       'routes': [for (final route in matched) describe(route)],
-      'routerRedirects': routes.routers.any((router) => router.redirect),
-      'redirectNote':
-          'The map records that a route or its router redirects, not where '
-          'to.',
+      'routerRedirects': redirecting.isNotEmpty,
+      if (redirecting.isNotEmpty)
+        'redirectNote':
+            '$routersAt ${redirecting.length == 1 ? 'has its' : 'have their'} '
+            'own redirect, which can send any path elsewhere (to a sign-in '
+            'page, for example). The map does not record when or where: '
+            'read it.',
     },
     [
       'Route `${first.path}`'
@@ -103,7 +140,20 @@ ToolAnswer routeInfo(
       else
         'no screen recorded'
             '${first.reason == null ? '' : ' (${first.reason})'}.',
-      if (first.redirect) 'It redirects.',
+      if (firstTarget != null)
+        'It redirects to `${firstTarget['path']}`'
+            '${switch (firstTarget['screen']) {
+              {'name': final String name} => ', which shows screen `$name`'
+                  '${firstTarget['feature'] == null ? '' : ' in feature `${firstTarget['feature']}`'}',
+              _ => '',
+            }}.'
+      else if (first.redirect)
+        'It redirects, and the map does not know where to: read '
+            '${first.file}:${first.line}.',
+      if (redirecting.isNotEmpty)
+        '$routersAt also '
+            '${redirecting.length == 1 ? 'redirects' : 'redirect'} on '
+            'conditions the map does not record.',
       if (matched.length > 1) '${matched.length} routes match.',
     ].join(' '),
   );

@@ -27,6 +27,7 @@ void main() {
     (String, String)? screen,
     String? parent,
     bool redirect = false,
+    String? redirectTo,
     String? reason,
   }) => MapRoute(
     path: path,
@@ -34,6 +35,7 @@ void main() {
     screen: screen == null ? null : CodeRef(name: screen.$1, file: screen.$2),
     parent: parent,
     redirect: redirect,
+    redirectTo: redirectTo,
     file: router,
     line: line,
     unresolved: reason != null,
@@ -76,6 +78,8 @@ void main() {
           path: '/booking/:id',
           parent: '/booking',
           redirect: true,
+          // `redirect: (context, state) => Routes.booking`.
+          redirectTo: '/booking',
         ),
         route(
           line: at('path: _searchPath()'),
@@ -332,6 +336,80 @@ GoRouter moreRouter() => GoRouter(
       );
     },
   );
+
+  test('where a route redirects to is recorded only when the redirect '
+      'returns one constant path', () async {
+    final app = copyFixtureApp();
+    const file = 'lib/routing/redirect_routes.dart';
+    File(
+      p.join(app, 'lib', 'routing', 'redirect_routes.dart'),
+    ).writeAsStringSync(r'''
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart';
+
+import 'routes.dart';
+
+const _base = '/base';
+
+FutureOr<String?> _elsewhere(BuildContext context, GoRouterState state) =>
+    '/elsewhere';
+
+String _computed() => '/computed';
+
+GoRouter redirectRouter() => GoRouter(
+  routes: [
+    GoRoute(path: '/literal', redirect: (context, state) => '/a'),
+    GoRoute(path: '/constant', redirect: (context, state) => Routes.login),
+    GoRoute(path: '/joined', redirect: (context, state) => '$_base/x'),
+    GoRoute(
+      path: '/block',
+      redirect: (context, state) {
+        return '/b';
+      },
+    ),
+    GoRoute(
+      path: '/condition',
+      redirect: (context, state) =>
+          state.uri.queryParameters.isEmpty ? null : '/a',
+    ),
+    GoRoute(
+      path: '/two-returns',
+      redirect: (context, state) {
+        if (state.uri.path.isEmpty) return '/a';
+        return '/b';
+      },
+    ),
+    GoRoute(path: '/function', redirect: _elsewhere),
+    GoRoute(path: '/computed', redirect: (context, state) => _computed()),
+    GoRoute(path: '/nothing', redirect: (context, state) => null),
+    GoRoute(path: '/none'),
+  ],
+);
+''');
+    final routes = await routesOf(app);
+    expect(
+      {
+        for (final r in routes.routes)
+          if (r.file == file) r.path: (r.redirect, r.redirectTo),
+      },
+      {
+        '/literal': (true, '/a'),
+        '/constant': (true, '/login'),
+        '/joined': (true, '/base/x'),
+        '/block': (true, '/b'),
+        // Never guessed: a condition, two returns, a function that isn't
+        // written here, a computed path, a redirect that returns null.
+        '/condition': (true, null),
+        '/two-returns': (true, null),
+        '/function': (true, null),
+        '/computed': (true, null),
+        '/nothing': (true, null),
+        '/none': (false, null),
+      },
+    );
+  });
 
   test('a CRLF router gives the same routes', () async {
     final lf = await routesOf(copyFixtureApp());

@@ -198,11 +198,36 @@ void main() {
       'screen': null,
       'parent': '/',
       'redirect': false,
+      'redirectTo': null,
       'file': 'lib/routing/router.dart',
       'line': 50,
       'unresolved': true,
       'reason': 'the path is not a constant string',
     });
     expect(RoutesMap.fromJson(json).toJson(), json);
+  });
+
+  test('where a route redirects to round-trips, and a map written before '
+      'the field existed still reads', () {
+    const route = MapRoute(
+      path: '/booking/:id',
+      redirect: true,
+      redirectTo: '/booking',
+      file: 'lib/routing/router.dart',
+      line: 52,
+    );
+    final json = const RoutesMap(routes: [route], routers: []).toJson();
+    final read = RoutesMap.fromJson(json).routes.single;
+    expect(read.redirect, isTrue);
+    expect(read.redirectTo, '/booking');
+    final older = {...(json['routes']! as List).single as Map<String, Object?>}
+      ..remove('redirectTo');
+    expect(
+      RoutesMap.fromJson({
+        'routes': [older],
+        'routers': <Object?>[],
+      }).routes.single.redirectTo,
+      isNull,
+    );
   });
 }

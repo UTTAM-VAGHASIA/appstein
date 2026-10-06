@@ -218,6 +218,7 @@ final class _RouteReader {
         screen: screen.ref,
         parent: parent.path,
         redirect: arguments.has('redirect'),
+        redirectTo: _redirectTo(arguments),
         file: file,
         line: lineOf(route),
         unresolved: reason != null,
@@ -227,6 +228,18 @@ final class _RouteReader {
     if (arguments['routes'] case final children?) {
       readList(children, _Parent(path, unresolved: path == null));
     }
+  }
+
+  /// The path a route's `redirect:` sends to, when it is a function literal
+  /// that only returns one constant path, such as
+  /// `(context, state) => Routes.booking`. Null for any other redirect: a
+  /// condition, several returns, a computed path or a function declared
+  /// elsewhere is never guessed (spec §6.5).
+  String? _redirectTo(NamedArguments arguments) {
+    final redirect = arguments['redirect'];
+    if (redirect is! FunctionExpression) return null;
+    final returned = singleReturn(redirect.body);
+    return returned == null ? null : constantString(returned);
   }
 
   ({CodeRef? ref, String? reason}) _screen(NamedArguments arguments) {

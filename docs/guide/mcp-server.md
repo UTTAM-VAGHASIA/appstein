@@ -121,7 +121,13 @@ Input: `name`, the feature's folder below `lib/ui/`, such as `auth/login`. These
 
 Input: `path`. A leading slash is added when it is missing, a trailing slash, a query (`?…`) and a fragment (`#…`) are ignored. An exact path wins. Otherwise a concrete path matches a go_router pattern with the same number of segments, where a `:parameter` segment matches any non-empty segment: `/booking/42` matches `/booking/:id`. The reply's `match` says `exact` or `pattern`.
 
-Routes whose path the map couldn't work out are never matched; the refusal says how many there are. For each route the reply gives its screen, feature, parent, nested routes and whether it redirects. The map records that a route or its router redirects, not where to, and the reply says so.
+Routes whose path the map couldn't work out are never matched; the refusal says how many there are. For each route the reply gives its screen, feature, parent, nested routes and whether it redirects.
+
+**A redirect is never a dead end.** In the first trial of Appstein, an agent asked what `/booking/42` shows, was told "no screen recorded; it redirects", and answered "it goes elsewhere" without opening the router. An agent stops looking when the map answers, so the reply now always leads somewhere:
+
+- when the map knows the target (see [project-map](project-map.md#routes)), the route has `redirectsTo`: the path, plus the screen and feature of the route at that path. The summary reads "It redirects to `/booking`, which shows screen `BookingScreen` in feature `booking`.";
+- when the route redirects and the map doesn't know where, the route has `redirectHint`, which names the file and line to read;
+- when a router has its own `redirect:` (a sign-in check, typically), `redirectNote` names that router's file and line, on every reply. The map doesn't record when or where a router redirects.
 
 ### `check_api`
 
