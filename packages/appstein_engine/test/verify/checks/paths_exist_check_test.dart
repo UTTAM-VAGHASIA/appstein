@@ -20,11 +20,10 @@ void main() {
     Directory(root).createSync();
   });
 
-  void file(String path, {String? under}) => File(
-    p.joinAll([under ?? root, ...path.split('/')]),
-  )
-    ..parent.createSync(recursive: true)
-    ..writeAsStringSync('');
+  void file(String path, {String? under}) =>
+      File(p.joinAll([under ?? root, ...path.split('/')]))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('');
 
   List<String> problems(List<String> paths) => _check.problems(
     decisionEntry(1, 'A decision', paths: paths),
@@ -107,8 +106,6 @@ void main() {
   });
 
   test('a pattern that is not a valid glob is named', () {
-    expect(problems(['lib/[x']), [
-      'The path `lib/[x` is not a valid pattern.',
-    ]);
+    expect(problems(['lib/[x']), ['The path `lib/[x` is not a valid pattern.']);
   });
 }
