@@ -103,6 +103,152 @@ integrations:
     expect(parseConfig('docs:\n  path: docs\\app\n').docs.path, 'docs/app');
   });
 
+  group('docs.path keeps out of folders that are not for docs', () {
+    for (final path in [
+      '.appstein',
+      '.appstein/docs',
+      '.git/x',
+      '.dart_tool',
+      'build/docs',
+      'lib',
+      'lib/docs',
+      'test',
+      './lib/docs',
+    ]) {
+      test('refuses $path', () {
+        expect(
+          () => parseConfig('docs:\n  path: $path\n'),
+          throwsA(
+            configError(
+              'docs.path must not be inside .appstein, .git, .dart_tool, '
+              'build, lib or test',
+              line: 2,
+            ),
+          ),
+        );
+      });
+    }
+
+    test('still accepts docs/lib and library', () {
+      expect(parseConfig('docs:\n  path: docs/lib\n').docs.path, 'docs/lib');
+      expect(parseConfig('docs:\n  path: library\n').docs.path, 'library');
+    });
+  });
+
+  group('suppressions', () {
+    test('reads id, path, reason and the line of each entry', () {
+      final config = parseConfig(
+        'suppressions:\n'
+        '  - id: decision.drift\n'
+        '    path: .appstein/decisions/0002-state.md\n'
+        '    reason: Riverpod is being trialled in one feature.\n'
+        '  - id: verify.test_required\n'
+        '    path: lib/ui/**\n',
+      );
+      expect(config.suppressions, hasLength(2));
+      expect(config.suppressions[0].id, 'decision.drift');
+      expect(config.suppressions[0].path, '.appstein/decisions/0002-state.md');
+      expect(
+        config.suppressions[0].reason,
+        'Riverpod is being trialled in one feature.',
+      );
+      expect(config.suppressions[0].line, 2);
+      expect(config.suppressions[1].reason, isNull);
+      expect(config.suppressions[1].line, 5);
+      expect(config.toJson()['suppressions'], [
+        {
+          'id': 'decision.drift',
+          'path': '.appstein/decisions/0002-state.md',
+          'reason': 'Riverpod is being trialled in one feature.',
+        },
+        {'id': 'verify.test_required', 'path': 'lib/ui/**', 'reason': null},
+      ]);
+    });
+
+    test('none by default, and an empty list is fine', () {
+      expect(parseConfig('').suppressions, isEmpty);
+      expect(parseConfig('suppressions: []\n').suppressions, isEmpty);
+      expect(parseConfig('suppressions:\n').suppressions, isEmpty);
+    });
+
+    test('a blank reason is read as no reason', () {
+      final config = parseConfig(
+        'suppressions:\n  - id: docs.stale\n    path: docs/app/**\n'
+        '    reason: "  "\n',
+      );
+      expect(config.suppressions.single.reason, isNull);
+    });
+
+    test('normalizes ./ and keeps globs', () {
+      final config = parseConfig(
+        'suppressions:\n  - id: docs.stale\n    path: ./docs/app/*.md\n'
+        '    reason: x\n',
+      );
+      expect(config.suppressions.single.path, 'docs/app/*.md');
+    });
+
+    // Review Focus 3: a path is refused with its line, never matched loosely.
+    for (final (yaml, message, line) in [
+      ('suppressions: nope\n', 'suppressions must be a list', 1),
+      ('suppressions:\n  - nope\n', 'must be a map', 2),
+      ('suppressions:\n  - path: a\n    reason: b\n', 'needs an id', 2),
+      (
+        'suppressions:\n  - id: Bad\n    path: a\n',
+        '"Bad" is not a check ID',
+        2,
+      ),
+      ('suppressions:\n  - id: docs.stale\n    reason: b\n', 'needs a path', 2),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: C:\\docs\n',
+        'must use /',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: C:/docs\n',
+        'must be relative',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: /docs\n',
+        'must be relative',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: ../x\n',
+        'inside the project',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: a/../../x\n',
+        'inside the project',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: docs\\app\n',
+        'must use /',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: "[x"\n',
+        'is not a valid pattern',
+        3,
+      ),
+      ('suppressions:\n  - id: docs.stale\n    path: 3\n', 'must be text', 3),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: a\n    why: b\n',
+        'Unknown key "why"',
+        4,
+      ),
+    ]) {
+      test('refuses: $message', () {
+        expect(
+          () => parseConfig(yaml),
+          throwsA(configError(message, line: line)),
+        );
+      });
+    }
+  });
+
   // Review Focus 4: malformed files must give a positioned error, never a crash.
   test('a list, a duplicate key or broken YAML gives a positioned error', () {
     expect(

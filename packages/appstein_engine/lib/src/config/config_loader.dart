@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:appstein_protocol/appstein_protocol.dart';
+import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
@@ -120,6 +121,7 @@ final class _ConfigReader {
       'docs',
       'packages',
       'integrations',
+      'suppressions',
     ]);
     final format = _int(
       top,
@@ -141,7 +143,103 @@ final class _ConfigReader {
       docs: _docs(_section(top, 'docs')),
       packages: _packages(_section(top, 'packages')),
       integrations: _integrations(_section(top, 'integrations')),
+      suppressions: _suppressions(top.nodes['suppressions']),
     );
+  }
+
+  /// The `suppressions:` list (spec §9.7). An entry without a reason is
+  /// read, not refused: `verify` reports it, with its line.
+  List<SuppressionEntry> _suppressions(YamlNode? node) {
+    if (node == null || _isNull(node)) return const [];
+    if (node is! YamlList) {
+      throw _error(
+        node,
+        'suppressions must be a list of entries, each with id, path and '
+        'reason.',
+      );
+    }
+    final entries = <SuppressionEntry>[];
+    for (final item in node.nodes) {
+      if (item is! YamlMap) {
+        throw _error(
+          item,
+          'Every entry in suppressions must be a map with id, path and '
+          'reason.',
+        );
+      }
+      _checkKeys(item, 'a suppression', const ['id', 'path', 'reason']);
+
+      final idNode = item.nodes['id'];
+      if (idNode == null || _isNull(idNode)) {
+        throw _error(item, 'A suppression needs an id: the check to hide.');
+      }
+      final id = idNode.value;
+      if (id is! String || !_checkIdPattern.hasMatch(id)) {
+        throw _error(
+          idNode,
+          'suppressions: "$id" is not a check ID. Check IDs look like '
+          '"docs.stale".',
+        );
+      }
+
+      final pathNode = item.nodes['path'];
+      if (pathNode == null || _isNull(pathNode)) {
+        throw _error(
+          item,
+          'A suppression needs a path: the file, folder or glob it applies '
+          'to.',
+        );
+      }
+      final raw = pathNode.value;
+      if (raw is! String || raw.trim().isEmpty) {
+        throw _error(pathNode, 'A suppression\'s path must be text.');
+      }
+      if (raw.contains(r'\')) {
+        throw _error(
+          pathNode,
+          'A suppression\'s path must use /, also on Windows.',
+        );
+      }
+      if (p.posix.isAbsolute(raw) || p.windows.isAbsolute(raw)) {
+        throw _error(
+          pathNode,
+          'A suppression\'s path must be relative to the project root.',
+        );
+      }
+      final normalized = p.posix.normalize(raw.trim());
+      if (normalized == '.' ||
+          normalized == '..' ||
+          normalized.startsWith('../')) {
+        throw _error(
+          pathNode,
+          'A suppression\'s path must be a path inside the project.',
+        );
+      }
+      try {
+        Glob(normalized, context: p.posix);
+      } on FormatException {
+        throw _error(pathNode, '"$raw" is not a valid pattern.');
+      }
+
+      final reasonNode = item.nodes['reason'];
+      String? reason;
+      if (reasonNode != null && !_isNull(reasonNode)) {
+        final value = reasonNode.value;
+        if (value is! String) {
+          throw _error(reasonNode, 'A suppression\'s reason must be text.');
+        }
+        reason = value.trim().isEmpty ? null : value.trim();
+      }
+      entries.add(
+        SuppressionEntry(
+          id: id,
+          path: normalized,
+          reason: reason,
+          line: item.span.start.line + 1,
+        ),
+      );
+    }
+    return List.unmodifiable(entries);
   }
 
   PacksConfig _packs(YamlMap? map) {
@@ -260,6 +358,22 @@ final class _ConfigReader {
           normalized == '..' ||
           normalized.startsWith('../')) {
         throw _error(node, 'docs.path must be a folder inside the project.');
+      }
+      // Folders that tools or the app's own code own: pages there would be
+      // deleted by a clean, ignored by git, or mixed into the source.
+      if (const {
+        '.appstein',
+        '.git',
+        '.dart_tool',
+        'build',
+        'lib',
+        'test',
+      }.contains(normalized.split('/').first)) {
+        throw _error(
+          node,
+          'docs.path must not be inside .appstein, .git, .dart_tool, build, '
+          'lib or test.',
+        );
       }
       docsPath = normalized;
     }

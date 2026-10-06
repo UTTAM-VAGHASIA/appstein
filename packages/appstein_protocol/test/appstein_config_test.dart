@@ -26,6 +26,7 @@ void main() {
         'graphify_export': false,
         'developer_knowledge_mcp': false,
       },
+      'suppressions': <Object?>[],
     });
   });
 }

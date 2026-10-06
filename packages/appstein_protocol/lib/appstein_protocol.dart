@@ -29,3 +29,5 @@ export 'src/mcp/tool_schemas.dart';
 export 'src/protocol_version.dart';
 export 'src/sdk_info.dart';
 export 'src/severity.dart';
+export 'src/verify/finding.dart';
+export 'src/verify/verify_result.dart';

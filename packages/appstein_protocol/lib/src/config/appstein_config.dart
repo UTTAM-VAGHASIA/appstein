@@ -14,6 +14,7 @@ final class AppsteinConfig {
     this.docs = const DocsConfig(),
     this.packages = const PackagesConfig(),
     this.integrations = const IntegrationsConfig(),
+    this.suppressions = const [],
   });
 
   /// The config format version (the `appstein:` key).
@@ -37,6 +38,9 @@ final class AppsteinConfig {
   /// Agent and optional integrations.
   final IntegrationsConfig integrations;
 
+  /// The findings a person chose to hide (spec §9.7), in file order.
+  final List<SuppressionEntry> suppressions;
+
   /// The JSON form.
   Map<String, Object?> toJson() => {
     'appstein': formatVersion,
@@ -46,7 +50,37 @@ final class AppsteinConfig {
     'docs': docs.toJson(),
     'packages': packages.toJson(),
     'integrations': integrations.toJson(),
+    'suppressions': [for (final entry in suppressions) entry.toJson()],
   };
+}
+
+/// One entry of the `suppressions:` list (spec §9.7): the findings of one
+/// check on some files, hidden for a stated reason.
+final class SuppressionEntry {
+  /// Creates the entry.
+  const SuppressionEntry({
+    required this.id,
+    required this.path,
+    this.reason,
+    required this.line,
+  });
+
+  /// The ID of the check whose findings it hides, such as `docs.stale`.
+  final String id;
+
+  /// The file, folder or glob it applies to, from the project root, with
+  /// `/`.
+  final String path;
+
+  /// Why the finding is accepted; null when the entry gives none, which
+  /// `verify` reports as an error, so the entry hides nothing.
+  final String? reason;
+
+  /// The 1-based line of the entry in `appstein.yaml`.
+  final int line;
+
+  /// The JSON form, with the keys of the YAML file.
+  Map<String, Object?> toJson() => {'id': id, 'path': path, 'reason': reason};
 }
 
 /// The `packs:` section.
