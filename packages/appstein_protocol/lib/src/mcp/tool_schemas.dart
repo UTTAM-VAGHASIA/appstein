@@ -1,3 +1,4 @@
+import '../decisions/decision_record.dart';
 import 'json_schema.dart';
 
 /// The input schemas of Appstein's MCP tools and the schemas of their
@@ -368,5 +369,176 @@ abstract final class ToolSchemas {
       ),
     },
     required: ['valid', 'notes', 'current', 'mismatches', 'notComparable'],
+  );
+
+  static final Map<String, Object?> _decision = jsonObject(
+    {
+      'number': jsonString(description: 'Such as `0002`.'),
+      'title': jsonString(),
+      'status': jsonString(
+        values: ['proposed', 'accepted', 'superseded'],
+        description:
+            'Only an accepted decision binds. A decision that a later one '
+            'replaces is superseded, whatever its file says.',
+      ),
+      'statusInFile': jsonString(
+        description:
+            "Present when the file's own status line differs from `status`.",
+      ),
+      'date': jsonString(),
+      'why': jsonString(description: 'The reason for the decision.'),
+      'paths': jsonList(
+        jsonString(),
+        description: 'The path patterns it applies to; empty: everywhere.',
+      ),
+      'checks': jsonList(jsonString()),
+      'file': jsonString(description: 'Its file, from the project folder.'),
+      'supersedes': jsonString(),
+      'supersededBy': jsonString(),
+      'score': jsonInteger(),
+    },
+    required: ['title', 'status', 'why', 'paths', 'checks', 'file'],
+  );
+
+  /// `decisions`' input.
+  static final Map<String, Object?> decisionsInput = jsonObject({
+    'topic': jsonString(
+      description:
+          'Words, such as "state management", or the path of a project '
+          'file, such as `lib/ui/home/widgets/home_screen.dart`. Leave it '
+          'out for every decision in force.',
+    ),
+  });
+
+  /// `decisions`' result.
+  static final Map<String, Object?> decisionsResult = jsonObject(
+    {
+      'mode': jsonString(values: ['all', 'words', 'path']),
+      'topic': jsonString(),
+      'decisions': jsonList(_decision),
+      'superseded': jsonInteger(
+        description: 'How many decisions are superseded.',
+      ),
+      'withoutPaths': jsonInteger(
+        description:
+            'For a path: how many decisions in force list no paths, so '
+            'apply everywhere.',
+      ),
+      'unreadable': jsonList(
+        jsonObject(
+          {'file': jsonString(), 'problem': jsonString()},
+          required: ['file', 'problem'],
+        ),
+      ),
+      'duplicates': jsonList(
+        jsonObject(
+          {'number': jsonString(), 'files': jsonList(jsonString())},
+          required: ['number', 'files'],
+        ),
+        description: 'Numbers that more than one file uses.',
+      ),
+      'problems': jsonList(jsonString()),
+    },
+    required: [
+      'mode',
+      'decisions',
+      'superseded',
+      'unreadable',
+      'duplicates',
+      'problems',
+    ],
+  );
+
+  /// `record_decision`'s input: the fields of a new decision, or `accept`
+  /// alone.
+  static final Map<String, Object?> recordDecisionInput = jsonObject({
+    'title': jsonString(description: 'One line: what was decided.'),
+    'why': jsonString(description: 'The reason.'),
+    'status': jsonString(
+      values: ['proposed', 'accepted'],
+      description:
+          '`proposed` when left out. `accepted` only when the user agreed '
+          'to this decision in this conversation.',
+    ),
+    'paths': jsonList(
+      jsonString(),
+      description:
+          'The path patterns it applies to, from the project folder, such '
+          'as `lib/ui/**/view_models/**`.',
+    ),
+    'checks': jsonList(jsonString(values: decisionChecks)),
+    'supersedes': jsonString(
+      description: 'The number of the decision this one replaces.',
+    ),
+    'accept': jsonString(
+      description:
+          'The number of a proposed decision the user now agrees to. Pass '
+          'it alone.',
+    ),
+  });
+
+  /// `record_decision`'s result.
+  static final Map<String, Object?> recordDecisionResult = jsonObject(
+    {
+      'action': jsonString(values: ['added', 'replaced', 'accepted']),
+      'decision': _decision,
+      'superseded': _decision,
+      'warning': jsonString(),
+    },
+    required: ['action', 'decision'],
+  );
+
+  /// `memory_read`'s result.
+  static final Map<String, Object?> memoryReadResult = jsonObject(
+    {
+      'current': jsonString(
+        description: 'The task in progress; absent when there is none.',
+      ),
+      'currentFile': jsonString(),
+      'currentProblem': jsonString(),
+      'lessons': jsonList(
+        jsonString(),
+        description: 'The newest lessons, oldest first.',
+      ),
+      'olderLessons': jsonInteger(
+        description: 'How many older lessons the file also holds.',
+      ),
+      'lessonsFile': jsonString(),
+      'lessonsProblem': jsonString(),
+    },
+    required: ['currentFile', 'lessons', 'olderLessons', 'lessonsFile'],
+  );
+
+  /// `memory_write`'s input.
+  static final Map<String, Object?> memoryWriteInput = jsonObject(
+    {
+      'kind': jsonString(
+        values: ['current', 'lesson', 'complete'],
+        description:
+            '`current` replaces the task in progress; `lesson` adds one '
+            'lesson; `complete` finishes the task.',
+      ),
+      'text': jsonString(
+        description:
+            'For `current`: the goal, plan, status and open questions. For '
+            '`lesson`: the lesson. For `complete`: your one-paragraph '
+            'summary of the finished task.',
+      ),
+    },
+    required: ['kind', 'text'],
+  );
+
+  /// `memory_write`'s result.
+  static final Map<String, Object?> memoryWriteResult = jsonObject(
+    {
+      'kind': jsonString(values: ['current', 'lesson', 'complete']),
+      'file': jsonString(description: 'The file that was written.'),
+      'lesson': jsonString(description: 'The lesson line.'),
+      'added': jsonBoolean(
+        description: 'False when the file already held this lesson.',
+      ),
+      'cleared': jsonString(description: 'The file that was deleted.'),
+    },
+    required: ['kind', 'file'],
   );
 }
