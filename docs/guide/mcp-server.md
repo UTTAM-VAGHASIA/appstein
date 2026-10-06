@@ -126,6 +126,8 @@ Routes whose path the map couldn't work out are never matched; the refusal says 
 **A redirect is never a dead end.** In the first trial of Appstein, an agent asked what `/booking/42` shows, was told "no screen recorded; it redirects", and answered "it goes elsewhere" without opening the router. An agent stops looking when the map answers, so the reply now always leads somewhere:
 
 - when the map knows the target (see [project-map](project-map.md#routes)), the route has `redirectsTo`: the path, plus the screen and feature of the route at that path. The summary reads "It redirects to `/booking`, which shows screen `BookingScreen` in feature `booking`.";
+- when the route at that path has a redirect of its own, `redirectsTo` says so (`redirect: true`, with that route's `file` and `line`), and the summary doesn't call its screen the answer: "It redirects to `/home`, which has its own redirect, so it may not be where the path ends: read …". The tool doesn't follow the chain itself;
+- a route can have both a builder and a redirect. Its screen is then reported as "shown only when its redirect lets the path through";
 - when the route redirects and the map doesn't know where, the route has `redirectHint`, which names the file and line to read;
 - when a router has its own `redirect:` (a sign-in check, typically), `redirectNote` names that router's file and line, on every reply. The map doesn't record when or where a router redirects.
 

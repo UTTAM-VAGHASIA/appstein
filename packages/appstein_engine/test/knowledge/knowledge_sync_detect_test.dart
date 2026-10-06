@@ -106,7 +106,10 @@ void main() {
     expect(report.map?.skipped, isNull);
     // The same code gives the same map files, so no byte is rewritten but
     // their recorded input hashes; the rebuild is what matters.
-    expect(report.rebuiltBecause, isNotEmpty);
+    expect(
+      report.rebuiltBecause,
+      contains(contains('map/routes.json is out of date')),
+    );
   });
 
   group('nothing changed', () {

@@ -79,8 +79,31 @@ An agent stops looking when the map answers, so a map that says less than the co
 - [ ] All four suites, analyze, format, `dependency_validator`, the BOM scan.
 - [ ] Commit.
 
+## Notes from execution
+
+Built natively on `slice-1c5`, 2026-10-06, then one whole-branch review on Opus and one fix pass. PR #6. The owner said to merge when CI is green.
+
+**Commits:** `9a79df2` the slice (spec, plan, code, guide); the review's fixes in the commit after it.
+
+**Rulings:**
+- **One commit for Tasks 1–3**, with the spec edit and the plan: the slice is about 150 lines of code. Cost if wrong: a coarser history.
+- **`redirectNote` is no longer required** in the `route` result: it is present only when a router redirects. The old fixed sentence was the dead end this slice removes. Cost if wrong: a client that required the key; there is none.
+- **The pack's version went from 1 to 2** to rebuild existing maps, since the map's input hash holds the packs' versions and not the extractor's code. Cost if wrong: one rebuild per project.
+
+**What the review caught (fixed, each test-first):**
+- **Important:** a redirect to a route that has a redirect of its own was reported with that route's screen as the answer (`/` → `/home`, where `/home` checks sign-in), or as a bare "It redirects to `/b`" when `/b` only redirects: the same dead end, one hop later. `redirectsTo` now carries the target's `redirect`, `file` and `line`, and the summary says the path may not end there.
+- **Important:** a route with both a builder and a redirect had its screen stated as the answer. The summary now says the screen is shown only when the redirect lets the path through.
+- **Minor:** the pack-version test would have passed without the version in the map's hash; it now checks that `map/routes.json` is what was out of date. The tool's description and the visual page's card still said "whether it redirects".
+
+**Checked:** 1,243 tests (root 225, protocol 66, engine 874 with 7 skipped, CLI 59, lints 19); analyze, format, `dependency_validator`, the guide check and the BOM scan. The routes golden changed by one `"redirectTo": "/booking"` and seven `"redirectTo": null`.
+
 ## Carried to later slices
 
+- **From the review (minor, left):**
+  - the target path is matched by exact text, so a target with a query (`/login?from=x`), a trailing slash, a concrete path for a pattern (`/booking/42`) or a relative path gets no screen. Never wrong, only weaker;
+  - a route doesn't record which router it belongs to, so with two routers a route is told about a redirect of the other one;
+  - `{ if (x) throw …; return '/b'; }` is recorded as `/b`: only `return`s are counted;
+  - in go_router a parent's redirect also runs for its children; `route` on a child doesn't mention the parent's. Unverified here; check it in 1d.
 - **1d:** a router's own `redirect:` is still only "it has one; read it". Its condition (signed in or not) can't be reduced to one path. If the verifier or the docs renderer needs more, record the paths it can return.
 - **1d:** `route_query.dart`'s go_router pattern matching moves into the pack with the other platform and stack knowledge (carried from 1c.4).
 - **Unassigned:** a redirect that returns `state.namedLocation('name')` or `context.namedLocation(...)` could be resolved through the route's `name:`; today it is "not known".

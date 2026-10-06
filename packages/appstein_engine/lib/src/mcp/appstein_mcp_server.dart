@@ -121,7 +121,8 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     _tool(
       'route',
       'The go_router route for a path, such as `/booking/42`: its screen, '
-          'feature, parent, nested routes and whether it redirects.',
+          'feature, parent, nested routes, and where it redirects to (or '
+          'the line to read when the map cannot tell).',
       input: ToolSchemas.routeInput,
       result: ToolSchemas.routeResult,
       answer: (knowledge, arguments) =>

@@ -147,12 +147,20 @@ abstract final class ToolSchemas {
                 'path': jsonString(),
                 'screen': _codeRef,
                 'feature': jsonString(),
+                'redirect': jsonBoolean(
+                  description:
+                      'Present and true when the route at that path has a '
+                      'redirect of its own.',
+                ),
+                'file': jsonString(),
+                'line': jsonInteger(),
               },
               required: ['path'],
               description:
                   'Where the route redirects to, when the map knows: the '
                   'path, and the screen and feature of the route at that '
-                  'path.',
+                  'path. When that route redirects too, `file` and `line` '
+                  'say where to read it.',
             ),
             'redirectHint': jsonString(
               description:

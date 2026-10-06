@@ -105,6 +105,61 @@ void main() {
     expect(at('/plain').result['redirectNote'], isNotNull);
   });
 
+  test('a redirect to a route that redirects too is not called its screen, '
+      'and a screen behind a redirect is said to be conditional', () {
+    const home = CodeRef(name: 'HomeScreen', file: 'lib/ui/home/h.dart');
+    const map = RoutesMap(
+      routes: [
+        // `/` always goes to `/home`, whose own redirect has a condition.
+        MapRoute(
+          path: '/',
+          redirect: true,
+          redirectTo: '/home',
+          file: 'lib/r.dart',
+          line: 5,
+        ),
+        MapRoute(
+          path: '/home',
+          screen: home,
+          redirect: true,
+          file: 'lib/r.dart',
+          line: 9,
+        ),
+      ],
+      routers: [MapRouter(file: 'lib/r.dart', line: 3, redirect: false)],
+    );
+    ToolReply at(String path) =>
+        routeInfo(path, routes: map, features: features) as ToolReply;
+
+    final root = at('/');
+    expect(only(root)['redirectsTo'], {
+      'path': '/home',
+      'screen': home.toJson(),
+      'redirect': true,
+      'file': 'lib/r.dart',
+      'line': 9,
+    });
+    expect(
+      root.summary,
+      contains(
+        'It redirects to `/home`, which has its own redirect, so it may not '
+        'be where the path ends: read lib/r.dart:9.',
+      ),
+    );
+    expect(root.summary, isNot(contains('which shows screen')));
+    expectMatchesSchema(ToolSchemas.routeResult, withoutNulls(root.result));
+
+    final target = at('/home');
+    expect(
+      target.summary,
+      contains(
+        'screen `HomeScreen`, shown only when its redirect lets the path '
+        'through.',
+      ),
+    );
+    expect(target.summary, contains('read lib/r.dart:9'));
+  });
+
   test('without a router redirect there is no note', () {
     const map = RoutesMap(
       routes: [MapRoute(path: '/plain', file: 'lib/r.dart', line: 11)],

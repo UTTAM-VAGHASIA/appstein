@@ -67,7 +67,8 @@ ToolAnswer routeInfo(
       screen == null ? null : features.featureOf(screen.file);
 
   // Where a route redirects to, with the screen and feature of the route at
-  // that path when there is one.
+  // that path when there is one. A target with a redirect of its own says
+  // so, with its line: the path may not end there.
   Map<String, Object?>? redirectsTo(MapRoute route) {
     final to = route.redirectTo;
     if (to == null) return null;
@@ -76,6 +77,11 @@ ToolAnswer routeInfo(
       'path': to,
       'screen': ?target?.screen?.toJson(),
       'feature': ?featureOfScreen(target?.screen),
+      if (target != null && target.redirect) ...{
+        'redirect': true,
+        'file': target.file,
+        'line': target.line,
+      },
     };
   }
 
@@ -136,14 +142,18 @@ ToolAnswer routeInfo(
           '${match == 'pattern' ? ' (a pattern matching `$wanted`)' : ''}:',
       if (first.screen case final screen?)
         'screen `${screen.name}`'
-            '${firstFeature == null ? '' : ' in feature `$firstFeature`'}.'
+            '${firstFeature == null ? '' : ' in feature `$firstFeature`'}'
+            // A route may have both a builder and a redirect.
+            '${first.redirect ? ', shown only when its redirect lets the path through' : ''}.'
       else
         'no screen recorded'
             '${first.reason == null ? '' : ' (${first.reason})'}.',
       if (firstTarget != null)
         'It redirects to `${firstTarget['path']}`'
-            '${switch (firstTarget['screen']) {
-              {'name': final String name} => ', which shows screen `$name`'
+            '${switch (firstTarget) {
+              {'redirect': true, 'file': final file, 'line': final line} => ', which has its own redirect, so it may not be where the path '
+                  'ends: read $file:$line',
+              {'screen': {'name': final String name}} => ', which shows screen `$name`'
                   '${firstTarget['feature'] == null ? '' : ' in feature `${firstTarget['feature']}`'}',
               _ => '',
             }}.'
