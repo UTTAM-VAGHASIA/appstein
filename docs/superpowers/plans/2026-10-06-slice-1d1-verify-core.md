@@ -1015,3 +1015,50 @@ A thrown `VerifyCheckError` becomes the usual refusal (`Appstein failed to answe
 - **1d.3:** the lint rules; the stack knowledge in `feature_query.dart`, `route_query.dart` and `index/` moves into the pack.
 - **1d.4:** the package gate; the verdict column in `dependencies.md`.
 - **1d.5, 1d.6:** Android and iOS checks; `toolchain_report.dart`'s knowledge moves into the packs; the plugin behind each permission in `native.md`.
+
+From the final review, not fixed in this slice:
+
+- **1d.2:** a glob escape in a decision's path (`\[`) is broken, because `paths.exist` turns every `\` into `/` first. Solved by keeping a `\` that escapes a glob character; checked by a test with a file named `a[1].dart`.
+- **1d.2:** the CLI's own tests can't run `verify` on a healthy project (their fake Flutter SDK has no Dart SDK), so exit 0 is proven in the engine's `verify_fixture_test.dart` and by `tool/measure_sync.dart` with the real binary. 1d.2's fast checks need a real analysis in the CLI tests anyway; give `runAppstein` the Dart SDK path the engine tests use, then add the healthy-project run there.
+- **1d.2:** a suppression `path` of the form `C:foo` (drive-relative) is accepted as a relative path and can only ever be unused. Refuse it in the loader with the other absolute forms.
+
+---
+
+## Notes from execution
+
+Executed natively in one session (owner's choice), with one independent review of the whole branch at the end.
+
+**Results**
+
+- Suites at the end: protocol 78, engine 1,308, CLI 100, root 225. Analyzer, format, guide check, `dart doc --dry-run` in all four packages and the BOM scan are clean.
+- Measured with the compiled binary on the 200-file app (Windows development machine): `verify --fast` 129 ms as the median of three (target under 5 s), full `verify` 176 ms. `verify --format json` reported the page edited by hand as the one `docs.stale` finding.
+- The real command was run on a copy of the fixture app with real packages, in both modes and both formats, with a decision and suppressions added, and every line of output was read.
+
+**Rulings made during execution**
+
+1. **Task 5:** a `<page>.tmp` is in the way unless a write of a page could have left it. The first rule ("empty, or starts like a page") was tightened after the review: only an empty file, a whole page nobody edited, or the start of the page being written counts as a leftover.
+2. **Task 5:** the feature pages find two feature names that give one file name themselves and throw `DocPagesCollide` naming both; `renderPages` passes it through and still joins sections that share a path on purpose (`native.md`). `docFileName` also handles a trailing dot or space and Windows device names.
+3. **Task 6:** pipes are escaped in `mdTable`, not in a second "code for a table cell" function. `NativeValue.unknown` gained `resolvedFrom`, so an iOS value that is unknown because of one machine is hidden by the existing source rules. `decisions.md` no longer shows the operating system's message for a file it couldn't open.
+4. **Task 7:** `KnowledgeSnapshot.mapProblem` is the one "can the map be used" test for `runVerify` and `prepareDocs`. An unknown decision check has its own fix hint.
+5. **Task 8:** the fix hint of `verify.test_required` takes the test folder from the feature's folder (`lib/x` to `test/x`), not from a constant.
+6. **Task 9:** the CLI's in-process tests cover runs where the map can't be built (see Carried). A `verifyChecks` parameter on `runAppstein` replaces the checks in tests, as `doctorChecks` does.
+7. **Task 10:** no `configFor` parameter: the server reads `appstein.yaml` itself. The freshness step hands the sync it built to `verify`, so the sync is built once. `verify`'s structured `summary` is the counts (spec §9.3), so its sentence is in the reply's text only, and `toolOutputSchema` keeps a result's own `summary`.
+8. **Summary line (owner: "choose the best for the project"):** the spec asked for "the number of active suppressions", the result counted hidden findings. Both are now given (`3 findings suppressed by 1 suppression.`), the result has `activeSuppressions`, and spec §9.3 and §9.7 say so.
+9. **`paths.exist` accepts a folder** for a plain path, as the plan says; the spec's words are "matches at least one file". Letter case counts on every system, and `.dart_tool`, `.git` and `build` are not searched unless the pattern names them. These three are not in the spec text yet.
+
+**The final review** found no Critical problem, four Important ones and several smaller ones. All four Important ones were fixed test first:
+
+- `.appstein` that can't be opened crashed `verify`; it is now `knowledge.stale`.
+- A decision check that reads the map judged old map files after a failed refresh. `VerifyContext.mapProblem` is now set whenever the refresh failed, and a part a check leaves out is named as not run (`context.skipped`).
+- A suppression of a check that did not run was reported as unused, with advice to delete it.
+- `stack.provider` reported a `provider` that pub calls `direct overridden` as missing.
+
+The owner chose to fix four smaller ones too: the `docs.path` rule ignoring letter case, the `paths.exist` hardening, the busy lock waited for twice with no fix hint, and the edited copy saved as `<page>.tmp`. The rest are under Carried.
+
+**Where the process slipped**
+
+- For Task 2 and the first half of Task 4, the tests were written first but only seen failing to compile. From Task 7 on, each check was first written with an empty body so the tests failed on behaviour.
+- The Task 9 command and the `docs.path` case fix were written straight after their tests, without watching the tests fail.
+- A scratch script to edit a source file was written and never run; the Edit tool was used instead.
+- The Task 7 commit message had a malformed `Docs-Checked` line, which failed the guide check. With the owner's permission the message was reworded on the unpushed branch; the files were byte-identical before and after.
+- The plan's CLI tests assumed a healthy project could be verified in the CLI's own tests. It can't (see Carried), which a look at `docs_command_test.dart` while planning would have shown.
