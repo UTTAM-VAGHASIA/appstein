@@ -14,6 +14,7 @@ export 'src/delta/delta_json.dart';
 export 'src/delta/fix_data.dart';
 export 'src/docs/doc_marker.dart';
 export 'src/docs/doc_page.dart';
+export 'src/docs/docs_folder.dart';
 export 'src/docs/docs_knowledge.dart';
 export 'src/docs/docs_renderer.dart';
 export 'src/docs/engine_pages.dart';
