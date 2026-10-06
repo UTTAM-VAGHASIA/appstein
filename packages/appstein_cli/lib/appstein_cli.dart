@@ -9,4 +9,5 @@ export 'src/packs.dart';
 export 'src/run_guarded.dart';
 export 'src/runner.dart';
 export 'src/sync_command.dart';
+export 'src/verify_command.dart';
 export 'src/version.dart';

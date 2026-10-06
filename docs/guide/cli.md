@@ -218,6 +218,7 @@ Available commands:
   doctor   Check your environment and explain how to fix problems.
   mcp      Serve Appstein's MCP tools over stdio (started by agents).
   sync     Regenerate the knowledge Appstein keeps in .appstein/.
+  verify   Check the project against its knowledge (fast or full).
 
 Run "appstein help <command>" for more information about a command.
 ```
@@ -260,6 +261,20 @@ Regenerate the knowledge Appstein keeps in .appstein/.
 Usage: appstein sync [arguments]
 -h, --help      Print this usage information.
     --detect    Rebuild only when something the knowledge reads changed, found by content hash (the after-edit hook).
+
+Run "appstein help" to see global options.
+```
+
+```text
+$ appstein help verify
+Check the project against its knowledge (fast or full).
+
+Usage: appstein verify [arguments]
+-h, --help      Print this usage information.
+    --fast      Run only the fast checks, as after every change.
+    --full      Run every check, as before a task is done (the default).
+    --format    How the findings are printed.
+                [text (default), json]
 
 Run "appstein help" to see global options.
 ```

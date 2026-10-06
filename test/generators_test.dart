@@ -63,9 +63,15 @@ void main() {
     expect(text, contains('\$ appstein help sync\n'));
     expect(text, contains('\$ appstein help mcp\nServe Appstein\'s MCP tools'));
     expect(text, contains('\$ appstein help docs\nRender the human docs'));
+    expect(
+      text,
+      contains(
+        '\$ appstein help verify\nCheck the project against its knowledge',
+      ),
+    );
     // One fenced block for the top-level help and one per command (doctor,
-    // sync, mcp, docs): five blocks, two fences each.
-    expect('```'.allMatches(text), hasLength(10));
+    // sync, mcp, docs, verify): six blocks, two fences each.
+    expect('```'.allMatches(text), hasLength(12));
   });
 
   test('ci-jobs lists the triggers, each job, where it runs and its '
