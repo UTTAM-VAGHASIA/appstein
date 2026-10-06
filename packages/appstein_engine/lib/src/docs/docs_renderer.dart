@@ -9,7 +9,7 @@ const readmePath = 'README.md';
 const engineDocsId = 'engine';
 
 /// One contributor of pages: the engine or a pack, with its template
-/// [version] and its page sources.
+/// `version` and its page sources.
 typedef DocSource = ({String id, String version, List<DocPage> pages});
 
 /// One generated page, ready to write.
