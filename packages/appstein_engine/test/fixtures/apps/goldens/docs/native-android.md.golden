@@ -1,0 +1,94 @@
+## Android
+
+- **Application ID.** The app's identity on a device. A different ID is a different app.
+- **SDK levels.** `minSdk` is the oldest Android the app installs on, `targetSdk` the version it was tested against, and `compileSdk` the version it is built with. A value written as `flutter.minSdkVersion` comes from the Flutter SDK, so it moves when Flutter is upgraded. A number written by hand overrides that.
+- **Permissions.** Each one a manifest declares, with the manifest and line.
+
+| Setting | Value | Where |
+|---|---|---|
+| `buildLanguage` | `kts` |  |
+
+### App module
+
+| Setting | Value | Where |
+|---|---|---|
+| `applicationId` | `dev.sample.probe_app` | [android/app/build.gradle.kts:19](../../android/app/build.gradle.kts#L19) |
+| `compileSdk` | `36`, written as `flutter.compileSdkVersion` (from flutter) | [android/app/build.gradle.kts:9](../../android/app/build.gradle.kts#L9) |
+| `javaSourceCompatibility` | `JavaVersion.VERSION_17` | [android/app/build.gradle.kts:13](../../android/app/build.gradle.kts#L13) |
+| `javaTargetCompatibility` | `JavaVersion.VERSION_17` | [android/app/build.gradle.kts:14](../../android/app/build.gradle.kts#L14) |
+| `kotlinJvmTarget` | `org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17` | [android/app/build.gradle.kts:43](../../android/app/build.gradle.kts#L43) |
+| `minSdk` | `24`, written as `flutter.minSdkVersion` (from flutter) | [android/app/build.gradle.kts:22](../../android/app/build.gradle.kts#L22) |
+| `namespace` | `dev.sample.probe_app` | [android/app/build.gradle.kts:8](../../android/app/build.gradle.kts#L8) |
+| `ndkVersion` | `28.2.13676358`, written as `flutter.ndkVersion` (from flutter) | [android/app/build.gradle.kts:10](../../android/app/build.gradle.kts#L10) |
+| `plugins` | `com.android.application`, `dev.flutter.flutter-gradle-plugin` | [android/app/build.gradle.kts:2](../../android/app/build.gradle.kts#L2) |
+| `releaseSigningConfig` | `debug`, written as `signingConfigs.getByName("debug")` | [android/app/build.gradle.kts:36](../../android/app/build.gradle.kts#L36) |
+| `signingConfigs` | not set: no signing configs in android/app/build.gradle.kts |  |
+| `targetSdk` | `36`, written as `flutter.targetSdkVersion` (from flutter) | [android/app/build.gradle.kts:23](../../android/app/build.gradle.kts#L23) |
+| `versionCode` | `1`, written as `flutter.versionCode` (from pubspec.yaml:19) | [android/app/build.gradle.kts:28](../../android/app/build.gradle.kts#L28) |
+| `versionName` | `1.0.0`, written as `flutter.versionName` (from pubspec.yaml:19) | [android/app/build.gradle.kts:29](../../android/app/build.gradle.kts#L29) |
+
+#### `flavors`
+
+None.
+
+### Build tools
+
+| Setting | Value | Where |
+|---|---|---|
+| `agp` | `9.1.0` | [android/settings.gradle.kts:22](../../android/settings.gradle.kts#L22) |
+| `flutterPluginLoader` | `1.0.0` | [android/settings.gradle.kts:21](../../android/settings.gradle.kts#L21) |
+| `kgp` | `2.4.0` | [android/settings.gradle.kts:23](../../android/settings.gradle.kts#L23) |
+
+### Gradle
+
+| Setting | Value | Where |
+|---|---|---|
+| `distribution` | `all` | [android/gradle/wrapper/gradle-wrapper.properties:5](../../android/gradle/wrapper/gradle-wrapper.properties#L5) |
+| `version` | `9.3.1` | [android/gradle/wrapper/gradle-wrapper.properties:5](../../android/gradle/wrapper/gradle-wrapper.properties#L5) |
+
+### Manifests and permissions
+
+#### `debug`
+
+| Setting | Value | Where |
+|---|---|---|
+| `icon` | not set: no \<application\> element in android/app/src/debug/AndroidManifest.xml | [android/app/src/debug/AndroidManifest.xml](../../android/app/src/debug/AndroidManifest.xml) |
+| `label` | not set: no \<application\> element in android/app/src/debug/AndroidManifest.xml | [android/app/src/debug/AndroidManifest.xml](../../android/app/src/debug/AndroidManifest.xml) |
+
+##### `permissions`
+
+| Name | Declared at |
+|---|---|
+| `android.permission.INTERNET` | [android/app/src/debug/AndroidManifest.xml:6](../../android/app/src/debug/AndroidManifest.xml#L6) |
+
+#### `main`
+
+| Setting | Value | Where |
+|---|---|---|
+| `icon` | `@mipmap/ic_launcher` | [android/app/src/main/AndroidManifest.xml:5](../../android/app/src/main/AndroidManifest.xml#L5) |
+| `label` | `probe_app` | [android/app/src/main/AndroidManifest.xml:3](../../android/app/src/main/AndroidManifest.xml#L3) |
+
+##### `permissions`
+
+None.
+
+#### `profile`
+
+| Setting | Value | Where |
+|---|---|---|
+| `icon` | not set: no \<application\> element in android/app/src/profile/AndroidManifest.xml | [android/app/src/profile/AndroidManifest.xml](../../android/app/src/profile/AndroidManifest.xml) |
+| `label` | not set: no \<application\> element in android/app/src/profile/AndroidManifest.xml | [android/app/src/profile/AndroidManifest.xml](../../android/app/src/profile/AndroidManifest.xml) |
+
+##### `permissions`
+
+| Name | Declared at |
+|---|---|
+| `android.permission.INTERNET` | [android/app/src/profile/AndroidManifest.xml:6](../../android/app/src/profile/AndroidManifest.xml#L6) |
+
+### Gradle properties
+
+| Setting | Value | Where |
+|---|---|---|
+| `android.builtInKotlin` | `false` | [android/gradle.properties:6](../../android/gradle.properties#L6) |
+| `android.newDsl` | `false` | [android/gradle.properties:4](../../android/gradle.properties#L4) |
+| `android.useAndroidX` | `true` | [android/gradle.properties:2](../../android/gradle.properties#L2) |

@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1c.3</b> Human docs</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d</b> Verifier</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -675,8 +675,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
   <div class="pg-bar">
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1b" style="--fill:100%"><b>1b</b><span>Knowledge layers 1–2</span><i>8 of 8 done</i></a>
-    <a class="pg-seg pg-underway" href="#pg-1c" style="--fill:80%"><b>1c</b><span>MCP server</span><i>4 of 5 done</i></a>
-    <a class="pg-seg pg-planned" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
+    <a class="pg-seg pg-done" href="#pg-1c" style="--fill:100%"><b>1c</b><span>MCP server</span><i>5 of 5 done</i></a>
+    <a class="pg-seg pg-next" href="#pg-1d" style="--fill:0%"><b>1d</b><span>Verifier</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1f" style="--fill:0%"><b>1f</b><span>upgrade, skills, benchmark</span><i>0 of 1 done</i></a>
   </div>
@@ -759,8 +759,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         </li>
       </ol>
     </li>
-    <li class="pg-item pg-underway" id="pg-1c">
-      <p class="pg-title"><b>1c</b> MCP server <span class="tag warn">In progress</span></p>
+    <li class="pg-item pg-done" id="pg-1c">
+      <p class="pg-title"><b>1c</b> MCP server <span class="tag ok">Done</span></p>
       <p class="pg-summary">The MCP server with the §8 tools, knowledge layers 3–4 (decisions and memory) and the human docs renderer with <code>appstein docs</code>.</p>
       <ol class="pg-timeline pg-sub">
         <li class="pg-item pg-done" id="pg-1c-1">
@@ -783,14 +783,15 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <p class="pg-summary">Knowledge layers 3–4 in the §6.7–6.8 formats, with the <code>decisions</code>, <code>record_decision</code>, <code>memory_read</code> and <code>memory_write</code> tools.</p>
           <p class="pg-meta"><time datetime="2026-10-06">6 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/7">PR #7</a> · <a href="../plans/2026-10-06-slice-1c2-decisions-memory.md">Plan</a></p>
         </li>
-        <li class="pg-item pg-next" id="pg-1c-3">
-          <p class="pg-title"><b>1c.3</b> Human docs <span class="tag info">Next</span></p>
+        <li class="pg-item pg-done" id="pg-1c-3">
+          <p class="pg-title"><b>1c.3</b> Human docs <span class="tag ok">Done</span></p>
           <p class="pg-summary">The <code>docs/app/</code> renderer with the pack doc pages and <code>appstein docs [--check]</code>, byte-identical for unchanged knowledge.</p>
+          <p class="pg-meta"><time datetime="2026-10-06">6 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/8">PR #8</a> · <a href="../plans/2026-10-06-slice-1c3-human-docs.md">Plan</a></p>
         </li>
       </ol>
     </li>
-    <li class="pg-item pg-planned" id="pg-1d">
-      <p class="pg-title"><b>1d</b> Verifier <span class="tag neutral">Planned</span></p>
+    <li class="pg-item pg-next" id="pg-1d">
+      <p class="pg-title"><b>1d</b> Verifier <span class="tag info">Next</span></p>
       <p class="pg-summary">Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, <code>docs.stale</code>, suppressions, and the <code>verify</code> and <code>package_check</code> MCP tools.</p>
     </li>
     <li class="pg-item pg-planned" id="pg-1e">
@@ -1016,16 +1017,17 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <div class="card page"><code>features/&lt;name&gt;.md</code><p>Screens → view models → repositories → services.</p></div>
         <div class="card page"><code>routes.md</code><p>The route tree; dynamic routes marked unresolved.</p></div>
         <div class="card page"><code>native.md</code><p>Android and iOS setup, each value with file:line.</p></div>
-        <div class="card page"><code>dependencies.md</code><p>Each package, where it’s used, its gate verdict.</p></div>
-        <div class="card page"><code>decisions.md</code><p>Every decision and the reason behind it.</p></div>
+        <div class="card page"><code>dependencies.md</code><p>Each package, where it’s used, its gate verdict (from 1d).</p></div>
+        <div class="card page"><code>decisions.md</code><p>Accepted decisions with their reasons, then proposed, then superseded.</p></div>
       </div>
       <details class="more">
         <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
         <div class="more-body">
           <p><b>Nothing written just for the docs.</b> Concept text ships inside each pack; project text comes from decision reasons and <code>///</code> doc comments, required by <code>document_public_classes</code>.</p>
-          <p><b>Quiet in git:</b> no timestamps, so unchanged code gives unchanged docs. A conflict is fixed by re-running <code>appstein docs</code>.</p>
+          <p><b>One command:</b> <code>appstein docs</code> brings the knowledge up to date, then renders. If the knowledge can’t be made current or the map is missing, it changes nothing and exits 1. A page that is no longer rendered, such as a removed feature’s, is deleted, unless a person edited it: that one is kept and named until they deal with it.</p>
+          <p><b>Quiet in git:</b> no timestamps, and each page’s marker holds its templates’ version, not Appstein’s, so unchanged code gives unchanged docs across releases. Line endings alone never count as a change. A page holds only what the project’s committed files fix: a value that follows the installed Flutter is shown as a number only when the project pins Flutter, and a setting of one machine is never shown, so every teammate and CI render the same bytes. A conflict is fixed by re-running <code>appstein docs</code>.</p>
           <p><b>Kept honest:</b> <code>docs.stale</code> warns when docs fall behind or a generated page was hand-edited. Teams can raise it to an error.</p>
-          <p><b>Team notes are safe:</b> any file in <code>docs/app/</code> without the Appstein marker is never touched and is listed in the README.</p>
+          <p><b>Team notes are safe:</b> any file in <code>docs/app/</code> without the Appstein marker is never touched and is listed in the README. If one sits where a page would be written, <code>appstein docs</code> changes nothing and names it.</p>
           <p><b>Appstein’s own repo too:</b> graphify serves agents; a developer guide in <code>docs/guide/</code> and <code>dart doc</code> API docs serve humans. CI keeps the guide current: every source file maps to a guide page, and generated facts can’t drift.</p>
         </div>
       </details>

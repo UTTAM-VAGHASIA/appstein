@@ -11,7 +11,8 @@ This is the overview. It shows the parts and how they connect, then points to th
 
 Appstein is currently:
 
-- a command line, `appstein`, with `--version` and three commands, `doctor`, `sync` and `mcp`;
+- a command line, `appstein`, with `--version` and four commands, `doctor`, `sync`, `mcp` and `docs`;
+- a renderer, `appstein docs`, that turns the knowledge into Markdown pages for people, in the project's docs folder (see [human-docs](human-docs.md));
 - an MCP server, `appstein mcp`, that answers an agent's questions from the knowledge, with seven read tools, and reads and writes the project's decisions and memory with four more (see [mcp-server](mcp-server.md) and [decisions-and-memory](decisions-and-memory.md));
 - an engine behind it, which holds all the logic;
 - shared data models;
@@ -105,9 +106,10 @@ The engine's core (everything outside the pack folders `lib/src/packs/official_m
 | `mcp/` | The MCP server: the tool list, the queue, the freshness step, and one function per tool | [mcp-server](mcp-server.md) |
 | `decisions/` | Decision records: the text of one file, and the store that reads the folder by the spec's rules and writes under the lock | [decisions-and-memory](decisions-and-memory.md) |
 | `memory/` | The memory files: where they are, and how a lesson line is appended | [decisions-and-memory](decisions-and-memory.md) |
+| `docs/` | The human docs: what a page may read, the renderer, the page marker, the engine's own pages, and the code that compares, writes and deletes in the docs folder | [human-docs](human-docs.md) |
 | `index/` | `INDEX.md`: what it reads from the project, and the renderer that keeps it within 1,500 tokens | [index-md](index-md.md) |
 | `skills/` | Package skills: running package:skills for the agents set up in the project when the dependencies change | [package-skills](package-skills.md) |
-| `packs/` | The `Pack` interface; `official_mvvm/`: its layer rules, features and routes; `android/` and `ios/`: the readers behind `native.json` | [project-map](project-map.md), [native-config](native-config.md) |
+| `packs/` | The `Pack` interface; `official_mvvm/`: its layer rules, features, routes and doc pages; `android/` and `ios/`: the readers behind `native.json`, and their sections of `native.md` | [project-map](project-map.md), [native-config](native-config.md), [human-docs](human-docs.md) |
 | `notes/` | The curated notes, parsed and compiled in | [knowledge-store](knowledge-store.md) |
 | `toolchain/` | Reads the native toolchain matrix from the Flutter SDK | [toolchain](toolchain.md) |
 

@@ -36,6 +36,9 @@ final class _SecondPack implements Pack {
 
   @override
   NativeExtractor? get nativeExtractor => null;
+
+  @override
+  List<DocPage> get docPages => const [];
 }
 
 void main() {

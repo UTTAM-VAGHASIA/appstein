@@ -1,5 +1,6 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
+import '../docs/doc_page.dart';
 import '../map/map_extractor.dart';
 import '../native/native_extractor.dart';
 
@@ -38,4 +39,9 @@ abstract interface class Pack {
 
   /// The layer rules a stack pack declares (spec §9.6), or null.
   LayerRules? get layerRules;
+
+  /// The human doc pages it renders, with its concept text (spec §6.9).
+  /// [version] is their template version too: a pack that changes a page's
+  /// shape gets a new version.
+  List<DocPage> get docPages;
 }

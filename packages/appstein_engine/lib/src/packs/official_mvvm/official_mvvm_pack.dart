@@ -1,9 +1,13 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
+import '../../docs/doc_page.dart';
 import '../../map/map_extractor.dart';
 import '../../map/project_analysis.dart';
 import '../../native/native_extractor.dart';
 import '../pack.dart';
+import 'docs/architecture_page.dart';
+import 'docs/feature_pages.dart';
+import 'docs/routes_page.dart';
 import 'features.dart';
 import 'layer_rules.dart';
 import 'routes.dart';
@@ -31,6 +35,13 @@ final class OfficialMvvmPack implements Pack {
 
   @override
   NativeExtractor? get nativeExtractor => null;
+
+  @override
+  List<DocPage> get docPages => const [
+    ArchitecturePage(),
+    FeaturePages(),
+    RoutesPage(),
+  ];
 }
 
 /// Writes official_mvvm's part of the map: `routes.json` and

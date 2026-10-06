@@ -194,7 +194,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 | `appstein sync [--detect]` | Regenerate knowledge. A plain `sync` rebuilds everything; `--detect` compares content hashes with `state.json` and rebuilds only when an input changed (§5.4) |
 | `appstein verify [--fast\|--full] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks; exit codes in §9.5 |
 | `appstein mcp` | Start the MCP server over stdio (launched by agents) |
-| `appstein docs [--check]` | Render the human docs into `docs/app/` (§6.9); `--check` writes nothing and exits 1 if the docs are stale |
+| `appstein docs [--check]` | Bring the knowledge up to date, then render the human docs into `docs/app/` (§6.9); `--check` writes no page and exits 1 if any page is stale |
 | `appstein upgrade [--dry-run]` | Apply versioned migrations after an SDK or Appstein upgrade (§13.2) |
 | `appstein integrate [claude\|codex\|all] [--remove]` | (Re)install or remove agent integration in the current project |
 | `appstein doctor` | Check the environment and explain fixes. Checks: Flutter, Dart, FVM, **the JDK Flutter actually uses** (`flutter config --jdk-dir`, `JAVA_HOME` vs Android Studio's bundled JBR), Android SDK + build-tools (incl. `zipalign`), Xcode ≥ 26 + CocoaPods on macOS, git, ripgrep (needed by the Dart MCP server's `rip_grep_packages`), agent CLIs, and that `appstein` is on the PATH that agent hook shells see (Windows) |
@@ -425,11 +425,13 @@ Everything above is shaped for agents: compact, machine-readable and git-ignored
 |---|---|---|
 | `README.md` | What the app is: name, app/bundle IDs, target platforms, stack pack, Flutter/Dart/language version, how to run it, and an index of every page (including team notes, below) | engine |
 | `architecture.md` | The stack's layers in plain language (what a view model, repository and service each do), a Mermaid diagram of which layer may use which (from the pack's layer rules, §9.6), and a folder → layer table | stack pack |
-| `features/<feature>.md` | One page per feature: screens → view models → repositories → services as a Mermaid diagram and a table, the feature's routes and tests, and the doc-comment summary of each class | stack pack |
+| `features/<feature>.md` | One page per feature: screens → view models → repositories → services as a Mermaid diagram and a table, the feature's routes and tests, and the doc-comment summary of each class. A feature in a nested folder keeps its folders: `auth/login` is `features/auth/login.md` | stack pack |
 | `routes.md` | The route tree, with dynamic routes marked "unresolved" (never guessed, §6.5) | stack pack |
-| `native.md` | Android and iOS setup: IDs, SDK levels, toolchain versions, and every permission with the plugin that needs it, each value with its file:line | platform packs |
-| `dependencies.md` | Each package: version, where it is used, and its last package-gate verdict (§9.4) | engine |
-| `decisions.md` | Every accepted decision with its "Why", linking to the record in `.appstein/decisions/`; superseded decisions listed separately | engine |
+| `native.md` | Android and iOS setup: IDs, SDK levels, toolchain versions, and every permission with the plugin that needs it, each value with its file:line. The plugin joins the page once the map records it (slice 1d) | platform packs |
+| `dependencies.md` | Each package: version, where it is used, and its last package-gate verdict (§9.4). The verdict joins the page in slice 1d, with the gate | engine |
+| `decisions.md` | Every accepted decision with its "Why", linking to the record in `.appstein/decisions/`. Proposed decisions, which nobody has agreed to yet (§6.7), come next in their own section, so the person who can accept them sees them. Superseded decisions are listed separately | engine |
+
+When several packs render one page, as the platform packs do for `native.md`, each contributes its sections and the engine joins them in pack order.
 
 GitHub renders Mermaid diagrams natively, so the pages need no extra tooling to read.
 
@@ -438,7 +440,7 @@ GitHub renders Mermaid diagrams natively, so the pages need no extra tooling to 
 - **Concept explanations** ("what is a view model?", "why SDK levels use `flutter.*` variables") are written **once, by Appstein, inside each pack**, and are versioned with the pack. They are not per-project text.
 - **Project-specific explanations** come from two places that already exist:
   - the "Why" in each decision record (§6.7);
-  - `///` doc comments on public classes. The `document_public_classes` lint (§9.6) requires them in the layers the docs render, and the map stores each one's first sentence as the symbol's summary (§6.5).
+  - `///` doc comments on public classes. The `document_public_classes` lint (§9.6) requires them in the layers the docs render, and the map stores each one's first sentence as the symbol's summary (§6.5). A class without one is shown as having no description yet; Appstein never writes one for it.
 
 **When the docs are rendered:**
 
@@ -447,17 +449,29 @@ GitHub renders Mermaid diagrams natively, so the pages need no extra tooling to 
 - `appstein docs` renders them on demand, e.g. after a human edits code without Appstein.
 - If `docs.enabled` is `false`, nothing is rendered and `docs.stale` doesn't run.
 
+**What `appstein docs` does:**
+
+- **Knowledge first.** It brings the knowledge up to date before it renders, the way the MCP tools do before they answer (§8), so one command is enough after a hand edit, and it works in CI, where `.appstein/` doesn't exist yet. `--check` does the same; the page it never writes is a page in `docs/app/`.
+- **All of the knowledge, or nothing.** If the knowledge can't be made current, or the project map is missing (§6.5), it writes, removes and judges nothing in `docs/app/`. It says why and what to fix, and exits 1. Pages are never rendered from part of the knowledge: a set of pages that describes two different moments is worse than the old set.
+- **Pages that are no longer rendered.** A page with the marker that this render doesn't produce, such as the page of a feature that was removed, is deleted, and the command names it. Appstein deletes only what is provably its own unchanged output: a page whose body no longer matches its marker was edited by a person (it may be a copy they turned into notes), so it is kept and named on every run, and `--check` reports it, until the person deletes it or removes its first line to keep it as a team note.
+- **`--check`** renders every page in memory and writes none. A page is stale when it is missing, when it differs from the rendered one, or when it is no longer rendered. It names each stale page and exits 1 if there is one.
+
 **Staying correct:**
 
-- **Deterministic output.** Each page starts with an Appstein-managed marker holding the Appstein version, a hash of the page's inputs and a hash of the rendered body. There is **no timestamp in the body**, so re-rendering unchanged knowledge produces no git diff. An Appstein upgrade that changes the templates produces a single one-time diff.
-- **`docs.stale`** (in `verify --full`, §9.2) re-computes each page's input hash and reports pages that fell behind. It is a **warning** by default: blocking a human's CI over docs would punish exactly the people the docs are for. Teams that want it enforced raise it to an error with `verify.severity`.
+- **Deterministic output.** Each page starts with an Appstein-managed marker holding the version of the templates that rendered it and a hash of the rendered body. It holds no hash of the page's inputs: those are whole knowledge files, so one new class would change the first line of every feature page, and a page is checked by rendering it again, which is exact and takes well under the 2 s of §15. The template version is the version of each pack that contributed to the page, or the engine's docs version for an engine page. It is not the Appstein version, which would change the first line of every page at every release. There is **no timestamp in the body**, so re-rendering unchanged knowledge produces no git diff. An Appstein upgrade changes only the pages whose templates changed, once.
+- **The same on every machine.** The pages are committed, so every teammate and CI must render the same bytes. A page holds only what the project's committed files fix:
+  - a value that follows the installed Flutter SDK (the Flutter and Dart versions, an Android SDK level written as `flutter.minSdkVersion`) is shown as a number only when the project pins Flutter (`.fvmrc`), because then every machine resolves the same one. Without a pin the page shows how the value is written and says that it follows the Flutter in use;
+  - a setting of one machine (its global Flutter config, an environment variable) and anything read from a git-ignored folder (such as `ios/Flutter/ephemeral/`) is never shown as a value.
+- **Merge conflicts in the marker.** The body hash is in a page's first line, so two branches that change one page always conflict there. A file whose first line is git's `<<<<<<<` and whose second is a marker is still Appstein's page, and is written again.
+- **Line endings.** Pages are written with LF line endings. A page that differs from the rendered one only in its line endings counts as unchanged, so a Windows checkout that converts line endings isn't reported as stale or hand-edited.
+- **`docs.stale`** (in `verify --full`, §9.2) renders each page again, as `appstein docs --check` does, and reports pages that fell behind. It is a **warning** by default: blocking a human's CI over docs would punish exactly the people the docs are for. Teams that want it enforced raise it to an error with `verify.severity`.
 - **Merge conflicts** in generated pages are resolved by re-running `appstein docs` after the code conflict is resolved, because the output depends only on the code and knowledge.
 
 **Hand edits and team notes:**
 
-- Generated pages carry the marker and say "Generated by Appstein; edits are overwritten".
+- Generated pages carry the marker and say "Generated by Appstein; edits are overwritten". `appstein docs` overwrites a hand-edited page and says that it did.
 - `docs.stale` also reports a generated page whose body no longer matches the body hash in its marker (it was hand-edited) as a warning, suggesting the text be moved into a team note.
-- **Any file in `docs/app/` without the marker is never touched.** Teams keep their own notes there (onboarding steps, runbooks), and `README.md` lists them under "Team notes".
+- **Any file in `docs/app/` without the marker is never touched.** Teams keep their own notes there (onboarding steps, runbooks), and `README.md` lists them under "Team notes". When such a file sits where a page would be written, `appstein docs` writes and removes nothing, names the file, says to move or rename it, and exits 1.
 - The Appstein-managed block in `CLAUDE.md` / `AGENTS.md` tells agents never to edit generated docs (§11.1).
 
 **Not in M1:** a browsable HTML site with search (`appstein docs --serve`) can be layered on the same Markdown later (§2.3).
@@ -714,7 +728,7 @@ abstract interface class Pack {
 ```
 
 - **M1 packs:** `official_mvvm` (stack), `android` and `ios` (platform).
-- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`. Slice 1b.4 adds `nativeExtractor`.
+- **The interface grows with the slices.** Each member is added in the slice that first uses it. Slice 1b.3 adds `id`, `kind`, `version`, `extractors` and `layerRules`. Slice 1b.4 adds `nativeExtractor`. Slice 1c.3 adds `docPages`.
 - **Later packs:** `riverpod` and `bloc` (M3, together with support for existing projects), then `web`, `windows`, `macos` and `linux` (M4+). **The final goal is every platform Flutter supports.**
 - **Community packs** defined in code (inspired by Twenty's `defineObject`) and a pack scaffold: M3+.
 - **A pack must never read another pack's data directly.** Shared facts (e.g. the resolved plugin graph) are provided by the engine through the protocol.

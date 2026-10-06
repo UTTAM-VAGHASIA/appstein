@@ -4,6 +4,7 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
+import 'docs_command.dart';
 import 'doctor_command.dart';
 import 'exit_codes.dart';
 import 'mcp_command.dart';
@@ -48,6 +49,7 @@ Future<int> runAppstein(
         ),
       )
       ..addCommand(SyncCommand(out: output, err: errors, environment: machine))
+      ..addCommand(DocsCommand(out: output, err: errors, environment: machine))
       ..addCommand(
         McpCommand(
           out: output,

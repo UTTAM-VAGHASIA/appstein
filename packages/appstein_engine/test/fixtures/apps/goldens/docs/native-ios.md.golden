@@ -1,0 +1,45 @@
+## iOS
+
+- **Bundle identifier.** The app's identity on a device.
+- **Deployment target.** The oldest iOS the app runs on.
+- **Usage descriptions.** The `Info.plist` texts iOS shows when the app asks for the camera, location and so on.
+
+| Setting | Value | Where |
+|---|---|---|
+| `podfile` | not set: no ios/Podfile: Flutter creates one only when a plugin needs CocoaPods |  |
+
+### Xcode project
+
+| Setting | Value | Where |
+|---|---|---|
+| `swiftPackageIntegrated` | `true` | [ios/Runner.xcodeproj/project.pbxproj](../../ios/Runner.xcodeproj/project.pbxproj) |
+
+#### `configurations`
+
+| Name | Declared at | `bundleIdentifier` | `deploymentTarget` | `developmentTeamSet` | `swiftVersion` |
+|---|---|---|---|---|---|
+| `Debug` | [ios/Runner.xcodeproj/project.pbxproj:554](../../ios/Runner.xcodeproj/project.pbxproj#L554) | `dev.sample.probeApp` ([ios/Runner.xcodeproj/project.pbxproj:567](../../ios/Runner.xcodeproj/project.pbxproj#L567)) | `15.0`; set at project level; the target's .xcconfig file can override it ([ios/Runner.xcodeproj/project.pbxproj:490](../../ios/Runner.xcodeproj/project.pbxproj#L490)) | unknown: DEVELOPMENT\_TEAM is not in project.pbxproj; it may come from an .xcconfig file ([ios/Runner.xcodeproj/project.pbxproj](../../ios/Runner.xcodeproj/project.pbxproj)) | `5.0` ([ios/Runner.xcodeproj/project.pbxproj:571](../../ios/Runner.xcodeproj/project.pbxproj#L571)) |
+| `Profile` | [ios/Runner.xcodeproj/project.pbxproj:373](../../ios/Runner.xcodeproj/project.pbxproj#L373) | `dev.sample.probeApp` ([ios/Runner.xcodeproj/project.pbxproj:386](../../ios/Runner.xcodeproj/project.pbxproj#L386)) | `15.0`; set at project level; the target's .xcconfig file can override it ([ios/Runner.xcodeproj/project.pbxproj:363](../../ios/Runner.xcodeproj/project.pbxproj#L363)) | unknown: DEVELOPMENT\_TEAM is not in project.pbxproj; it may come from an .xcconfig file ([ios/Runner.xcodeproj/project.pbxproj](../../ios/Runner.xcodeproj/project.pbxproj)) | `5.0` ([ios/Runner.xcodeproj/project.pbxproj:389](../../ios/Runner.xcodeproj/project.pbxproj#L389)) |
+| `Release` | [ios/Runner.xcodeproj/project.pbxproj:576](../../ios/Runner.xcodeproj/project.pbxproj#L576) | `dev.sample.probeApp` ([ios/Runner.xcodeproj/project.pbxproj:589](../../ios/Runner.xcodeproj/project.pbxproj#L589)) | `15.0`; set at project level; the target's .xcconfig file can override it ([ios/Runner.xcodeproj/project.pbxproj:542](../../ios/Runner.xcodeproj/project.pbxproj#L542)) | unknown: DEVELOPMENT\_TEAM is not in project.pbxproj; it may come from an .xcconfig file ([ios/Runner.xcodeproj/project.pbxproj](../../ios/Runner.xcodeproj/project.pbxproj)) | `5.0` ([ios/Runner.xcodeproj/project.pbxproj:592](../../ios/Runner.xcodeproj/project.pbxproj#L592)) |
+
+### Info.plist
+
+| Setting | Value | Where |
+|---|---|---|
+| `bundleIdentifier` | `$(PRODUCT_BUNDLE_IDENTIFIER)`; uses Xcode build variables | [ios/Runner/Info.plist:14](../../ios/Runner/Info.plist#L14) |
+| `bundleName` | `probe_app` | [ios/Runner/Info.plist:18](../../ios/Runner/Info.plist#L18) |
+| `bundleVersion` | `$(FLUTTER_BUILD_NUMBER)`; uses Xcode build variables | [ios/Runner/Info.plist:26](../../ios/Runner/Info.plist#L26) |
+| `displayName` | `Probe App` | [ios/Runner/Info.plist:10](../../ios/Runner/Info.plist#L10) |
+| `sceneDelegate` | `$(PRODUCT_MODULE_NAME).SceneDelegate`; uses Xcode build variables | [ios/Runner/Info.plist:43](../../ios/Runner/Info.plist#L43) |
+| `sceneManifest` | `true` | [ios/Runner/Info.plist:29](../../ios/Runner/Info.plist#L29) |
+| `shortVersionString` | `$(FLUTTER_BUILD_NAME)`; uses Xcode build variables | [ios/Runner/Info.plist:22](../../ios/Runner/Info.plist#L22) |
+
+#### `usageDescriptions`
+
+None.
+
+### Swift Package Manager
+
+| Setting | Value | Where |
+|---|---|---|
+| `enabled` | `true` (from default); on by default since Flutter 3.44 |  |
