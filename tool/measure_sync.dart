@@ -15,6 +15,11 @@ import 'package:path/path.dart' as p;
 ///   times beside the median;
 /// - each MCP tool's answer on that app, from fresh knowledge, in one
 ///   `appstein mcp` process: under 1 s, as the median of three;
+/// - `appstein docs` on that app, from fresh knowledge: writing every page,
+///   then with nothing to write, and `docs --check`, each under 2 s (the
+///   last two as the median of three). It also checks what the real command
+///   does: the pages are written, a second run changes nothing, and
+///   `--check` after a hand edit exits 1, names the page and writes nothing.
 ///
 /// The same rows are measured for a 1,000-file app. Their times are printed
 /// for information only and never held to a target (owner decision, slice
@@ -201,8 +206,72 @@ Future<void> main(List<String> args) async {
       }
 
       if (held) {
+        // The knowledge is still fresh, so these measure spec §15's
+        // "`appstein docs` from fresh knowledge < 2 s", and check what the
+        // real command does on real files.
+        Future<_Run> docs([List<String> flags = const []]) =>
+            _run(exe, app, flutterRoot, flags, command: 'docs');
+        String? wrong(_Run run, int exit, String start) =>
+            run.exitCode == exit && run.stdout.startsWith(start)
+            ? null
+            : 'exit code ${run.exitCode}, expected $exit and output '
+                  'starting "$start":\n${run.stdout}${run.stderr}';
+        final written = await docs();
+        if (wrong(written, 0, 'Rendered docs/app/: ') case final problem?) {
+          stderr.writeln('The first appstein docs: $problem');
+          exitCode = 1;
+          return;
+        }
+        times['docsFirst'] = written.elapsed;
+        final again = <_Run>[];
+        final checks = <_Run>[];
+        for (var i = 0; i < 3; i++) {
+          for (final (into, flags) in [
+            (again, const <String>[]),
+            (checks, const ['--check']),
+          ]) {
+            final run = await docs(flags);
+            if (wrong(run, 0, 'docs/app/ is up to date (')
+                case final problem?) {
+              stderr.writeln('appstein docs ${flags.join(' ')}: $problem');
+              exitCode = 1;
+              return;
+            }
+            into.add(run);
+          }
+        }
+        record('docs', again);
+        record('docsCheck', checks);
+        // A page edited by hand: --check names it and exits 1, and writes
+        // nothing.
+        final page = File(p.join(app, 'docs', 'app', 'routes.md'));
+        final edited = '${page.readAsStringSync()}Edited by hand.\n';
+        page.writeAsStringSync(edited);
+        final stale = await docs(const ['--check']);
+        if (wrong(stale, 1, 'docs/app/ is behind the app: 1 of ') ??
+                (stale.stdout.contains('  routes.md  hand-edited\n') &&
+                        page.readAsStringSync() == edited
+                    ? null
+                    : 'it did not name routes.md as hand-edited, or it wrote '
+                          'the page:\n${stale.stdout}')
+            case final problem?) {
+          stderr.writeln('appstein docs --check after a hand edit: $problem');
+          exitCode = 1;
+          return;
+        }
+      }
+
+      if (held) {
         String took(String row) => '${times[row]!.inMilliseconds} ms';
         missed = [
+          for (final (row, what) in const [
+            ('docs', 'appstein docs with nothing to write'),
+            ('docsCheck', 'appstein docs --check'),
+          ])
+            if (times[row]! >= const Duration(seconds: 2))
+              '$what took ${took(row)}, the median of three (under 2 s)',
+          if (times['docsFirst']! >= const Duration(seconds: 2))
+            'the first appstein docs took ${took('docsFirst')} (under 2 s)',
           if (full.elapsed >= const Duration(seconds: 30))
             'a full sync took ${full.elapsed.inMilliseconds} ms (under 30 s)',
           if (times['unchanged']! >= const Duration(seconds: 2))
@@ -222,6 +291,8 @@ Future<void> main(List<String> args) async {
       }
     }
     String cell(int files, String row) {
+      // The docs rows are measured on the 200-file app only.
+      if (!columns[files]!.containsKey(row)) return 'not measured';
       final median = '${columns[files]![row]!.inMilliseconds} ms';
       final three = spreads[files]![row];
       return three == null
@@ -239,6 +310,9 @@ ${line('**Full sync, no analyzer cache** (target under 30 s)', 'full')}
 ${line('**`sync --detect`, nothing changed**, median of 3 (target under 2 s)', 'unchanged')}
 ${line('**`sync --detect` after editing a view model**, median of 3 (target under 2 s)', 'viewModel')}
 ${line('**`sync --detect` after editing the router**, median of 3 (target under 2 s)', 'router')}
+${line('**`docs`, writing every page** (target under 2 s)', 'docsFirst')}
+${line('**`docs`, nothing to write**, median of 3 (target under 2 s)', 'docs')}
+${line('**`docs --check`**, median of 3 (target under 2 s)', 'docsCheck')}
 ''');
     stdout.writeln(_breakdown(broken));
     stdout.writeln('''
@@ -438,12 +512,13 @@ Future<_Run> _run(
   String exe,
   String app,
   String flutterRoot,
-  List<String> flags,
-) async {
+  List<String> flags, {
+  String command = 'sync',
+}) async {
   final watch = Stopwatch()..start();
   final result = await Process.run(
     exe,
-    ['--project', app, 'sync', '--timings', ...flags],
+    ['--project', app, command, if (command == 'sync') '--timings', ...flags],
     environment: {'FLUTTER_ROOT': flutterRoot},
   );
   watch.stop();
