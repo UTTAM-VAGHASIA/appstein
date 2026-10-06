@@ -170,6 +170,7 @@ milestones:
             title: Human docs
             summary: The `docs/app/` renderer with the pack doc pages and `appstein docs [--check]`, byte-identical for unchanged knowledge.
             status: next
+            plan: 2026-10-06-slice-1c3-human-docs.md
       - id: 1d
         title: Verifier
         summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale`, suppressions, and the `verify` and `package_check` MCP tools.
