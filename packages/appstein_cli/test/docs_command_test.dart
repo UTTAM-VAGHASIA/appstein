@@ -113,7 +113,7 @@ void main() {
             ),
           ]),
         ),
-        'docs/app/ is behind the app: 4 of 6 pages.\n'
+        'docs/app/ is not up to date: 4 of 6 pages.\n'
         '  features/booking.md  hand-edited\n'
         '  features/home.md     behind the app\n'
         '  features/old.md      no longer rendered\n'
@@ -130,7 +130,7 @@ void main() {
             ),
           ]),
         ),
-        'docs/app/ is behind the app: 1 of 1 page.\n'
+        'docs/app/ is not up to date: 1 of 1 page.\n'
         '  native.md  missing\n'
         'Run `appstein docs` to update it.\n',
       );
@@ -179,6 +179,58 @@ void main() {
         formatDocs(const DocsDisabled()),
         'Human docs are turned off (docs.enabled is false in '
         'appstein.yaml).\n',
+      );
+    });
+
+    test('a page with a merge conflict is named as that', () {
+      const conflicted = DocChange(
+        'routes.md',
+        DocChangeKind.write,
+        reason: DocStaleReason.conflicted,
+      );
+      expect(
+        formatDocs(_done(const [conflicted])),
+        'Rendered docs/app/: 1 written.\n'
+        '  routes.md  written (merge conflict resolved)\n',
+      );
+      expect(
+        formatDocs(_done(check: true, const [conflicted])),
+        'docs/app/ is not up to date: 1 of 1 page.\n'
+        '  routes.md  has a merge conflict\n'
+        'Run `appstein docs` to update it.\n',
+      );
+    });
+  });
+
+  group('docsExitCode', () {
+    const stale = [
+      DocChange('a.md', DocChangeKind.write, reason: DocStaleReason.behind),
+    ];
+
+    test('0 when the docs were written, are current or are turned off', () {
+      expect(docsExitCode(const DocsDisabled()), ExitCodes.ok);
+      expect(docsExitCode(_done(_unchanged)), ExitCodes.ok);
+      expect(docsExitCode(_done(_unchanged, check: true)), ExitCodes.ok);
+      expect(docsExitCode(_done(stale)), ExitCodes.ok, reason: 'written');
+    });
+
+    test('1 when --check found a stale page, or nothing could be done', () {
+      expect(docsExitCode(_done(stale, check: true)), ExitCodes.errorsFound);
+      expect(
+        docsExitCode(
+          _done(check: true, const [
+            DocChange(
+              'old.md',
+              DocChangeKind.remove,
+              reason: DocStaleReason.notRendered,
+            ),
+          ]),
+        ),
+        ExitCodes.errorsFound,
+      );
+      expect(
+        docsExitCode(const DocsRefused(docsPath: 'docs/app', problem: 'x')),
+        ExitCodes.errorsFound,
       );
     });
   });

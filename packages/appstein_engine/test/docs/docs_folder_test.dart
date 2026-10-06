@@ -287,6 +287,79 @@ void main() {
     expect(file('routes.md').readAsStringSync(), routes.text);
   });
 
+  test("a person's file is never taken for a page under another letter "
+      'case', () async {
+    // What a file system that tells letter case apart holds: a person's
+    // `routes.md` and a marked `Routes.md`. The scan is given as that
+    // system would list it, so this runs everywhere.
+    final routes = pages.singleWhere((page) => page.path == 'routes.md');
+    write('routes.md', '# Our own routes\n');
+    final scan = DocsFolderScan(
+      generated: {'Routes.md': routes.text},
+      teamNotes: const [TeamNote(path: 'routes.md', title: 'Our own routes')],
+    );
+    final planned = planDocs(folder, scan, pages);
+    expect(planned.blocked, [
+      '`routes.md` is not an Appstein page (it has no marker), and a page '
+          'would be written there. Move or rename it.',
+    ]);
+    expect(summary(planned.changes).keys, isNot(contains('routes.md')));
+    expect(file('routes.md').readAsStringSync(), '# Our own routes\n');
+  });
+
+  test("a person's file under another letter case is named as it is on "
+      'disk', () {
+    write('Routes.md', '# Our own routes\n');
+    final planned = plan(pages);
+    if (file('routes.md').existsSync()) {
+      expect(planned.blocked, [
+        '`Routes.md` is not an Appstein page (it has no marker), and the '
+            'page `routes.md` would be written over it. Move or rename it.',
+      ]);
+    } else {
+      expect(planned.blocked, isEmpty);
+      expect(summary(planned.changes)['routes.md'], 'write/missing');
+    }
+  });
+
+  test('a page with a merge conflict is still a page, and is written '
+      'again', () async {
+    await render(pages);
+    final routes = pages.singleWhere((page) => page.path == 'routes.md');
+    final theirs = _pages({
+      'routes.md': 'Another route.',
+    }).singleWhere((page) => page.path == 'routes.md');
+    final conflicted =
+        '<<<<<<< HEAD\n${routes.marker.line}\n=======\n'
+        '${theirs.marker.line}\n>>>>>>> feature\n'
+        '${bodyOf(routes.text)}';
+    for (final text in [conflicted, conflicted.replaceAll('\n', '\r\n')]) {
+      write('routes.md', text);
+      final scan = scanDocsFolder(folder);
+      expect(scan.generated.keys, contains('routes.md'));
+      expect(scan.teamNotes, isEmpty);
+      final planned = plan(pages);
+      expect(planned.blocked, isEmpty);
+      expect(summary(planned.changes)['routes.md'], 'write/conflicted');
+      await applyDocs(folder, pages, planned.changes);
+      expect(file('routes.md').readAsStringSync(), routes.text);
+    }
+  });
+
+  test('conflict lines in a file without a marker do not make it a page', () {
+    write('notes.md', '<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> x\n');
+    write(
+      'later.md',
+      '# Notes\n\n<<<<<<< HEAD\n${pages.first.marker.line}\n=======\n',
+    );
+    final scan = scanDocsFolder(folder);
+    expect(scan.generated, isEmpty);
+    expect(
+      [for (final note in scan.teamNotes) note.path],
+      ['later.md', 'notes.md'],
+    );
+  });
+
   test('a write that fails leaves the old page whole', () async {
     await render(_pages({'routes.md': 'An older route.'}));
     final old = file('routes.md').readAsStringSync();

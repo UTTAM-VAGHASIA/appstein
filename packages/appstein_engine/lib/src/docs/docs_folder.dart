@@ -107,7 +107,7 @@ DocsFolderScan scanDocsFolder(String folder) {
       problems.add('`$path` cannot be read (${fileErrorReason(error)}).');
       continue;
     }
-    if (DocMarker.of(text) != null) {
+    if (DocMarker.of(text) != null || isConflictedPage(text)) {
       generated[path] = text;
     } else {
       final title = _heading.firstMatch(withoutBom(text))?.group(1);
@@ -153,6 +153,10 @@ enum DocStaleReason {
   /// its marker.
   handEdited,
 
+  /// Git left the file in a merge conflict ([isConflictedPage]). Writing
+  /// the page again resolves it.
+  conflicted,
+
   /// The file has the marker, but no page is rendered there any more.
   notRendered,
 }
@@ -181,8 +185,12 @@ final class DocChange {
   final bool hadHandEdits;
 }
 
-bool _handEdited(String text) =>
-    DocMarker.of(text)?.body != bodyHash(bodyOf(text));
+/// Whether a page's body no longer matches the hash in its marker. A page
+/// in a merge conflict has no readable marker; git changed it, not a hand.
+bool _handEdited(String text) => switch (DocMarker.of(text)) {
+  final marker? => marker.body != bodyHash(bodyOf(text)),
+  null => false,
+};
 
 /// The changes that make the docs folder at [folder] hold exactly [pages],
 /// sorted by path, and the files that stand in the way.
@@ -203,6 +211,7 @@ bool _handEdited(String text) =>
   final changes = <DocChange>[];
   final blocked = <String>[];
   final matched = <String>{};
+  final teamNotes = {for (final note in scan.teamNotes) note.path};
   for (final page in pages) {
     final segments = page.path.split('/');
     // An ancestor that isn't a folder.
@@ -247,28 +256,51 @@ bool _handEdited(String text) =>
       );
       continue;
     }
-    // On a file system that ignores letter case, the file may be listed
-    // under another case.
-    final key = scan.generated.containsKey(page.path)
-        ? page.path
-        : scan.generated.keys
-              .where(
-                (path) =>
-                    path.toLowerCase() == page.path.toLowerCase() &&
-                    !pages.any((other) => other.path == path),
-              )
-              .firstOrNull;
-    if (key == null) {
+    // A file is there. The scan listed it under the name it has on disk:
+    // that exact name, or, where the file system ignores letter case,
+    // another case of it. A person's file under either name blocks the
+    // page; only a file the scan found the marker in is the page.
+    bool sameButForCase(String path) =>
+        path != page.path && path.toLowerCase() == page.path.toLowerCase();
+    final String? key;
+    if (scan.generated.containsKey(page.path)) {
+      key = page.path;
+    } else if (teamNotes.contains(page.path)) {
+      key = null;
       blocked.add(
         '`${page.path}` is not an Appstein page (it has no marker), and a '
         'page would be written there. Move or rename it.',
       );
-      continue;
+    } else if (teamNotes.where(sameButForCase).firstOrNull case final note?) {
+      key = null;
+      blocked.add(
+        '`$note` is not an Appstein page (it has no marker), and the page '
+        '`${page.path}` would be written over it. Move or rename it.',
+      );
+    } else {
+      key = (scan.generated.keys.where(sameButForCase).toList()..sort())
+          .where((path) => !pages.any((other) => other.path == path))
+          .firstOrNull;
+      if (key == null) {
+        blocked.add(
+          '`${page.path}` is a file that is not an Appstein page, and a page '
+          'would be written there. Move or rename it.',
+        );
+      }
     }
+    if (key == null) continue;
     matched.add(key);
     final text = scan.generated[key]!;
     if (plainLines(text) == page.text) {
       changes.add(DocChange(page.path, DocChangeKind.unchanged));
+    } else if (isConflictedPage(text)) {
+      changes.add(
+        DocChange(
+          page.path,
+          DocChangeKind.write,
+          reason: DocStaleReason.conflicted,
+        ),
+      );
     } else {
       final edited = _handEdited(text);
       changes.add(

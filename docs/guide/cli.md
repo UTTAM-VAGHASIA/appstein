@@ -182,14 +182,14 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 
 1. **Finds the project and loads `appstein.yaml`**, as `sync` does: no project, or an invalid file, exits **3**.
 2. **Calls `runDocs`** with the project's packs and a `KnowledgeSync` built as `sync` builds it, except `packageSkills: false`: package skills start a process and write agent folders, which belongs to `appstein sync`.
-3. **Prints `formatDocs` of the outcome:**
+3. **Prints `formatDocs` of the outcome, and exits with `docsExitCode` of it:**
 
 | Outcome | Printed | To | Exit code |
 |---|---|---|---|
 | The docs are turned off (`docs.enabled: false`) | One line saying so | stdout | 0 |
 | Nothing needed writing | `docs/app/ is up to date (12 pages).` | stdout | 0 |
 | Pages were written or removed | The counts, then a line for each page written or removed. A page whose hand edits were lost says so | stdout | 0 |
-| `--check` found stale pages | Each page with why (`missing`, `behind the app`, `hand-edited`, `no longer rendered`), then `Run \`appstein docs\`` | stdout | 1 |
+| `--check` found stale pages | Each page with why (`missing`, `behind the app`, `hand-edited`, `has a merge conflict`, `no longer rendered`), then `Run \`appstein docs\`` | stdout | 1 |
 | Nothing could be rendered, or a file is in the way | `Nothing in docs/app/ was changed:` and why, any details, then what to do | stderr | 1 |
 | A page couldn't be written or removed | The error, and that some pages may already be written | stderr | 3 |
 

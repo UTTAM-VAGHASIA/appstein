@@ -248,7 +248,7 @@ Future<void> main(List<String> args) async {
         final edited = '${page.readAsStringSync()}Edited by hand.\n';
         page.writeAsStringSync(edited);
         final stale = await docs(const ['--check']);
-        if (wrong(stale, 1, 'docs/app/ is behind the app: 1 of ') ??
+        if (wrong(stale, 1, 'docs/app/ is not up to date: 1 of ') ??
                 (stale.stdout.contains('  routes.md  hand-edited\n') &&
                         page.readAsStringSync() == edited
                     ? null

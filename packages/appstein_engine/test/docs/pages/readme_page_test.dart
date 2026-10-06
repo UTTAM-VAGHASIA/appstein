@@ -89,17 +89,39 @@ void main() {
     expect(text, isNot(contains('Language version')));
   });
 
-  test('names the Android flavors', () {
+  test('groups the pages of any folder under the folder name', () {
+    final text = readmeSection(sampleKnowledge(), [
+      _page('architecture.md', 'Architecture'),
+      _page('blocs/cart.md', 'Bloc: cart'),
+      _page('features/booking.md', 'Feature: booking'),
+      _page('features/shop/cart.md', 'Feature: shop/cart'),
+    ]).markdown;
     expect(
-      readmeSection(
-        sampleKnowledge(native: _android(flavors: const ['prod', 'dev'])),
-        _pages,
-      ).markdown,
-      contains(
-        '```\n\nThe Android app has flavors (`dev`, `prod`): add '
-        '`--flavor <name>` to `flutter run`.\n\n## Pages',
+      text,
+      endsWith(
+        '## Pages\n'
+        '\n'
+        '- [Architecture](architecture.md)\n'
+        '\n'
+        '## Blocs\n'
+        '\n'
+        '- [Bloc: cart](blocs/cart.md)\n'
+        '\n'
+        '## Features\n'
+        '\n'
+        '- [Feature: booking](features/booking.md)\n'
+        '- [Feature: shop/cart](features/shop/cart.md)',
       ),
     );
+  });
+
+  test('the run steps hold nothing about one platform', () {
+    final text = readmeSection(
+      sampleKnowledge(native: _android(flavors: const ['prod', 'dev'])),
+      _pages,
+    ).markdown;
+    expect(text, contains('flutter run\n```\n\n## Pages'));
+    expect(text, isNot(contains('--flavor')));
   });
 
   test('points to the native page for an id it cannot show', () {

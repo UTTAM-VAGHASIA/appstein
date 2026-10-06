@@ -57,7 +57,7 @@ void main() {
       '  end\n'
       '  screens --> view_models\n'
       '  view_models --> repositories\n'
-      '  repositories --> services\n'
+      '  view_models --> services\n'
       '```\n'
       '\n'
       'The arrows show which kind of part uses which, not which class calls '
@@ -153,7 +153,7 @@ void main() {
     expect(text, contains('No tests under `test/ui/settings/` yet.'));
   });
 
-  test('skips a kind that is missing when it draws the arrows', () {
+  test('draws no arrow across a kind the feature does not have', () {
     final text = _render(
       features: FeaturesMap(
         features: {
@@ -165,7 +165,31 @@ void main() {
         },
       ),
     ).single.markdown;
-    expect(text, contains('  screens --> services\n'));
+    // Nothing in the map says a screen uses a service directly.
+    expect(text, contains('  subgraph screens["Screens"]\n'));
+    expect(text, contains('  subgraph services["Services"]\n'));
+    expect(text, isNot(contains('-->')));
+    expect(text, isNot(contains('The arrows show')));
+  });
+
+  test('a view model points at the services its constructor takes, with '
+      'or without repositories', () {
+    final text = _render(
+      features: FeaturesMap(
+        features: {
+          'home': _feature(
+            'lib/ui/home',
+            screens: const [CodeRef(name: 'HomeScreen', file: 'a.dart')],
+            viewModels: const [CodeRef(name: 'HomeViewModel', file: 'c.dart')],
+            services: const [CodeRef(name: 'ApiClient', file: 'b.dart')],
+          ),
+        },
+      ),
+    ).single.markdown;
+    expect(text, contains('  screens --> view_models\n'));
+    expect(text, contains('  view_models --> services\n'));
+    expect(text, isNot(contains('repositories')));
+    expect(text, contains('The arrows show'));
   });
 
   test('a feature with no classes says so and draws nothing', () {

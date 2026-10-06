@@ -69,6 +69,21 @@ final class DocMarker {
   }
 }
 
+/// Whether [text] is a generated page that git left in a merge conflict.
+///
+/// The body hash is in a page's first line, so when two branches change the
+/// same page, git always puts its conflict there: line 1 is `<<<<<<<` and
+/// line 2 is one side's marker. Such a file is still Appstein's page, and
+/// rendering it again resolves the conflict (spec §6.9). Only this exact
+/// shape counts, so a person's note that merely contains conflict lines or
+/// quotes a marker further down is never taken for a page.
+bool isConflictedPage(String text) {
+  final lines = plainLines(text).split('\n');
+  return lines.length > 1 &&
+      lines.first.startsWith('<<<<<<<') &&
+      _markerLine.hasMatch(lines[1]);
+}
+
 /// [text] without a byte order mark, and with every line ending as `\n`.
 /// Generated pages are compared in this form, so a checkout that converts
 /// line endings is never taken for a change (spec §6.9).

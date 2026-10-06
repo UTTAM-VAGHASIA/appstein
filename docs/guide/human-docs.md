@@ -101,11 +101,16 @@ The first line of a generated page is an HTML comment, so it doesn't show on Git
 | write, `missing` | There is no file |
 | write, `behind` | The file is an older render: the app or the templates changed |
 | write, `handEdited` | The file's body doesn't match the hash in its own marker |
+| write, `conflicted` | Git left the file in a merge conflict (see below) |
 | remove, `notRendered` | The file has the marker, but no page is rendered there any more (its feature was removed) |
 
 **Line endings never count.** Git on Windows can check a committed page out with `\r\n`. Both the comparison and the body hash turn `\r\n` into `\n` and drop a byte order mark first (`plainLines`), so a fresh Windows clone isn't reported as stale or hand-edited. Pages are always written with `\n`.
 
+**A merge conflict is still Appstein's page.** The body hash is in line 1, so when two branches change the same page, git always puts its conflict there: line 1 becomes `<<<<<<<` and line 2 one side's marker. `isConflictedPage` recognises exactly that shape, and the page is written again, which is how the spec says a conflict is resolved. A person's note that merely contains conflict lines, or quotes a marker further down, is not taken for a page.
+
 **A file in the way stops the run.** A file without the marker where a page would be written (a team's own `routes.md`), or a folder or a link there, is never overwritten. `planDocs` reports it as blocked, and `runDocs` refuses: nothing is written or removed until the file is moved.
+
+**Letter case.** Windows and macOS usually treat `Routes.md` and `routes.md` as one file; Linux treats them as two. The scan lists each file under the name it has on disk, and `planDocs` works from that list: a person's file under the page's exact name, or under another letter case of it, blocks the page, and only a file the scan found the marker in is taken for the page under another case. A review of this slice found the earlier rule wrong: on Linux it took a marked `Routes.md` for the page and overwrote a person's `routes.md`.
 
 **Writing.** `applyDocs` writes each page in one step (the store's `replaceFile`: a temporary file renamed over the target), `README.md` last so the index never names a page that isn't there yet. Then it removes the pages that are no longer rendered, and the folders that leaves empty, but never the docs folder itself. A hand-edited page is overwritten, and the command says so.
 
@@ -113,13 +118,13 @@ The first line of a generated page is an HTML comment, so it doesn't show on Git
 
 ## The engine's pages
 
-- **`README.md`** ([`readme_page.dart`](../../packages/appstein_engine/lib/src/docs/pages/readme_page.dart)): the stack, the platforms, the Flutter and Dart versions, and the app IDs. The ID lines come from `appIdLines`, the function `INDEX.md` uses, so the two never disagree. "Run it" adds `fvm` when the project pins Flutter with FVM, and names the Android flavors.
+- **`README.md`** ([`readme_page.dart`](../../packages/appstein_engine/lib/src/docs/pages/readme_page.dart)): the stack, the platforms, the Flutter and Dart versions, and the app IDs. The ID lines come from `appIdLines`, the function `INDEX.md` uses, so the two never disagree. "Run it" adds `fvm` when the project pins Flutter with FVM. Pages in a folder are listed under the folder's name ("Features" for `features/`), whatever a pack calls it: the engine doesn't know what a feature is.
 - **`dependencies.md`** ([`dependencies_page.dart`](../../packages/appstein_engine/lib/src/docs/pages/dependencies_page.dart)): the packages grouped by how the app depends on them, with the first five files that import each. The package gate's verdict joins it in slice 1d.
 - **`decisions.md`** ([`decisions_page.dart`](../../packages/appstein_engine/lib/src/docs/pages/decisions_page.dart)): accepted decisions with their reasons, then proposed ones, which nobody has agreed to yet and which the reader is the person to accept, then superseded ones, then what is wrong with the records.
 
 ## The packs' pages
 
-- **`official_mvvm`** ([`packs/official_mvvm/docs/`](../../packages/appstein_engine/lib/src/packs/official_mvvm/docs/)). `architecture.md` draws which layer may use which **from the pack's layer rules**, the same object the `layer_imports` lint enforces, so the diagram can't drift from the rule. Layers that share a first name and may all use each other (`data.repository`, `data.service`, `data.model`) are drawn as one box, because an arrow for every pair hid the diagram; a table under it lists every rule exactly. A feature page shows its parts by kind. The map doesn't record which class calls which, so the arrows go between kinds and the page says so. `routes.md` lists a route Appstein couldn't resolve as unresolved, with the reason, and never guesses it.
+- **`official_mvvm`** ([`packs/official_mvvm/docs/`](../../packages/appstein_engine/lib/src/packs/official_mvvm/docs/)). `architecture.md` draws which layer may use which **from the pack's layer rules**, the same object the `layer_imports` lint enforces, so the diagram can't drift from the rule. Layers that share a first name and may all use each other (`data.repository`, `data.service`, `data.model`) are drawn as one box, because an arrow for every pair hid the diagram; a table under it lists every rule exactly. A feature page shows its parts by kind. The map doesn't record which class calls which, so the arrows go between kinds and the page says so. It draws only the arrows the map supports: screens to view models, and view models to the repositories and the services their constructors take. Nothing in the map says a repository uses one of those services, so no arrow claims it. `routes.md` lists a route Appstein couldn't resolve as unresolved, with the reason, and never guesses it.
 - **`android` and `ios`** ([`android_docs.dart`](../../packages/appstein_engine/lib/src/packs/android/android_docs.dart), [`ios_docs.dart`](../../packages/appstein_engine/lib/src/packs/ios/ios_docs.dart)). Each gives its concept text, the headings for its part of `native.json`, and their order. `nativeTables` walks the whole section, so a value the pack doesn't name still appears, under its key. An unknown value shows its reason and is never guessed (see [native-config](native-config.md)).
 
 To add a page, see [add a doc page](how-to/add-a-doc-page.md).

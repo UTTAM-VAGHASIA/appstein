@@ -103,19 +103,21 @@ final class DocsCommand extends Command<int> {
         );
       return ExitCodes.appsteinFailed;
     }
-    switch (outcome) {
-      case DocsDisabled():
-        out.write(formatDocs(outcome));
-        return ExitCodes.ok;
-      case DocsRefused():
-        err.write(formatDocs(outcome));
-        return ExitCodes.errorsFound;
-      case DocsDone(:final stale):
-        out.write(formatDocs(outcome));
-        return check && stale ? ExitCodes.errorsFound : ExitCodes.ok;
-    }
+    // A refusal is a problem to read, so it goes to stderr.
+    (outcome is DocsRefused ? err : out).write(formatDocs(outcome));
+    return docsExitCode(outcome);
   }
 }
+
+/// The exit code of `appstein docs` for [outcome] (spec §6.9, §9.5): 0 when
+/// the docs were written, are current or are turned off; 1 when `--check`
+/// found a page that isn't current, or when nothing could be rendered.
+int docsExitCode(DocsOutcome outcome) => switch (outcome) {
+  DocsDisabled() => ExitCodes.ok,
+  DocsRefused() => ExitCodes.errorsFound,
+  DocsDone(:final check, :final stale) =>
+    check && stale ? ExitCodes.errorsFound : ExitCodes.ok,
+};
 
 String _count(int count, String one, String many) =>
     '$count ${count == 1 ? one : many}';
@@ -162,13 +164,14 @@ String formatDocs(DocsOutcome outcome) {
           '  ${change.path.padRight(width)}  $what';
       if (check) {
         return [
-          '$docsPath/ is behind the app: ${stale.length} of '
+          '$docsPath/ is not up to date: ${stale.length} of '
               '${_count(changes.length, 'page', 'pages')}.',
           for (final change in stale)
             line(change, switch (change.reason!) {
               DocStaleReason.missing => 'missing',
               DocStaleReason.behind => 'behind the app',
               DocStaleReason.handEdited => 'hand-edited',
+              DocStaleReason.conflicted => 'has a merge conflict',
               DocStaleReason.notRendered => 'no longer rendered',
             }),
           'Run `appstein docs` to update '
@@ -188,7 +191,11 @@ String formatDocs(DocsOutcome outcome) {
             change,
             change.kind == DocChangeKind.write
                 ? 'written'
-                      '${change.hadHandEdits ? ' (overwrote hand edits)' : ''}'
+                      '${change.hadHandEdits
+                          ? ' (overwrote hand edits)'
+                          : change.reason == DocStaleReason.conflicted
+                          ? ' (merge conflict resolved)'
+                          : ''}'
                 : 'removed'
                       '${change.hadHandEdits ? ' (it had hand edits)' : ''}',
           ),

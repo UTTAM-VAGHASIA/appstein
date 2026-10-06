@@ -34,7 +34,7 @@ final class FeaturePages implements DocPage {
     );
 
     // The kinds a diagram shows, in the order one uses the next.
-    final kinds = [
+    final chain = [
       (id: 'screens', node: 'screen', label: 'Screens', refs: feature.screens),
       (
         id: 'view_models',
@@ -54,7 +54,23 @@ final class FeaturePages implements DocPage {
         label: 'Services',
         refs: feature.services,
       ),
-    ].where((kind) => kind.refs.isNotEmpty).toList();
+    ];
+    final kinds = chain.where((kind) => kind.refs.isNotEmpty).toList();
+    // Only the arrows the map supports, and only between kinds that are
+    // both there: a screen is built with its view model, and the feature's
+    // repositories and services are the ones its view models' constructors
+    // take. Nothing says a repository uses one of these services, or that
+    // a screen uses one directly, so no arrow claims it.
+    final arrows = [
+      for (final (from, to) in const [
+        ('screens', 'view_models'),
+        ('view_models', 'repositories'),
+        ('view_models', 'services'),
+      ])
+        if (kinds.any((kind) => kind.id == from) &&
+            kinds.any((kind) => kind.id == to))
+          '  $from --> $to',
+    ];
     final diagram = kinds.isEmpty
         ? null
         : [
@@ -66,8 +82,7 @@ final class FeaturePages implements DocPage {
                 '    ${mermaidId(kind.node, index)}[${mermaidLabel(ref.name)}]',
               '  end',
             ],
-            for (var i = 0; i + 1 < kinds.length; i++)
-              '  ${kinds[i].id} --> ${kinds[i + 1].id}',
+            ...arrows,
             '```',
           ].join('\n');
 
@@ -118,7 +133,7 @@ final class FeaturePages implements DocPage {
     final parts = <String>[
       mdCode(feature.folder),
       ?diagram,
-      if (kinds.length > 1)
+      if (arrows.isNotEmpty)
         'The arrows show which kind of part uses which, not which class '
             'calls which.',
       '## Classes\n\n'
