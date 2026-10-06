@@ -23,6 +23,7 @@
 9. `native.md` lists each permission with its manifest and line; the plugin that needs it joins the page once the map records it (1d).
 10. A file without the marker at a path a page would be written to: nothing is written or removed, the file is named, exit 1.
 11. Execution: native, with one review of the whole branch.
+12. (During Task 3.) The marker holds the template versions and the body hash, and no input hash. A page's inputs are whole knowledge files, so a whole-file hash would change the marker of every feature page when one class is added; a page is checked by rendering it again and comparing, which is the exact answer the hash only predicts. Wherever this plan says `inputs`, `DocsView.read` or `digestOf`, read it as removed: `DocMarker` has `templates` and `body`, and page sources read `DocsKnowledge` directly.
 
 ## Global Constraints
 
