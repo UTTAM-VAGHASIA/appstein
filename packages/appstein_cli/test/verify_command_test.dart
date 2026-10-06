@@ -61,6 +61,7 @@ void main() {
           const VerifyResult(
             findings: [_stale, _drift, _noTest],
             suppressed: 1,
+            activeSuppressions: 1,
             notRun: [
               CheckNotRun(
                 id: 'docs.stale',
@@ -91,7 +92,8 @@ void main() {
         '  docs.stale: the project map is not up to date\n'
         '  verify.test_required: the project map is not up to date\n'
         '\n'
-        '1 error, 2 warnings, 0 info. 1 finding suppressed.\n',
+        '1 error, 2 warnings, 0 info. 1 finding suppressed by 1 '
+        'suppression.\n',
       );
     });
 
@@ -111,9 +113,27 @@ void main() {
       );
       expect(
         formatVerify(
-          const VerifyResult(findings: [_noTest, info, info], suppressed: 2),
+          const VerifyResult(
+            findings: [_noTest, info, info],
+            suppressed: 5,
+            activeSuppressions: 2,
+          ),
         ),
-        endsWith('0 errors, 1 warning, 2 info. 2 findings suppressed.\n'),
+        endsWith(
+          '0 errors, 1 warning, 2 info. 5 findings suppressed by 2 '
+          'suppressions.\n',
+        ),
+      );
+      expect(
+        formatVerify(
+          const VerifyResult(
+            findings: [],
+            suppressed: 4,
+            activeSuppressions: 1,
+          ),
+        ),
+        '0 errors, 0 warnings, 0 info. 4 findings suppressed by 1 '
+        'suppression.\n',
       );
       expect(
         formatVerify(const VerifyResult(findings: [_stale, _stale])),
@@ -318,7 +338,13 @@ void main() {
       expect(err.toString(), isEmpty);
       expect(out.toString(), endsWith('}\n'));
       final json = jsonDecode(out.toString()) as Map<String, Object?>;
-      expect(json.keys, ['findings', 'summary', 'suppressed', 'notRun']);
+      expect(json.keys, [
+        'findings',
+        'summary',
+        'suppressed',
+        'activeSuppressions',
+        'notRun',
+      ]);
       expect(json['summary'], {'errors': 1, 'warnings': 1, 'info': 0});
       final result = VerifyResult.fromJson(json);
       expect(

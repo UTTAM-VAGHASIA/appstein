@@ -663,8 +663,8 @@ The measurements are recorded in the 1a plan.
 
 - **Severities:** `error` blocks "done"; `warning` is reported only; `info` is advisory.
 - **Check IDs** follow `<pack or area>.<check>` and are stable once released.
-- **Text output** groups findings by file, errors first, then lists the checks that did not run with the reason, and ends with a one-line summary: the number of errors, warnings and info findings, and the number of active suppressions.
-- **JSON output** (`--format json`, and the `verify` tool) is one object: `findings` (each in the shape above), `summary` (`errors`, `warnings`, `info`), `suppressed` (a count) and `notRun` (each check's ID and the reason).
+- **Text output** groups findings by file, errors first, then lists the checks that did not run with the reason, and ends with a one-line summary: the number of errors, warnings and info findings, then how many findings are suppressed and by how many suppressions (`3 findings suppressed by 1 suppression.`). One broad suppression can hide many findings, so both numbers are shown.
+- **JSON output** (`--format json`, and the `verify` tool) is one object: `findings` (each in the shape above), `summary` (`errors`, `warnings`, `info`), `suppressed` (the number of findings a suppression hid), `activeSuppressions` (the number of suppressions that hid at least one) and `notRun` (each check's ID and the reason).
 - A finding with no file, such as `knowledge.stale`, is listed first, under the project.
 
 ### 9.4 Package gate
@@ -727,7 +727,7 @@ Professionals need an escape hatch that stays visible:
 - **A check ID must exist.** An `id` that no check of the project has is an error (`suppression.unknown_check`), so a typo never looks like a working suppression.
 - **A suppression that hides nothing** is a warning (`suppression.unused`) naming its line in `appstein.yaml`, so a line left behind can't hide the same finding when it comes back. It is reported only by the full checks, where every check ran.
 - **What can't be suppressed:** the three `suppression.*` findings and `knowledge.stale`. A `verify.severity` override (§7) doesn't change these four either, so no line in `appstein.yaml` can make them quiet.
-- `verify` prints a count of active suppressions, so they never disappear silently.
+- `verify` prints how many findings are suppressed and by how many suppressions (§9.3), so they never disappear silently.
 
 ---
 

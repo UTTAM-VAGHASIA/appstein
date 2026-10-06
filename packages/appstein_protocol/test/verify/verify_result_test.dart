@@ -54,7 +54,8 @@ void main() {
       _f('b.b', file: 'x.md'),
       _f('c.c', file: 'y.md'),
     ],
-    suppressed: 1,
+    suppressed: 3,
+    activeSuppressions: 2,
     notRun: const [
       CheckNotRun(id: 'docs.stale', reason: 'the map is not up to date'),
     ],
@@ -74,7 +75,8 @@ void main() {
         {'id': 'c.c', 'severity': 'warning', 'file': 'y.md', 'message': 'm'},
       ],
       'summary': {'errors': 1, 'warnings': 2, 'info': 0},
-      'suppressed': 1,
+      'suppressed': 3,
+      'activeSuppressions': 2,
       'notRun': [
         {'id': 'docs.stale', 'reason': 'the map is not up to date'},
       ],
@@ -87,6 +89,7 @@ void main() {
       'findings': <Object?>[],
       'summary': {'errors': 0, 'warnings': 0, 'info': 0},
       'suppressed': 0,
+      'activeSuppressions': 0,
       'notRun': <Object?>[],
     });
   });

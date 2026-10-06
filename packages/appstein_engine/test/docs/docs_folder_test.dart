@@ -533,6 +533,23 @@ void main() {
         file('routes.md').deleteSync();
       }
     });
+
+    test('a copy of a page that a person edited is in the way, and is '
+        'kept', () async {
+      await render(pages);
+      final copy = file(
+        'routes.md',
+      ).readAsStringSync().replaceFirst('One route.', 'One route. My notes.');
+      expect(copy, contains('My notes.'));
+      write('routes.md.tmp', copy);
+      final newer = _pages({
+        'routes.md': 'Two routes.',
+        'features/auth/login.md': 'Login.',
+        'features/home.md': 'Home.',
+      });
+      expect(plan(newer).blocked, hasLength(1));
+      expect(file('routes.md.tmp').readAsStringSync(), copy);
+    });
   });
 
   test('a docs folder below a linked folder is refused', () {

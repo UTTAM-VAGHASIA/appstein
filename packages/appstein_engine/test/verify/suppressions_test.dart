@@ -13,7 +13,7 @@ SuppressionEntry _entry(
 
 const _known = {'docs.stale', 'decision.drift', ...unsuppressibleIds};
 
-({List<Finding> kept, int suppressed}) _apply(
+({List<Finding> kept, int suppressed, int active}) _apply(
   List<Finding> findings,
   List<SuppressionEntry> entries, {
   VerifyMode mode = VerifyMode.full,
@@ -96,6 +96,25 @@ void main() {
     );
     expect(result.kept, isEmpty);
     expect(result.suppressed, 3);
+    expect(result.active, 1);
+  });
+
+  test('`active` counts the entries that hid a finding, not the others', () {
+    final result = _apply(
+      [
+        finding('docs.stale', file: 'docs/app/a.md'),
+        finding('docs.stale', file: 'docs/app/b.md'),
+        finding('decision.drift', file: '.appstein/decisions/0001-x.md'),
+      ],
+      [
+        _entry('docs.stale', 'docs/app'),
+        _entry('decision.drift', '.appstein/decisions'),
+        _entry('decision.drift', 'nowhere', line: 20),
+        _entry('docs.stale', 'docs/app/a.md', reason: null, line: 30),
+      ],
+    );
+    expect(result.suppressed, 3);
+    expect(result.active, 2);
   });
 
   test('without a reason it hides nothing and is an error', () {

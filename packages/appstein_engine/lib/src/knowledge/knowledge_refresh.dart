@@ -70,7 +70,10 @@ Future<KnowledgeRefresh> refreshKnowledge(
   } on SyncException catch (error) {
     return KnowledgeRefresh.failed(error.problem, fixHint: error.fixHint);
   } on KnowledgeLockTimeout {
-    return const KnowledgeRefresh.failed(lockBusyProblem);
+    return KnowledgeRefresh.failed(
+      lockBusyProblem,
+      fixHint: 'Wait for it to finish. $runAgain',
+    );
   } on KnowledgeWriteException catch (error) {
     return KnowledgeRefresh.failed(
       'the knowledge could not be brought up to date ($error)',

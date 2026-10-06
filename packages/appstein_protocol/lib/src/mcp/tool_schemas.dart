@@ -599,6 +599,9 @@ abstract final class ToolSchemas {
       'suppressed': jsonInteger(
         description: 'How many findings a suppression in appstein.yaml hid.',
       ),
+      'activeSuppressions': jsonInteger(
+        description: 'How many suppressions hid at least one finding.',
+      ),
       'notRun': jsonList(
         jsonObject(
           {'id': jsonString(), 'reason': jsonString()},
@@ -607,6 +610,12 @@ abstract final class ToolSchemas {
         description: 'The checks that could not run, and why.',
       ),
     },
-    required: ['findings', 'summary', 'suppressed', 'notRun'],
+    required: [
+      'findings',
+      'summary',
+      'suppressed',
+      'activeSuppressions',
+      'notRun',
+    ],
   );
 }

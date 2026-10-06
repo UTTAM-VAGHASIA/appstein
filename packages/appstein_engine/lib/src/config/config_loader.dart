@@ -360,7 +360,14 @@ final class _ConfigReader {
         throw _error(node, 'docs.path must be a folder inside the project.');
       }
       // Folders that tools or the app's own code own: pages there would be
-      // deleted by a clean, ignored by git, or mixed into the source.
+      // deleted by a clean, ignored by git, or mixed into the source. The
+      // name is compared as Windows and macOS see it: letter case ignored,
+      // and without the trailing dots and spaces Windows drops.
+      final first = normalized
+          .split('/')
+          .first
+          .toLowerCase()
+          .replaceFirst(RegExp(r'[. ]+$'), '');
       if (const {
         '.appstein',
         '.git',
@@ -368,7 +375,7 @@ final class _ConfigReader {
         'build',
         'lib',
         'test',
-      }.contains(normalized.split('/').first)) {
+      }.contains(first)) {
         throw _error(
           node,
           'docs.path must not be inside .appstein, .git, .dart_tool, build, '

@@ -157,10 +157,14 @@ Future<VerifyResult> runVerify({
     return VerifyResult(
       findings: sortFindings(suppressed.kept),
       suppressed: suppressed.suppressed,
+      activeSuppressions: suppressed.active,
       notRun: notRun.values.toList()..sort((a, b) => a.id.compareTo(b.id)),
     );
   }
 
+  // The refresh already waited the whole timeout for the lock: waiting for
+  // it again would double the time before the same answer.
+  if (refresh.problem == lockBusyProblem) return body(refresh);
   try {
     return await KnowledgeStore(
       projectRoot,

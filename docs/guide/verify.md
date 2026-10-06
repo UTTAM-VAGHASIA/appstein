@@ -21,7 +21,7 @@ This page covers the frame and the checks of slice 1d.1. The code checks (analyz
 4. **Apply `verify.severity`** from `appstein.yaml`, which can raise or lower a finding's severity.
 5. **Apply the suppressions**, then sort the findings.
 
-**When the knowledge can't be refreshed** (no Flutter SDK, packages not fetched, a map file that can't be read, another sync holding the lock), the run still happens:
+**When the knowledge can't be refreshed** (no Flutter SDK, packages not fetched, a map file that can't be read, another sync holding the lock), the run still happens. A busy lock is waited for once, for the lock timeout; the checks then run without it, because files are replaced whole and reading is safe.
 
 - it reports `knowledge.stale` as an **error**, with the reason;
 - a check that reads the project map (`needsMap`) is not run, and is named in `notRun`;
@@ -62,7 +62,11 @@ No check of this slice is fast, so `verify --fast` on a healthy project reports 
 - A finding points at the line of `checks:` in the decision file (`paths:` for `paths.exist`). The line is the same with CRLF line endings or a byte order mark.
 - A decision check that reads the map is left out while the map can't be used, and named as not run.
 
-**`paths.exist`** ([source](../../packages/appstein_engine/lib/src/verify/checks/paths_exist_check.dart)) says each path pattern of the decision still matches a file or a folder. A pattern that could leave the project (an absolute path, or `..` as a segment or inside braces) is reported and never expanded, so a decision file can't make `verify` list folders outside the project.
+**`paths.exist`** ([source](../../packages/appstein_engine/lib/src/verify/checks/paths_exist_check.dart)) says each path pattern of the decision still matches a file or a folder.
+
+- **It never leaves the project.** An absolute path, `..` as a segment or inside braces (also the forms Windows reads as `..`, such as `.. ` with a trailing space) and a path through a link are reported as "could leave the project" and never followed. A decision file can't make `verify` look at folders outside the project.
+- **Letter case counts on every system.** `LIB/main.dart` does not match `lib/main.dart`, on Windows too. Otherwise a decision would hold on a laptop and drift in CI on Linux.
+- **It is quick on a large project.** The search starts in the folders the pattern names before its first wildcard (`lib/ui/**/x` starts in `lib/ui`), stops at the first match, and never looks in `.dart_tool`, `.git` or `build` at the top of the project unless the pattern names that folder. A folder that can't be listed is skipped; it doesn't decide the others.
 
 **`stack.provider`** ([source](../../packages/appstein_engine/lib/src/packs/official_mvvm/stack_provider_check.dart)) says the app depends on `provider` directly, and no file under `lib/` imports another state-management package. The list of those packages is the pack's knowledge. A `provider` that `pubspec.lock` calls `direct overridden` (it is in `dependency_overrides`) counts when `pubspec.yaml` also lists it under `dependencies`.
 
@@ -72,7 +76,7 @@ No check of this slice is fast, so `verify --fast` on a healthy project reports 
 
 A [`Finding`](../../packages/appstein_protocol/lib/src/verify/finding.dart) has an `id`, a `severity` and a `message`, and when they apply a `file`, a `line`, a `fixHint`, a `knowledgeRef`, the `pack` that reported it and a `docs` link (spec §9.3). An ID is stable once released.
 
-A [`VerifyResult`](../../packages/appstein_protocol/lib/src/verify/verify_result.dart) holds the findings, how many a suppression hid, and the checks that did not run.
+A [`VerifyResult`](../../packages/appstein_protocol/lib/src/verify/verify_result.dart) holds the findings, how many a suppression hid (`suppressed`), how many suppressions hid at least one (`activeSuppressions`), and the checks that did not run.
 
 ## Output
 
@@ -95,10 +99,10 @@ lib/ui/settings
   warning verify.test_required: The feature `settings` has no test.
     fix: Add a test under `test/ui/settings/`.
 
-1 error, 4 warnings, 0 info. 1 finding suppressed.
+1 error, 4 warnings, 0 info. 1 finding suppressed by 1 suppression.
 ```
 
-With nothing found, the output is the summary line alone.
+With nothing found, the output is the summary line alone. The line gives both numbers about suppressions, because one broad entry can hide many findings: `40 findings suppressed by 1 suppression.` says something `1 suppression` alone would not. With nothing hidden it says `No findings suppressed.`
 
 **JSON** (`--format json`) is one object, and the `verify` MCP tool returns the same object:
 
@@ -116,6 +120,7 @@ With nothing found, the output is the summary line alone.
   ],
   "summary": {"errors": 0, "warnings": 1, "info": 0},
   "suppressed": 0,
+  "activeSuppressions": 0,
   "notRun": []
 }
 ```

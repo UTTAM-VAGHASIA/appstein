@@ -114,6 +114,14 @@ integrations:
       'lib/docs',
       'test',
       './lib/docs',
+      // The same folders on Windows and macOS, where letter case is
+      // ignored, and on Windows, which drops a trailing dot or space.
+      'Lib/docs',
+      'BUILD',
+      '.GIT/x',
+      'Test',
+      'lib./docs',
+      '"lib /docs"',
     ]) {
       test('refuses $path', () {
         expect(

@@ -124,7 +124,7 @@ The first line of a generated page is an HTML comment, so it doesn't show on Git
 
 **A file in the way stops the run.** A file without the marker where a page would be written (a team's own `routes.md`), or a folder or a link there, is never overwritten. `planDocs` reports it as blocked, and `runDocs` refuses: nothing is written or removed until the file is moved. Two more things count as in the way:
 
-- **A `<page>.tmp` file.** A page is written through a file of that name, so a person's `routes.md.tmp` would be overwritten. One that is empty or starts like a generated page is what an interrupted write left behind, and is not in the way.
+- **A `<page>.tmp` file.** A page is written through a file of that name, so a person's `routes.md.tmp` would be overwritten. Only what a write of a page can leave behind is not in the way (`isLeftoverPageWrite`): an empty file, a whole generated page nobody edited, or the start of the page being written (a write cut short). A file that merely starts with the marker may be a copy someone made to keep an edit, because the invisible marker line travels with a copy; that one blocks the page and is kept.
 - **A link in place of the docs folder, or of a folder above it** inside the project. The pages would be written somewhere else, so `scanDocsFolder` reports it and nothing is written.
 
 **A team note's title** is its first heading outside a code fence: a `# comment` in a fenced shell example is not a heading.

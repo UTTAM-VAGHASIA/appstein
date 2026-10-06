@@ -461,6 +461,7 @@ void main() {
       final json = structured(await call(server, 'verify', {'scope': 'full'}));
       expect(ids(json), ['verify.test_required', 'verify.test_required']);
       expect(json['suppressed'], 1);
+      expect(json['activeSuppressions'], 1);
     });
 
     test('a scope that is missing or wrong is refused before the tool '

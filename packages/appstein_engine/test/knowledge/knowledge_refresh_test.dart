@@ -66,7 +66,10 @@ void main() {
     );
     expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
     expect(result.problem, lockBusyProblem);
-    expect(result.fixHint, isNull);
+    expect(
+      result.fixHint,
+      'Wait for it to finish. Then run `appstein verify` again.',
+    );
   });
 
   test('the packages cannot be fetched: the map is missing', () async {

@@ -260,7 +260,7 @@ A refused write runs no second check and states the first freshness. Almost ever
 
 ## `verify`
 
-Input: `scope`, `fast` or `full`. The reply is what `appstein verify --format json` prints: `findings`, `summary` (the counts), `suppressed` and `notRun`, plus `freshness`. What the checks are is in [verify](verify.md).
+Input: `scope`, `fast` or `full`. The reply is what `appstein verify --format json` prints: `findings`, `summary` (the counts), `suppressed`, `activeSuppressions` and `notRun`, plus `freshness`. What the checks are is in [verify](verify.md).
 
 `_verify` in the server differs from the other tools in three ways:
 

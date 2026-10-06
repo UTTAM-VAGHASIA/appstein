@@ -99,6 +99,78 @@ void main() {
     }
   });
 
+  test('dots and spaces Windows would read as `..` are a way out too', () {
+    file('x', under: p.dirname(root));
+    for (final pattern in [
+      '.. /x',
+      'lib/.. /x',
+      '.../x',
+      '. ./x',
+      '{.. ,lib}/x',
+    ]) {
+      expect(problems([pattern]), [
+        'The path `$pattern` could leave the project, so it was not checked.',
+      ], reason: pattern);
+    }
+  });
+
+  test('a path through a link is not followed out of the project', () {
+    final outside = Directory(p.join(p.dirname(root), 'outside'))..createSync();
+    File(p.join(outside.path, 's.txt')).writeAsStringSync('');
+    try {
+      Link(p.join(root, 'linked')).createSync(outside.path);
+    } on FileSystemException {
+      markTestSkipped('this system does not let the test create a link');
+      return;
+    }
+    expect(problems(['linked/s.txt']), [
+      'The path `linked/s.txt` could leave the project, so it was not '
+          'checked.',
+    ]);
+    expect(problems(['linked/**']), [
+      'The path `linked/**` could leave the project, so it was not checked.',
+    ]);
+    // A wildcard does not list through the link either.
+    expect(problems(['**/s.txt']), ['The path `**/s.txt` matches no file.']);
+  });
+
+  test('letter case counts on every system, so a decision holds on a '
+      'laptop and in CI alike', () {
+    file('lib/main.dart');
+    expect(problems(['LIB/main.dart', 'LIB/**', 'lib/Main.dart']), [
+      'The path `LIB/main.dart` matches no file.',
+      'The path `LIB/**` matches no file.',
+      'The path `lib/Main.dart` matches no file.',
+    ]);
+  });
+
+  test('a pattern is looked for from its fixed folders, and never in the '
+      'folders tools fill', () {
+    file('lib/ui/home/home_screen.dart');
+    file('build/app/x_screen.dart');
+    file('.dart_tool/cache/y_screen.dart');
+    file('.git/z_screen.dart');
+    expect(
+      problems(['**/home_screen.dart', 'lib/ui/*/home_screen.dart']),
+      isEmpty,
+    );
+    expect(
+      problems(['**/x_screen.dart', '**/y_screen.dart', '**/z_screen.dart']),
+      [
+        'The path `**/x_screen.dart` matches no file.',
+        'The path `**/y_screen.dart` matches no file.',
+        'The path `**/z_screen.dart` matches no file.',
+      ],
+    );
+    // Named outright, such a folder is looked in.
+    expect(problems(['build/**/x_screen.dart', 'build/app']), isEmpty);
+  });
+
+  test('a pattern can match a folder', () {
+    file('lib/ui/home/widgets/home_screen.dart');
+    expect(problems(['lib/ui/*/widgets', 'lib/**/home']), isEmpty);
+  });
+
   test('two dots inside a name are not a way out', () {
     file('lib/a..b.dart');
     file('lib/..hidden');

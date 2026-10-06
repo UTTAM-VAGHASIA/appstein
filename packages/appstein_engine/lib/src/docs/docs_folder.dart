@@ -274,7 +274,8 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
   // A page is written through `<page>.tmp` (`replaceFile`). Anything there
   // that isn't what an interrupted write of a page left behind is a
   // person's, and writing the page would replace it.
-  bool tempInTheWay(String path) {
+  bool tempInTheWay(RenderedPage page) {
+    final path = page.path;
     final temp = p.joinAll([folder, ...'$path.tmp'.split('/')]);
     final type = FileSystemEntity.typeSync(temp, followLinks: false);
     if (type == FileSystemEntityType.notFound) return false;
@@ -282,6 +283,7 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
       try {
         if (isLeftoverPageWrite(
           utf8.decode(File(temp).readAsBytesSync(), allowMalformed: true),
+          writing: page.text,
         )) {
           return false;
         }
@@ -323,7 +325,7 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
       followLinks: false,
     );
     if (type == FileSystemEntityType.notFound) {
-      if (tempInTheWay(page.path)) continue;
+      if (tempInTheWay(page)) continue;
       changes.add(
         DocChange(
           page.path,
@@ -378,7 +380,7 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
     final text = scan.generated[key]!;
     if (withoutEndingBreaks(text) == withoutEndingBreaks(page.text)) {
       changes.add(DocChange(page.path, DocChangeKind.unchanged));
-    } else if (tempInTheWay(page.path)) {
+    } else if (tempInTheWay(page)) {
       continue;
     } else if (isConflictedPage(text)) {
       changes.add(

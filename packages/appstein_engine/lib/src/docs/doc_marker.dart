@@ -99,12 +99,24 @@ final _endingBreaks = RegExp(r'\n*$');
 String withoutEndingBreaks(String text) =>
     plainLines(text).replaceFirst(_endingBreaks, '');
 
-/// Whether [text] starts as a generated page does, or is empty. A page is
-/// written through a temporary file; one that looks like this is what an
-/// interrupted write left behind, never a person's file.
-bool isLeftoverPageWrite(String text) {
-  final plain = withoutBom(text);
-  return plain.isEmpty || plain.startsWith(_prefix);
+/// Whether [text], found where the page [writing] is about to be written
+/// through a temporary file, is only what a write of a page can leave
+/// behind, so nothing of a person's is lost by replacing it:
+/// - it is empty;
+/// - it is a whole generated page nobody edited (its body matches its own
+///   marker), of this render or an older one;
+/// - it is the start of [writing]: this write, cut short.
+///
+/// The marker is an invisible first line and travels with a copy, so a file
+/// that merely starts like a page may be a copy someone made to keep an
+/// edit. That is never a leftover.
+bool isLeftoverPageWrite(String text, {required String writing}) {
+  final plain = plainLines(text);
+  if (plain.isEmpty) return true;
+  if (DocMarker.of(plain) case final marker?) {
+    if (marker.body == bodyHash(bodyOf(plain))) return true;
+  }
+  return plainLines(writing).startsWith(plain);
 }
 
 /// The text of a generated page: [marker]'s line, then [body].

@@ -26,8 +26,9 @@ import 'verify_run.dart';
 ///   not run this time: its finding may only be missing.
 ///
 /// `kept` is the findings that stay, followed by those reports in the
-/// order of [entries]; `suppressed` is how many findings were hidden.
-({List<Finding> kept, int suppressed}) applySuppressions(
+/// order of [entries]; `suppressed` is how many findings were hidden, and
+/// `active` how many entries hid at least one.
+({List<Finding> kept, int suppressed, int active}) applySuppressions(
   List<Finding> findings,
   List<SuppressionEntry> entries, {
   required Set<String> knownIds,
@@ -51,6 +52,7 @@ import 'verify_run.dart';
 
   final hidden = <Finding>{};
   final reports = <Finding>[];
+  var active = 0;
   for (final entry in entries) {
     final what = 'The suppression of `${entry.id}` on `${entry.path}`';
     if (entry.reason == null) {
@@ -105,6 +107,7 @@ import 'verify_run.dart';
               finding,
     ];
     hidden.addAll(matched);
+    if (matched.isNotEmpty) active++;
     if (matched.isEmpty &&
         mode == VerifyMode.full &&
         !notRunIds.contains(entry.id)) {
@@ -128,5 +131,6 @@ import 'verify_run.dart';
       ...reports,
     ],
     suppressed: hidden.length,
+    active: active,
   );
 }

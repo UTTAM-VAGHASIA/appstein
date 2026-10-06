@@ -36,7 +36,7 @@ Built from the parser and the `AppsteinConfig` classes:
 | `verify.build_on_full` | `true` or `false` | `true` | |
 | `verify.severity` | map | empty | Keys are check IDs: two or more lowercase words joined by dots (`ui.no_hardcoded_colors`). Values are `error`, `warning` or `info` |
 | `docs.enabled` | `true` or `false` | `true` | |
-| `docs.path` | text | docs/app (in the project) | A folder inside the project, relative to its root. Absolute paths, `.` and paths that climb out with `..` are errors. So is a path whose first folder is `.appstein`, `.git`, `.dart_tool`, `build`, `lib` or `test`: pages there would be mixed with files other tools own or delete. Backslashes become `/` |
+| `docs.path` | text | docs/app (in the project) | A folder inside the project, relative to its root. Absolute paths, `.` and paths that climb out with `..` are errors. So is a path whose first folder is `.appstein`, `.git`, `.dart_tool`, `build`, `lib` or `test`: pages there would be mixed with files other tools own or delete. The name is compared as Windows and macOS see it, so `Lib` and `build.` are refused too. Backslashes become `/` |
 | `packages.stale_after_months` | whole number | `12` | 1 or more |
 | `packages.allow` | list of text | `[]` | Package names (lowercase letters, digits and `_`), no duplicates |
 | `packages.deny` | list of text | `[]` | As `packages.allow` |

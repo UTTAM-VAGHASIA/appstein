@@ -89,11 +89,47 @@ void main() {
     expect(withoutEndingBreaks(''), '');
   });
 
-  test('isLeftoverPageWrite: empty, or the start of a generated page', () {
-    expect(isLeftoverPageWrite(''), isTrue);
-    expect(isLeftoverPageWrite('<!-- appstein:generated templ'), isTrue);
-    expect(isLeftoverPageWrite('my notes'), isFalse);
-    expect(isLeftoverPageWrite('\n<!-- appstein:generated x'), isFalse);
+  group('isLeftoverPageWrite: only what a write of a page can leave', () {
+    const body = '> note\n\n# Routes\n\nOne route.\n';
+    final page = markedPage(
+      DocMarker(templates: const {'engine': '2'}, body: bodyHash(body)),
+      body,
+    );
+
+    test('an empty file', () {
+      expect(isLeftoverPageWrite('', writing: page), isTrue);
+    });
+
+    test('a whole page nobody edited, of any render', () {
+      expect(isLeftoverPageWrite(page, writing: 'another page'), isTrue);
+      expect(
+        isLeftoverPageWrite(page.replaceAll('\n', '\r\n'), writing: 'x'),
+        isTrue,
+      );
+    });
+
+    test('a write of this page that was cut short', () {
+      expect(isLeftoverPageWrite(page.substring(0, 20), writing: page), isTrue);
+      expect(
+        isLeftoverPageWrite(page.substring(0, page.length - 7), writing: page),
+        isTrue,
+      );
+    });
+
+    test('never a copy of a page that a person edited', () {
+      // The marker travels with a copy; the edit is what must not be lost.
+      final edited = page.replaceFirst('One route.', 'One route, my notes.');
+      expect(isLeftoverPageWrite(edited, writing: page), isFalse);
+      expect(isLeftoverPageWrite('${page}My notes.\n', writing: page), isFalse);
+    });
+
+    test('never a file that is not a page', () {
+      expect(isLeftoverPageWrite('my notes', writing: page), isFalse);
+      expect(
+        isLeftoverPageWrite('<!-- appstein:generated x', writing: page),
+        isFalse,
+      );
+    });
   });
 
   test('the body hash ignores the kind of line ending', () {

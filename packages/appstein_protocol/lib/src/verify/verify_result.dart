@@ -24,6 +24,7 @@ final class VerifyResult {
   const VerifyResult({
     required this.findings,
     this.suppressed = 0,
+    this.activeSuppressions = 0,
     this.notRun = const [],
   });
 
@@ -38,6 +39,7 @@ final class VerifyResult {
           Finding.fromJson(finding.json),
       ],
       suppressed: fields.integer('suppressed'),
+      activeSuppressions: fields.integer('activeSuppressions'),
       notRun: [
         for (final entry in fields.objects('notRun'))
           CheckNotRun(id: entry.string('id'), reason: entry.string('reason')),
@@ -50,6 +52,10 @@ final class VerifyResult {
 
   /// How many findings a suppression hid (spec §9.7).
   final int suppressed;
+
+  /// How many suppressions of `appstein.yaml` hid at least one of them. One
+  /// broad suppression can hide many findings, so both numbers are given.
+  final int activeSuppressions;
 
   /// The checks of the chosen mode that did not run.
   final List<CheckNotRun> notRun;
@@ -72,6 +78,7 @@ final class VerifyResult {
     'findings': [for (final finding in findings) finding.toJson()],
     'summary': {'errors': errors, 'warnings': warnings, 'info': info},
     'suppressed': suppressed,
+    'activeSuppressions': activeSuppressions,
     'notRun': [for (final entry in notRun) entry.toJson()],
   };
 }

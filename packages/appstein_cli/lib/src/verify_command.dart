@@ -190,7 +190,8 @@ String formatVerify(VerifyResult result) {
       '${result.info} info. '
       '${switch (result.suppressed) {
         0 => 'No findings suppressed.',
-        final count => '${_count(count, 'finding', 'findings')} suppressed.',
+        final count => '${_count(count, 'finding', 'findings')} suppressed by '
+            '${_count(result.activeSuppressions, 'suppression', 'suppressions')}.',
       }}',
     )
     ..add('');

@@ -242,6 +242,30 @@ void main() {
       );
     });
 
+    test('another process holds the lock while the knowledge needs a '
+        'rebuild: one wait, and a fix hint', () async {
+      await run([]);
+      File(p.join(app, 'lib', 'extra.dart')).writeAsStringSync('int x = 1;\n');
+      await holdLock(p.join(app, '.appstein'), 60000);
+      final other = FakeCheck(['other.check']);
+      const timeout = Duration(seconds: 3);
+      final watch = Stopwatch()..start();
+      final result = await run([
+        FakeCheck(['map.check'], needsMap: true),
+        other,
+      ], lockTimeout: timeout);
+      // Waiting for the lock a second time would take twice the timeout.
+      expect(watch.elapsed, lessThan(timeout * 1.8));
+      expect(ids(result), ['knowledge.stale']);
+      expect(result.findings.single.message, contains(lockBusyProblem));
+      expect(
+        result.findings.single.fixHint,
+        'Wait for it to finish. Then run `appstein verify` again.',
+      );
+      expect(other.runs, 1);
+      expect(result.notRun.single.id, 'map.check');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // Review Focus 4.
     test('another process holds the lock: it gives up at the '
         'timeout', () async {
