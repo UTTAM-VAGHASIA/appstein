@@ -100,3 +100,5 @@ export 'src/toolchain/gradle_utils_parser.dart';
 export 'src/toolchain/toolchain_files.dart';
 export 'src/toolchain/toolchain_reader.dart';
 export 'src/toolchain/xcode_template_parser.dart';
+export 'src/verify/verify_check.dart';
+export 'src/verify/verify_run.dart';
