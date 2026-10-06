@@ -183,12 +183,14 @@ milestones:
           - id: 1d.1
             title: Verify core
             summary: "`appstein verify` with the check interface, findings output, exit codes, suppressions and the `verify` MCP tool, plus the checks that only read files Appstein already has: `knowledge.stale`, `docs.stale`, the decision checks and `verify.test_required`."
-            status: next
+            status: done
             plan: 2026-10-06-slice-1d1-verify-core.md
+            pr: 9
+            finished: 2026-10-06
           - id: 1d.2
             title: Code checks and fast verify
             summary: Analyze, fix, format and test checks, warm analysis inside the MCP process, the hook exit code, and fast verify measured against 5 s.
-            status: planned
+            status: next
           - id: 1d.3
             title: Lint rules
             summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.
