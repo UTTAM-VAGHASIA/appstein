@@ -184,6 +184,7 @@ milestones:
             title: Verify core
             summary: "`appstein verify` with the check interface, findings output, exit codes, suppressions and the `verify` MCP tool, plus the checks that only read files Appstein already has: `knowledge.stale`, `docs.stale`, the decision checks and `verify.test_required`."
             status: next
+            plan: 2026-10-06-slice-1d1-verify-core.md
           - id: 1d.2
             title: Code checks and fast verify
             summary: Analyze, fix, format and test checks, warm analysis inside the MCP process, the hook exit code, and fast verify measured against 5 s.

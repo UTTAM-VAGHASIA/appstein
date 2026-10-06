@@ -407,7 +407,7 @@ The verifier checks every accepted decision that lists `checks`. In M1 the built
 
 A mismatch is reported as a `decision.drift` warning on the decision's file. So is a check that no pack of the project provides, such as `stack.provider` in a project on another stack.
 
-The verifier also reports what the reading rules above call for: a file whose front matter can't be read is a `decision.unreadable` warning, and two files with one number are a `decision.duplicate` warning.
+The verifier also reports what the reading rules above call for: a file whose front matter can't be read is a `decision.unreadable` warning, and two files with one number are a `decision.duplicate` warning. A decisions folder that can't be listed, and decisions that replace each other in a circle, are `decision.unreadable` warnings too: in both cases the history can't be read.
 
 ### 6.8 Memory format
 
@@ -465,7 +465,7 @@ GitHub renders Mermaid diagrams natively, so the pages need no extra tooling to 
   - a value that follows the installed Flutter SDK (the Flutter and Dart versions, an Android SDK level written as `flutter.minSdkVersion`) is shown as a number only when the project pins Flutter (`.fvmrc`), because then every machine resolves the same one. Without a pin the page shows how the value is written and says that it follows the Flutter in use;
   - a setting of one machine (its global Flutter config, an environment variable) and anything read from a git-ignored folder (such as `ios/Flutter/ephemeral/`) is never shown as a value.
 - **Merge conflicts in the marker.** The body hash is in a page's first line, so two branches that change one page always conflict there. A file whose first line is git's `<<<<<<<` and whose second is a marker is still Appstein's page, and is written again.
-- **Line endings.** Pages are written with LF line endings. A page that differs from the rendered one only in its line endings counts as unchanged, so a Windows checkout that converts line endings isn't reported as stale or hand-edited.
+- **Line endings.** Pages are written with LF line endings. A page that differs from the rendered one only in its line endings, or in blank lines at its end (an editor that adds or strips the final newline), counts as unchanged, so a Windows checkout that converts line endings isn't reported as stale or hand-edited.
 - **`docs.stale`** (in `verify --full`, §9.2) renders each page again, as `appstein docs --check` does, and reports pages that fell behind. It is a **warning** by default: blocking a human's CI over docs would punish exactly the people the docs are for. Teams that want it enforced raise it to an error with `verify.severity`.
 - **Merge conflicts** in generated pages are resolved by re-running `appstein docs` after the code conflict is resolved, because the output depends only on the code and knowledge.
 
@@ -498,11 +498,14 @@ verify:
     ui.no_hardcoded_colors: warning
 docs:
   enabled: true                  # render human docs (§6.9)
-  path: docs/app                 # relative to the project root
+  path: docs/app                 # relative to the project root; never inside
+                                 # .appstein, .git, .dart_tool, build, lib or test
 packages:
   stale_after_months: 12
   allow: []                      # packages exempt from the maintenance warning
   deny: []                       # packages that are always blocked
+suppressions: []                 # findings a person chose to hide, each with
+                                 # id, path and reason (§9.7)
 integrations:
   agents: [claude, codex]
   graphify_export: false         # optional (§16)
@@ -723,7 +726,7 @@ Professionals need an escape hatch that stays visible:
 - **A reason is mandatory.** A suppression without a reason is itself an error (`suppression.no_reason`), and it hides nothing.
 - **A check ID must exist.** An `id` that no check of the project has is an error (`suppression.unknown_check`), so a typo never looks like a working suppression.
 - **A suppression that hides nothing** is a warning (`suppression.unused`) naming its line in `appstein.yaml`, so a line left behind can't hide the same finding when it comes back. It is reported only by the full checks, where every check ran.
-- **What can't be suppressed:** the three `suppression.*` findings and `knowledge.stale`.
+- **What can't be suppressed:** the three `suppression.*` findings and `knowledge.stale`. A `verify.severity` override (§7) doesn't change these four either, so no line in `appstein.yaml` can make them quiet.
 - `verify` prints a count of active suppressions, so they never disappear silently.
 
 ---
