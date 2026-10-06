@@ -69,12 +69,29 @@ void main() {
     expect(set.problems, isEmpty);
   });
 
-  test('a superseded decision supersedes nothing', () {
+  test('once replaced, always replaced: a decision stays superseded when '
+      'the one that replaced it is superseded too', () {
     handDecision(root, '0001-a.md');
     handDecision(root, '0002-b.md', status: 'superseded', supersedes: '1');
     final set = readDecisions(root);
-    expect(entry(set, 1).active, isTrue);
-    expect(entry(set, 1).supersededBy, isNull);
+    expect(entry(set, 1).active, isFalse);
+    expect(entry(set, 1).supersededBy?.number, 2);
+  });
+
+  test('a decision that names itself, or a number no file has, replaces '
+      'nothing and is no circle', () {
+    handDecision(root, '0001-a.md', supersedes: '1');
+    handDecision(root, '0002-b.md', supersedes: '9');
+    final set = readDecisions(root);
+    expect(set.active, hasLength(2));
+    expect(set.problems, isEmpty);
+  });
+
+  test('a file named .MD is a decision file too, so its number is taken', () {
+    handDecision(root, '0001-use-provider.MD');
+    final set = readDecisions(root);
+    expect(set.entries.single.record.file, '0001-use-provider.MD');
+    expect(set.nextNumber, 2);
   });
 
   test('a chain is followed: the newest stays, the others are superseded', () {

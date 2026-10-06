@@ -124,7 +124,60 @@ void main() {
       expect(text('0001-two-lines.md'), contains('title: Two lines\n'));
     });
 
-    test('two decisions recorded at once get different numbers', () async {
+    test('the number is chosen after the lock is held: a decision another '
+        'process wrote while this call waited is counted', () async {
+      // The other process holds the lock for a while, and "writes" 0001.
+      await holdLock(p.join(root, '.appstein'), 1500);
+      final waiting = record({'title': 'Mine', 'why': 'x'});
+      handDecision(root, '0001-theirs.md');
+      final reply = await waiting;
+      expect((reply.result['decision']! as Map)['number'], '0002');
+      expect(readDecisions(root).duplicates, isEmpty);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test(
+      'a hand-written file with the same name is never overwritten',
+      () async {
+        // .MD on Windows names the same file as .md; its number is counted.
+        final theirs = handDecision(root, '0001-use-provider.MD', why: 'mine.');
+        final reply = await record({'title': 'Use provider', 'why': 'x'});
+        expect((reply.result['decision']! as Map)['number'], '0002');
+        expect(File(theirs).readAsStringSync(), contains('Why: mine.'));
+      },
+    );
+
+    test('a title a decision file cannot store is refused, and nothing is '
+        'written', () async {
+      expect(
+        await refused({
+          'title': 'bad ${String.fromCharCode(0xD800)} title',
+          'why': 'x',
+        }),
+        'The title or a path holds characters a decision file cannot store. '
+        'Reword it with plain text.',
+      );
+    });
+
+    test('a reason that is only "why:" markers is empty', () async {
+      expect(
+        await refused({'title': 'x', 'why': 'why: Why:  '}),
+        startsWith('The reason (`why`) is empty.'),
+      );
+    });
+
+    test('a number may be given as a number', () async {
+      handDecision(root, '0001-a.md', status: 'proposed');
+      final reply = await record({'accept': 1});
+      expect(reply.result['action'], 'accepted');
+      final replaced = await record({
+        'title': 'B',
+        'why': 'x',
+        'supersedes': 1,
+      });
+      expect(replaced.result['action'], 'replaced');
+    });
+
+    test('three decisions started together get different numbers', () async {
       final replies = await Future.wait([
         record({'title': 'One', 'why': 'x'}),
         record({'title': 'Two', 'why': 'x'}),
@@ -196,6 +249,63 @@ void main() {
       expect(superseded['status'], 'superseded');
       expect(superseded['statusInFile'], 'accepted');
       expect(reply.summary, endsWith(reply.result['warning']! as String));
+    });
+
+    test('a chain through the tool: each replaced decision stays '
+        'superseded and says what replaced it', () async {
+      await record({'title': 'One', 'why': 'x', 'status': 'accepted'});
+      await record({
+        'title': 'Two',
+        'why': 'x',
+        'status': 'accepted',
+        'supersedes': '1',
+      });
+      await record({
+        'title': 'Three',
+        'why': 'x',
+        'status': 'accepted',
+        'supersedes': '2',
+      });
+      final set = readDecisions(root);
+      expect([for (final one in set.active) one.record.number], [3]);
+      expect(set.numbered(1)!.supersededBy?.number, 2);
+      expect(set.numbered(2)!.supersededBy?.number, 3);
+    });
+
+    test('a replaced decision never comes back: its status line could not '
+        'be changed, and its replacement is replaced too', () async {
+      File(p.join(folder(), '0001-a.md'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('---\ntitle: A\nstatus: "accepted"\n---\nWhy: x\n');
+      await record({'title': 'B', 'why': 'y', 'supersedes': '1'});
+      await record({'title': 'C', 'why': 'z', 'supersedes': '2'});
+      final set = readDecisions(root);
+      expect([for (final one in set.active) one.record.number], [3]);
+      expect(set.numbered(1)!.supersededBy?.number, 2);
+    });
+
+    test('when the old file cannot be written, the new decision stays, the '
+        'reply says what was left undone, and readers count the old one as '
+        'superseded', () async {
+      final old = handDecision(root, '0001-a.md');
+      final before = File(old).readAsStringSync();
+      // The write goes through `<file>.tmp`: a folder there makes it fail
+      // on every operating system.
+      Directory('$old.tmp').createSync();
+      final reply = await record({'title': 'B', 'why': 'y', 'supersedes': '1'});
+      expect(File(old).readAsStringSync(), before);
+      expect(reply.result['action'], 'replaced');
+      final warning = reply.result['warning']! as String;
+      expect(
+        warning,
+        startsWith(
+          "The status line of .appstein/decisions/0001-a.md couldn't be "
+          'changed to `superseded` (',
+        ),
+      );
+      expect(warning, endsWith('). Change it by hand.'));
+      expect(warning, isNot(contains('appstein sync')));
+      expect((reply.result['superseded']! as Map)['status'], 'superseded');
     });
 
     test('is refused for a number that is missing, used twice, unreadable '

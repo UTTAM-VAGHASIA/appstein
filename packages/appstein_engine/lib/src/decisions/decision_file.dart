@@ -183,7 +183,9 @@ String _scalar(String value, {bool inList = false}) {
 /// byte order mark included.
 ///
 /// Null when the front matter has no plain `status: word` line, such as a
-/// quoted status; such a file is for a person to edit.
+/// quoted status, when the file can't be read, or when changing that line
+/// would change anything but the status YAML reads. Such a file is for a
+/// person to edit.
 String? withDecisionStatus(String text, DecisionStatus status) {
   final lines = RegExp(
     r'[^\n]*\n|[^\n]+$',
@@ -200,7 +202,25 @@ String? withDecisionStatus(String text, DecisionStatus status) {
     final match = statusLine.firstMatch(lines[i]);
     if (match == null) continue;
     lines[i] = '${match.group(1)}${status.jsonName}${match.group(3)}';
-    return lines.join();
+    final changed = lines.join();
+    // The line was found by its look, not by YAML's structure, and it can
+    // look like the status without being it: a key of a map left open, a
+    // line of a quoted title that wraps. So the change counts only when
+    // YAML reads the new status and everything else as before.
+    final before = parseDecisionFile('', text);
+    final after = parseDecisionFile('', changed);
+    if (before is! ReadDecision || after is! ReadDecision) return null;
+    final was = before.record;
+    final now = after.record;
+    final same =
+        now.status == status &&
+        now.title == was.title &&
+        now.why == was.why &&
+        now.date == was.date &&
+        now.supersedes == was.supersedes &&
+        now.paths.join('\n') == was.paths.join('\n') &&
+        now.checks.join('\n') == was.checks.join('\n');
+    return same ? changed : null;
   }
   return null;
 }

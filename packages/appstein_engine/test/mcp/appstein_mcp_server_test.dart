@@ -164,7 +164,8 @@ void main() {
       final server = await serve();
       await call(server, 'record_decision', {'title': 'Use dio', 'why': 'x'});
       final accepted = structured(
-        await call(server, 'record_decision', {'accept': '1'}),
+        // A number as a number: the schema lets it through to the tool.
+        await call(server, 'record_decision', {'accept': 1}),
       );
       expect(accepted['action'], 'accepted');
       final replaced = structured(

@@ -204,10 +204,12 @@ Input: optional `topic`. The topic decides how the tool searches:
 | Topic | Mode | Returns |
 |---|---|---|
 | none, or blank | `all` | Every accepted and proposed decision, in file-name order, and a count of the superseded ones |
-| has no white space, and has a `/`, a `\` or a file extension | `path` | The decisions in force whose `paths` cover that file. `withoutPaths` counts those that list no paths, since they apply everywhere |
+| an absolute path; or no white space, a `/`, a `\` or a file extension, and a first part that exists in the project | `path` | The decisions in force whose `paths` cover that file. `withoutPaths` counts those that list no paths, since they apply everywhere |
 | anything else | `words` | The decisions that mention the words, best first, superseded ones included and marked with `supersededBy` |
 
-**Path mode** exists for one moment: just before an agent edits a file. A Windows path (`lib\ui\home\x.dart`) and a leading `./` are accepted. A pattern covers a file when the glob matches it, or when the pattern names the file or a folder above it, so `lib/routing` covers `lib/routing/router.dart`. A pattern that isn't a valid glob covers nothing and is named in `problems`.
+**Path mode** exists for one moment: just before an agent edits a file. A Windows path (`lib\ui\home\x.dart`) and a leading `./` are accepted. An absolute path, which is what an agent usually holds, is read from the project folder; one outside the project is covered by nothing, and the summary says it is outside. A pattern covers a file when the glob matches it, or when the pattern names the file or a folder above it, so `lib/routing` covers `lib/routing/router.dart`. A folder is covered when a file in it would be.
+
+**Telling a path from words.** `CI/CD`, `Node.js` and `go_router/provider` have a `/` or a dot but are words. So a topic counts as a path only when its first part (`lib`, `pubspec.yaml`) is a file or folder the project has; a file that doesn't exist yet in an existing folder still counts. Otherwise the topic is searched as words. A wrong guess here would answer "no decision covers it" about something that was never a file. A pattern that isn't a valid glob covers nothing and is named in `problems`.
 
 **Word mode** scores each word by the best place it is found: the decision's number 5, its title 3, a path 2, its reason 1. A decision's score is the sum. Ties go to decisions in force, then to the higher number.
 
@@ -215,7 +217,7 @@ Every reply also lists the unreadable files and the numbers that two files use, 
 
 ### `record_decision`
 
-Input: `title` and `why` for a new decision, with optional `status` (`proposed` or `accepted`), `paths`, `checks` and `supersedes`; or `accept` alone, with the number of a proposed decision. Numbers may be written `0002` or `2`. The two shapes can't be told apart by a JSON schema that every client accepts, so the schema requires nothing and `_request` in `record_decision.dart` checks the shape and says what is wrong.
+Input: `title` and `why` for a new decision, with optional `status` (`proposed` or `accepted`), `paths`, `checks` and `supersedes`; or `accept` alone, with the number of a proposed decision. A number may be written `"0002"`, `"2"` or `2`: the schema gives those two fields no type, because agents send all three and `package:dart_mcp` refuses an argument of the wrong type before the tool runs. The two shapes can't be told apart by a JSON schema that every client accepts, so the schema requires nothing and `_request` in `record_decision.dart` checks the shape and says what is wrong.
 
 The reply has `action` (`added`, `replaced` or `accepted`), the `decision` as it now reads, the `superseded` decision for a replacement, and a `warning` when the old file's status line couldn't be changed. The summary of a proposed decision tells the agent how to accept it later.
 
@@ -245,7 +247,9 @@ sequenceDiagram
   S-->>A: the decision, freshness "rebuilt"
 ```
 
-A decision file and `current.md` are inputs of `INDEX.md`. Without the second check, `INDEX.md` on disk would miss the new decision until the next call, and an agent that has it in view would read an old list. The reply states the second freshness, so it says `rebuilt` and names the file that changed. A refused write changed nothing, so it runs no second check and states the first freshness.
+A decision file and `current.md` are inputs of `INDEX.md`. Without the second check, `INDEX.md` on disk would miss the new decision until the next call, and an agent that has it in view would read an old list. The reply states the second freshness, so after a decision or a new task it says `rebuilt`, because `INDEX.md` was out of date. A lesson changes no input of `INDEX.md`, so that reply says `current`.
+
+A refused write runs no second check and states the first freshness. Almost every refusal means nothing was written. The exception is finishing a task when `current.md` can't be deleted: the lesson was already saved, and the message says so.
 
 ## Replies for Claude Code
 

@@ -70,12 +70,14 @@ String _lines(int count) => count == 1 ? '1 line' : '$count lines';
 /// appends `text` to the lessons as one line dated [today]; `complete`
 /// appends `text`, the agent's summary, as a lesson and deletes the task in
 /// progress. Anything it can't do is a [ToolRefusal] that says what was and
-/// wasn't written.
+/// wasn't written. [deleteFile] deletes the task in progress; tests pass
+/// one that fails.
 Future<ToolAnswer> memoryWrite(
   String projectRoot,
   Map<String, Object?> arguments, {
   required String today,
   Duration lockTimeout = const Duration(seconds: 10),
+  void Function(File file)? deleteFile,
 }) async {
   final kind = arguments['kind'];
   final text = switch (arguments['text']) {
@@ -115,7 +117,12 @@ Future<ToolAnswer> memoryWrite(
     return switch (kind) {
       'current' => await _current(projectRoot, text),
       'lesson' => await _lesson(projectRoot, text, today),
-      _ => await _complete(projectRoot, text, today),
+      _ => await _complete(
+        projectRoot,
+        text,
+        today,
+        deleteFile ?? (file) => file.deleteSync(),
+      ),
     };
   } on KnowledgeWriteException catch (error) {
     return ToolRefusal('$error');
@@ -183,6 +190,7 @@ Future<ToolAnswer> _complete(
   String projectRoot,
   String text,
   String today,
+  void Function(File file) deleteFile,
 ) async {
   final current = memoryFile(projectRoot, memoryCurrentPath);
   final task = readMemoryFile(current);
@@ -203,7 +211,7 @@ Future<ToolAnswer> _complete(
   final (:line, :added, :refusal) = await _append(projectRoot, text, today);
   if (refusal != null) return refusal;
   try {
-    current.deleteSync();
+    deleteFile(current);
   } on FileSystemException catch (error) {
     return ToolRefusal(
       'The summary is saved as a lesson in $memoryLessonsPath, but '

@@ -115,6 +115,66 @@ void main() {
     expect(numbers(ask('lib/routing_extra/x.dart')), isEmpty);
   });
 
+  group('in a project', () {
+    ToolReply inProject(String topic) {
+      final reply =
+          decisionsInfo(readDecisions(root), topic: topic, projectRoot: root)
+              as ToolReply;
+      expectMatchesSchema(ToolSchemas.decisionsResult, reply.result);
+      return reply;
+    }
+
+    setUp(() {
+      Directory(p.join(root, 'lib', 'ui')).createSync(recursive: true);
+      File(p.join(root, 'pubspec.yaml')).writeAsStringSync('name: app\n');
+    });
+
+    test('an absolute path to a project file is read from the project '
+        'folder, spaces and all', () {
+      // tempDir() has a space and an umlaut in its name.
+      final reply = inProject(
+        p.join(root, 'lib', 'ui', 'home', 'view_models', 'x.dart'),
+      );
+      expect(reply.result['mode'], 'path');
+      expect(reply.result['topic'], 'lib/ui/home/view_models/x.dart');
+      expect(numbers(reply), ['0001']);
+    });
+
+    test('an absolute path outside the project is covered by nothing, and '
+        'the reply says why', () {
+      final outside = p.join(p.dirname(root), 'elsewhere', 'x.dart');
+      final reply = inProject(outside);
+      expect(reply.result['mode'], 'path');
+      expect(numbers(reply), isEmpty);
+      expect(
+        reply.summary,
+        startsWith(
+          '${outside.replaceAll(r'\', '/')} is outside the project folder, '
+          "so no decision's paths cover it.",
+        ),
+      );
+    });
+
+    test('a topic with a / or a dot is a path only when it starts with '
+        'something the project has', () {
+      // Words that look like paths: searched as words.
+      handDecision(root, '0007-ci.md', title: 'CI/CD on GitHub with Node.js');
+      for (final topic in ['CI/CD', 'Node.js', 'go_router/provider']) {
+        final reply = inProject(topic);
+        expect(reply.result['mode'], 'words', reason: topic);
+        expect(numbers(reply), isNotEmpty, reason: topic);
+      }
+      // Real places in the project, also a file that doesn't exist yet.
+      expect(inProject('pubspec.yaml').result['mode'], 'path');
+      expect(inProject('lib/ui/new/new_screen.dart').result['mode'], 'path');
+    });
+
+    test('a folder is covered by a pattern that covers what is in it', () {
+      expect(numbers(inProject('lib/ui/home/view_models')), ['0001']);
+      expect(numbers(inProject(r'lib\ui\home\view_models\')), ['0001']);
+    });
+  });
+
   test('a path nothing covers says so', () {
     final reply = ask('pubspec.yaml');
     expect(reply.result['mode'], 'path');

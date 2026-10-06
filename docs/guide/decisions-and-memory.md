@@ -44,7 +44,9 @@ Why: Flutter's architecture guide recommends it; one stack pack keeps checks exa
 
 `INDEX.md` and the `decisions` tool both read through `readDecisions`, so they can never disagree about which decisions are in force. It returns a `DecisionSet`, and never throws for the project's own files.
 
-**1. A decision that a later one replaces is superseded, whatever its own file says.** If decision 3 says `supersedes: 0001` and its own status line is accepted or proposed, decision 1 counts as superseded even when its file still says `accepted`. Two things can leave a file like that: a person who writes a replacement by hand and forgets the old file, and a write that was interrupted between its two steps (below). Without this rule either would leave two decisions in force. Each `DecisionEntry` therefore has two statuses: `record.status` is the file's word, and `status` is what readers use. `supersededBy` names the replacement.
+**1. A decision that another one replaces is superseded, whatever either file says.** If decision 3 says `supersedes: 0001`, decision 1 counts as superseded even when its file still says `accepted`. Two things can leave a file like that: a person who writes a replacement by hand and forgets the old file, and a write that was interrupted between its two steps (below). Without this rule either would leave two decisions in force.
+
+The status of the decision that does the replacing doesn't matter. The first version of this rule counted only an accepted or proposed replacement, and the review of slice 1c.2 found the hole: decision 1's line can't be edited, 2 replaces 1, then 3 replaces 2. Decision 2 is now marked superseded, so under the old rule it replaced nothing, and decision 1 was back in force. Once replaced, always replaced; to bring an old choice back, record it as a new decision. Each `DecisionEntry` therefore has two statuses: `record.status` is the file's word, and `status` is what readers use. `supersededBy` names the replacement.
 
 ```mermaid
 flowchart LR
@@ -52,7 +54,7 @@ flowchart LR
   A --> R["read as superseded, supersededBy 0003"]
 ```
 
-A decision whose own line says `superseded` replaces nothing. If decisions name each other in a circle, none would be left in force, so the one with the highest number stays and `DecisionSet.problems` says so.
+A decision that names itself, or a number no file has, replaces nothing. If decisions name each other in a circle, none would be left in force, so the one with the highest number stays and `DecisionSet.problems` says so.
 
 **2. A number used twice is reported, not resolved.** Two branches that each add decision 5 merge into two files with that number. Both are read. `duplicates` lists them, `numbered(5)` returns null, and `record_decision` refuses to accept or replace number 5 until one file is renamed. Appstein doesn't pick a winner, because it can't know which one the team means.
 
@@ -70,9 +72,9 @@ A decision whose own line says `superseded` replaces nothing. If decisions name 
 
 **Who may accept.** An agent's decision is `proposed` by default. The tool's description tells the agent to pass `accepted` only when the user agreed to the decision in the conversation. This is a rule for the agent, not something Appstein can check: it has no way to see the conversation.
 
-**Changing one word.** Replace and Accept change an existing file. `withDecisionStatus` finds the `status:` line inside the front matter and swaps only the word after it. A comment on that line, Windows line breaks, a byte order mark and every other byte stay as they were. When the line isn't a plain `status: word` (a quoted status, say), it changes nothing: Accept is refused with "change it by hand", and Replace keeps the new decision and returns a `warning`. Rule 1 above still makes readers treat the old decision as superseded.
+**Changing one word.** Replace and Accept change an existing file. `withDecisionStatus` finds the `status:` line inside the front matter and swaps only the word after it. A comment on that line, Windows line breaks, a byte order mark and every other byte stay as they were. The line is found by how it looks, and a line can look like the status without being it: a key inside a map left open across lines, or a line of a quoted title that wraps. So after the swap the function reads the file before and after, and keeps the change only when YAML now reads the wanted status and the title, reason, date, paths, checks and `supersedes` exactly as before. When the line isn't a plain `status: word` (a quoted status, say), or that check fails, it changes nothing: Accept is refused with "change it by hand", and Replace keeps the new decision and returns a `warning`. Rule 1 above still makes readers treat the old decision as superseded.
 
-**Titles YAML would misread.** A title such as `true`, `123` or `a: b` would come back as something else, or break the file. `renderDecision` writes a value plainly only when YAML reads it back as the same text, and quotes it otherwise. The same goes for a path that starts with `*`.
+**Titles YAML would misread.** A title such as `true`, `123` or `a: b` would come back as something else, or break the file. `renderDecision` writes a value plainly only when YAML reads it back as the same text, and quotes it otherwise. The same goes for a path that starts with `*`. Before a new file is written, `writeDecision` reads the rendered text back and refuses when it wouldn't read as what was asked (a title with a broken character, say), so the tool never writes a file it can't read. It also refuses to write over a file that exists, and counts a hand-written `.MD` file as a decision file, since on Windows that name is the same file as `.md`.
 
 **What is refused**, before anything is written: an empty title or reason, a title over 120 characters, a check that isn't one of the two built-in names, a path that is absolute or leaves the project or isn't a valid glob, replacing a decision that is missing, duplicated, unreadable or already superseded, and accepting one that isn't proposed.
 
@@ -111,8 +113,10 @@ Two files in `.appstein/memory/`:
 | `packages/appstein_engine/test/decisions/decision_file_test.dart` | Reading (every reason a file is unreadable, Windows files, how `supersedes` may be written), the written layout, titles and paths YAML would misread, the status word swap, slugs |
 | `packages/appstein_engine/test/decisions/decision_store_test.dart` | The three reading rules, chains and circles, the next number |
 | `packages/appstein_engine/test/mcp/decisions_query_test.dart` | The `decisions` tool: all, by words, by file path |
-| `packages/appstein_engine/test/mcp/record_decision_test.dart` | Add, replace and accept on real folders; every refusal with nothing written; three writers at once; a lock held by another process |
-| `packages/appstein_engine/test/mcp/memory_tools_test.dart` | The lesson line, appending without changing earlier bytes, the three kinds of write, reading |
+| `packages/appstein_engine/test/mcp/record_decision_test.dart` | Add, replace and accept on real folders; chains through the tool; every refusal with nothing written; the number chosen only after another process releases the lock; a second write that fails; a lock held past the timeout |
+| `packages/appstein_engine/test/mcp/memory_tools_test.dart` | The lesson line, appending without changing earlier bytes, the three kinds of write, a lesson another process wrote while the call waited for the lock, a delete that fails, reading |
+
+**A test that can't fail proves nothing.** The first "two writers at once" tests started several calls with `Future.wait` in one process. The review showed they pass with the lock removed, because each call runs to its file rename without a pause. The tests that prove the lock use a second process: it holds the lock, the call under test starts and must wait, the test writes a file as that other process would, and the call's result must include it.
 | `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart`, `mcp_stdio_test.dart` | The tools through the server, `INDEX.md` following a write, and the real process writing real files |
 
 **Trying it by hand.** Start the server as [mcp-server](mcp-server.md#testing-it) describes, call `record_decision` with a `title` and a `why`, and open the new file in `.appstein/decisions/`. Then open `.appstein/INDEX.md`: its Decisions section lists it.

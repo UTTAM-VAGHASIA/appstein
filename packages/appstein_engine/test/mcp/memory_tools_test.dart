@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../decisions/support/decision_files.dart';
+import '../knowledge/support/hold_lock.dart';
 import '../support/temp.dart';
 import 'support/mcp_support.dart';
 
@@ -166,7 +167,45 @@ void main() {
       },
     );
 
-    test('two lessons written at once both land', () async {
+    test('the lessons are read after the lock is held: a lesson another '
+        'process wrote while this call waited is kept', () async {
+      await holdLock(p.join(root, '.appstein'), 1500);
+      final waiting = write('lesson', 'mine');
+      put(lessons(), '- 2026-10-06: theirs\n');
+      await waiting;
+      expect(lessonsIn(lessons().readAsStringSync()), [
+        '2026-10-06: theirs',
+        '2026-10-06: mine',
+      ]);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('complete whose delete fails: the reply is an error that says the '
+        'summary was saved, and calling again finishes without adding it '
+        'twice', () async {
+      await write('current', '# Goal');
+      final answer = await memoryWrite(
+        root,
+        {'kind': 'complete', 'text': 'Done.'},
+        today: today,
+        deleteFile: (file) =>
+            throw FileSystemException('Access is denied', file.path),
+      );
+      expect(
+        (answer as ToolRefusal).message,
+        startsWith(
+          'The summary is saved as a lesson in .appstein/memory/lessons.md, '
+          "but .appstein/memory/current.md couldn't be deleted (",
+        ),
+      );
+      expect(current().existsSync(), isTrue);
+      expect(lessons().readAsStringSync(), '- 2026-10-06: Done.\n');
+      final again = await write('complete', 'Done.');
+      expect(again.result['added'], isFalse);
+      expect(current().existsSync(), isFalse);
+      expect(lessons().readAsStringSync(), '- 2026-10-06: Done.\n');
+    });
+
+    test('two lessons started together both land', () async {
       await Future.wait([write('lesson', 'one'), write('lesson', 'two')]);
       expect(lessonsIn(lessons().readAsStringSync()), hasLength(2));
     });

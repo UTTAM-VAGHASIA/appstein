@@ -199,6 +199,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       answer: (_, arguments) => decisionsInfo(
         readDecisions(projectRoot),
         topic: arguments['topic'] as String?,
+        projectRoot: projectRoot,
       ),
     );
     _writeTool(

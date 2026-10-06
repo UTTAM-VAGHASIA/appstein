@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
@@ -33,7 +35,16 @@ Map<String, Object?> decisionJson(DecisionEntry entry, {int? score}) {
 /// decisions that mention them, best match first, superseded ones
 /// included. Every reply reports unreadable files, duplicate numbers and
 /// other problems (spec §6.7).
-ToolAnswer decisionsInfo(DecisionSet decisions, {String? topic}) {
+///
+/// With [projectRoot], the project's folder, an absolute path is read from
+/// that folder, and a topic with a `/` or a dot counts as a path only when
+/// it starts with a file or folder the project has, so `CI/CD` and
+/// `Node.js` are searched as words.
+ToolAnswer decisionsInfo(
+  DecisionSet decisions, {
+  String? topic,
+  String? projectRoot,
+}) {
   if (decisions.folderProblem case final problem?) {
     return ToolRefusal('`.appstein/decisions/` could not be read ($problem).');
   }
@@ -43,30 +54,36 @@ ToolAnswer decisionsInfo(DecisionSet decisions, {String? topic}) {
   final String summary;
   final List<Map<String, Object?>> found;
   int? withoutPaths;
+  final asPath = asked.isEmpty ? null : _pathTopic(asked, projectRoot);
 
   if (asked.isEmpty) {
     mode = 'all';
     final active = decisions.active;
     found = [for (final entry in active) decisionJson(entry)];
     summary = _allSummary(decisions);
-  } else if (_isPath(asked)) {
+  } else if (asPath != null) {
     mode = 'path';
-    final path = _posix(asked);
+    final path = asPath.path;
     final active = decisions.active;
     found = [
       for (final entry in active)
-        if (_covers(entry.record, path, problems)) decisionJson(entry),
+        if (!asPath.outside && _covers(entry.record, path, problems))
+          decisionJson(entry),
     ];
     final everywhere = active
         .where((entry) => entry.record.paths.isEmpty)
         .length;
     withoutPaths = everywhere;
     summary = [
-      switch (found.length) {
-        0 => "No decision's paths cover $path.",
-        1 => '1 decision covers $path.',
-        final count => '$count decisions cover $path.',
-      },
+      if (asPath.outside)
+        "$path is outside the project folder, so no decision's paths cover "
+            'it.'
+      else
+        switch (found.length) {
+          0 => "No decision's paths cover $path.",
+          1 => '1 decision covers $path.',
+          final count => '$count decisions cover $path.',
+        },
       if (everywhere == 1)
         '1 more lists no paths and applies everywhere; call decisions() '
             'without a topic to read it.',
@@ -108,7 +125,7 @@ ToolAnswer decisionsInfo(DecisionSet decisions, {String? topic}) {
   return ToolReply(
     {
       'mode': mode,
-      if (asked.isNotEmpty) 'topic': mode == 'path' ? _posix(asked) : asked,
+      if (asked.isNotEmpty) 'topic': asPath?.path ?? asked,
       'decisions': found,
       'superseded': decisions.entries.length - decisions.active.length,
       'withoutPaths': ?withoutPaths,
@@ -165,21 +182,47 @@ String _allSummary(DecisionSet decisions) {
   ].join(' ');
 }
 
-/// Whether [topic] is the path of a file rather than words: no white
-/// space, and a path separator or a file extension.
-bool _isPath(String topic) =>
-    !topic.contains(RegExp(r'\s')) &&
-    (topic.contains('/') ||
-        topic.contains(r'\') ||
-        RegExp(r'\.[A-Za-z][A-Za-z0-9]*$').hasMatch(topic));
+/// [topic] as a path from the project folder, when it is a path rather
+/// than words; null when it is words. `outside` is set for an absolute
+/// path that isn't below [projectRoot], and `path` is then the topic.
+///
+/// A path is an absolute path, or a topic without white space that has a
+/// path separator or a file extension and, when [projectRoot] is known,
+/// starts with a file or folder the project has.
+({String path, bool outside})? _pathTopic(String topic, String? projectRoot) {
+  final absolute =
+      RegExp(r'^[A-Za-z]:[\\/]').hasMatch(topic) ||
+      topic.startsWith('/') ||
+      topic.startsWith(r'\\');
+  if (absolute) {
+    if (projectRoot == null) return (path: _posix(topic), outside: true);
+    final relative = p.relative(topic, from: projectRoot);
+    final outside = p.isAbsolute(relative) || p.split(relative).first == '..';
+    return (path: _posix(outside ? topic : relative), outside: outside);
+  }
+  final looksLikeOne =
+      !topic.contains(RegExp(r'\s')) &&
+      (topic.contains('/') ||
+          topic.contains(r'\') ||
+          RegExp(r'\.[A-Za-z][A-Za-z0-9]*$').hasMatch(topic));
+  if (!looksLikeOne) return null;
+  final path = _posix(topic);
+  if (projectRoot != null) {
+    final first = p.join(projectRoot, path.split('/').first);
+    if (FileSystemEntity.typeSync(first) == FileSystemEntityType.notFound) {
+      return null;
+    }
+  }
+  return (path: path, outside: false);
+}
 
-/// [path] with `/` separators and without a leading `./`.
+/// [path] with `/` separators, without a leading `./` or a trailing `/`.
 String _posix(String path) {
   var posix = path.replaceAll(r'\', '/');
   while (posix.startsWith('./')) {
     posix = posix.substring(2);
   }
-  return posix;
+  return posix.length > 1 ? posix.replaceFirst(RegExp(r'/+$'), '') : posix;
 }
 
 /// Whether one of [record]'s path patterns covers [path]: the glob matches
@@ -191,7 +234,12 @@ bool _covers(DecisionRecord record, String path, List<String> problems) {
     final pattern = _posix(raw).replaceFirst(RegExp(r'/+$'), '');
     if (pattern == path || path.startsWith('$pattern/')) covers = true;
     try {
-      if (Glob(pattern, context: p.posix).matches(path)) covers = true;
+      final glob = Glob(pattern, context: p.posix);
+      // A folder is covered when something in it would be.
+      final folder = !RegExp(r'\.[A-Za-z0-9]+$').hasMatch(path);
+      if (glob.matches(path) || (folder && glob.matches('$path/_'))) {
+        covers = true;
+      }
     } on FormatException {
       problems.add(
         'Decision ${record.numberText ?? record.file} has a path pattern '

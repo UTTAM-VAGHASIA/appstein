@@ -108,8 +108,9 @@ DecisionRequest _request(Map<String, Object?> arguments) {
       '$decisionTitleLength and put the detail in `why`.',
     );
   }
+  // Every leading `Why:`: the file adds its own, and reading drops one.
   final reason = why.trim().replaceFirst(
-    RegExp(r'^why:\s*', caseSensitive: false),
+    RegExp(r'^(why:\s*)+', caseSensitive: false),
     '',
   );
   if (reason.isEmpty) {

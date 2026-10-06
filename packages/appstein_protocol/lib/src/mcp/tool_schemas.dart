@@ -467,14 +467,18 @@ abstract final class ToolSchemas {
           'as `lib/ui/**/view_models/**`.',
     ),
     'checks': jsonList(jsonString(values: decisionChecks)),
-    'supersedes': jsonString(
-      description: 'The number of the decision this one replaces.',
-    ),
-    'accept': jsonString(
-      description:
-          'The number of a proposed decision the user now agrees to. Pass '
-          'it alone.',
-    ),
+    // No `type`: agents write a number as `"0002"`, `"2"` or `2`, and a
+    // type array is not something every client's schema checker handles.
+    'supersedes': {
+      'description':
+          'The number of the decision this one replaces, such as "0002" '
+          'or 2.',
+    },
+    'accept': {
+      'description':
+          'The number of a proposed decision the user now agrees to, such '
+          'as "0003" or 3. Pass it alone.',
+    },
   });
 
   /// `record_decision`'s result.

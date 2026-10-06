@@ -247,6 +247,30 @@ void main() {
       );
     });
 
+    test('is null when the line it would change is not the status YAML '
+        'reads, so no other value is ever rewritten', () {
+      // A map left open across lines: its own `status:` comes first.
+      const nested =
+          '---\ntitle: T\nreview: {\nstatus: pending\n}\n'
+          'status: proposed\n---\nWhy: r\n';
+      expect(read(nested, '0001-t.md').status, DecisionStatus.proposed);
+      expect(withDecisionStatus(nested, DecisionStatus.accepted), isNull);
+      // A quoted title that wraps onto a line that looks like a status.
+      const wrapped =
+          '---\ntitle: "Long title that wraps\nstatus: unknown\n here"\n'
+          'status: proposed\n---\nWhy: r\n';
+      expect(read(wrapped, '0001-t.md').status, DecisionStatus.proposed);
+      expect(withDecisionStatus(wrapped, DecisionStatus.accepted), isNull);
+      // A file that can't be read is never edited.
+      expect(
+        withDecisionStatus(
+          '---\nstatus: proposed\n---\n',
+          DecisionStatus.accepted,
+        ),
+        isNull,
+      );
+    });
+
     test('is null when the status line is not a plain word', () {
       expect(
         withDecisionStatus(

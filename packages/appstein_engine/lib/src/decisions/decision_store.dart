@@ -30,8 +30,8 @@ final class DecisionEntry {
   /// [supersededBy] is set, and the file's status otherwise.
   final DecisionStatus status;
 
-  /// The accepted or proposed decision that names this one in `supersedes`;
-  /// null when none does.
+  /// The decision that names this one in `supersedes`, whatever its own
+  /// status; null when none does.
   final DecisionRecord? supersededBy;
 
   /// Whether it is in force or waiting to be: accepted or proposed.
@@ -122,7 +122,8 @@ DecisionSet readDecisions(String projectRoot) {
   try {
     final found = [
       for (final entity in folder.listSync(followLinks: false))
-        if (entity is File && entity.path.endsWith('.md')) entity,
+        // `.MD` too: on Windows and macOS it names the same file as `.md`.
+        if (entity is File && entity.path.toLowerCase().endsWith('.md')) entity,
     ]..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
     for (final file in found) {
       final name = p.basename(file.path);
@@ -321,19 +322,38 @@ Future<DecisionWritten> _add(
   final number = decisions.nextNumber;
   final name =
       '${decisionNumberText(number)}-${decisionSlug(request.title)}.md';
-  await replaceFile(
-    p.join(decisionsFolder(projectRoot), name),
-    renderDecision(
-      number: number,
-      title: request.title,
-      status: request.status,
-      date: today,
-      supersedes: request.supersedes,
-      paths: request.paths,
-      checks: request.checks,
-      why: request.why,
-    ),
+  final text = renderDecision(
+    number: number,
+    title: request.title,
+    status: request.status,
+    date: today,
+    supersedes: request.supersedes,
+    paths: request.paths,
+    checks: request.checks,
+    why: request.why,
   );
+  // Read it back before writing: a file the reader can't read, or reads
+  // differently, must never be written.
+  final back = parseDecisionFile(name, text);
+  if (back is! ReadDecision ||
+      back.record.title != request.title ||
+      !_same(back.record.paths, request.paths) ||
+      !_same(back.record.checks, request.checks) ||
+      back.record.supersedes != request.supersedes ||
+      back.record.status != request.status) {
+    throw const DecisionRefused(
+      'The title or a path holds characters a decision file cannot store. '
+      'Reword it with plain text.',
+    );
+  }
+  final path = p.join(decisionsFolder(projectRoot), name);
+  if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
+    throw DecisionRefused(
+      '${decisionPath(name)} already exists, and decisions are never '
+      'overwritten. Rename that file, then try again.',
+    );
+  }
+  await replaceFile(path, text);
 
   String? warning;
   if (replaced != null) {
@@ -354,9 +374,13 @@ Future<DecisionWritten> _add(
           changed,
         );
       } on KnowledgeWriteException catch (error) {
+        // The store's advice to run `appstein sync` is for generated files.
+        final reason = error.reason
+            .replaceAll(' and run `appstein sync` again', '')
+            .replaceFirst(RegExp(r'\.$'), '');
         warning =
             "The status line of ${decisionPath(file)} couldn't be changed "
-            'to `superseded` ($error). Change it by hand.';
+            'to `superseded` ($reason). Change it by hand.';
       }
     }
   }
@@ -364,10 +388,10 @@ Future<DecisionWritten> _add(
   final after = readDecisions(projectRoot);
   return DecisionWritten(
     action: replaced == null ? 'added' : 'replaced',
-    decision: after.numbered(number)!,
+    decision: _written(after, number),
     superseded: replaced == null
         ? null
-        : after.numbered(replaced.record.number!),
+        : _written(after, replaced.record.number!),
     warning: warning,
   );
 }
@@ -404,8 +428,27 @@ Future<DecisionWritten> _accept(
   await replaceFileBytes(p.join(decisionsFolder(projectRoot), file), changed);
   return DecisionWritten(
     action: 'accepted',
-    decision: readDecisions(projectRoot).numbered(request.number)!,
+    decision: _written(readDecisions(projectRoot), request.number),
   );
+}
+
+/// Decision [number] as [decisions], read after a write, holds it. The
+/// write was checked before it was made, so not finding it means the file
+/// changed under the lock: a [KnowledgeWriteException] says so.
+DecisionEntry _written(DecisionSet decisions, int number) =>
+    decisions.numbered(number) ??
+    (throw KnowledgeWriteException(
+      decisionsFolder('.'),
+      'decision ${decisionNumberText(number)} was written but could not be '
+      'read back; look at the files in `.appstein/decisions/`',
+    ));
+
+bool _same(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// The one readable decision numbered [number], or a [DecisionRefused]
@@ -453,8 +496,9 @@ List<int>? _withStatus(List<int> bytes, DecisionStatus status) {
 }
 
 /// Which decision replaces which (spec §6.7): a record is replaced by the
-/// record that names its number in `supersedes` and whose own status line
-/// is accepted or proposed. When several do, the highest number counts.
+/// record that names its number in `supersedes`, whatever either file's
+/// status line says, so a decision that was replaced never comes back into
+/// force. When several name it, the highest number counts.
 ///
 /// Records that supersede each other in a circle would leave none in
 /// force, so the one with the highest number stays; [problems] gets a
@@ -463,8 +507,11 @@ Map<DecisionRecord, DecisionRecord> _replacements(
   List<DecisionRecord> records,
   List<String> problems,
 ) {
+  // Whatever the record's own status: a decision that was replaced stays
+  // replaced when its replacement is replaced in turn. Naming itself
+  // replaces nothing.
   bool replaces(DecisionRecord record) =>
-      record.supersedes != null && record.status != DecisionStatus.superseded;
+      record.supersedes != null && record.supersedes != record.number;
   final byNumber = <int, List<DecisionRecord>>{};
   for (final record in records) {
     if (record.number case final number?) {

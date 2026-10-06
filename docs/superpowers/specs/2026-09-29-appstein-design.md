@@ -396,7 +396,7 @@ The title, reason, paths and checks of an existing decision are never rewritten:
 
 **Reading.** Every reader (`INDEX.md`, the `decisions` tool, the verifier, the human docs) applies the same rules:
 
-- A decision that an accepted or proposed decision names in `supersedes` counts as superseded, whatever its own `status` line says. So a replacement written by hand, or a write that was interrupted, never leaves two decisions in force.
+- A decision that another decision names in `supersedes` counts as superseded, whatever either file's `status` line says. So a replacement written by hand, or a write that was interrupted, never leaves two decisions in force, and a decision that was replaced stays replaced when its replacement is replaced in turn.
 - Two files with the same number (two branches each added one) are both read and reported as duplicates. `record_decision` refuses to accept or replace that number until one file is renamed.
 - A file whose front matter can't be read is reported with the reason, never skipped.
 
