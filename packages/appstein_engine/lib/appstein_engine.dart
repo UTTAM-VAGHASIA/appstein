@@ -59,6 +59,8 @@ export 'src/mcp/check_api.dart';
 export 'src/mcp/decisions_query.dart';
 export 'src/mcp/feature_query.dart';
 export 'src/mcp/knowledge_snapshot.dart';
+export 'src/mcp/memory_tools.dart';
+export 'src/memory/memory_store.dart';
 export 'src/mcp/record_decision.dart';
 export 'src/mcp/route_query.dart';
 export 'src/mcp/tool_answer.dart';
