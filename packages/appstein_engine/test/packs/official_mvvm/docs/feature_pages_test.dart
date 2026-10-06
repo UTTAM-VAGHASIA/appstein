@@ -130,6 +130,51 @@ void main() {
     );
   });
 
+  test('a folder name that is no file name on Windows still gets a page, '
+      'under a name that is one', () {
+    final sections = _render(
+      features: FeaturesMap(
+        features: {
+          'shop:eu/check*out': _feature(
+            'lib/ui/shop:eu/check*out',
+            screens: const [
+              CodeRef(
+                name: 'CheckoutScreen',
+                file: 'lib/ui/shop:eu/check*out/widgets/checkout_screen.dart',
+              ),
+            ],
+          ),
+        },
+      ),
+    );
+    expect(sections.single.path, 'features/shop_eu/check_out.md');
+    // The page still names the feature as the project does.
+    expect(sections.single.title, 'Feature: shop:eu/check*out');
+    // The links start from where the page really is.
+    expect(sections.single.markdown, contains('](../../../../lib/ui/shop'));
+  });
+
+  test('two features that would be one page are refused, naming both', () {
+    expect(
+      () => _render(
+        features: FeaturesMap(
+          features: {
+            'shop:eu': _feature('lib/ui/shop:eu'),
+            'shop_eu': _feature('lib/ui/shop_eu'),
+          },
+        ),
+      ),
+      throwsA(
+        isA<DocPagesCollide>().having(
+          (e) => e.problem,
+          'problem',
+          'the features `shop:eu` and `shop_eu` would both be the page '
+              '`features/shop_eu.md`',
+        ),
+      ),
+    );
+  });
+
   test('a feature with only a screen has one box and no arrow', () {
     final text = _render(
       features: FeaturesMap(

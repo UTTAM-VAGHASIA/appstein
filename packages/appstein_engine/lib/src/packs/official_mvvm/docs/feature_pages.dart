@@ -2,6 +2,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../../../docs/doc_page.dart';
 import '../../../docs/docs_knowledge.dart';
+import '../../../docs/docs_renderer.dart';
 import '../../../docs/markdown_text.dart';
 
 /// `features/<feature>.md` (spec §6.9): one page per feature, with its
@@ -18,14 +19,33 @@ final class FeaturePages implements DocPage {
   @override
   List<DocSection> sections(DocsKnowledge knowledge) {
     final names = knowledge.features.features.keys.toList()..sort();
+    final byPage = <String, String>{};
+    for (final name in names) {
+      final page = _pageOf(name);
+      final other = byPage.putIfAbsent(page, () => name);
+      if (other != name) {
+        throw DocPagesCollide(
+          page,
+          page,
+          because:
+              'the features `$other` and `$name` would both be the page '
+              '`$page`',
+        );
+      }
+    }
     return [
       for (final name in names)
         _page(knowledge, name, knowledge.features.features[name]!),
     ];
   }
 
+  /// The page of the feature [name]. A folder name isn't always a file name
+  /// on every system, so each folder goes through [docFileName].
+  static String _pageOf(String name) =>
+      'features/${name.split('/').map(docFileName).join('/')}.md';
+
   DocSection _page(DocsKnowledge knowledge, String name, Feature feature) {
-    final page = 'features/$name.md';
+    final page = _pageOf(name);
     String link(String target, {int? line}) => projectLink(
       docsPath: knowledge.docsPath,
       page: page,

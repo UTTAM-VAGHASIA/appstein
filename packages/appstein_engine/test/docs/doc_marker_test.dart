@@ -72,8 +72,28 @@ void main() {
   test('the body is everything after the first line, with plain line ends', () {
     expect(bodyOf('<!-- x -->\n# T\n\ntext\n'), '# T\n\ntext\n');
     expect(bodyOf('<!-- x -->\r\n# T\r\ntext\r\n'), '# T\ntext\n');
-    expect(bodyOf('<!-- x -->\r# T\rtext'), '# T\ntext');
     expect(bodyOf('<!-- x -->'), '');
+  });
+
+  test('the body ends in one line break, whatever the file ends in', () {
+    expect(bodyOf('<!-- x -->\r# T\rtext'), '# T\ntext\n');
+    expect(bodyOf('<!-- x -->\n# T\ntext\n\n\n'), '# T\ntext\n');
+    expect(bodyOf('<!-- x -->\n\n\n'), '');
+    expect(bodyOf('<!-- x -->\n\n# T\n'), '\n# T\n');
+  });
+
+  test('withoutEndingBreaks drops only what an editor adds or strips', () {
+    expect(withoutEndingBreaks('a\r\nb\r\n\r\n'), 'a\nb');
+    expect(withoutEndingBreaks('a\n\nb'), 'a\n\nb');
+    expect(withoutEndingBreaks('a \n'), 'a ');
+    expect(withoutEndingBreaks(''), '');
+  });
+
+  test('isLeftoverPageWrite: empty, or the start of a generated page', () {
+    expect(isLeftoverPageWrite(''), isTrue);
+    expect(isLeftoverPageWrite('<!-- appstein:generated templ'), isTrue);
+    expect(isLeftoverPageWrite('my notes'), isFalse);
+    expect(isLeftoverPageWrite('\n<!-- appstein:generated x'), isFalse);
   });
 
   test('the body hash ignores the kind of line ending', () {

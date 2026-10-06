@@ -90,15 +90,36 @@ bool isConflictedPage(String text) {
 String plainLines(String text) =>
     withoutBom(text).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
+final _endingBreaks = RegExp(r'\n*$');
+
+/// [text] in the form [plainLines] gives, without the line breaks at its
+/// end. Two pages that are equal in this form differ only in line endings, a
+/// byte order mark, or blank lines at the end, which an editor adds or
+/// strips: they count as the same page (spec §6.9).
+String withoutEndingBreaks(String text) =>
+    plainLines(text).replaceFirst(_endingBreaks, '');
+
+/// Whether [text] starts as a generated page does, or is empty. A page is
+/// written through a temporary file; one that looks like this is what an
+/// interrupted write left behind, never a person's file.
+bool isLeftoverPageWrite(String text) {
+  final plain = withoutBom(text);
+  return plain.isEmpty || plain.startsWith(_prefix);
+}
+
 /// The text of a generated page: [marker]'s line, then [body].
 String markedPage(DocMarker marker, String body) => '${marker.line}\n$body';
 
 /// The body of a page [text] that has a marker: everything after its first
-/// line, in the form [plainLines] gives.
+/// line, in the form [plainLines] gives, ending in exactly one line break as
+/// every rendered body does. So blank lines added or stripped at the end of
+/// the file never make a page look edited by hand.
 String bodyOf(String text) {
   final plain = plainLines(text);
   final end = plain.indexOf('\n');
-  return end < 0 ? '' : plain.substring(end + 1);
+  if (end < 0) return '';
+  final body = withoutEndingBreaks(plain.substring(end + 1));
+  return body.isEmpty ? '' : '$body\n';
 }
 
 /// The SHA-256 of [body] as hex, in the form [plainLines] gives, so the
