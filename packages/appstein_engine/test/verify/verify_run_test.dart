@@ -260,6 +260,66 @@ void main() {
     });
   });
 
+  group('suppressions', () {
+    AppsteinConfig suppressing(
+      String id, {
+      Map<String, Severity> severity = const {},
+    }) => AppsteinConfig(
+      verify: VerifyConfig(severity: severity),
+      suppressions: [
+        SuppressionEntry(id: id, path: 'lib/**', reason: 'Accepted.', line: 4),
+      ],
+    );
+
+    test('a finding is hidden and counted', () async {
+      final result = await run([
+        FakeCheck(['a.b'], findings: [finding('a.b', file: 'lib/x.dart')]),
+      ], config: suppressing('a.b'));
+      expect(result.findings, isEmpty);
+      expect(result.suppressed, 1);
+    });
+
+    test('severity overrides come first, then suppressions', () async {
+      final result = await run([
+        FakeCheck(['a.b'], findings: [finding('a.b', file: 'lib/x.dart')]),
+      ], config: suppressing('a.b', severity: {'a.b': Severity.error}));
+      expect(result.findings, isEmpty);
+      expect(result.errors, 0);
+    });
+
+    test('an ID is known when any check of the project has it, whatever '
+        'the mode', () async {
+      final result = await run(
+        [
+          FakeCheck(['a.b']),
+        ],
+        mode: VerifyMode.fast,
+        config: suppressing('a.b'),
+      );
+      expect(result.findings, isEmpty);
+    });
+
+    test('an ID no check has is reported, and sorted with the rest', () async {
+      final result = await run([
+        FakeCheck(['a.b'], findings: [finding('a.b', file: 'zzz.dart')]),
+      ], config: suppressing('a.c'));
+      expect(ids(result), ['suppression.unknown_check', 'a.b']);
+      expect(result.findings.first.file, 'appstein.yaml');
+      expect(result.errors, 1);
+    });
+
+    test('no override changes a suppression finding', () async {
+      final result = await run(
+        [],
+        config: suppressing(
+          'a.c',
+          severity: {'suppression.unknown_check': Severity.info},
+        ),
+      );
+      expect(result.findings.single.severity, Severity.error);
+    });
+  });
+
   test('findings and checks not run come back in order', () async {
     final result = await run([
       FakeCheck(['z.z'], needsMap: true),

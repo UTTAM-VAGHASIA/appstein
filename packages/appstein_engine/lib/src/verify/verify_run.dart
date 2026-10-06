@@ -7,6 +7,7 @@ import '../knowledge/knowledge_store.dart';
 import '../knowledge/knowledge_sync.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
+import 'suppressions.dart';
 import 'verify_check.dart';
 
 /// The findings no suppression hides and no `verify.severity` override
@@ -142,8 +143,18 @@ Future<VerifyResult> runVerify({
           _ => finding,
         },
     ];
+    final suppressed = applySuppressions(
+      overridden,
+      config.suppressions,
+      knownIds: {
+        for (final (:check, pack: _) in checks) ...check.ids,
+        ...unsuppressibleIds,
+      },
+      mode: mode,
+    );
     return VerifyResult(
-      findings: sortFindings(overridden),
+      findings: sortFindings(suppressed.kept),
+      suppressed: suppressed.suppressed,
       notRun: notRun..sort((a, b) => a.id.compareTo(b.id)),
     );
   }
