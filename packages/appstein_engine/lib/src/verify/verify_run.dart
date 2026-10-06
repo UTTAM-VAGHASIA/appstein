@@ -5,6 +5,7 @@ import '../knowledge/knowledge_lock.dart';
 import '../knowledge/knowledge_refresh.dart';
 import '../knowledge/knowledge_store.dart';
 import '../knowledge/knowledge_sync.dart';
+import '../knowledge/knowledge_write_exception.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
 import 'suppressions.dart';
@@ -85,23 +86,34 @@ Future<VerifyResult> runVerify({
           knowledgeRef: '.appstein/state.json',
         ),
     ];
-    final notRun = <CheckNotRun>[];
+    const mapStale = 'the project map is not up to date';
+    // By ID, so a part two decisions name is listed once.
+    final notRun = <String, CheckNotRun>{};
+    // The IDs whose findings may be missing, because their check, or a part
+    // of it, did not run: a suppression of one is not "unused".
+    final incomplete = <String>{};
+    var running = const <String>[];
     final context = VerifyContext(
       projectRoot: projectRoot,
       config: config,
       packs: packs,
       knowledge: knowledge,
       decisions: readDecisions(projectRoot),
+      staleProblem: stale,
+      onSkipped: (part) {
+        notRun[part] = CheckNotRun(id: part, reason: mapStale);
+        incomplete.addAll(running);
+      },
     );
     for (final (:check, :pack) in checks) {
       if (mode == VerifyMode.fast && check.mode != VerifyMode.fast) continue;
       final id = check.ids.first;
       if (check.needsMap && stale != null) {
-        notRun.add(
-          CheckNotRun(id: id, reason: 'the project map is not up to date'),
-        );
+        notRun[id] = CheckNotRun(id: id, reason: mapStale);
+        incomplete.addAll(check.ids);
         continue;
       }
+      running = check.ids;
       final List<Finding> found;
       try {
         found = await check.run(context);
@@ -140,11 +152,12 @@ Future<VerifyResult> runVerify({
         ...unsuppressibleIds,
       },
       mode: mode,
+      notRunIds: incomplete,
     );
     return VerifyResult(
       findings: sortFindings(suppressed.kept),
       suppressed: suppressed.suppressed,
-      notRun: notRun..sort((a, b) => a.id.compareTo(b.id)),
+      notRun: notRun.values.toList()..sort((a, b) => a.id.compareTo(b.id)),
     );
   }
 
@@ -152,6 +165,18 @@ Future<VerifyResult> runVerify({
     return await KnowledgeStore(
       projectRoot,
     ).locked(() => body(refresh), timeout: sync.lockTimeout);
+  } on KnowledgeWriteException catch (error) {
+    // `.appstein` can't be created or opened (it is a file, or the folder
+    // is read-only). That is the project's to fix, so it is a finding, and
+    // the checks that need no map still run.
+    return body(
+      refresh.ok
+          ? KnowledgeRefresh.failed(
+              '$error',
+              fixHint: 'Fix that, then run `appstein verify` again.',
+            )
+          : refresh,
+    );
   } on KnowledgeLockTimeout {
     return body(
       refresh.ok

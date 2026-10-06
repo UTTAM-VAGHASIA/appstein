@@ -18,7 +18,7 @@ This adds a check to `appstein verify`, or a check a decision record can name. R
 4. **Implement `VerifyCheck`** ([source](../../../packages/appstein_engine/lib/src/verify/verify_check.dart)):
    - `ids`: every ID it can report. Reporting another one makes the run fail.
    - `mode`: `fast` only when it stays quick on a large project; fast verify has 5 seconds in total (spec §9.1).
-   - `needsMap`: true when it reads `.appstein/map/` or the SDK facts. It is then skipped, and named as not run, while the knowledge is stale.
+   - `needsMap`: true when it reads `.appstein/map/` or the SDK facts. It is then skipped, and named as not run, while the knowledge is stale. A check that reads the map for only a part of its work keeps `needsMap` false, asks `context.mapProblem` before that part, and calls `context.skipped(id)` when it leaves the part out. Never read a map file without asking: old files stay on disk after a failed refresh.
    - `run`: read only the `VerifyContext`. Never write a project file. Return findings in a fixed order. Throw only for a bug: a problem with the project is a finding.
    - Write each message as one true sentence about the project, and each fix hint as something the reader can do. Then run the real command and read both.
 

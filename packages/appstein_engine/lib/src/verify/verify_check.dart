@@ -24,7 +24,31 @@ final class VerifyContext {
     required this.packs,
     required this.knowledge,
     required this.decisions,
+    this.staleProblem,
+    this.onSkipped,
   });
+
+  /// Why the knowledge could not be refreshed; null when it was, or when
+  /// the context was built without a refresh.
+  final String? staleProblem;
+
+  /// Told each part a check left out ([skipped]).
+  final void Function(String id)? onSkipped;
+
+  /// Why the project map can't be used; null when it can. It is set when
+  /// the knowledge could not be refreshed, even if old map files are still
+  /// on disk and readable, and when a map file can't be read: nothing is
+  /// judged against old knowledge (spec §9).
+  ///
+  /// A check with `needsMap` is never run while this is set. A check that
+  /// only reads the map for part of its work asks here, and reports the
+  /// part it left out with [skipped].
+  String? get mapProblem => staleProblem ?? knowledge.mapProblem;
+
+  /// Says that the part of this check named [id] was left out because the
+  /// map can't be used. `verify` names it among the checks that did not
+  /// run, so nothing is skipped silently.
+  void skipped(String id) => onSkipped?.call(id);
 
   /// The project's folder.
   final String projectRoot;

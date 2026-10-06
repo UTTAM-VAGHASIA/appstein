@@ -24,6 +24,18 @@ List<String> _ids(List<Finding> findings) => [
 ];
 
 void main() {
+  test('an entry for a check that did not run is never unused', () {
+    final result = applySuppressions(
+      const [],
+      [_entry('docs.stale', 'docs'), _entry('decision.drift', 'x', line: 9)],
+      knownIds: _known,
+      mode: VerifyMode.full,
+      notRunIds: const {'docs.stale'},
+    );
+    expect(_ids(result.kept), ['suppression.unused']);
+    expect(result.kept.single.line, 9);
+  });
+
   test('an entry with a reason hides its finding', () {
     final result = _apply(
       [finding('docs.stale', file: 'docs/app/routes.md')],

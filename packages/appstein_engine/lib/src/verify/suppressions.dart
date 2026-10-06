@@ -21,7 +21,9 @@ import 'verify_run.dart';
 ///   report), or one of [unsuppressibleIds]: the error
 ///   `suppression.unknown_check`;
 /// - hiding no finding: the warning `suppression.unused`, in
-///   [VerifyMode.full] only, since in fast mode most checks did not run.
+///   [VerifyMode.full] only, since in fast mode most checks did not run,
+///   and never for an ID in [notRunIds], whose check (or a part of it) did
+///   not run this time: its finding may only be missing.
 ///
 /// `kept` is the findings that stay, followed by those reports in the
 /// order of [entries]; `suppressed` is how many findings were hidden.
@@ -30,6 +32,7 @@ import 'verify_run.dart';
   List<SuppressionEntry> entries, {
   required Set<String> knownIds,
   required VerifyMode mode,
+  Set<String> notRunIds = const {},
 }) {
   Finding report(
     String id,
@@ -102,7 +105,9 @@ import 'verify_run.dart';
               finding,
     ];
     hidden.addAll(matched);
-    if (matched.isEmpty && mode == VerifyMode.full) {
+    if (matched.isEmpty &&
+        mode == VerifyMode.full &&
+        !notRunIds.contains(entry.id)) {
       reports.add(
         report(
           'suppression.unused',

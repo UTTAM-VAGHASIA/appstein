@@ -202,6 +202,29 @@ void main() {
       expect(ids(full), contains('docs.stale'));
     });
 
+    test('a decision check that reads the map never judges an old map: it '
+        'is named as not run', () async {
+      File(p.join(app, '.appstein', 'decisions', '0001-state.md'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          '---\ntitle: State with provider\nstatus: accepted\n'
+          'date: 2026-10-01\nchecks: [stack.provider]\n---\nWhy: because.\n',
+        );
+      // The map is whole and current: the check reports.
+      final fresh = await verify(
+        config: const AppsteinConfig(docs: DocsConfig(enabled: false)),
+      );
+      expect(ids(fresh), contains('decision.drift'));
+
+      // The same map files are still on disk, but can't be refreshed.
+      final stale = await verify(flutterRoot: p.join(app, 'no such sdk'));
+      expect(ids(stale), ['knowledge.stale']);
+      expect(
+        [for (final check in stale.notRun) check.id],
+        ['docs.stale', 'stack.provider', 'verify.test_required'],
+      );
+    });
+
     test('full, when the knowledge cannot be refreshed: an error, and the '
         'map checks are named as not run', () async {
       // Something for a check that needs no map to find.

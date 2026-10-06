@@ -27,8 +27,9 @@ const _driftFix =
 /// - **duplicate:** two files have the same number.
 ///
 /// It runs without the project map. A decision check that reads the map is
-/// skipped while the map can't be read: the run reports `knowledge.stale`
-/// then, and a guess from an old map would be worse than no answer.
+/// left out while the map can't be used (`VerifyContext.mapProblem`), and
+/// named as not run: the run reports `knowledge.stale` then, and an answer
+/// from an old map would be worse than none.
 final class DecisionsCheck implements VerifyCheck {
   /// Creates the check with every decision check of the project.
   const DecisionsCheck(this.decisionChecks);
@@ -105,7 +106,7 @@ final class DecisionsCheck implements VerifyCheck {
       }
     }
 
-    final mapReady = context.knowledge.mapProblem == null;
+    final mapReady = context.mapProblem == null;
     for (final entry in decisions.entries) {
       if (entry.status != DecisionStatus.accepted) continue;
       final record = entry.record;
@@ -134,7 +135,10 @@ final class DecisionsCheck implements VerifyCheck {
           );
           continue;
         }
-        if (check.needsMap && !mapReady) continue;
+        if (check.needsMap && !mapReady) {
+          context.skipped(check.id);
+          continue;
+        }
         final line = lineOf(name == 'paths.exist' ? 'paths' : 'checks');
         for (final sentence in check.problems(entry, context)) {
           findings.add(

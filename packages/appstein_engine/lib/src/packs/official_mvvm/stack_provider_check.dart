@@ -1,3 +1,8 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
+
 import '../../decisions/decision_store.dart';
 import '../../verify/decision_check.dart';
 import '../../verify/verify_check.dart';
@@ -22,6 +27,22 @@ const _otherStateManagement = [
   'stacked',
 ];
 
+/// Whether `dependencies` in the `pubspec.yaml` of the project at
+/// [projectRoot] lists `provider`. False when the file can't be read.
+bool _listsProvider(String projectRoot) {
+  try {
+    final yaml = loadYaml(
+      File(p.join(projectRoot, 'pubspec.yaml')).readAsStringSync(),
+    );
+    final dependencies = yaml is Map ? yaml['dependencies'] : null;
+    return dependencies is Map && dependencies.containsKey('provider');
+  } on FileSystemException {
+    return false;
+  } on FormatException {
+    return false;
+  }
+}
+
 /// How many files a sentence names before it counts the rest.
 const _named = 3;
 
@@ -45,7 +66,14 @@ final class StackProviderCheck implements DecisionCheck {
     final packages = context.knowledge.deps.value?.packages;
     if (packages == null) return const [];
     final problems = <String>[];
-    if (packages['provider']?.dependency != 'direct main') {
+    final direct = switch (packages['provider']?.dependency) {
+      'direct main' => true,
+      // pub's word for a package in `dependency_overrides`, whether or not
+      // the app also lists it: `pubspec.yaml` says which.
+      'direct overridden' => _listsProvider(context.projectRoot),
+      _ => false,
+    };
+    if (!direct) {
       problems.add('The project does not depend on `provider`.');
     }
     for (final name in _otherStateManagement) {

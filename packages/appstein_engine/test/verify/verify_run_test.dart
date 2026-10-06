@@ -16,6 +16,25 @@ import 'support/verify_support.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
 
+/// A check that needs no map itself, with a part that does: it skips that
+/// part while the map can't be used, as the decisions check does.
+final class _SkippingCheck implements VerifyCheck {
+  @override
+  List<String> get ids => const ['part.check'];
+
+  @override
+  VerifyMode get mode => VerifyMode.full;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    if (context.mapProblem != null) context.skipped('part.inner');
+    return const [];
+  }
+}
+
 void main() {
   late String sdk;
   late String app;
@@ -156,6 +175,71 @@ void main() {
       );
       expect(result.findings.single.fixHint, 'Do y.');
       expect(File(p.join(app, '.appstein', 'INDEX.md')).existsSync(), isFalse);
+    });
+
+    test('`.appstein` is a file: still a result, never a crash', () async {
+      File(p.join(app, '.appstein')).writeAsStringSync('in the way');
+      final other = FakeCheck(['other.check']);
+      final result = await run([
+        FakeCheck(['map.check'], needsMap: true),
+        other,
+      ]);
+      expect(ids(result), ['knowledge.stale']);
+      expect(result.notRun.single.id, 'map.check');
+      expect(other.runs, 1);
+    });
+
+    test('a suppression of a check that did not run is not called '
+        'unused', () async {
+      final result = await run(
+        [
+          FakeCheck(['map.check'], needsMap: true),
+          FakeCheck(['other.check']),
+        ],
+        flutterRoot: p.join(app, 'no such sdk'),
+        config: const AppsteinConfig(
+          suppressions: [
+            SuppressionEntry(
+              id: 'map.check',
+              path: 'lib',
+              reason: 'r',
+              line: 3,
+            ),
+            SuppressionEntry(
+              id: 'other.check',
+              path: 'lib',
+              reason: 'r',
+              line: 6,
+            ),
+          ],
+        ),
+      );
+      // The entry for the check that ran, and hid nothing, is still unused.
+      expect(ids(result), ['knowledge.stale', 'suppression.unused']);
+      expect(result.findings.last.line, 6);
+    });
+
+    test('what a check says it skipped is named as not run, and its '
+        'suppressions are not called unused', () async {
+      final result = await run(
+        [_SkippingCheck()],
+        flutterRoot: p.join(app, 'no such sdk'),
+        config: const AppsteinConfig(
+          suppressions: [
+            SuppressionEntry(
+              id: 'part.check',
+              path: 'lib',
+              reason: 'r',
+              line: 3,
+            ),
+          ],
+        ),
+      );
+      expect(ids(result), ['knowledge.stale']);
+      expect(
+        [for (final entry in result.notRun) '${entry.id}: ${entry.reason}'],
+        ['part.inner: the project map is not up to date'],
+      );
     });
 
     // Review Focus 4.

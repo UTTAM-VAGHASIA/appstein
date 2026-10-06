@@ -24,8 +24,14 @@ PackageDependency _package({
 );
 
 void main() {
-  List<String> problems(Map<String, PackageDependency> packages) {
+  List<String> problems(
+    Map<String, PackageDependency> packages, {
+    String? pubspec,
+  }) {
     final root = tempDir().path;
+    if (pubspec != null) {
+      File(p.join(root, 'pubspec.yaml')).writeAsStringSync(pubspec);
+    }
     File(p.join(root, '.appstein', 'map', 'deps.json'))
       ..parent.createSync(recursive: true)
       ..writeAsStringSync(jsonEncode(DepsMap(packages: packages).toJson()));
@@ -61,6 +67,36 @@ void main() {
     expect(problems({'http': _package()}), missing);
     expect(problems({'provider': _package(dependency: 'transitive')}), missing);
     expect(problems({'provider': _package(dependency: 'direct dev')}), missing);
+  });
+
+  test('an overridden provider counts when pubspec.yaml lists it as a '
+      'dependency', () {
+    // pub writes `direct overridden` for a package in
+    // `dependency_overrides`, whether or not the app also depends on it.
+    final packages = {'provider': _package(dependency: 'direct overridden')};
+    const missing = ['The project does not depend on `provider`.'];
+    expect(
+      problems(
+        packages,
+        pubspec:
+            'name: app\n'
+            'dependencies:\n  provider: ^6.0.0\n'
+            'dependency_overrides:\n  provider: 6.1.0\n',
+      ),
+      isEmpty,
+    );
+    expect(
+      problems(
+        packages,
+        pubspec:
+            'name: app\n'
+            'dev_dependencies:\n  provider: ^6.0.0\n'
+            'dependency_overrides:\n  provider: 6.1.0\n',
+      ),
+      missing,
+    );
+    expect(problems(packages), missing);
+    expect(problems(packages, pubspec: 'dependencies: [\n'), missing);
   });
 
   test('another state-management package imported under lib/ is named with '
