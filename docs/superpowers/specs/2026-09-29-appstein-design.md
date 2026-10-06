@@ -293,7 +293,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ### 6.3 `INDEX.md` template (generated)
 
 1. **Project**: name (from `pubspec.yaml`), app/bundle IDs (from `native.json`; one per Xcode configuration when they differ; an `unknown` ID says so and points to `native.json`, never a guess), target platforms (the platform folders that exist, as Flutter decides), stack pack, Flutter/Dart/language version.
-2. **Rules that matter most**: "ask Appstein MCP before searching", "run verify before claiming done", "never upgrade native toolchain versions yourself; use `toolchain()`", and dependency policy in one line. A rule names an MCP tool only when this Appstein version offers it; the same holds for the pointers below, which name the file until the tool exists.
+2. **Rules that matter most**: "ask Appstein MCP before searching", "run verify before claiming done", "never upgrade native toolchain versions yourself; use `toolchain()`", "record a choice that binds later work with `record_decision()`, and keep the task in progress with `memory_write()`", and dependency policy in one line. A rule names an MCP tool only when this Appstein version offers it; the same holds for the pointers below, which name the file until the tool exists.
 3. **Features**: a table of feature → screen count → main files (top 15, most screens first; "…and N more, use `feature()`"). When the map was skipped, the section says why.
 4. **Where things live**: layer → folder, from the stack pack's layer rules.
 5. **Version notes**: the 5–10 highest-priority curated notes in `delta.md`'s order, a count of the deprecated, removed and changed APIs and the moved libraries `delta.md` lists, and a pointer to `what_changed()`.
@@ -384,6 +384,22 @@ checks: [stack.provider]  # optional: verifier checks that confirm this decision
 Why: Flutter's architecture guide recommends it; one stack pack keeps checks exact.
 ```
 
+**The file** is `.appstein/decisions/NNNN-<slug>.md`: a four-digit number, then a slug made from the title. The number in the file name is the decision's number, and `id` repeats it. The text below the front matter is the reason, starting with `Why:`.
+
+**Writing.** People write these files by hand, and agents write them with `record_decision` (§8), which does three things and nothing else:
+
+- **Add:** a new file with the next free number, today's date and the given title, reason, paths and checks. Its status is `proposed` unless the agent passes `accepted`, which it may do only when the user agreed to the decision in the conversation.
+- **Replace:** a new decision that names an older one in `supersedes`. The older file's `status` line becomes `superseded`; the rest of that file is left as it is.
+- **Accept:** the `status` line of a proposed decision becomes `accepted`.
+
+The title, reason, paths and checks of an existing decision are never rewritten: a decision that changes is replaced by a new one, so the history stays readable. A call is refused, and nothing is written, when the title or the reason is empty, a check isn't one of the built-in checks below, a path is absolute or leaves the project, the decision to replace doesn't exist or is already superseded, or the decision to accept isn't proposed.
+
+**Reading.** Every reader (`INDEX.md`, the `decisions` tool, the verifier, the human docs) applies the same rules:
+
+- A decision that an accepted or proposed decision names in `supersedes` counts as superseded, whatever its own `status` line says. So a replacement written by hand, or a write that was interrupted, never leaves two decisions in force.
+- Two files with the same number (two branches each added one) are both read and reported as duplicates. `record_decision` refuses to accept or replace that number until one file is renamed.
+- A file whose front matter can't be read is reported with the reason, never skipped.
+
 The verifier checks every accepted decision that lists `checks`. In M1 the built-in decision checks are:
 
 - `stack.provider`: the detected state management matches.
@@ -393,9 +409,10 @@ A mismatch is reported as a `decision.drift` warning.
 
 ### 6.8 Memory format
 
-- **`memory/current.md`**: the task in progress (goal, plan, status, open questions). `memory_write` with `kind: current` replaces it.
-- **`memory/lessons.md`**: dated one-line lessons, e.g. "2026-10-03: plugin X needs minSdk 26". `memory_write` with `kind: lesson` appends.
-- **Finishing a task:** `memory_write` with `kind: complete` moves a one-paragraph summary of `current.md` into `lessons.md` and clears `current.md`.
+- **`memory/current.md`**: the task in progress (goal, plan, status, open questions). `memory_write` with `kind: current` replaces it with the given text.
+- **`memory/lessons.md`**: dated one-line lessons, one list item each, e.g. `- 2026-10-03: plugin X needs minSdk 26`. `memory_write` with `kind: lesson` appends one with today's date; line breaks in the text become spaces. Lines already in the file are never changed, and a lesson the file already holds isn't added twice.
+- **Finishing a task:** `memory_write` with `kind: complete` takes the agent's one-paragraph summary of the task as its text, appends it to `lessons.md` as a lesson and deletes `current.md`. Appstein doesn't write the summary itself. Without a text, or with no task in progress, the call is refused and `current.md` is left alone.
+- **Both files are committed**, so secrets never belong in them. The tools say so; Appstein can't detect a secret reliably and doesn't claim to.
 - **Size limits:** `lessons.md` over 200 lines produces an info finding suggesting consolidation. Nothing is deleted automatically.
 
 ### 6.9 Human documentation (`docs/app/`)
@@ -493,6 +510,8 @@ Transport is stdio; `appstein mcp` is launched by the agent. Every tool returns 
 
 Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or `stale` (with why). When another sync holds the lock past its timeout, or the sync fails, the server answers from the files on disk marked `stale`, with the reason and, when it helps, "run `appstein doctor`". With no knowledge files at all, the reply is an error.
 
+**Writes.** `record_decision` and `memory_write` are the only tools that change files a project commits. Each holds the write lock (§15) while it writes, so two agents never take the same decision number, and each file is written whole or not at all. After a write the server runs its freshness check again, so `INDEX.md` shows the new decision or task at once.
+
 **Errors.** Bad input, a failed sync with nothing to answer from, and a tool that throws each give a tool result marked as an error, with the reason, and the server keeps running. An error reply has no structured content; it states the freshness in its text. Arguments that don't fit a tool's input schema are refused before the tool runs, so that reply has no freshness. Only protocol messages go to stdout.
 
 | Tool | Input | Returns |
@@ -505,8 +524,10 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 | `what_changed` | optional `since` version; optional `library` (e.g. `package:go_router`) | The curated notes since `since` (`since` narrows only the notes), and per library the number of deprecated, removed, changed and moved APIs in `delta.json`; with `library`, that library's entries in full. `check_api` answers for one name |
 | `toolchain` | – | Valid native version set for this SDK, the project's current values from `native.json`, and mismatches (below) |
 | `package_check` | package name [+ version] | Exists? discontinued? latest version, last publish, publisher (verified?), Flutter Favorite, SwiftPM support, built-in-Kotlin readiness, advisories, **verdict** (`ok` / `warn` / `block`) + reasons |
-| `decisions` / `record_decision` | topic / record | Read or write layer 3 |
-| `memory_read` / `memory_write` | – / `{kind, text}` | Read or write layer 4 |
+| `decisions` | optional `topic`: words, or the path of a project file | Without a topic, every accepted and proposed decision in full (number, title, status, date, reason, paths, checks, file) and a count of the superseded ones. With words, the decisions whose title, paths or reason hold them, best match first, superseded ones included and marked with what replaced them. With a file's path, the decisions whose `paths` cover that file. Unreadable files and duplicate numbers are reported (§6.7) |
+| `record_decision` | `{title, why, status?, paths?, checks?, supersedes?}` to add or replace; `{accept}` with a decision's number to accept | The decision as written and its file; for a replacement, also the decision it superseded (§6.7) |
+| `memory_read` | – | The text of `memory/current.md`, or that no task is in progress, and the newest 50 lessons with a count of the older ones in `memory/lessons.md` |
+| `memory_write` | `{kind, text}`; `kind` is `current`, `lesson` or `complete` | What was written and to which file (§6.8) |
 | `verify` | scope (`fast`, `full`, or file list) | Findings (§9.3) |
 
 **`where_is` ranking** is deterministic, with no embeddings:
