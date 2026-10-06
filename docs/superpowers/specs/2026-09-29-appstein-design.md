@@ -403,7 +403,7 @@ The title, reason, paths and checks of an existing decision are never rewritten:
 The verifier checks every accepted decision that lists `checks`. In M1 the built-in decision checks are:
 
 - `stack.provider` (from the `official_mvvm` pack): `provider` is a direct dependency, and no file under `lib/` imports another state-management package. The pack owns the list of those packages. The finding names the files that import one. It doesn't judge how the view models are written.
-- `paths.exist` (from the engine): every listed path or glob still matches at least one file. The finding lists the ones that match nothing. A pattern that could leave the project is reported and never expanded.
+- `paths.exist` (from the engine): every listed path or glob still matches at least one file. The finding lists the ones that match nothing. A pattern that could leave the project is reported and never expanded. `paths.exist` accepts a folder for a path without wildcards, compares letter case exactly on every system, never follows a path out of the project (an absolute path, `..`, or a link), and does not search `.dart_tool`, `.git` or `build` unless the pattern names that folder.
 
 A mismatch is reported as a `decision.drift` warning on the decision's file. So is a check that no pack of the project provides, such as `stack.provider` in a project on another stack.
 
