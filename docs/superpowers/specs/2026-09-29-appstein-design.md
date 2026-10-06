@@ -348,6 +348,7 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
   - They include nested routes and the routes inside `ShellRoute` and `StatefulShellRoute`.
   - A nested path is joined to its parent's, as GoRouter does. Constant paths are evaluated (`Routes.home`, `'/$searchRelative'`).
   - The screen is the widget the builder returns (for `pageBuilder`, the page's `child:`), when the builder is a single plain return.
+  - A route's `redirect:` is recorded. When it is a function that only returns one constant path (`(context, state) => Routes.booking`), that path is recorded as where the route redirects to. Any other redirect (a condition, a computed path) is recorded as a redirect whose target isn't known, never guessed.
   - Only paths and builders that are statically resolvable are recorded; anything else is marked `unresolved` and never guessed.
   - Typed routes (`go_router_builder`) are recorded as one unresolved entry until a later slice reads them.
 - **Layers:** each file's tag, its imports of other project files, and the imports that the pack's layer rules forbid (§9.6). So `layers.json` reports exactly what `layer_imports` reports.
@@ -499,7 +500,7 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 | `overview` | – | Contents of INDEX.md plus live freshness status |
 | `where_is` | free text (e.g. "login screen") | Ranked files and symbols with layer and feature |
 | `feature` | feature name | Everything in that feature: screens, view models, repositories, services, models, routes, tests |
-| `route` | path; a concrete path matches a pattern (`/book/42` → `/book/:id`) | Screen, feature, parent, nested routes, and whether it redirects (the map records that a route redirects, not where to) |
+| `route` | path; a concrete path matches a pattern (`/book/42` → `/book/:id`) | Screen, feature, parent, nested routes, and whether it redirects: to which path and screen when the map knows, and otherwise the file and line to read |
 | `check_api` | a name: `WillPopScope`, `withOpacity`, `Color.withOpacity`, `Text.new(textScaleFactor)` | `removed` (with its migration), `deprecated` (with the replacement and the library's own deprecation text) or `ok`, plus the curated notes whose `avoid` names it, each with its source. `ok` means nothing the project imports deprecates or removes it; whether it exists isn't checked (the Dart MCP server's analyzer does that) |
 | `what_changed` | optional `since` version; optional `library` (e.g. `package:go_router`) | The curated notes since `since` (`since` narrows only the notes), and per library the number of deprecated, removed, changed and moved APIs in `delta.json`; with `library`, that library's entries in full. `check_api` answers for one name |
 | `toolchain` | – | Valid native version set for this SDK, the project's current values from `native.json`, and mismatches (below) |

@@ -15,6 +15,7 @@
       "path": "/login",
       "reason": null,
       "redirect": false,
+      "redirectTo": null,
       "screen": {
         "file": "lib/ui/auth/login/widgets/login_screen.dart",
         "name": "LoginScreen"
@@ -29,6 +30,7 @@
       "path": "/",
       "reason": null,
       "redirect": false,
+      "redirectTo": null,
       "screen": {
         "file": "lib/ui/home/widgets/home_screen.dart",
         "name": "HomeScreen"
@@ -43,6 +45,7 @@
       "path": "/booking",
       "reason": null,
       "redirect": false,
+      "redirectTo": null,
       "screen": {
         "file": "lib/ui/booking/widgets/booking_screen.dart",
         "name": "BookingScreen"
@@ -57,6 +60,7 @@
       "path": "/booking/:id",
       "reason": null,
       "redirect": true,
+      "redirectTo": "/booking",
       "screen": null,
       "unresolved": false
     },
@@ -68,6 +72,7 @@
       "path": null,
       "reason": "the path is not a constant string",
       "redirect": false,
+      "redirectTo": null,
       "screen": {
         "file": "lib/ui/settings/widgets/settings_screen.dart",
         "name": "SettingsScreen"
@@ -82,6 +87,7 @@
       "path": "/settings",
       "reason": "the builder is not a single plain return",
       "redirect": false,
+      "redirectTo": null,
       "screen": null,
       "unresolved": true
     },
@@ -93,6 +99,7 @@
       "path": "/profile",
       "reason": null,
       "redirect": false,
+      "redirectTo": null,
       "screen": {
         "file": "lib/ui/profile/widgets/profile_screen.dart",
         "name": "ProfileScreen"
@@ -107,6 +114,7 @@
       "path": "/about",
       "reason": "the builder returns Text, which is not declared in this project",
       "redirect": false,
+      "redirectTo": null,
       "screen": null,
       "unresolved": true
     }

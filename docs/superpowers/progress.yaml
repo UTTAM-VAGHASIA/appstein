@@ -149,6 +149,16 @@ milestones:
             plan: 2026-10-06-slice-1c4-spec-alignment.md
             pr: 5
             finished: 2026-10-06
+          # 1c.5 came from the first with/without trial (2026-10-06): an
+          # agent that was told "it redirects" stopped there and answered
+          # incompletely.
+          - id: 1c.5
+            title: Routes say where they redirect
+            summary: "`routes.json` records the path a route redirects to when the code states it, and the `route` tool gives that path's screen, or the file and line to read."
+            status: done
+            plan: 2026-10-06-slice-1c5-route-redirects.md
+            pr: 6
+            finished: 2026-10-06
           - id: 1c.2
             title: Decisions and memory
             summary: Knowledge layers 3–4 in the §6.7–6.8 formats, with the `decisions`, `record_decision`, `memory_read` and `memory_write` tools.

@@ -96,6 +96,22 @@ void main() {
     );
   });
 
+  test('a pack with a newer version rebuilds the map, though no project '
+      'file changed', () async {
+    await full();
+    await detect();
+    expect((await detect()).current, isTrue);
+    final report = await detect(packs: const [_NewerPack()]);
+    expect(report.current, isFalse);
+    expect(report.map?.skipped, isNull);
+    // The same code gives the same map files, so no byte is rewritten but
+    // their recorded input hashes; the rebuild is what matters.
+    expect(
+      report.rebuiltBecause,
+      contains(contains('map/routes.json is out of date')),
+    );
+  });
+
   group('nothing changed', () {
     test(
       'detect writes no byte, and leaves every modified time alone',
@@ -489,4 +505,30 @@ void main() {
     );
     expect(report.current, isFalse);
   });
+}
+
+/// `official_mvvm` as a later Appstein would ship it: the same pack with a
+/// higher version.
+final class _NewerPack implements Pack {
+  const _NewerPack();
+
+  static const _pack = OfficialMvvmPack();
+
+  @override
+  String get id => _pack.id;
+
+  @override
+  PackKind get kind => _pack.kind;
+
+  @override
+  String get version => '${int.parse(_pack.version) + 1}';
+
+  @override
+  List<MapExtractor> get extractors => _pack.extractors;
+
+  @override
+  LayerRules get layerRules => _pack.layerRules;
+
+  @override
+  NativeExtractor? get nativeExtractor => _pack.nativeExtractor;
 }

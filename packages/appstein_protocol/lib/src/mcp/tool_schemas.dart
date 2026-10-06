@@ -142,6 +142,31 @@ abstract final class ToolSchemas {
             'children': jsonList(jsonString()),
             'unresolvedChildren': jsonInteger(),
             'redirect': jsonBoolean(),
+            'redirectsTo': jsonObject(
+              {
+                'path': jsonString(),
+                'screen': _codeRef,
+                'feature': jsonString(),
+                'redirect': jsonBoolean(
+                  description:
+                      'Present and true when the route at that path has a '
+                      'redirect of its own.',
+                ),
+                'file': jsonString(),
+                'line': jsonInteger(),
+              },
+              required: ['path'],
+              description:
+                  'Where the route redirects to, when the map knows: the '
+                  'path, and the screen and feature of the route at that '
+                  'path. When that route redirects too, `file` and `line` '
+                  'say where to read it.',
+            ),
+            'redirectHint': jsonString(
+              description:
+                  'The file and line to read when the route redirects and '
+                  'the map does not know where to.',
+            ),
             'file': jsonString(),
             'line': jsonInteger(),
             'unresolved': jsonBoolean(),
@@ -158,9 +183,12 @@ abstract final class ToolSchemas {
         ),
       ),
       'routerRedirects': jsonBoolean(),
-      'redirectNote': jsonString(),
+      'redirectNote': jsonString(
+        description:
+            'Present when a router has its own redirect: where to read it.',
+      ),
     },
-    required: ['path', 'match', 'routes', 'routerRedirects', 'redirectNote'],
+    required: ['path', 'match', 'routes', 'routerRedirects'],
   );
 
   static final Map<String, Object?> _note = jsonObject(

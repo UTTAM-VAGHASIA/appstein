@@ -246,7 +246,8 @@ How each part is found:
 
 - `GoRoute`, and the routes inside `ShellRoute` and `StatefulShellRoute` (each `StatefulShellBranch`). A shell adds no path of its own.
 - Each route's `path`, `name`, whether it has a `redirect`, its parent, its screen, and the file and line.
-- A router's own `redirect:` is recorded on the router (`routers` in `routes.json`).
+- **Where a route redirects to** (`redirectTo`) is recorded only when the code states it plainly: the `redirect:` is a function literal with a single plain return of a constant path, such as `(context, state) => Routes.booking` or a block with one `return '/b';`. The fixture's `/booking/:id` therefore has `redirectTo: /booking`. Anything else is left null and never guessed: a condition (`signedIn ? null : '/login'`), two returns, a computed path, a function declared elsewhere, a redirect that returns `null`. `redirect` stays true for those, so a reader knows there is one.
+- A router's own `redirect:` is recorded on the router (`routers` in `routes.json`), as a yes or no with the router's line. It usually depends on a condition, so no target is recorded.
 - **A literal `null` argument counts as not passed**, so `redirect: null` is no redirect (as for the callee's default).
 
 **Paths are joined** as go_router joins them: the non-empty segments of the parent and the child, after one `/`. In the fixture, `/` plus `booking` is `/booking`, and then `:id` gives `/booking/:id`. A top-level path is kept as written. A path is read when it is a compile-time constant string: a literal, adjacent literals, an interpolation of constants, or a `const` such as `Routes.home`, which the analyzer evaluates ([`ast_values.dart`](../../packages/appstein_engine/lib/src/map/ast_values.dart)).
