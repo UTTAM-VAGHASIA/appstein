@@ -77,6 +77,7 @@ export 'src/mcp/route_query.dart';
 export 'src/mcp/tool_answer.dart';
 export 'src/mcp/tool_names.dart';
 export 'src/mcp/toolchain_report.dart';
+export 'src/mcp/verify_tool.dart';
 export 'src/mcp/what_changed.dart';
 export 'src/mcp/where_is.dart';
 export 'src/native/native_extractor.dart';

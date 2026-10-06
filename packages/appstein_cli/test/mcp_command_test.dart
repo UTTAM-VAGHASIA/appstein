@@ -65,6 +65,26 @@ void main() {
     );
     expect(overview.isError, isNot(isTrue), reason: '${overview.content}');
     expect(overview.structuredContent!['index'], startsWith('# my_app\n'));
+    // `verify` answers with the project's packs (the fake SDK can't build
+    // the map, so the answer is the stale knowledge and what did not run).
+    final verified = await server.callTool(
+      CallToolRequest(name: 'verify', arguments: const {'scope': 'full'}),
+    );
+    expect(verified.isError, isNot(isTrue), reason: '${verified.content}');
+    expect(
+      [
+        for (final finding in verified.structuredContent!['findings']! as List)
+          (finding as Map)['id'],
+      ],
+      ['knowledge.stale'],
+    );
+    expect(
+      [
+        for (final check in verified.structuredContent!['notRun']! as List)
+          (check as Map)['id'],
+      ],
+      ['docs.stale', 'verify.test_required'],
+    );
     await server.shutdown();
     expect(await exit, ExitCodes.ok);
     expect(out.toString(), isEmpty);

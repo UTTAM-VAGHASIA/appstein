@@ -545,4 +545,68 @@ abstract final class ToolSchemas {
     },
     required: ['kind', 'file'],
   );
+
+  /// `verify`'s input.
+  static final Map<String, Object?> verifyInput = jsonObject(
+    {
+      'scope': jsonString(
+        values: ['fast', 'full'],
+        description:
+            '`fast` after a change; `full` before you say the task is done.',
+      ),
+    },
+    required: ['scope'],
+  );
+
+  /// `verify`'s result: what `appstein verify --format json` prints (spec
+  /// §9.3). Its `summary` is the counts, so the tool's output keeps it
+  /// (`toolOutputSchema`).
+  static final Map<String, Object?> verifyResult = jsonObject(
+    {
+      'findings': jsonList(
+        jsonObject(
+          {
+            'id': jsonString(description: 'The check, such as `docs.stale`.'),
+            'severity': jsonString(
+              values: ['error', 'warning', 'info'],
+              description:
+                  'An error blocks "done"; a warning or info is reported '
+                  'only.',
+            ),
+            'file': jsonString(
+              description:
+                  'From the project folder; absent when the finding is '
+                  'about the whole project.',
+            ),
+            'line': jsonInteger(),
+            'message': jsonString(),
+            'fixHint': jsonString(),
+            'knowledgeRef': jsonString(),
+            'pack': jsonString(),
+            'docs': jsonString(),
+          },
+          required: ['id', 'severity', 'message'],
+        ),
+      ),
+      'summary': jsonObject(
+        {
+          'errors': jsonInteger(),
+          'warnings': jsonInteger(),
+          'info': jsonInteger(),
+        },
+        required: ['errors', 'warnings', 'info'],
+      ),
+      'suppressed': jsonInteger(
+        description: 'How many findings a suppression in appstein.yaml hid.',
+      ),
+      'notRun': jsonList(
+        jsonObject(
+          {'id': jsonString(), 'reason': jsonString()},
+          required: ['id', 'reason'],
+        ),
+        description: 'The checks that could not run, and why.',
+      ),
+    },
+    required: ['findings', 'summary', 'suppressed', 'notRun'],
+  );
 }

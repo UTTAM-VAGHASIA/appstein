@@ -8,6 +8,7 @@ import 'package:stream_channel/stream_channel.dart';
 
 import '../config/config_loader.dart';
 import '../knowledge/knowledge_lock.dart';
+import '../knowledge/knowledge_refresh.dart';
 import '../knowledge/knowledge_sync.dart';
 import '../knowledge/knowledge_write_exception.dart';
 import '../knowledge/platform_sync.dart';
@@ -20,7 +21,11 @@ import 'memory_tools.dart';
 import 'record_decision.dart';
 import 'route_query.dart';
 import 'tool_answer.dart';
+import '../verify/engine_checks.dart';
+import '../verify/verify_check.dart';
+import '../verify/verify_run.dart';
 import 'toolchain_report.dart';
+import 'verify_tool.dart';
 import 'what_changed.dart';
 import 'where_is.dart';
 
@@ -37,9 +42,9 @@ McpChannel stdioMcpChannel(
 const _doctor = 'Run `appstein doctor` to see what is wrong.';
 
 /// Appstein's MCP server (spec §8): read tools over the project's
-/// knowledge, each answered from fresh knowledge, and the two tools that
-/// write its decisions and memory. [clock] gives the date those writes
-/// record; the machine's clock when it is left out.
+/// knowledge, each answered from fresh knowledge, the two tools that write
+/// its decisions and memory, and `verify`. [clock] gives the date those
+/// writes record; the machine's clock when it is left out.
 ///
 /// Before each answer it syncs as `appstein sync --detect` does, with
 /// [syncFor]'s `KnowledgeSync` (the CLI builds one from `appstein.yaml` on
@@ -70,7 +75,8 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
              '`check_api` before using an API you are unsure of, and '
              '`toolchain` before changing native versions. Read '
              '`memory_read` when you resume work, and record a choice that '
-             'binds later work with `record_decision`.',
+             'binds later work with `record_decision`. Run `verify` with '
+             '`scope: full` before you say a task is done.',
        ) {
     _tool(
       'overview',
@@ -238,6 +244,21 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       write: (arguments) =>
           memoryWrite(projectRoot, arguments, today: _today()),
     );
+    registerTool(
+      Tool(
+        name: 'verify',
+        description:
+            'Check the project against its knowledge and get findings, each '
+            'with its file, line and a fix hint. `scope: fast` after a '
+            'change; `scope: full` before you say the task is done. An '
+            'error blocks "done"; warnings and info are reported only.',
+        inputSchema: ObjectSchema.fromMap(ToolSchemas.verifyInput),
+        outputSchema: ObjectSchema.fromMap(
+          toolOutputSchema(ToolSchemas.verifyResult),
+        ),
+      ),
+      (request) => _oneAtATime(() => _verify(request.arguments ?? const {})),
+    );
   }
 
   /// The project's folder.
@@ -352,13 +373,67 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     }
   }
 
-  /// Syncs as `sync --detect` does and says how fresh the knowledge is.
-  Future<FreshnessReport> _freshen() async {
+  /// Answers `verify` (spec §8, §9). The freshness check every call runs is
+  /// the refresh `verify` needs, so the knowledge is refreshed once: stale
+  /// knowledge is the finding `knowledge.stale` in a normal reply, not an
+  /// error reply. `appstein.yaml` is read for every call, as the sync's is.
+  Future<CallToolResult> _verify(Map<String, Object?> arguments) async {
+    KnowledgeSync? sync;
+    final freshness = await _freshen(built: (built) => sync = built);
     try {
-      final report = await syncFor().detect(
-        projectRoot,
+      final using = sync;
+      // Without a sync there are no packs, so no list of checks.
+      if (using == null) return _refuse('The checks could not run.', freshness);
+      final AppsteinConfig config;
+      try {
+        config = loadConfig(projectRoot) ?? const AppsteinConfig();
+      } on ConfigException catch (error) {
+        final problem = '$error'.replaceFirst(RegExp(r'\.$'), '');
+        return _refuse(
+          'The checks could not run: appstein.yaml is invalid: $problem. '
+          'Fix it, then call `verify` again.',
+          freshness,
+        );
+      }
+      final mode = arguments['scope'] == 'fast'
+          ? VerifyMode.fast
+          : VerifyMode.full;
+      final result = await runVerify(
+        projectRoot: projectRoot,
+        config: config,
+        packs: using.packs,
+        sync: using,
+        mode: mode,
+        checks: checksFor(using.packs),
+        refreshed: KnowledgeRefresh.fromFreshness(freshness),
         dartSdkPath: dartSdkPath,
       );
+      return switch (verifyAnswer(result, mode: mode)) {
+        ToolReply(result: final json, :final summary) => _reply(
+          json,
+          summary,
+          freshness,
+        ),
+        ToolRefusal(:final message) => _refuse(message, freshness),
+      };
+    } on Object catch (error) {
+      return _refuse(
+        'Appstein failed to answer: $error. $_doctor If this keeps '
+        'happening, please report it.',
+        freshness,
+      );
+    }
+  }
+
+  /// Syncs as `sync --detect` does and says how fresh the knowledge is.
+  /// [built] gets the sync it ran, when one could be built.
+  Future<FreshnessReport> _freshen({
+    void Function(KnowledgeSync sync)? built,
+  }) async {
+    try {
+      final sync = syncFor();
+      built?.call(sync);
+      final report = await sync.detect(projectRoot, dartSdkPath: dartSdkPath);
       if (report.current) return const FreshnessReport.current();
       // Input names: a project file's is `project:<path>`; the agent wants
       // the path, as `appstein sync --detect` prints it.
@@ -400,10 +475,12 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     String summary,
     FreshnessReport freshness,
   ) {
+    // A result with a `summary` of its own keeps it (`toolOutputSchema`);
+    // the sentence is in the text either way.
     final structured =
         withoutNulls({
               ...result,
-              'summary': summary,
+              if (!result.containsKey('summary')) 'summary': summary,
               'freshness': freshness.toJson(),
             })!
             as Map<String, Object?>;

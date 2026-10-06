@@ -227,13 +227,15 @@ void main() {
 
   test('a tool the server does not offer is never named: its rule goes, '
       'and a pointer names the file', () {
-    // A server without the decision and memory tools, and without 1d's.
+    // A server without the decision and memory tools, and without `verify`
+    // (`package_check` is not served yet).
     final offered = mcpToolNames.toSet()
       ..removeAll([
         'decisions',
         'record_decision',
         'memory_read',
         'memory_write',
+        'verify',
       ]);
     final inputs = small(
       tools: offered,

@@ -20,16 +20,24 @@ Object? withoutNulls(Object? json) => switch (json) {
 /// result's fields plus `summary` and `freshness`, which every reply has
 /// (spec §8). Claude Code shows the model only the structured result, so
 /// the summary lives inside it.
-Map<String, Object?> toolOutputSchema(Map<String, Object?> result) => {
-  ...result,
-  'properties': {
-    ...(result['properties']! as Map<String, Object?>),
-    'summary': jsonString(description: 'The answer in a sentence or two.'),
-    'freshness': FreshnessReport.schema,
-  },
-  'required': [
-    ...?(result['required'] as List<Object?>?)?.cast<String>(),
-    'summary',
-    'freshness',
-  ],
-};
+///
+/// A result that has a `summary` of its own keeps it: `verify`'s is its
+/// counts (spec §9.3), and its sentence is in the reply's text only.
+Map<String, Object?> toolOutputSchema(Map<String, Object?> result) {
+  final properties = result['properties']! as Map<String, Object?>;
+  final required = [...?(result['required'] as List<Object?>?)?.cast<String>()];
+  return {
+    ...result,
+    'properties': {
+      ...properties,
+      if (!properties.containsKey('summary'))
+        'summary': jsonString(description: 'The answer in a sentence or two.'),
+      'freshness': FreshnessReport.schema,
+    },
+    'required': [
+      ...required,
+      if (!required.contains('summary')) 'summary',
+      'freshness',
+    ],
+  };
+}

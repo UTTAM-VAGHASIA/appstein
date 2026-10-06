@@ -44,7 +44,7 @@ void main() {
     final server = await connectTo(StreamChannel(incoming, outgoing.sink));
 
     final tools = (await server.listTools()).tools;
-    expect(tools, hasLength(11), reason: '$errors');
+    expect(tools, hasLength(12), reason: '$errors');
     const calls = {
       'overview': <String, Object?>{},
       'where_is': {'query': 'login screen'},
@@ -61,6 +61,7 @@ void main() {
       'decisions': {'topic': 'lib/ui/home/view_models/home_viewmodel.dart'},
       'memory_write': {'kind': 'current', 'text': '# Goal\nShip it.'},
       'memory_read': <String, Object?>{},
+      'verify': {'scope': 'full'},
     };
     for (final MapEntry(key: tool, value: arguments) in calls.entries) {
       final result = await call(server, tool, arguments);
@@ -91,6 +92,19 @@ void main() {
     expect(
       (await call(server, 'memory_read')).structuredContent!['current'],
       '# Goal\nShip it.\n',
+    );
+    // `verify` over the wire: the counts, and a finding for each feature
+    // without a test.
+    final verified = (await call(server, 'verify', {
+      'scope': 'full',
+    })).structuredContent!;
+    expect(verified['summary'], containsPair('errors', 0));
+    expect(
+      [
+        for (final finding in verified['findings']! as List)
+          if ((finding as Map)['id'] == 'verify.test_required') finding['file'],
+      ],
+      ['lib/ui/auth/login', 'lib/ui/profile', 'lib/ui/settings'],
     );
     await server.shutdown();
     await outgoing.close();

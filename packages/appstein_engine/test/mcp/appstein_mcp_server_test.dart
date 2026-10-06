@@ -54,11 +54,11 @@ void main() {
     return result.structuredContent!;
   }
 
-  test('lists the eleven tools, each with an output schema', () async {
+  test('lists the twelve tools, each with an output schema', () async {
     final server = await serve();
     final tools = (await server.listTools()).tools;
     expect([for (final tool in tools) tool.name], mcpToolNames);
-    expect(tools, hasLength(11));
+    expect(tools, hasLength(12));
     for (final tool in tools) {
       expect(tool.outputSchema, isNotNull, reason: tool.name);
       expect(tool.description, isNotEmpty, reason: tool.name);
@@ -101,6 +101,7 @@ void main() {
       'decisions': {'topic': 'routing'},
       'memory_write': {'kind': 'current', 'text': '# Goal\nShip it.'},
       'memory_read': <String, Object?>{},
+      'verify': {'scope': 'full'},
     };
     expect(calls.keys, unorderedEquals(mcpToolNames));
     for (final MapEntry(key: tool, value: arguments) in calls.entries) {
@@ -115,7 +116,13 @@ void main() {
       // `valid`), so a null there would pass them: check for it directly.
       expect(withoutNulls(json), json, reason: '$tool: a null slipped in');
       expect(result.content, hasLength(2), reason: tool);
-      expect(textOf(result), startsWith(json['summary']! as String));
+      // `verify`'s `summary` is its counts (spec §9.3); its sentence is in
+      // the text only.
+      if (tool == 'verify') {
+        expect(textOf(result), startsWith('Full verify: '));
+      } else {
+        expect(textOf(result), startsWith(json['summary']! as String));
+      }
     }
     final whereIs = structured(
       await call(server, 'where_is', {'query': 'login screen'}),
@@ -397,6 +404,151 @@ void main() {
         'Install Flutter or set FLUTTER_ROOT.',
       ),
     );
+  });
+
+  group('verify', () {
+    List<String> ids(Map<String, Object?> json) => [
+      for (final finding in json['findings']! as List)
+        (finding as Map)['id']! as String,
+    ];
+
+    test('full: the findings of the project, with counts and '
+        'freshness', () async {
+      final server = await serve();
+      final result = await call(server, 'verify', {'scope': 'full'});
+      final json = structured(result);
+      expect(ids(json).where((id) => id == 'docs.stale'), hasLength(11));
+      expect(
+        ids(json).where((id) => id == 'verify.test_required'),
+        hasLength(3),
+      );
+      expect(json['findings'], hasLength(14));
+      expect(json['summary'], {'errors': 0, 'warnings': 14, 'info': 0});
+      expect(json['suppressed'], 0);
+      expect(json['notRun'], isEmpty);
+      expect((json['freshness']! as Map)['state'], 'rebuilt');
+      expect(
+        textOf(result),
+        startsWith('Full verify: 0 errors, 14 warnings, 0 info. '),
+      );
+      // It reads like `appstein verify --format json`.
+      expect(VerifyResult.fromJson(json).warnings, 14);
+    });
+
+    test('fast: no full check runs', () async {
+      final server = await serve();
+      final result = await call(server, 'verify', {'scope': 'fast'});
+      final json = structured(result);
+      expect(json['findings'], isEmpty);
+      expect(json['notRun'], isEmpty);
+      expect(
+        textOf(result),
+        startsWith('Fast verify: 0 errors, 0 warnings, 0 info. '),
+      );
+    });
+
+    test('it reads `appstein.yaml`: a suppression hides a finding', () async {
+      File(p.join(app, 'appstein.yaml')).writeAsStringSync(
+        'appstein: 1\n'
+        'docs:\n'
+        '  enabled: false\n'
+        'suppressions:\n'
+        '  - id: verify.test_required\n'
+        '    path: lib/ui/profile\n'
+        '    reason: covered by the integration tests\n',
+      );
+      final server = await serve();
+      final json = structured(await call(server, 'verify', {'scope': 'full'}));
+      expect(ids(json), ['verify.test_required', 'verify.test_required']);
+      expect(json['suppressed'], 1);
+    });
+
+    test('a scope that is missing or wrong is refused before the tool '
+        'runs', () async {
+      var syncs = 0;
+      final inner = syncFor;
+      syncFor = () {
+        syncs++;
+        return inner();
+      };
+      final server = await serve();
+      for (final arguments in [
+        <String, Object?>{},
+        {'scope': 'all'},
+      ]) {
+        final result = await call(server, 'verify', arguments);
+        expect(result.isError, isTrue, reason: '$arguments');
+        expect(result.structuredContent, isNull);
+      }
+      expect(syncs, 0);
+    });
+
+    test('knowledge that cannot be refreshed is a finding, not an error '
+        'reply; the sync is built once', () async {
+      var syncs = 0;
+      syncFor = () {
+        syncs++;
+        return knowledgeSync(
+          flutterRoot: p.join(app, 'no flutter here'),
+          runner: runner,
+          packs: const [OfficialMvvmPack(), AndroidPack(), IosPack()],
+          packageSkills: false,
+        );
+      };
+      final server = await serve();
+      final result = await call(server, 'verify', {'scope': 'full'});
+      final json = structured(result);
+      expect(ids(json), ['knowledge.stale']);
+      expect(json['summary'], {'errors': 1, 'warnings': 0, 'info': 0});
+      expect(
+        [for (final check in json['notRun']! as List) (check as Map)['id']],
+        ['docs.stale', 'verify.test_required'],
+      );
+      final freshness = json['freshness']! as Map<String, Object?>;
+      expect(freshness['state'], 'stale');
+      // The finding states the problem the freshness check found.
+      expect(
+        ((json['findings']! as List).single as Map)['message'],
+        contains(freshness['problem']),
+      );
+      expect(
+        textOf(result),
+        contains(
+          '2 checks did not run. Fix the error before the task is done.',
+        ),
+      );
+      expect(syncs, 1);
+    });
+
+    test('an invalid appstein.yaml is an error reply that names it', () async {
+      final server = await serve();
+      await call(server, 'overview');
+      File(p.join(app, 'appstein.yaml')).writeAsStringSync('appstein: 99\n');
+      final result = await call(server, 'verify', {'scope': 'full'});
+      expect(result.isError, isTrue);
+      expect(result.structuredContent, isNull);
+      expect(
+        textOf(result),
+        startsWith('The checks could not run: appstein.yaml is invalid: '),
+      );
+    });
+
+    test('a sync that cannot be built is an error reply that says '
+        'why', () async {
+      final server = await serve();
+      await call(server, 'overview');
+      syncFor = () => throw ConfigException(
+        '`delta.baseline` must be a Flutter version such as 3.16.',
+        sourcePath: 'appstein.yaml',
+        line: 3,
+        column: 5,
+      );
+      final result = await call(server, 'verify', {'scope': 'fast'});
+      expect(result.isError, isTrue);
+      expect(textOf(result), startsWith('The checks could not run. '));
+      expect(textOf(result), contains('appstein.yaml is invalid: '));
+      expect(textOf(result), contains('`delta.baseline` must be'));
+    });
   });
 
   test('an invalid appstein.yaml while building the sync: answers from '
