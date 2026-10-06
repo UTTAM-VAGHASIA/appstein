@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import '../host/file_errors.dart';
 import '../knowledge/knowledge_store.dart';
 import '../knowledge/knowledge_write_exception.dart';
-import '../knowledge/plain_text.dart';
 import 'doc_marker.dart';
 import 'docs_knowledge.dart';
 import 'docs_renderer.dart';
@@ -33,7 +32,34 @@ final class DocsFolderScan {
   final List<String> problems;
 }
 
-final _heading = RegExp(r'^# +(.*\S)\s*$', multiLine: true);
+final _heading = RegExp(r'^ {0,3}# +(.*\S)\s*$');
+final _fence = RegExp(r'^ {0,3}(`{3,}|~{3,})');
+
+/// The first `# ` heading of the Markdown [text] that isn't inside a code
+/// block (a fenced one, or one indented by four spaces); null without one.
+/// A `# comment` in a shell example is not the note's title.
+String? _noteTitle(String text) {
+  String? open;
+  for (final line in plainLines(text).split('\n')) {
+    final fence = _fence.firstMatch(line)?.group(1);
+    if (open != null) {
+      // A fence closes with the same character, at least as many of them.
+      if (fence != null &&
+          fence[0] == open[0] &&
+          fence.length >= open.length &&
+          line.trim() == fence) {
+        open = null;
+      }
+      continue;
+    }
+    if (fence != null) {
+      open = fence;
+      continue;
+    }
+    if (_heading.firstMatch(line)?.group(1) case final title?) return title;
+  }
+  return null;
+}
 
 // The replacement character, which decoding puts where bytes aren't UTF-8.
 final _notUtf8 = String.fromCharCode(0xFFFD);
@@ -132,7 +158,7 @@ DocsFolderScan scanDocsFolder(String folder, {String? projectRoot}) {
     if (DocMarker.of(text) != null || isConflictedPage(text)) {
       generated[path] = text;
     } else {
-      final title = _heading.firstMatch(withoutBom(text))?.group(1);
+      final title = _noteTitle(text);
       notes.add(
         TeamNote(
           path: path,

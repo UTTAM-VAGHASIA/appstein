@@ -1,26 +1,33 @@
 import 'package:path/path.dart' as p;
 
 final _lineBreaks = RegExp(r'[\r\n\t]+');
-final _markup = RegExp(r'[\\|`*_\[\]<>]');
-final _linkMarkup = RegExp(r'[\\|`*\[\]<>]');
+final _markup = RegExp(r'[\\|`*_\[\]<>~$]');
+final _linkMarkup = RegExp(r'[\\|`*\[\]<>~$]');
 final _backticks = RegExp('`+');
+final _barePipe = RegExp(r'(?<!\\)\|');
 
 String _oneLine(String text) => text.replaceAll(_lineBreaks, ' ').trim();
 
+/// [text] with [markup] escaped by a backslash, and `&` as `&amp;`, so it
+/// can't start an entity such as `&copy;`.
+String _escaped(String text, RegExp markup) => text
+    .replaceAll('&', '&amp;')
+    .replaceAllMapped(markup, (match) => '\\${match[0]}');
+
 /// [text] on one line, safe inside a table cell or a sentence of a
-/// generated page (spec §6.9): line breaks and tabs become one space, and
-/// `\`, `|`, `` ` ``, `*`, `_`, `[`, `]`, `<`, `>` and a leading `#` are
-/// escaped with a backslash, so text from the app is never read as markup.
+/// generated page (spec §6.9): line breaks and tabs become one space; `\`,
+/// `|`, `` ` ``, `*`, `_`, `[`, `]`, `<`, `>`, `~`, `$` and a leading `#`
+/// are escaped with a backslash; and `&` becomes `&amp;`. So text from the
+/// app is never read as markup, strike-through, math or an entity.
 String mdText(String text) {
-  final escaped = _oneLine(
-    text,
-  ).replaceAllMapped(_markup, (match) => '\\${match[0]}');
+  final escaped = _escaped(_oneLine(text), _markup);
   return escaped.startsWith('#') ? '\\$escaped' : escaped;
 }
 
 /// [text] as inline code, on one line. The fence is one backtick longer
-/// than the longest run of backticks in [text], and `|` becomes `\|` so a
-/// table cell survives. An empty [text] gives an empty string.
+/// than the longest run of backticks in [text]. A `|` is left as it is:
+/// only a table needs it escaped, and [mdTable] does that. An empty [text]
+/// gives an empty string.
 String mdCode(String text) {
   final line = _oneLine(text);
   if (line.isEmpty) return '';
@@ -31,19 +38,23 @@ String mdCode(String text) {
   }
   final fence = '`' * (longest + 1);
   final pad = longest == 0 ? '' : ' ';
-  return '$fence$pad${line.replaceAll('|', r'\|')}$pad$fence';
+  return '$fence$pad$line$pad$fence';
 }
 
 /// A Markdown table with [headers] and [rows], whose cells the caller
 /// already escaped ([mdText], [mdCode]). It ends with a line break. Without
 /// rows it is the empty string, so a caller can leave its heading out.
+///
+/// A `|` in a cell that isn't escaped yet is escaped here, also inside
+/// inline code, as a table needs; so no page can forget it.
 String mdTable(List<String> headers, List<List<String>> rows) {
   if (rows.isEmpty) return '';
   final buffer = StringBuffer()
     ..writeln('| ${headers.join(' | ')} |')
     ..writeln('|${'---|' * headers.length}');
   for (final row in rows) {
-    buffer.writeln('| ${row.join(' | ')} |');
+    final cells = row.map((cell) => cell.replaceAll(_barePipe, r'\|'));
+    buffer.writeln('| ${cells.join(' | ')} |');
   }
   return buffer.toString();
 }
@@ -95,10 +106,7 @@ String projectLink({
   final from = p.posix.dirname(p.posix.join(docsPath, page));
   final address = _encodePath(p.posix.relative(target, from: from));
   final shown = text == null
-      ? '$target${line == null ? '' : ':$line'}'.replaceAllMapped(
-          _linkMarkup,
-          (match) => '\\${match[0]}',
-        )
+      ? _escaped('$target${line == null ? '' : ':$line'}', _linkMarkup)
       : mdText(text);
   return '[$shown]($address${line == null ? '' : '#L$line'})';
 }
@@ -121,7 +129,8 @@ String pageLink({
 /// in labels ([mermaidLabel]).
 String mermaidId(String prefix, int index) => '${prefix}_$index';
 
-/// [text] as a quoted Mermaid label: `"` becomes `#quot;`, `<` and `>`
-/// become `#lt;` and `#gt;`, and line breaks become a space.
+/// [text] as a quoted Mermaid label: `#` becomes `#35;` (it starts an
+/// entity in a label), `"` becomes `#quot;`, `<` and `>` become `#lt;` and
+/// `#gt;`, and line breaks become a space.
 String mermaidLabel(String text) =>
-    '"${_oneLine(text).replaceAll('"', '#quot;').replaceAll('<', '#lt;').replaceAll('>', '#gt;')}"';
+    '"${_oneLine(text).replaceAll('#', '#35;').replaceAll('"', '#quot;').replaceAll('<', '#lt;').replaceAll('>', '#gt;')}"';

@@ -80,12 +80,11 @@ String _place(String? at, _Context context) {
 ({String value, String where}) _cells(NativeValue value, _Context context) {
   final from = value.resolvedFrom;
   final String text;
-  if (value.status == NativeStatus.found &&
-      context.sources.machine.contains(from)) {
+  // Found or unknown: an unknown value's reason is one machine's too when
+  // the value would have come from that machine or its Flutter.
+  if (context.sources.machine.contains(from)) {
     text = 'set on each machine (${mdCode(from!)}), so it is not shown here';
-  } else if (value.status == NativeStatus.found &&
-      context.sources.sdk.contains(from) &&
-      !context.flutterPinned) {
+  } else if (context.sources.sdk.contains(from) && !context.flutterPinned) {
     text = switch (value.expression) {
       final expression? =>
         'written as ${mdCode(expression)}; the value $followsFlutter',

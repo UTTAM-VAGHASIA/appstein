@@ -135,12 +135,38 @@ void main() {
     );
   });
 
+  test("a file the system would not open is named without the system's "
+      'words, so the page is the same on every machine', () {
+    String render(String reason) => _render(
+      DecisionSet(
+        unreadable: [UnreadableDecision('0002-x.md', reason)],
+        readProblems: {'0002-x.md': reason},
+      ),
+    );
+    final windows = render('Access is denied. (OS Error: 5)');
+    expect(windows, render('Permission denied'));
+    expect(
+      windows,
+      contains(
+        '- `0002-x.md` could not be opened; `appstein verify` says why.',
+      ),
+    );
+    expect(windows, isNot(contains('denied')));
+    expect(
+      _render(const DecisionSet(folderProblem: 'access denied')),
+      isNot(contains('denied')),
+    );
+  });
+
   test('with only problems, it does not say nothing is recorded', () {
     final text = _render(const DecisionSet(folderProblem: 'access is denied'));
     expect(text, isNot(contains('No decisions are recorded yet.')));
     expect(
       text,
-      contains("- The decisions folder can't be read: access is denied."),
+      contains(
+        '- The decisions folder could not be listed; `appstein verify` says '
+        'why.',
+      ),
     );
   });
 

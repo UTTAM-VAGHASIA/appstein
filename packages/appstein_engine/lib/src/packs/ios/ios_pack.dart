@@ -20,7 +20,7 @@ final class IosPack implements Pack {
   PackKind get kind => PackKind.platform;
 
   @override
-  String get version => '1';
+  String get version => '2';
 
   @override
   List<MapExtractor> get extractors => const [];

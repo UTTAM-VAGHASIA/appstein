@@ -85,6 +85,30 @@ void main() {
     );
   });
 
+  test('a route with an empty name is shown without one', () {
+    expect(
+      _render(
+        RoutesMap(
+          routes: [_route('/a', 5, name: '', screen: 'A')],
+          routers: const [],
+        ),
+      ),
+      '## Route tree\n\n- `/a` shows `A` (${_link(5)})',
+    );
+  });
+
+  test('a path with a pipe is shown as it is', () {
+    expect(
+      _render(
+        RoutesMap(
+          routes: [_route('/a|b', 5, screen: 'A')],
+          routers: const [],
+        ),
+      ),
+      '## Route tree\n\n- `/a|b` shows `A` (${_link(5)})',
+    );
+  });
+
   test('a route whose parent is not listed is shown at the top', () {
     expect(
       _render(

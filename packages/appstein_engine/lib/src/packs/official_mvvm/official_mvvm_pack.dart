@@ -25,7 +25,7 @@ final class OfficialMvvmPack implements Pack {
   PackKind get kind => PackKind.stack;
 
   @override
-  String get version => '2';
+  String get version => '3';
 
   @override
   List<MapExtractor> get extractors => const [OfficialMvvmExtractor()];

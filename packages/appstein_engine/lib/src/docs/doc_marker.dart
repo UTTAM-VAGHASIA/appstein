@@ -7,7 +7,7 @@ import '../knowledge/plain_text.dart';
 /// `dependencies.md`, `decisions.md` and the frame every page shares. Bump
 /// it when one of them changes shape, so the pages it renders show a
 /// one-time diff.
-const docsEngineVersion = '1';
+const docsEngineVersion = '2';
 
 /// The line under the marker of every generated page.
 const docNotice =

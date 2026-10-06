@@ -123,6 +123,27 @@ void main() {
     );
   });
 
+  test('a title from the project is escaped in the heading, once, by the '
+      'frame', () {
+    final page = _render([
+      _source('official_mvvm', '2', const [
+        DocSection(
+          path: 'features/a.md',
+          title: 'Feature: my_feature*2 # <x>',
+          markdown: 'm',
+        ),
+      ]),
+    ]).singleWhere((page) => page.path == 'features/a.md');
+    expect(page.title, 'Feature: my_feature*2 # <x>');
+    expect(
+      page.text,
+      contains(
+        r'# Feature: my\_feature\*2 # \<x\>'
+        '\n',
+      ),
+    );
+  });
+
   group('pages that would be one file are refused, not rendered', () {
     // Names come from the project (feature folders), so this is something
     // its owner can fix: an exception with a message, not a page source bug.

@@ -1,6 +1,7 @@
 import 'doc_marker.dart';
 import 'doc_page.dart';
 import 'docs_knowledge.dart';
+import 'markdown_text.dart';
 
 /// The page every project has, rendered by the engine from the other pages.
 const readmePath = 'README.md';
@@ -224,7 +225,9 @@ void _checkText(
 RenderedPage _page(String path, _Draft draft) {
   final title = draft.title.trim();
   final body =
-      '$docNotice\n\n# $title\n\n'
+      // The title may hold a name from the project; the frame escapes it,
+      // so no page can forget to.
+      '$docNotice\n\n# ${mdText(title)}\n\n'
       '${plainLines(draft.sections.join('\n\n'))}\n';
   final marker = DocMarker(
     templates: Map.unmodifiable(draft.templates),

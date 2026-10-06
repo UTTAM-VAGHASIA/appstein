@@ -424,6 +424,24 @@ void main() {
     expect(File(p.join(outside, 'stale.md')).readAsStringSync(), marked);
   });
 
+  test('a team note is titled by its first heading outside a code '
+      'fence', () {
+    write(
+      'a.md',
+      'Intro.\n\n```sh\n# install it\n```\n\n~~~\n# also code\n~~~\n\n'
+          '# Real title\n',
+    );
+    write('b.md', '```\n# only in code\n```\n');
+    write('c.md', '    # indented code\n\n# Third\n');
+    expect(
+      {
+        for (final note in scanDocsFolder(folder).teamNotes)
+          note.path: note.title,
+      },
+      {'a.md': 'Real title', 'b.md': 'b.md', 'c.md': 'Third'},
+    );
+  });
+
   group('blank lines at the end of a page (an editor adds or strips '
       'them)', () {
     final routes = pages.singleWhere((page) => page.path == 'routes.md');
