@@ -163,17 +163,28 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 
 | Component | Responsibility |
 |---|---|
-| `sdk/` | Detect Flutter/Dart version and channel (FVM-aware: `.fvmrc` / `.fvm/`), the project's Dart language version (pubspec SDK lower bound), and read SDK data: `packages/flutter_tools/lib/src/android/gradle_utils.dart` |
+| `sdk/` | Detect Flutter/Dart version and channel (FVM-aware: `.fvmrc` / `.fvm/`) and the project's Dart language version (pubspec SDK lower bound) |
+| `toolchain/` | Read the SDK's own toolchain data for `toolchain.json` (§12): `packages/flutter_tools/lib/src/android/gradle_utils.dart`, the Gradle plugin's build checks and the Xcode template |
+| `notes/` | Parse the curated notes and the stores' build minimums, compiled into the binary (§6.4) |
 | `delta/` | Build the version delta (§6.4) from what the project's imports expose, the `fix_data` migrations of the SDKs and packages, and the curated notes |
 | `config/` | Load and validate `appstein.yaml` (§7) |
+| `project/` | Find the project's root folder |
+| `host/` | The machine Appstein runs on: environment variables, finding and running programs, file errors and links |
+| `android/` | Find the Android SDK and the JDK the way Flutter does, for `doctor` |
+| `doctor/` | The `doctor` checks (§5.3) |
 | `knowledge/` | Run generators (from packs), write `.appstein/`, hold freshness metadata, take the write lock (§15) |
+| `map/` | Analyze the project's Dart code once, with the analyzer cache, and write the map files the packs' extractors produce (§6.5) |
+| `native/` | Write `native.json` from the platform packs' extractors (§6.5) |
+| `index/` | Build `INDEX.md` (§6.3) |
+| `skills/` | Run package:skills when dependencies change (§6.6) |
+| `text/` | Text helpers, such as edit distance |
 | `verify/` | Run checks (from packs + core), apply suppressions and severity overrides, produce findings |
 | `mcp/` | MCP server (using `package:dart_mcp`) exposing knowledge and verify tools |
 | `docs/` | Render human documentation (`docs/app/`) from the knowledge layer, using page contributions from packs (§6.9) |
 | `integrate/` | Install and configure agent integrations (Claude Code, Codex) |
 | `create/` | New-project flow |
 | `upgrade/` | Versioned migrations for user projects and for the `.appstein/` format |
-| `packs/` | Pack registry. Packs contribute extractors, checks, layer rules, skills, templates and migrations |
+| `packs/` | The pack interface and the built-in packs. Packs contribute extractors, checks, layer rules, skills, templates and migrations. The CLI registers the packs a project's `appstein.yaml` names |
 
 ### 5.3 Commands
 
@@ -262,7 +273,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 └── memory/     (written, committed)   current.md, lessons.md (§6.8)
 ```
 
-- **Every generated file carries** `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and a hash of its inputs. JSON files carry it in a `meta` key, Markdown files in a YAML front-matter block at the top. This makes staleness detectable: `verify` fails with `knowledge.stale` if a hash doesn't match.
+- **Every generated knowledge file** (`INDEX.md`, `platform/`, `map/`) **carries** `generatedAt`, `appsteinVersion`, `formatVersion`, `sdkVersion` and a hash of its inputs. JSON files carry it in a `meta` key, Markdown files in a YAML front-matter block at the top. This makes staleness detectable: `verify` fails with `knowledge.stale` if a hash doesn't match. `state.json` is Appstein's own record of the last sync and carries only `formatVersion` and `appsteinVersion`.
 - **A generated file is rewritten only when its content would change:** Appstein rebuilds it with the `generatedAt` already in the file and compares the bytes. So syncing unchanged inputs changes no bytes, `generatedAt` included, and a hand-edited file is put back (§15).
 - **`INDEX.md` is generated too.** `AGENTS.md` / `CLAUDE.md` point to it. On a fresh clone it is created by the SessionStart hook, or by the `overview` MCP tool for agents without that hook (§5.4).
 - **The analyzer cache isn't knowledge.** `sync` keeps the Dart analyzer's work in `.dart_tool/appstein/`, where Dart tools keep their caches (Flutter's template already git-ignores `.dart_tool/`, and `flutter clean` deletes it). It only makes syncs faster: deleting it, or a damaged one, costs one slow sync and never changes the knowledge. The package skills record (§6.6) lives there too; deleting it costs one extra package skills run.
@@ -282,22 +293,22 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ### 6.3 `INDEX.md` template (generated)
 
 1. **Project**: name (from `pubspec.yaml`), app/bundle IDs (from `native.json`; one per Xcode configuration when they differ; an `unknown` ID says so and points to `native.json`, never a guess), target platforms (the platform folders that exist, as Flutter decides), stack pack, Flutter/Dart/language version.
-2. **Rules that matter most**: "ask Appstein MCP before searching", "run verify before claiming done", "never upgrade native toolchain versions yourself; use `toolchain()`", and dependency policy in one line.
+2. **Rules that matter most**: "ask Appstein MCP before searching", "run verify before claiming done", "never upgrade native toolchain versions yourself; use `toolchain()`", and dependency policy in one line. A rule names an MCP tool only when this Appstein version offers it; the same holds for the pointers below, which name the file until the tool exists.
 3. **Features**: a table of feature → screen count → main files (top 15, most screens first; "…and N more, use `feature()`"). When the map was skipped, the section says why.
 4. **Where things live**: layer → folder, from the stack pack's layer rules.
-5. **Version notes**: the 5–10 highest-priority curated notes in `delta.md`'s order, a count of the deprecated and removed APIs `delta.md` lists, and a pointer to `what_changed()`.
+5. **Version notes**: the 5–10 highest-priority curated notes in `delta.md`'s order, a count of the deprecated, removed and changed APIs and the moved libraries `delta.md` lists, and a pointer to `what_changed()`.
 6. **Decisions**: one line per accepted or proposed decision with a link; superseded ones are left out, and one whose front matter can't be read is listed as unreadable.
 7. **Current work**: the first lines of `memory/current.md` (at most 10), or "none recorded yet".
 8. **Freshness**: SDK, Appstein version, and "notes may be incomplete" if applicable. The generated time is the front matter's `generatedAt` (§6.2), so the body has no timestamp and an unchanged project changes no bytes.
 
-**The budget** is measured as the file's UTF-8 bytes ÷ 3, so 1,500 tokens is at most 4,500 bytes. Each model tokenizes differently and none of their tokenizers is available offline; dividing by 3 overestimates for code-heavy Markdown, so the real count stays under 1,500. If the budget would be exceeded, lower-priority sections are truncated in this order, each with a pointer to the MCP tool that holds the full data: version notes down to 5 (`what_changed()`), then current work (`memory_read()`), then decisions (`decisions()`), then features down to 5 rows (`feature()`). The generic notes go first because the project's own decisions and current work exist nowhere else in view. Project, rules, where things live and freshness are never cut. A test proves that a very large project still fits.
+**The budget** is measured as the file's UTF-8 bytes ÷ 3, so 1,500 tokens is at most 4,500 bytes. Each model tokenizes differently and none of their tokenizers is available offline; dividing by 3 overestimates for code-heavy Markdown, so the real count stays under 1,500. If the budget would be exceeded, lower-priority sections are truncated in this order, each with a pointer to the MCP tool that holds the full data: version notes down to 5 (`what_changed()`), then current work (`memory_read()`), then decisions (`decisions()`), then features down to 5 rows (`feature()`). Only if the text still doesn't fit are features, then version notes, cut below 5. The generic notes go first because the project's own decisions and current work exist nowhere else in view. Project, rules, where things live and freshness are never cut. A test proves that a very large project still fits.
 
 ### 6.4 The version delta (`delta.md`) and curated notes
 
 `delta.md` is built from three sources:
 
 - **Deprecations:** `@Deprecated` annotations, with their messages, in every library the project's imports expose: Flutter's, the `dart:` libraries' and the packages'. A deprecation kind such as `@Deprecated.implement` forbids only that one use.
-- **Migrations:** the `fix_data.yaml` and `fix_data/**.yaml` files of the Flutter SDK, the Dart SDK and each package (the files `dart fix` reads), including APIs since removed, with their replacements.
+- **Migrations:** the `fix_data.yaml` and `fix_data/**.yaml` files of the Flutter SDK, the Dart SDK and each package (the files `dart fix` reads), including APIs since removed, with their replacements. A migrated API is listed as `removed` (gone; code that uses it doesn't compile) or `changed` (it still exists, and the migration changes how it is used), with its migration's title. `delta.md` also lists the libraries a migration moves elsewhere, and any migration file Appstein couldn't read.
 - **Appstein's curated notes** in `notes/<flutter-minor>.yaml`, one per stable Flutter minor version, for changes the above can't express, e.g. "new projects use `material_ui`", "dot shorthands available when language version ≥ 3.10", "iOS minimum 15". The file for the oldest supported minor also holds the notes from the baseline up to it. Each file records the minor's first stable release date and Dart version, the toolchain matrix used as a fallback (§12), and its notes. Each note has an `id`, `since`, `languageVersion` (optional), `priority` (1–3), `area` (`framework`, `dart`, `android`, `ios` or `tooling`), `summary`, `use`, `avoid`, and `source` (a URL to official docs). Store-imposed build minimums (the Play target API, the Xcode version for App Store uploads) change on the stores' schedule, not Flutter's, so they live in `notes/stores.yaml`, each with the date it applies from and its source. The notes are compiled into the `appstein` binary, so reading them needs no network.
 
 Other rules for the delta:
@@ -327,7 +338,7 @@ Extraction uses the **resolved** Dart AST from `package:analyzer`, not text sear
   - `lib/utils/**` → `utils`
   - `test/**` and `testing/**` (shared fakes) → `test`
 - **Features:** each folder under `lib/ui/` that has a `view_models/` or `widgets/` folder, named by its path below `lib/ui/`. So `lib/ui/auth/login/` is the feature `auth/login`. `lib/ui/core/` holds the UI that features share (widgets, themes, localization), so it is not a feature. A feature lists:
-  - **view models:** the classes in its `view_models/` that extend `ChangeNotifier`, directly or through other classes;
+  - **view models:** the concrete classes in its `view_models/` that extend `ChangeNotifier`, directly or through other classes (an abstract base class is not a view model);
   - **screens:** the widgets in its `widgets/` that routes build. Without routes, no widget is called a screen; screens are never guessed from names;
   - **repositories and services:** the types its view models' constructors take, sorted by the layer of the file that declares each type;
   - **models:** the public classes in `domain` files that the feature's files import, except use cases (`lib/domain/use_cases/`);
@@ -481,7 +492,7 @@ Transport is stdio; `appstein mcp` is launched by the agent. Every tool returns 
 
 Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or `stale` (with why). When another sync holds the lock past its timeout, or the sync fails, the server answers from the files on disk marked `stale`, with the reason and, when it helps, "run `appstein doctor`". With no knowledge files at all, the reply is an error.
 
-**Errors.** Bad input, a failed sync with nothing to answer from, and a tool that throws each give a tool result marked as an error, with the reason, and the server keeps running. Only protocol messages go to stdout.
+**Errors.** Bad input, a failed sync with nothing to answer from, and a tool that throws each give a tool result marked as an error, with the reason, and the server keeps running. An error reply has no structured content; it states the freshness in its text. Only protocol messages go to stdout.
 
 | Tool | Input | Returns |
 |---|---|---|
@@ -490,7 +501,7 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 | `feature` | feature name | Everything in that feature: screens, view models, repositories, services, models, routes, tests |
 | `route` | path; a concrete path matches a pattern (`/book/42` → `/book/:id`) | Screen, feature, parent, nested routes, and whether it redirects (the map records that a route redirects, not where to) |
 | `check_api` | a name: `WillPopScope`, `withOpacity`, `Color.withOpacity`, `Text.new(textScaleFactor)` | `removed` (with its migration), `deprecated` (with the replacement and the library's own deprecation text) or `ok`, plus the curated notes whose `avoid` names it, each with its source. `ok` means nothing the project imports deprecates or removes it; whether it exists isn't checked (the Dart MCP server's analyzer does that) |
-| `what_changed` | optional `since` version; optional `library` (e.g. `package:go_router`) | The curated notes since `since` (`since` narrows only the notes), and per library the number of deprecated, removed and moved APIs in `delta.json`; with `library`, that library's entries in full. `check_api` answers for one name |
+| `what_changed` | optional `since` version; optional `library` (e.g. `package:go_router`) | The curated notes since `since` (`since` narrows only the notes), and per library the number of deprecated, removed, changed and moved APIs in `delta.json`; with `library`, that library's entries in full. `check_api` answers for one name |
 | `toolchain` | – | Valid native version set for this SDK, the project's current values from `native.json`, and mismatches (below) |
 | `package_check` | package name [+ version] | Exists? discontinued? latest version, last publish, publisher (verified?), Flutter Favorite, SwiftPM support, built-in-Kotlin readiness, advisories, **verdict** (`ok` / `warn` / `block`) + reasons |
 | `decisions` / `record_decision` | topic / record | Read or write layer 3 |
@@ -500,8 +511,9 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 **`where_is` ranking** is deterministic, with no embeddings:
 
 - the query is split into lowercase words and matched against symbol names (split at camelCase and snake_case), route paths and screen names, feature names and file paths;
-- each word scores its best match on a candidate: exact symbol word 5, route path or screen 4, feature name 3, file path 2, fuzzy (edit distance ≤ 2) 1. A candidate's score is the sum over the words; ties are broken by name, then file;
-- it returns the top 10, each with its file:line, layer, feature, doc-comment summary and the reason for each match.
+- each word scores its best match on a candidate: exact symbol word 5, route path or screen 4, feature name 3, file path 2, fuzzy (edit distance ≤ 2, and both words have at least 4 letters) 1. A candidate's score is the sum over the words; ties are broken by name, then file;
+- it returns 10 results: the best-scoring feature, route and file that match, when there are any, then the highest-scoring candidates that remain, listed by score. A word found in many symbol names therefore never hides the feature, route and file it also names;
+- each result has the reason for each match and, where the map has them, its file:line, layer, feature and doc-comment summary: a symbol has all of them, a route its file:line and feature, a file its layer and feature, and a feature its folder.
 
 This is enough for a well-structured project; semantic search can be added later if the benchmark shows a need.
 
