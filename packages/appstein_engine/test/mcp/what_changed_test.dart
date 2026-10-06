@@ -130,8 +130,8 @@ void main() {
   test('a library with no entries is refused, listing those that have', () {
     expect(
       (ask(library: 'package:nope') as ToolRefusal).message,
-      'No library "package:nope" has deprecated, removed or moved APIs in '
-      'the delta. Libraries that do: dart:core, package:flutter, '
+      'No library "package:nope" has deprecated, removed, changed or moved '
+      'APIs in the delta. Libraries that do: dart:core, package:flutter, '
       'package:go_router.',
     );
   });

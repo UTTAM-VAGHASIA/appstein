@@ -8,10 +8,11 @@ import 'package:path/path.dart' as p;
 /// with a new app's `android/` and `ios/` files:
 /// - a full sync of a 200-file app, with fresh packages and no analyzer
 ///   cache: under 30 s;
-/// - `sync --detect` on that app when nothing changed, and after one edit of
-///   a view model: each under 2 s, as the median of three runs (three
-///   different edits), because a CI machine's speed varies by about 2x
-///   from run to run. The table shows the three times beside the median;
+/// - `sync --detect` on that app when nothing changed, after one edit of a
+///   view model, and after one edit of the router: each under 2 s, as the
+///   median of three runs (three different edits), because a CI machine's
+///   speed varies by about 2x from run to run. The table shows the three
+///   times beside the median;
 /// - each MCP tool's answer on that app, from fresh knowledge, in one
 ///   `appstein mcp` process: under 1 s, as the median of three;
 ///
@@ -210,6 +211,9 @@ Future<void> main(List<String> args) async {
           if (times['viewModel']! >= const Duration(seconds: 2))
             'a detect after one edit took ${took('viewModel')}, the median '
                 'of three (under 2 s)',
+          if (times['router']! >= const Duration(seconds: 2))
+            'a detect after a router edit took ${took('router')}, the '
+                'median of three (under 2 s)',
           for (final MapEntry(key: tool, value: three) in mcp.entries)
             if ((three.toList()..sort())[1] >= const Duration(seconds: 1))
               'the MCP tool $tool took ${(three.toList()..sort())[1].inMilliseconds} ms, '
@@ -234,7 +238,7 @@ ${line('First sync, with `flutter pub get`', 'first')}
 ${line('**Full sync, no analyzer cache** (target under 30 s)', 'full')}
 ${line('**`sync --detect`, nothing changed**, median of 3 (target under 2 s)', 'unchanged')}
 ${line('**`sync --detect` after editing a view model**, median of 3 (target under 2 s)', 'viewModel')}
-${line('`sync --detect` after editing the router, median of 3', 'router')}
+${line('**`sync --detect` after editing the router**, median of 3 (target under 2 s)', 'router')}
 ''');
     stdout.writeln(_breakdown(broken));
     stdout.writeln('''

@@ -14,6 +14,19 @@ const indexPath = 'INDEX.md';
 /// tokens, counted as UTF-8 bytes ÷ 3 (spec §6.3).
 const indexByteBudget = 4500;
 
+/// Every MCP tool `INDEX.md` can name (spec §6.3, §8).
+const indexTools = {
+  'where_is',
+  'feature',
+  'route',
+  'toolchain',
+  'what_changed',
+  'verify',
+  'package_check',
+  'decisions',
+  'memory_read',
+};
+
 /// What `INDEX.md` is built from (spec §6.3).
 final class IndexInputs {
   /// Creates the inputs.
@@ -34,6 +47,7 @@ final class IndexInputs {
     this.decisionsError,
     this.currentWork = const [],
     this.currentWorkError,
+    this.tools = indexTools,
   });
 
   /// The name in `pubspec.yaml`; null when it can't be read.
@@ -86,6 +100,11 @@ final class IndexInputs {
 
   /// Why `memory/current.md` couldn't be read; null otherwise.
   final String? currentWorkError;
+
+  /// The MCP tools this Appstein offers. `INDEX.md` names a tool only when
+  /// it is here (spec §6.3); a pointer to a missing tool names the file
+  /// instead. `sync` passes the server's own list.
+  final Set<String> tools;
 }
 
 /// How many bytes `INDEX.md`'s text may have when it is written with
@@ -166,16 +185,22 @@ final class _Limits {
   );
 }
 
-const _rules = [
+/// The rules that matter most. A rule names a tool only when [tools] has
+/// it: without `verify` its rule is left out, and without `package_check`
+/// the dependency rule doesn't name it.
+List<String> _rules(Set<String> tools) => [
   "- Ask Appstein's MCP tools (`where_is()`, `feature()`, `route()`) before "
       'searching the code.',
-  '- Run `verify()` before you say a task is done.',
+  if (tools.contains('verify'))
+    '- Run `verify()` before you say a task is done.',
   '- Never upgrade native toolchain versions (Gradle, the Android Gradle '
       'Plugin, Kotlin, the NDK, SDK levels, the iOS deployment target) '
       'yourself; ask `toolchain()`.',
-  '- Dependencies: pure Dart for small helpers; a package that passes '
-      '`package_check()` for platform features; Pigeon with platform '
-      'channels for small native code.',
+  '- Dependencies: pure Dart for small helpers; '
+      '${tools.contains('package_check') ? 'a package that passes '
+                '`package_check()`' : 'a well-maintained package'} '
+      'for platform features; Pigeon with platform channels for small '
+      'native code.',
 ];
 
 String _render(IndexInputs inputs, _Limits limits) {
@@ -196,7 +221,7 @@ String _render(IndexInputs inputs, _Limits limits) {
   heading('Project');
   _project(out, inputs);
   heading('Rules');
-  for (final rule in _rules) {
+  for (final rule in _rules(inputs.tools)) {
     out.writeln(rule);
   }
   heading('Features');
@@ -332,7 +357,10 @@ void _decisions(StringBuffer out, IndexInputs inputs, int shown) {
   }
   if (hidden > 0) {
     if (shown > 0) out.writeln();
-    out.writeln('…and ${_count(hidden, 'older decision')}; ask `decisions()`.');
+    out.writeln(
+      '…and ${_count(hidden, 'older decision')}'
+      '${inputs.tools.contains('decisions') ? '; ask `decisions()`.' : ' in `decisions/`.'}',
+    );
   }
 }
 
@@ -363,7 +391,10 @@ void _currentWork(StringBuffer out, IndexInputs inputs, int shown) {
   final hidden = lines.length - shown;
   if (hidden > 0) {
     if (shown > 0) out.writeln();
-    out.writeln('…and ${_count(hidden, 'more line')}; ask `memory_read()`.');
+    out.writeln(
+      '…and ${_count(hidden, 'more line')}'
+      '${inputs.tools.contains('memory_read') ? '; ask `memory_read()`.' : ' in `memory/current.md`.'}',
+    );
   }
 }
 

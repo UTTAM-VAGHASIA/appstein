@@ -12,6 +12,7 @@ import '../map/analyzer_cache.dart';
 import '../map/map_inputs.dart';
 import '../map/map_sync.dart';
 import '../map/project_packages.dart';
+import '../mcp/tool_names.dart';
 import '../native/native_extractor.dart';
 import '../native/native_sync.dart';
 import '../notes/curated_notes.dart';
@@ -58,6 +59,7 @@ final class KnowledgeSync {
     this.agents = const ['claude', 'codex'],
     this.packageSkills = true,
     this.heldCache,
+    this.tools = mcpToolNames,
   }) : notes = notes ?? CuratedNotes.bundled(),
        runner = runner ?? const SystemProcessRunner();
 
@@ -90,6 +92,11 @@ final class KnowledgeSync {
   /// Keeps the analyzer cache in memory between syncs (spec §8); null
   /// reads the cache file on every rebuild.
   final HeldAnalyzerCache? heldCache;
+
+  /// The MCP tools this Appstein serves. `INDEX.md` names only these (spec
+  /// §6.3), and they are part of its input hash, so a version that serves
+  /// another tool rewrites it.
+  final List<String> tools;
 
   /// How long to wait for another writer's lock.
   final Duration lockTimeout;
@@ -673,6 +680,7 @@ final class KnowledgeSync {
       decisionsError: sources.decisionsError,
       currentWork: sources.currentWork,
       currentWorkError: sources.currentWorkError,
+      tools: tools.toSet(),
     );
     final budget = indexBodyBudget(
       KnowledgeMeta(
@@ -692,7 +700,8 @@ final class KnowledgeSync {
   }
 
   /// The input hash of `INDEX.md`: [fileHashes] (each other file's input
-  /// hash, by path), the project files [sources] read, and the packs.
+  /// hash, by path), the project files [sources] read, the packs, and the
+  /// MCP tools it may name ([tools]).
   String _indexHash(Map<String, String> fileHashes, IndexSources sources) =>
       inputHash(
         {
@@ -702,6 +711,7 @@ final class KnowledgeSync {
           'packs': utf8.encode(
             [for (final pack in packs) '${pack.id}@${pack.version}'].join(','),
           ),
+          'tools': utf8.encode(([...tools]..sort()).join(',')),
         },
         appsteinVersion: appsteinVersion,
         formatVersion: knowledgeFormatVersion,

@@ -242,7 +242,7 @@ abstract final class ToolSchemas {
     'library': jsonString(
       description:
           'A library, such as `package:go_router` or `dart:core`: '
-          'list its deprecated, removed and moved APIs in full.',
+          'list its deprecated, removed, changed and moved APIs in full.',
     ),
   });
 

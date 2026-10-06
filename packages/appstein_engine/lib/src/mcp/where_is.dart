@@ -36,10 +36,12 @@ List<String> searchWords(String text) {
 /// - a file (2): a word of its path.
 ///
 /// A word of four or more letters that matches no word of a candidate
-/// exactly scores 1 when it is at most two edits from one (a typo). A
-/// candidate's score is the sum of each word's best score; ties go to the
-/// name, then the file. It lists the top [whereIsLimit], each with the
-/// reason for each word that matched.
+/// exactly scores 1 when it is at most two edits from one of the
+/// candidate's words of four or more letters (a typo). A candidate's score
+/// is the sum of each word's best score; ties go to the name, then the
+/// file. It lists [whereIsLimit] matches: the best feature, route and file
+/// when there are any, then the best of the rest, each with the reason for
+/// each word that matched.
 ToolAnswer whereIs(
   String query, {
   required SymbolsMap symbols,
@@ -108,7 +110,7 @@ ToolAnswer whereIs(
   ];
   final scored = [for (final candidate in candidates) ?candidate.score(words)]
     ..sort(_compare);
-  final listed = scored.take(whereIsLimit).toList();
+  final listed = _listed(scored);
   return ToolReply(
     {
       'query': query,
@@ -125,6 +127,22 @@ ToolAnswer whereIs(
             '${scored.length == 1 ? 'candidate' : 'candidates'} matched.',
     },
   );
+}
+
+/// The matches to list, from [scored] (best first): the best feature, route
+/// and file when there are any, then the best of the rest, [whereIsLimit]
+/// in all, best first. So a word in many symbol names never hides the
+/// feature, route and file it also names.
+List<_Match> _listed(List<_Match> scored) {
+  final picked = <_Match>{
+    for (final kind in const ['feature', 'route', 'file'])
+      ?scored.where((match) => match.candidate.kind == kind).firstOrNull,
+  };
+  for (final match in scored) {
+    if (picked.length >= whereIsLimit) break;
+    picked.add(match);
+  }
+  return picked.toList()..sort(_compare);
 }
 
 int _compare(_Match a, _Match b) {
@@ -176,6 +194,7 @@ final class _Candidate {
       found:
       for (final (groupWords, what) in groups) {
         for (final candidateWord in groupWords) {
+          if (candidateWord.length < 4) continue;
           if (editDistance(word, candidateWord) <= 2) {
             total += 1;
             reasons.add('`$word` is close to `$candidateWord` in $what');

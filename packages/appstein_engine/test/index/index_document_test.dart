@@ -66,7 +66,9 @@ void main() {
       '',
       'Status: tests written.',
     ],
+    Set<String> tools = indexTools,
   }) => IndexInputs(
+    tools: tools,
     projectName: 'fixture_app',
     sdk: sdk,
     appsteinVersion: '0.1.0-dev',
@@ -219,6 +221,50 @@ void main() {
       ].join('\n'),
     );
     expect(renderIndex(small(), byteBudget: indexByteBudget), text);
+  });
+
+  test('a tool the server does not offer is never named: its rule goes, '
+      'and a pointer names the file', () {
+    final offered = mcpToolNames.toSet();
+    final inputs = small(
+      tools: offered,
+      currentWork: [for (var i = 1; i <= 10; i++) 'Step $i of the task.'],
+      decisions: [
+        for (var i = 1; i <= 3; i++)
+          IndexDecision(
+            file: '000$i-d.md',
+            id: '000$i',
+            title: 'Decision $i',
+            status: 'accepted',
+          ),
+      ],
+    );
+    final full = renderIndex(inputs, byteBudget: indexByteBudget);
+    // Cut until every line of current work and one decision are hidden.
+    var cut = full;
+    for (var budget = bytes(full) - 1; budget > 0; budget--) {
+      cut = renderIndex(inputs, byteBudget: budget);
+      if (cut.contains('older decision')) break;
+    }
+    for (final text in [full, cut]) {
+      for (final tool in indexTools.difference(offered)) {
+        expect(text, isNot(contains('`$tool()`')), reason: tool);
+      }
+    }
+    expect(full, isNot(contains('before you say a task is done')));
+    expect(
+      full,
+      contains(
+        '- Dependencies: pure Dart for small helpers; a well-maintained '
+        'package for platform features; Pigeon with platform channels for '
+        'small native code.',
+      ),
+    );
+    expect(cut, contains('…and 10 more lines in `memory/current.md`.'));
+    expect(cut, contains('…and 1 older decision in `decisions/`.'));
+    // The tools it does offer are still named.
+    expect(full, contains('ask `toolchain()`'));
+    expect(full, contains('ask `what_changed()`'));
   });
 
   test('what is unknown or missing is said plainly', () {
