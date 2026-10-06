@@ -16,29 +16,26 @@ const docNotice =
 
 const _prefix = '<!-- appstein:generated ';
 final _markerLine = RegExp(
-  r'^<!-- appstein:generated templates=(\S+) inputs=([0-9a-f]{64}) '
-  r'body=([0-9a-f]{64}) -->$',
+  r'^<!-- appstein:generated templates=(\S+) body=([0-9a-f]{64}) -->$',
 );
 final _template = RegExp(r'^([^@,\s]+)@([^@,\s]+)$');
 
 /// The marker in the first line of a generated page (spec §6.9). It tells
-/// Appstein the page is its own, and holds what `docs.stale` compares.
+/// Appstein the page is its own, and tells a page that was edited by hand
+/// from one that fell behind.
+///
+/// It holds no hash of the page's inputs. Those are whole knowledge files,
+/// so one new class would change the first line of every feature page.
+/// Whether a page is behind is found by rendering it again and comparing.
 final class DocMarker {
   /// Creates a marker.
-  const DocMarker({
-    required this.templates,
-    required this.inputs,
-    required this.body,
-  });
+  const DocMarker({required this.templates, required this.body});
 
   /// Who rendered the page, each with its template version, in the order
   /// they contributed: a pack's id with the pack's version, or `engine` with
   /// [docsEngineVersion]. It is not the Appstein version, which would change
   /// every page at every release.
   final Map<String, String> templates;
-
-  /// The hash of everything the page was rendered from, as SHA-256 hex.
-  final String inputs;
 
   /// The hash of the page's body ([bodyHash]), as SHA-256 hex. A page whose
   /// body no longer matches it was edited by hand.
@@ -49,7 +46,7 @@ final class DocMarker {
     final names = [
       for (final MapEntry(:key, :value) in templates.entries) '$key@$value',
     ].join(',');
-    return '${_prefix}templates=$names inputs=$inputs body=$body -->';
+    return '${_prefix}templates=$names body=$body -->';
   }
 
   /// The marker in the first line of [text], or null when that line isn't
@@ -68,7 +65,7 @@ final class DocMarker {
       if (template == null) return null;
       templates[template[1]!] = template[2]!;
     }
-    return DocMarker(templates: templates, inputs: match[2]!, body: match[3]!);
+    return DocMarker(templates: templates, body: match[2]!);
   }
 }
 

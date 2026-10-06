@@ -15,6 +15,7 @@ export 'src/delta/fix_data.dart';
 export 'src/docs/doc_marker.dart';
 export 'src/docs/doc_page.dart';
 export 'src/docs/docs_knowledge.dart';
+export 'src/docs/docs_renderer.dart';
 export 'src/docs/markdown_text.dart';
 export 'src/doctor/check_helpers.dart';
 export 'src/doctor/checks/agents_check.dart';

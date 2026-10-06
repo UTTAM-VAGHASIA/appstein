@@ -182,24 +182,24 @@ DecisionSet decisionSet(
   },
 );
 
-/// A page source for renderer tests: it returns [sections] and reads what
-/// [reads] reads.
+/// A page source for renderer tests: it returns [sections_], or throws
+/// [failure].
 final class FakeDocPage implements DocPage {
   /// Creates the page source.
-  const FakeDocPage(this.sections_, {this.id = 'fake', this.reads});
+  const FakeDocPage(this.sections_, {this.id = 'fake', this.failure});
 
   /// What it returns.
   final List<DocSection> sections_;
 
-  /// What it reads from the knowledge before returning.
-  final void Function(DocsView knowledge)? reads;
+  /// What it throws instead, when set.
+  final Object? failure;
 
   @override
   final String id;
 
   @override
-  List<DocSection> sections(DocsView knowledge) {
-    reads?.call(knowledge);
+  List<DocSection> sections(DocsKnowledge knowledge) {
+    if (failure case final failure?) throw failure;
     return sections_;
   }
 }

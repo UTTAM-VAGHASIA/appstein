@@ -2,21 +2,16 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
-  final a = 'a' * 64;
   final b = 'b' * 64;
 
   test('writes the marker as one HTML comment', () {
     expect(
-      DocMarker(templates: const {'engine': '1'}, inputs: a, body: b).line,
-      '<!-- appstein:generated templates=engine@1 inputs=$a body=$b -->',
+      DocMarker(templates: const {'engine': '1'}, body: b).line,
+      '<!-- appstein:generated templates=engine@1 body=$b -->',
     );
     expect(
-      DocMarker(
-        templates: const {'android': '3', 'ios': '2'},
-        inputs: a,
-        body: b,
-      ).line,
-      '<!-- appstein:generated templates=android@3,ios@2 inputs=$a body=$b -->',
+      DocMarker(templates: const {'android': '3', 'ios': '2'}, body: b).line,
+      '<!-- appstein:generated templates=android@3,ios@2 body=$b -->',
     );
   });
 
@@ -25,50 +20,44 @@ void main() {
       {'engine': '1'},
       {'android': '3', 'ios': '2'},
     ]) {
-      final marker = DocMarker(templates: templates, inputs: a, body: b);
+      final marker = DocMarker(templates: templates, body: b);
       final read = DocMarker.of('${marker.line}\n# Title\n')!;
       expect(read.templates, templates);
       expect(read.templates.keys, templates.keys);
-      expect(read.inputs, a);
       expect(read.body, b);
     }
   });
 
   test('reads a marker after a BOM and before a carriage return', () {
-    final marker = DocMarker(
-      templates: const {'engine': '1'},
-      inputs: a,
-      body: b,
-    );
+    final marker = DocMarker(templates: const {'engine': '1'}, body: b);
     final bom = String.fromCharCode(0xFEFF);
     expect(DocMarker.of('$bom${marker.line}\r\n# T\r\n')?.body, b);
-    expect(DocMarker.of(marker.line)?.inputs, a);
+    expect(DocMarker.of(marker.line)?.body, b);
   });
 
   test('finds no marker where there is none', () {
-    final line = DocMarker(
-      templates: const {'engine': '1'},
-      inputs: a,
-      body: b,
-    ).line;
+    final line = DocMarker(templates: const {'engine': '1'}, body: b).line;
     expect(DocMarker.of(''), isNull);
     expect(DocMarker.of('# Title\n'), isNull);
     expect(DocMarker.of('\n$line\n'), isNull, reason: 'on line 2');
     expect(DocMarker.of(' $line\n'), isNull, reason: 'indented');
     expect(
-      DocMarker.of('<!-- appstein:generated templates=engine@1 inputs=$a -->'),
+      DocMarker.of('<!-- appstein:generated templates=engine@1 -->'),
       isNull,
       reason: 'no body',
     );
     expect(
-      DocMarker.of('<!-- appstein:generated templates= inputs=$a body=$b -->'),
+      DocMarker.of('<!-- appstein:generated templates= body=$b -->'),
       isNull,
       reason: 'no templates',
     );
     expect(
-      DocMarker.of(
-        '<!-- appstein:generated templates=engine@1 inputs=xyz body=$b -->',
-      ),
+      DocMarker.of('<!-- appstein:generated templates=engine body=$b -->'),
+      isNull,
+      reason: 'a template without a version',
+    );
+    expect(
+      DocMarker.of('<!-- appstein:generated templates=engine@1 body=xyz -->'),
       isNull,
       reason: 'a hash that is not one',
     );
@@ -76,11 +65,7 @@ void main() {
   });
 
   test('a page is its marker line, then its body', () {
-    final marker = DocMarker(
-      templates: const {'engine': '1'},
-      inputs: a,
-      body: b,
-    );
+    final marker = DocMarker(templates: const {'engine': '1'}, body: b);
     expect(markedPage(marker, '# T\n'), '${marker.line}\n# T\n');
   });
 

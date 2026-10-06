@@ -31,5 +31,5 @@ abstract interface class DocPage {
 
   /// The sections it contributes: none, one, or one per feature. It reads
   /// only [knowledge], and gives the same sections for the same knowledge.
-  List<DocSection> sections(DocsView knowledge);
+  List<DocSection> sections(DocsKnowledge knowledge);
 }
