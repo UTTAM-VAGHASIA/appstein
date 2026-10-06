@@ -163,6 +163,7 @@ milestones:
             title: Decisions and memory
             summary: Knowledge layers 3–4 in the §6.7–6.8 formats, with the `decisions`, `record_decision`, `memory_read` and `memory_write` tools.
             status: next
+            plan: 2026-10-06-slice-1c2-decisions-memory.md
           - id: 1c.3
             title: Human docs
             summary: The `docs/app/` renderer with the pack doc pages and `appstein docs [--check]`, byte-identical for unchanged knowledge.
