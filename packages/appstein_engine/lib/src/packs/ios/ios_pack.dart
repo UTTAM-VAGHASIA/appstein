@@ -4,6 +4,7 @@ import '../../docs/doc_page.dart';
 import '../../map/map_extractor.dart';
 import '../../native/native_extractor.dart';
 import '../pack.dart';
+import 'ios_docs.dart';
 import 'ios_native.dart';
 
 /// The ios platform pack (spec §10): iOS's part of `map/native.json`. Its
@@ -31,7 +32,7 @@ final class IosPack implements Pack {
   NativeExtractor get nativeExtractor => const IosNativeExtractor();
 
   @override
-  List<DocPage> get docPages => const [];
+  List<DocPage> get docPages => const [IosDocs()];
 }
 
 /// Writes the `ios` section of `map/native.json`.

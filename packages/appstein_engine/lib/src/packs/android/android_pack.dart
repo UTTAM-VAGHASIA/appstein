@@ -4,6 +4,7 @@ import '../../docs/doc_page.dart';
 import '../../map/map_extractor.dart';
 import '../../native/native_extractor.dart';
 import '../pack.dart';
+import 'android_docs.dart';
 import 'android_native.dart';
 
 /// The android platform pack (spec §10): Android's part of
@@ -31,7 +32,7 @@ final class AndroidPack implements Pack {
   NativeExtractor get nativeExtractor => const AndroidNativeExtractor();
 
   @override
-  List<DocPage> get docPages => const [];
+  List<DocPage> get docPages => const [AndroidDocs()];
 }
 
 /// Writes the `android` section of `map/native.json`.

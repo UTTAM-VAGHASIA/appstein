@@ -18,6 +18,7 @@ export 'src/docs/docs_knowledge.dart';
 export 'src/docs/docs_renderer.dart';
 export 'src/docs/engine_pages.dart';
 export 'src/docs/markdown_text.dart';
+export 'src/docs/native_section.dart';
 export 'src/doctor/check_helpers.dart';
 export 'src/doctor/checks/agents_check.dart';
 export 'src/doctor/checks/android_sdk_check.dart';
