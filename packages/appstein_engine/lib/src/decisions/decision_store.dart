@@ -5,6 +5,9 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
 import '../host/file_errors.dart';
+import '../knowledge/knowledge_lock.dart';
+import '../knowledge/knowledge_store.dart';
+import '../knowledge/knowledge_write_exception.dart';
 import 'decision_file.dart';
 
 /// The decision file named [file] as a path from the project folder, such
@@ -175,6 +178,278 @@ DecisionSet readDecisions(String projectRoot) {
     bytes: bytes,
     readProblems: readProblems,
   );
+}
+
+/// What `record_decision` is asked to do (spec §6.7, Writing): an
+/// [AddDecision] or an [AcceptDecision].
+sealed class DecisionRequest {
+  const DecisionRequest();
+}
+
+/// A new decision, which replaces decision [supersedes] when that is set.
+final class AddDecision extends DecisionRequest {
+  /// Creates the request. [title] is one line, [paths] are POSIX patterns
+  /// from the project folder, and [checks] are built-in checks.
+  const AddDecision({
+    required this.title,
+    required this.why,
+    this.status = DecisionStatus.proposed,
+    this.paths = const [],
+    this.checks = const [],
+    this.supersedes,
+  });
+
+  /// What was decided, on one line.
+  final String title;
+
+  /// The reason.
+  final String why;
+
+  /// `proposed`, or `accepted` when the user agreed.
+  final DecisionStatus status;
+
+  /// The path patterns it applies to.
+  final List<String> paths;
+
+  /// The verifier checks that confirm it.
+  final List<String> checks;
+
+  /// The number of the decision it replaces; null when it replaces none.
+  final int? supersedes;
+}
+
+/// The proposed decision [number] becomes accepted.
+final class AcceptDecision extends DecisionRequest {
+  /// Creates the request.
+  const AcceptDecision(this.number);
+
+  /// The decision's number.
+  final int number;
+}
+
+/// Thrown by [writeDecision] for a request the project's decisions don't
+/// allow, before anything is written.
+final class DecisionRefused implements Exception {
+  /// Creates the refusal.
+  const DecisionRefused(this.message);
+
+  /// Why, for the agent.
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// What [writeDecision] did.
+final class DecisionWritten {
+  /// Creates the result.
+  const DecisionWritten({
+    required this.action,
+    required this.decision,
+    this.superseded,
+    this.warning,
+  });
+
+  /// `added`, `replaced` or `accepted`.
+  final String action;
+
+  /// The decision that was added or accepted, as readers see it now.
+  final DecisionEntry decision;
+
+  /// The decision that was replaced, as readers see it now.
+  final DecisionEntry? superseded;
+
+  /// What couldn't be done after the decision was written: the replaced
+  /// file's status line was left as it is, and why.
+  final String? warning;
+}
+
+/// Carries out [request] in the project at [projectRoot] (spec §6.7,
+/// Writing), holding the `.appstein/` write lock (spec §15) so two writers
+/// never take the same number. [today] is the date a new decision gets.
+///
+/// An existing decision's text is never rewritten: only the word on its
+/// `status:` line changes. Throws [DecisionRefused] before writing when the
+/// decisions don't allow the request, a [KnowledgeLockTimeout] when another
+/// writer holds the lock for [lockTimeout], and a
+/// [KnowledgeWriteException] when the file can't be written.
+Future<DecisionWritten> writeDecision(
+  String projectRoot,
+  DecisionRequest request, {
+  required String today,
+  Duration lockTimeout = const Duration(seconds: 10),
+}) async {
+  final lock = await KnowledgeLock.acquire(
+    p.join(projectRoot, '.appstein'),
+    timeout: lockTimeout,
+  );
+  try {
+    final decisions = readDecisions(projectRoot);
+    if (decisions.folderProblem case final problem?) {
+      throw DecisionRefused(
+        '`.appstein/decisions/` could not be read ($problem).',
+      );
+    }
+    return switch (request) {
+      AddDecision() => await _add(projectRoot, decisions, request, today),
+      AcceptDecision() => await _accept(projectRoot, decisions, request),
+    };
+  } finally {
+    lock.release();
+  }
+}
+
+Future<DecisionWritten> _add(
+  String projectRoot,
+  DecisionSet decisions,
+  AddDecision request,
+  String today,
+) async {
+  DecisionEntry? replaced;
+  if (request.supersedes case final target?) {
+    replaced = _numbered(decisions, target);
+    if (!replaced.active) {
+      throw DecisionRefused(
+        'Decision ${decisionNumberText(target)} is already superseded'
+        '${switch (replaced.supersededBy?.numberText) {
+          final by? => ', by $by',
+          null => '',
+        }}.',
+      );
+    }
+  }
+  final number = decisions.nextNumber;
+  final name =
+      '${decisionNumberText(number)}-${decisionSlug(request.title)}.md';
+  await replaceFile(
+    p.join(decisionsFolder(projectRoot), name),
+    renderDecision(
+      number: number,
+      title: request.title,
+      status: request.status,
+      date: today,
+      supersedes: request.supersedes,
+      paths: request.paths,
+      checks: request.checks,
+      why: request.why,
+    ),
+  );
+
+  String? warning;
+  if (replaced != null) {
+    final file = replaced.record.file;
+    final changed = _withStatus(
+      decisions.bytes[file]!,
+      DecisionStatus.superseded,
+    );
+    if (changed == null) {
+      warning =
+          "The status line of ${decisionPath(file)} isn't a plain "
+          '`status: word` line, so it was left as it is. Change it to '
+          '`superseded` by hand.';
+    } else {
+      try {
+        await replaceFileBytes(
+          p.join(decisionsFolder(projectRoot), file),
+          changed,
+        );
+      } on KnowledgeWriteException catch (error) {
+        warning =
+            "The status line of ${decisionPath(file)} couldn't be changed "
+            'to `superseded` ($error). Change it by hand.';
+      }
+    }
+  }
+
+  final after = readDecisions(projectRoot);
+  return DecisionWritten(
+    action: replaced == null ? 'added' : 'replaced',
+    decision: after.numbered(number)!,
+    superseded: replaced == null
+        ? null
+        : after.numbered(replaced.record.number!),
+    warning: warning,
+  );
+}
+
+Future<DecisionWritten> _accept(
+  String projectRoot,
+  DecisionSet decisions,
+  AcceptDecision request,
+) async {
+  final entry = _numbered(decisions, request.number);
+  final number = decisionNumberText(request.number);
+  switch (entry.status) {
+    case DecisionStatus.accepted:
+      throw DecisionRefused('Decision $number is accepted already.');
+    case DecisionStatus.superseded:
+      throw DecisionRefused(
+        'Decision $number is superseded'
+        '${switch (entry.supersededBy?.numberText) {
+          final by? => ' by $by',
+          null => '',
+        }}, '
+        "so it can't be accepted.",
+      );
+    case DecisionStatus.proposed:
+  }
+  final file = entry.record.file;
+  final changed = _withStatus(decisions.bytes[file]!, DecisionStatus.accepted);
+  if (changed == null) {
+    throw DecisionRefused(
+      "The status line of ${decisionPath(file)} isn't a plain "
+      '`status: proposed` line; change it to `accepted` by hand.',
+    );
+  }
+  await replaceFileBytes(p.join(decisionsFolder(projectRoot), file), changed);
+  return DecisionWritten(
+    action: 'accepted',
+    decision: readDecisions(projectRoot).numbered(request.number)!,
+  );
+}
+
+/// The one readable decision numbered [number], or a [DecisionRefused]
+/// that says why there is none.
+DecisionEntry _numbered(DecisionSet decisions, int number) {
+  final text = decisionNumberText(number);
+  if (decisions.duplicates[number] case final files?) {
+    throw DecisionRefused(
+      'Number $text is used by ${files.length} files (${files.join(', ')}); '
+      'rename one first.',
+    );
+  }
+  for (final file in decisions.unreadable) {
+    if (file.number == number) {
+      throw DecisionRefused(
+        "Decision $text can't be read (${decisionPath(file.file)}: "
+        '${file.problem}); fix the file first.',
+      );
+    }
+  }
+  final entry = decisions.numbered(number);
+  if (entry == null) throw DecisionRefused('No decision is numbered $text.');
+  return entry;
+}
+
+/// The [bytes] of a decision file with its status changed to [status],
+/// keeping a byte order mark and every other byte; null when the file
+/// isn't valid UTF-8 or has no plain status line ([withDecisionStatus]).
+List<int>? _withStatus(List<int> bytes, DecisionStatus status) {
+  const bom = [0xEF, 0xBB, 0xBF];
+  final marked =
+      bytes.length >= 3 &&
+      bytes[0] == bom[0] &&
+      bytes[1] == bom[1] &&
+      bytes[2] == bom[2];
+  final String text;
+  try {
+    text = utf8.decode(marked ? bytes.sublist(3) : bytes);
+  } on FormatException {
+    return null;
+  }
+  final changed = withDecisionStatus(text, status);
+  if (changed == null) return null;
+  return [if (marked) ...bom, ...utf8.encode(changed)];
 }
 
 /// Which decision replaces which (spec §6.7): a record is replaced by the
