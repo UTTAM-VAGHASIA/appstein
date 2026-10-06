@@ -155,50 +155,69 @@ String formatDocs(DocsOutcome outcome) {
         for (final change in changes)
           if (change.kind != DocChangeKind.unchanged) change,
       ];
-      if (stale.isEmpty) {
-        return '$docsPath/ is up to date '
-            '(${_count(changes.length, 'page', 'pages')}).\n';
-      }
-      final width = stale.map((change) => change.path.length).fold(0, max);
-      String line(DocChange change, String what) =>
-          '  ${change.path.padRight(width)}  $what';
+      // Leftover pages a person edited: `appstein docs` never removes them.
+      final kept = [
+        for (final change in changes)
+          if (change.kind == DocChangeKind.keep) change,
+      ];
+      const keepAdvice = 'remove its first line to keep it as a team note.';
       if (check) {
+        if (stale.isEmpty) {
+          return '$docsPath/ is up to date '
+              '(${_count(changes.length, 'page', 'pages')}).\n';
+        }
+        final width = stale.map((change) => change.path.length).fold(0, max);
+        final fixable = stale.length - kept.length;
         return [
           '$docsPath/ is not up to date: ${stale.length} of '
               '${_count(changes.length, 'page', 'pages')}.',
           for (final change in stale)
-            line(change, switch (change.reason!) {
+            '  ${change.path.padRight(width)}  ${switch (change.reason!) {
               DocStaleReason.missing => 'missing',
               DocStaleReason.behind => 'behind the app',
               DocStaleReason.handEdited => 'hand-edited',
               DocStaleReason.conflicted => 'has a merge conflict',
               DocStaleReason.notRendered => 'no longer rendered',
-            }),
-          'Run `appstein docs` to update '
-              '${stale.length == 1 ? 'it' : 'them'}.',
+              DocStaleReason.editedLeftover => 'no longer rendered, and edited by hand',
+            }}',
+          if (fixable == 0)
+            'Delete ${kept.length == 1 ? 'it' : 'them'}, or $keepAdvice'
+          else
+            'Run `appstein docs` to update '
+                '${fixable == 1 ? 'it' : 'them'}.'
+                '${kept.isEmpty ? '' : ' It keeps a page that was edited by hand: delete that one, or $keepAdvice'}',
           '',
         ].join('\n');
       }
-      final written = stale
+      final done = [
+        for (final change in stale)
+          if (change.kind != DocChangeKind.keep) change,
+      ];
+      final pages = changes.length - kept.length;
+      final width = done.map((change) => change.path.length).fold(0, max);
+      final written = done
           .where((change) => change.kind == DocChangeKind.write)
           .length;
-      final removed = stale.length - written;
-      final unchanged = changes.length - stale.length;
+      final removed = done.length - written;
+      final unchanged = pages - done.length;
       return [
-        'Rendered $docsPath/: ${[if (written > 0) '$written written', if (removed > 0) '$removed removed', if (unchanged > 0) '$unchanged unchanged'].join(', ')}.',
-        for (final change in stale)
-          line(
-            change,
-            change.kind == DocChangeKind.write
-                ? 'written'
-                      '${change.hadHandEdits
-                          ? ' (overwrote hand edits)'
-                          : change.reason == DocStaleReason.conflicted
-                          ? ' (merge conflict resolved)'
-                          : ''}'
-                : 'removed'
-                      '${change.hadHandEdits ? ' (it had hand edits)' : ''}',
-          ),
+        if (done.isEmpty)
+          '$docsPath/ is up to date (${_count(pages, 'page', 'pages')}).'
+        else
+          'Rendered $docsPath/: ${[if (written > 0) '$written written', if (removed > 0) '$removed removed', if (unchanged > 0) '$unchanged unchanged'].join(', ')}.',
+        for (final change in done)
+          '  ${change.path.padRight(width)}  ${change.kind == DocChangeKind.write ? 'written${change.hadHandEdits
+                    ? ' (overwrote hand edits)'
+                    : change.reason == DocStaleReason.conflicted
+                    ? ' (merge conflict resolved)'
+                    : ''}' : 'removed'}',
+        if (kept.isNotEmpty) ...[
+          'Kept, because ${kept.length == 1 ? 'it was' : 'they were'} '
+              'edited by hand and ${kept.length == 1 ? 'is' : 'are'} no '
+              'longer rendered:',
+          for (final change in kept) '  ${change.path}',
+          'Delete ${kept.length == 1 ? 'it' : 'them'}, or $keepAdvice',
+        ],
         '',
       ].join('\n');
   }

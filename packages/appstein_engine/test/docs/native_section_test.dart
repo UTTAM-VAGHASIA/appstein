@@ -99,6 +99,87 @@ void main() {
       ));
     });
 
+    group('a value the project does not fix', () {
+      const sources = NativeSources(
+        sdk: {'flutter'},
+        machine: {'flutter config (global)'},
+      );
+      ({String value, String where}) cells(
+        NativeValue value, {
+        required bool pinned,
+      }) => nativeCells(
+        value,
+        docsPath: 'docs/app',
+        page: 'native.md',
+        sources: sources,
+        flutterPinned: pinned,
+      );
+      const minSdk = NativeValue.found(
+        24,
+        at: 'android/app/build.gradle.kts:22',
+        expression: 'flutter.minSdkVersion',
+        resolvedFrom: 'flutter',
+      );
+
+      test('shows a number from the Flutter SDK only when Flutter is '
+          'pinned', () {
+        expect(
+          cells(minSdk, pinned: true).value,
+          '`24`, written as `flutter.minSdkVersion` (from flutter)',
+        );
+        final unpinned = cells(minSdk, pinned: false);
+        expect(
+          unpinned.value,
+          'written as `flutter.minSdkVersion`; the value follows the Flutter '
+          'SDK in use',
+        );
+        expect(unpinned.value, isNot(contains('24')));
+        expect(unpinned.where, contains('build.gradle.kts#L22'));
+      });
+
+      test('says so when such a value has no expression', () {
+        expect(
+          cells(
+            const NativeValue.found(
+              true,
+              resolvedFrom: 'flutter',
+              note: 'on by default since Flutter 3.44',
+            ),
+            pinned: false,
+          ).value,
+          'follows the Flutter SDK in use',
+        );
+      });
+
+      test('never shows a setting of one machine', () {
+        const setting = NativeValue.found(
+          false,
+          resolvedFrom: 'flutter config (global)',
+        );
+        for (final pinned in [true, false]) {
+          expect(
+            cells(setting, pinned: pinned).value,
+            'set on each machine (`flutter config (global)`), so it is not '
+            'shown here',
+          );
+        }
+      });
+
+      test('shows what the project itself sets, pinned or not', () {
+        const fromPubspec = NativeValue.found(
+          7,
+          expression: 'flutter.versionCode',
+          resolvedFrom: 'pubspec.yaml:19',
+        );
+        for (final pinned in [true, false]) {
+          expect(
+            cells(fromPubspec, pinned: pinned).value,
+            '`7`, written as `flutter.versionCode` (from pubspec.yaml:19)',
+          );
+        }
+      });
+    });
+
     test('an internal error asks for a report', () {
       expect(
         _cells(const NativeValue.error('StateError')).value,
@@ -236,6 +317,29 @@ void main() {
       expect(text, contains('| `dev` |  | `a.dev` |'));
       expect(text, contains('#### `dev`\n\n##### `signing`\n\n| Setting |'));
       expect(text, contains('| `key` | `k` |  |'));
+    });
+
+    test('leaves out the parts it is told to, and passes the sources on', () {
+      final text = nativeTables(
+        NativeGroup({
+          'app': NativeGroup({
+            'minSdk': const NativeValue.found(
+              24,
+              expression: 'flutter.minSdkVersion',
+              resolvedFrom: 'flutter',
+            ),
+          }),
+          'generated': NativeGroup({'x': const NativeValue.found('y')}),
+        }),
+        docsPath: 'docs/app',
+        page: 'native.md',
+        omit: const {'generated'},
+        sources: const NativeSources(sdk: {'flutter'}),
+        flutterPinned: false,
+      );
+      expect(text, isNot(contains('generated')));
+      expect(text, isNot(contains('24')));
+      expect(text, contains('the value follows the Flutter SDK in use'));
     });
 
     test('an empty group is empty', () {

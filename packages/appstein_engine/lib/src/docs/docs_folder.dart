@@ -139,6 +139,10 @@ enum DocChangeKind {
 
   /// The file is deleted.
   remove,
+
+  /// The file is left as it is, though it isn't what a render gives: a
+  /// person has to decide about it.
+  keep,
 }
 
 /// Why a page is not what a render gives.
@@ -159,6 +163,10 @@ enum DocStaleReason {
 
   /// The file has the marker, but no page is rendered there any more.
   notRendered,
+
+  /// As [notRendered], and its body was edited by hand. It is kept
+  /// ([DocChangeKind.keep]): Appstein never deletes a person's text.
+  editedLeftover,
 }
 
 /// What `appstein docs` does, or would do, to one page.
@@ -180,8 +188,9 @@ final class DocChange {
   /// Why; null when it is [DocChangeKind.unchanged].
   final DocStaleReason? reason;
 
-  /// Whether a page that is written or removed had been edited by hand, so
-  /// those edits are lost.
+  /// Whether the page had been edited by hand. A page that is written
+  /// loses those edits; a page that is no longer rendered is kept because
+  /// of them.
   final bool hadHandEdits;
 }
 
@@ -197,7 +206,8 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
 ///
 /// - A file that differs from its page only in line endings or a byte order
 ///   mark is unchanged (spec §6.9).
-/// - A file with the marker that no page is rendered to is removed.
+/// - A file with the marker that no page is rendered to is removed, unless
+///   its body was edited by hand: then it is kept and reported.
 /// - A file without the marker is never changed. When one is where a page
 ///   would be written, or a folder or a link is, that is in `blocked`, as a
 ///   sentence naming it. Nothing may be written while anything is blocked.
@@ -315,13 +325,23 @@ bool _handEdited(String text) => switch (DocMarker.of(text)) {
   }
   for (final MapEntry(key: path, value: text) in scan.generated.entries) {
     if (matched.contains(path)) continue;
+    // Only a page that is provably Appstein's own unchanged output is
+    // removed. One a person edited may be a copy they turned into notes,
+    // or hold text they still want: it is kept, and named until they
+    // delete it or make it a team note.
     changes.add(
-      DocChange(
-        path,
-        DocChangeKind.remove,
-        reason: DocStaleReason.notRendered,
-        hadHandEdits: _handEdited(text),
-      ),
+      _handEdited(text)
+          ? DocChange(
+              path,
+              DocChangeKind.keep,
+              reason: DocStaleReason.editedLeftover,
+              hadHandEdits: true,
+            )
+          : DocChange(
+              path,
+              DocChangeKind.remove,
+              reason: DocStaleReason.notRendered,
+            ),
     );
   }
   changes.sort((a, b) => a.path.compareTo(b.path));

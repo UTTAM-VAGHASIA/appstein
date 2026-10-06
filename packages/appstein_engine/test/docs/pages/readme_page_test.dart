@@ -49,8 +49,7 @@ void main() {
       '|---|---|\n'
       '| Stack | `official_mvvm` |\n'
       '| Platforms | android, ios |\n'
-      '| Flutter | 3.47.5 (stable) |\n'
-      '| Dart | 3.13.4 |\n'
+      '| Flutter | not pinned: each machine builds with the Flutter it has |\n'
       '| Language version | 3.12 |\n'
       '| Android applicationId | `dev.sample.app` |\n'
       '\n'
@@ -87,6 +86,30 @@ void main() {
     ).markdown;
     expect(text, contains('```sh\nfvm flutter pub get\nfvm flutter run\n```'));
     expect(text, isNot(contains('Language version')));
+    // A pinned version is the same on every machine, so it is shown, with
+    // the Dart that comes with it.
+    expect(
+      text,
+      contains('| Flutter | 3.47.5 (pinned with FVM) |\n| Dart | 3.13.4 |\n'),
+    );
+  });
+
+  test('shows no version of a Flutter the project does not pin', () {
+    final text = readmeSection(
+      sampleKnowledge(
+        sdk: const SdkInfo(
+          flutterVersion: '3.99.1',
+          dartVersion: '3.20.0',
+          channel: 'beta',
+          languageVersion: '3.12',
+        ),
+      ),
+      _pages,
+    ).markdown;
+    expect(text, isNot(contains('3.99.1')));
+    expect(text, isNot(contains('3.20.0')));
+    expect(text, isNot(contains('beta')));
+    expect(text, contains('| Language version | 3.12 |'));
   });
 
   test('groups the pages of any folder under the folder name', () {

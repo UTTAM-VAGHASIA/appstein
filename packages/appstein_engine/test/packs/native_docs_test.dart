@@ -15,8 +15,19 @@ NativeConfig get _golden => NativeConfig.fromJson(
   jsonDecode(goldenText('native.json')) as Map<String, Object?>,
 );
 
-DocSection? _section(DocPage page, NativeConfig native) =>
-    page.sections(sampleKnowledge(native: native)).singleOrNull;
+const _pinned = SdkInfo(
+  flutterVersion: '3.47.5',
+  dartVersion: '3.13.4',
+  channel: 'stable',
+  fvmVersion: '3.47.5',
+);
+
+/// The section [page] renders for [native], in a project that pins Flutter
+/// unless [pinned] is false.
+DocSection? _section(DocPage page, NativeConfig native, {bool pinned = true}) =>
+    page
+        .sections(sampleKnowledge(native: native, sdk: pinned ? _pinned : null))
+        .singleOrNull;
 
 void main() {
   test('the android pack renders its section of native.md', () {
@@ -50,7 +61,96 @@ void main() {
     expectTextGolden('docs/native-ios.md', '${section.markdown}\n');
   });
 
-  test('every value of the map is on the page', () {
+  test('a project that does not pin Flutter gets no number that follows '
+      'the installed SDK', () {
+    final pinned = _section(const AndroidPack().docPages.single, _golden)!;
+    final free = _section(
+      const AndroidPack().docPages.single,
+      _golden,
+      pinned: false,
+    )!;
+    const row = '| `minSdk` | ';
+    expect(
+      pinned.markdown,
+      contains('$row`24`, written as `flutter.minSdkVersion` (from flutter)'),
+    );
+    expect(
+      free.markdown,
+      contains(
+        '${row}written as `flutter.minSdkVersion`; the value follows the '
+        'Flutter SDK in use |',
+      ),
+    );
+    // What the project's own files set is on both.
+    for (final text in [pinned.markdown, free.markdown]) {
+      expect(text, contains('| `applicationId` | `dev.sample.probe_app` |'));
+      expect(text, contains('`1.0.0`, written as `flutter.versionName`'));
+    }
+    expect(
+      free.markdown,
+      contains(
+        'follows the Flutter SDK in use" means the number comes from the '
+        'Flutter each machine has',
+      ),
+    );
+    expect(pinned.markdown, isNot(contains('each machine has')));
+  });
+
+  test('the ios page holds nothing that differs between machines', () {
+    for (final pinned in [true, false]) {
+      final text = _section(
+        const IosPack().docPages.single,
+        _golden,
+        pinned: pinned,
+      )!.markdown;
+      // Read from a git-ignored folder Flutter fills in differently on a
+      // Mac.
+      expect(text, isNot(contains('Generated plugin package')));
+      expect(text, isNot(contains('ephemeral')));
+    }
+    NativeConfig swiftPm(NativeValue enabled) => NativeConfig({
+      'ios': NativeGroup({
+        'swiftPackageManager': NativeGroup({'enabled': enabled}),
+      }),
+    });
+    String render(NativeValue enabled, {bool pinned = true}) => _section(
+      const IosPack().docPages.single,
+      swiftPm(enabled),
+      pinned: pinned,
+    )!.markdown;
+    expect(
+      render(
+        const NativeValue.found(
+          true,
+          at: 'pubspec.yaml:30',
+          resolvedFrom: 'pubspec.yaml',
+        ),
+        pinned: false,
+      ),
+      contains('| `enabled` | `true` (from pubspec.yaml) |'),
+    );
+    for (final machine in [
+      'flutter config (global)',
+      'FLUTTER_SWIFT_PACKAGE_MANAGER',
+    ]) {
+      final text = render(NativeValue.found(false, resolvedFrom: machine));
+      expect(text, contains('set on each machine (`$machine`)'));
+      expect(text, isNot(contains('`false`')));
+    }
+    const byDefault = NativeValue.found(
+      true,
+      resolvedFrom: 'default',
+      note: 'on by default since Flutter 3.44',
+    );
+    expect(render(byDefault), contains('`true` (from default)'));
+    expect(
+      render(byDefault, pinned: false),
+      contains('| `enabled` | follows the Flutter SDK in use |'),
+    );
+  });
+
+  test('every value of the map is on the page of a project that pins '
+      'Flutter', () {
     final android = _section(const AndroidPack().docPages.single, _golden)!;
     final ios = _section(const IosPack().docPages.single, _golden)!;
     void check(NativeNode node, String text) {
@@ -63,6 +163,8 @@ void main() {
           break;
         case NativeGroup(:final children):
           for (final MapEntry(:key, :value) in children.entries) {
+            // The one part left out on purpose (see the test above).
+            if (key == 'generatedPackage') continue;
             if (value is NativeValue) {
               expect(text, contains(mdCode(key)));
             }

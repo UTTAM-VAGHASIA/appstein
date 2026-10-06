@@ -43,10 +43,3 @@ None.
 | Setting | Value | Where |
 |---|---|---|
 | `enabled` | `true` (from default); on by default since Flutter 3.44 |  |
-
-### Generated plugin package
-
-| Setting | Value | Where |
-|---|---|---|
-| `iosVersion` | `15.0` | [ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift:12](../../ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift#L12) |
-| `plugins` | unknown: written without Swift Package Manager in effect: Flutter lists the plugins here only on a Mac with Xcode 15 or later | [ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift](../../ios/Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage/Package.swift) |

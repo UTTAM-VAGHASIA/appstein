@@ -33,12 +33,6 @@ void main() {
               hadHandEdits: true,
             ),
             DocChange(
-              'features/gone.md',
-              DocChangeKind.remove,
-              reason: DocStaleReason.notRendered,
-              hadHandEdits: true,
-            ),
-            DocChange(
               'features/old.md',
               DocChangeKind.remove,
               reason: DocStaleReason.notRendered,
@@ -50,9 +44,8 @@ void main() {
             ),
           ]),
         ),
-        'Rendered docs/app/: 2 written, 2 removed, 2 unchanged.\n'
+        'Rendered docs/app/: 2 written, 1 removed, 2 unchanged.\n'
         '  features/booking.md  written (overwrote hand edits)\n'
-        '  features/gone.md     removed (it had hand edits)\n'
         '  features/old.md      removed\n'
         '  native.md            written\n',
       );
@@ -199,6 +192,81 @@ void main() {
         '  routes.md  has a merge conflict\n'
         'Run `appstein docs` to update it.\n',
       );
+    });
+  });
+
+  group('formatDocs, for a leftover page a person edited', () {
+    const kept = DocChange(
+      'my-route-notes.md',
+      DocChangeKind.keep,
+      reason: DocStaleReason.editedLeftover,
+      hadHandEdits: true,
+    );
+    const advice =
+        'Kept, because it was edited by hand and is no longer rendered:\n'
+        '  my-route-notes.md\n'
+        'Delete it, or remove its first line to keep it as a team note.\n';
+
+    test('says it was kept, and what to do, after an up-to-date run', () {
+      expect(
+        formatDocs(_done(const [..._unchanged, kept])),
+        'docs/app/ is up to date (2 pages).\n$advice',
+      );
+    });
+
+    test('says it after the pages that were written', () {
+      expect(
+        formatDocs(
+          _done(const [
+            ..._unchanged,
+            kept,
+            DocChange(
+              'native.md',
+              DocChangeKind.write,
+              reason: DocStaleReason.behind,
+            ),
+          ]),
+        ),
+        'Rendered docs/app/: 1 written, 2 unchanged.\n'
+        '  native.md  written\n'
+        '$advice',
+      );
+    });
+
+    test('--check lists it, and says a run will not remove it', () {
+      expect(
+        formatDocs(
+          _done(check: true, const [
+            ..._unchanged,
+            kept,
+            DocChange(
+              'native.md',
+              DocChangeKind.write,
+              reason: DocStaleReason.behind,
+            ),
+          ]),
+        ),
+        'docs/app/ is not up to date: 2 of 4 pages.\n'
+        '  my-route-notes.md  no longer rendered, and edited by hand\n'
+        '  native.md          behind the app\n'
+        'Run `appstein docs` to update it. It keeps a page that was '
+        'edited by hand: delete that one, or remove its first line to keep '
+        'it as a team note.\n',
+      );
+      expect(
+        formatDocs(_done(check: true, const [..._unchanged, kept])),
+        'docs/app/ is not up to date: 1 of 3 pages.\n'
+        '  my-route-notes.md  no longer rendered, and edited by hand\n'
+        'Delete it, or remove its first line to keep it as a team note.\n',
+      );
+    });
+
+    test('--check exits 1 for it', () {
+      expect(
+        docsExitCode(_done(check: true, const [..._unchanged, kept])),
+        ExitCodes.errorsFound,
+      );
+      expect(docsExitCode(_done(const [..._unchanged, kept])), ExitCodes.ok);
     });
   });
 

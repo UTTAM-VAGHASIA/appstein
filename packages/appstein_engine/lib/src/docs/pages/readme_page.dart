@@ -16,8 +16,14 @@ DocSection readmeSection(DocsKnowledge knowledge, List<RenderedPage> pages) {
           ? 'none'
           : knowledge.platforms.map(mdText).join(', '),
     ],
-    ['Flutter', '${mdText(sdk.flutterVersion)} (${mdText(sdk.channel)})'],
-    ['Dart', mdText(sdk.dartVersion)],
+    // The pages are committed, so they hold only what is the same on every
+    // machine: a pinned Flutter, with the Dart that comes with it, is; the
+    // Flutter one machine happens to have is not.
+    if (sdk.fvmVersion case final pinned?) ...[
+      ['Flutter', '${mdText(pinned)} (pinned with FVM)'],
+      ['Dart', mdText(sdk.dartVersion)],
+    ] else
+      ['Flutter', 'not pinned: each machine builds with the Flutter it has'],
     if (sdk.languageVersion case final version?)
       ['Language version', mdText(version)],
     // The lines INDEX.md shows, so the two never disagree. Their values are

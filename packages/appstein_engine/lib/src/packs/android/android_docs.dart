@@ -32,6 +32,10 @@ final class AndroidDocs implements DocPage {
       heading: 'Android',
       concepts: concepts,
       docsPath: knowledge.docsPath,
+      flutterPinned: knowledge.sdk.fvmVersion != null,
+      // Values written as `flutter.*` come from the Flutter SDK's own files,
+      // or from the curated notes for that Flutter version.
+      sources: const NativeSources(sdk: {'flutter', 'notes'}),
       headings: const {
         'app': 'App module',
         'settings': 'Build tools',

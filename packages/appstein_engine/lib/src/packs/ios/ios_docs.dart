@@ -1,6 +1,7 @@
 import '../../docs/doc_page.dart';
 import '../../docs/docs_knowledge.dart';
 import '../../docs/native_section.dart';
+import 'swiftpm_setting.dart';
 
 /// iOS's section of `native.md` (spec §6.9): what a bundle identifier, the
 /// deployment target and usage descriptions are, then every iOS value in
@@ -27,18 +28,23 @@ final class IosDocs implements DocPage {
       heading: 'iOS',
       concepts: concepts,
       docsPath: knowledge.docsPath,
+      flutterPinned: knowledge.sdk.fvmVersion != null,
+      // Whether Swift Package Manager is on can come from the project's
+      // pubspec, from one machine's Flutter config or environment, or from
+      // the default of the Flutter in use.
+      sources: const NativeSources(
+        sdk: {'default'},
+        machine: {'flutter config (global)', swiftPackageManagerVariable},
+      ),
+      // Read from `ios/Flutter/ephemeral/`, which is git-ignored and which
+      // Flutter fills in differently on a Mac.
+      omit: const {'generatedPackage'},
       headings: const {
         'xcode': 'Xcode project',
         'infoPlist': 'Info.plist',
         'swiftPackageManager': 'Swift Package Manager',
-        'generatedPackage': 'Generated plugin package',
       },
-      order: const [
-        'xcode',
-        'infoPlist',
-        'swiftPackageManager',
-        'generatedPackage',
-      ],
+      order: const ['xcode', 'infoPlist', 'swiftPackageManager'],
     );
     return [
       if (markdown != null)

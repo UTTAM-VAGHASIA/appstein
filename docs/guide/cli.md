@@ -189,6 +189,7 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 | The docs are turned off (`docs.enabled: false`) | One line saying so | stdout | 0 |
 | Nothing needed writing | `docs/app/ is up to date (12 pages).` | stdout | 0 |
 | Pages were written or removed | The counts, then a line for each page written or removed. A page whose hand edits were lost says so | stdout | 0 |
+| A leftover page a person edited was kept | After the lines above: the page, and to delete it or remove its first line to keep it as a team note | stdout | 0 |
 | `--check` found stale pages | Each page with why (`missing`, `behind the app`, `hand-edited`, `has a merge conflict`, `no longer rendered`), then `Run \`appstein docs\`` | stdout | 1 |
 | Nothing could be rendered, or a file is in the way | `Nothing in docs/app/ was changed:` and why, any details, then what to do | stderr | 1 |
 | A page couldn't be written or removed | The error, and that some pages may already be written | stderr | 3 |

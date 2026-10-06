@@ -174,17 +174,40 @@ void main() {
     expect(Directory(folder).existsSync(), isTrue);
   });
 
-  test('a removed page that had hand edits is reported as such', () async {
+  test('a page that is no longer rendered is kept when a person edited '
+      'it', () async {
     await render(pages);
-    write(
-      'features/home.md',
-      '${file('features/home.md').readAsStringSync()}Mine.\n',
-    );
-    final planned = plan(_pages({'routes.md': 'One route.'}));
+    final edited = '${file('features/home.md').readAsStringSync()}Mine.\n';
+    write('features/home.md', edited);
+    // A copy of a page that someone turned into their own notes still has
+    // the marker in its first line.
+    final notes = '${file('routes.md').readAsStringSync()}My notes.\n';
+    write('my-route-notes.md', notes);
+    final fewer = _pages({'routes.md': 'One route.'});
+    final planned = plan(fewer);
+    expect(planned.blocked, isEmpty);
+    expect(summary(planned.changes), {
+      'README.md': 'write/behind',
+      'features/auth/login.md': 'remove/notRendered',
+      'features/home.md': 'keep/editedLeftover/handEdits',
+      'my-route-notes.md': 'keep/editedLeftover/handEdits',
+      'routes.md': 'unchanged',
+    });
+    await applyDocs(folder, fewer, planned.changes);
+    expect(file('features/home.md').readAsStringSync(), edited);
+    expect(file('my-route-notes.md').readAsStringSync(), notes);
+    expect(file('features/auth/login.md').existsSync(), isFalse);
+    // It is reported until a person deals with it.
     expect(
-      summary(planned.changes)['features/home.md'],
-      'remove/notRendered/handEdits',
+      summary(plan(fewer).changes)['my-route-notes.md'],
+      'keep/editedLeftover/handEdits',
     );
+  });
+
+  test('an unedited copy of a page is removed like any leftover', () async {
+    await render(pages);
+    write('copy.md', file('routes.md').readAsStringSync());
+    expect(summary(plan(pages).changes)['copy.md'], 'remove/notRendered');
   });
 
   test('a folder that still holds a team note is kept', () async {
