@@ -4,11 +4,10 @@ import 'package:path/path.dart' as p;
 import '../decisions/decision_store.dart';
 import '../index/index_sources.dart';
 import '../knowledge/knowledge_lock.dart';
+import '../knowledge/knowledge_refresh.dart';
 import '../knowledge/knowledge_store.dart';
 import '../knowledge/knowledge_sync.dart';
 import '../knowledge/knowledge_write_exception.dart';
-import '../knowledge/platform_sync.dart';
-import '../map/map_sync.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
 import 'docs_folder.dart';
@@ -87,7 +86,7 @@ const _runAgain = 'Then run `appstein docs` again.';
 DocsRefused _lockBusy(
   DocsRefused Function(String problem, {String? fixHint}) refused,
 ) => refused(
-  'another Appstein process holds the knowledge lock',
+  lockBusyProblem,
   fixHint: 'Run `appstein docs` again when it has finished.',
 );
 
@@ -131,32 +130,16 @@ Future<DocsOutcome> runDocs({
     details: details,
   );
 
-  final SyncReport report;
-  try {
-    report = await sync.detect(projectRoot, dartSdkPath: dartSdkPath);
-  } on SyncException catch (error) {
-    return refused(error.problem, fixHint: error.fixHint);
-  } on KnowledgeLockTimeout {
-    return _lockBusy(refused);
-  } on KnowledgeWriteException catch (error) {
-    return refused(
-      'the knowledge could not be brought up to date ($error)',
-      fixHint:
-          'Check that the project folder is writable and that .appstein is '
-          'a folder. $_runAgain',
-    );
-  }
-  if (report.map?.skipped case final skipped?) {
-    final reason = skipped.endsWith('.')
-        ? skipped.substring(0, skipped.length - 1)
-        : skipped;
-    return refused(
-      'the project map is missing ($reason)',
-      fixHint: report.map!.packages == PackagesAction.fetchFailed
-          ? 'Run `flutter pub get` in the project to see the whole error. '
-                '$_runAgain'
-          : 'Fix that. $_runAgain',
-    );
+  final refresh = await refreshKnowledge(
+    sync,
+    projectRoot,
+    dartSdkPath: dartSdkPath,
+    runAgain: _runAgain,
+  );
+  if (refresh.problem case final problem?) {
+    return problem == lockBusyProblem
+        ? _lockBusy(refused)
+        : refused(problem, fixHint: refresh.fixHint);
   }
 
   final store = KnowledgeStore(projectRoot);

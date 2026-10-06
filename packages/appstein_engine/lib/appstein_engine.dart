@@ -46,6 +46,7 @@ export 'src/knowledge/freshness.dart';
 export 'src/knowledge/generated_file.dart';
 export 'src/knowledge/input_hash.dart';
 export 'src/knowledge/knowledge_lock.dart';
+export 'src/knowledge/knowledge_refresh.dart';
 export 'src/knowledge/knowledge_store.dart';
 export 'src/knowledge/knowledge_sync.dart';
 export 'src/knowledge/knowledge_write_exception.dart';
