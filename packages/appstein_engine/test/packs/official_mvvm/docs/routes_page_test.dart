@@ -142,6 +142,13 @@ void main() {
               reason: 'the path is built from a variable',
             ),
             _route(
+              null,
+              14,
+              screen: 'SettingsScreen',
+              unresolved: true,
+              reason: 'the path is not a constant string',
+            ),
+            _route(
               '/x',
               16,
               unresolved: true,
@@ -162,6 +169,8 @@ void main() {
       '\n'
       '- A route whose path is unknown: the path is built from a variable '
       '(${_link(12)})\n'
+      '- A route whose path is unknown, which shows `SettingsScreen`: the '
+      'path is not a constant string (${_link(14)})\n'
       '- `/x`: the builder returns different widgets (${_link(16)})',
     );
   });

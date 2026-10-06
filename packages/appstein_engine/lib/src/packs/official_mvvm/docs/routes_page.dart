@@ -104,7 +104,7 @@ final class RoutesPage implements DocPage {
         '## Unresolved\n\n'
             'Appstein reads routes from the code without running it, and '
             'never guesses. Read these in the code:\n\n'
-            '${[for (final route in unresolved) '- ${route.path == null ? 'A route whose path is unknown' : mdCode(route.path!)}: ${mdText(route.reason ?? 'no reason was recorded')} (${link(route.file, route.line)})'].join('\n')}',
+            '${[for (final route in unresolved) '- ${route.path == null ? 'A route whose path is unknown${route.screen == null ? '' : ', which shows ${mdCode(route.screen!.name)}'}' : mdCode(route.path!)}: ${mdText(route.reason ?? 'no reason was recorded')} (${link(route.file, route.line)})'].join('\n')}',
     ];
     return [
       DocSection(path: path, title: 'Routes', markdown: parts.join('\n\n')),
