@@ -17,6 +17,7 @@ export 'src/docs/doc_page.dart';
 export 'src/docs/docs_folder.dart';
 export 'src/docs/docs_knowledge.dart';
 export 'src/docs/docs_renderer.dart';
+export 'src/docs/docs_run.dart';
 export 'src/docs/engine_pages.dart';
 export 'src/docs/markdown_text.dart';
 export 'src/docs/native_section.dart';
