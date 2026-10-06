@@ -12,7 +12,7 @@ packages/appstein_engine/lib/ios.dart
 
 ## What the file holds
 
-One section per platform pack: `android`, written by the `android` pack, and `ios`, written by the `ios` pack. Each section is a tree. A **value** is one fact. A **group** holds parts with names Appstein chose. A **list** holds things the project named itself.
+One section per platform pack: `android`, written by the `android` pack, and `ios`, written by the `ios` pack. Each pack also renders its section for people, as its part of `native.md` ([`android_docs.dart`](../../packages/appstein_engine/lib/src/packs/android/android_docs.dart), [`ios_docs.dart`](../../packages/appstein_engine/lib/src/packs/ios/ios_docs.dart); see [human-docs](human-docs.md#the-packs-pages)). Each section is a tree. A **value** is one fact. A **group** holds parts with names Appstein chose. A **list** holds things the project named itself.
 
 ### The `android` section
 

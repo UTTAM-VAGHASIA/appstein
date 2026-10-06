@@ -26,6 +26,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
 | [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command and `mcpSyncFactory` |
+| [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) | The `docs` command and `formatDocs` |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |
@@ -175,6 +176,25 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 
 **stdout belongs to the protocol.** The channel is made from the process's stdin and stdout (`stdioMcpChannel`). The command writes nothing else there, because the agent would try to read it as a message. `runAppstein` takes an `mcpChannel` for tests, so they run the command in-process with a fake connection.
 
+## `appstein docs`
+
+`appstein docs` renders the human docs into the project's docs folder (the folder `docs.path` names; by default `app` inside the project's `docs` folder), and `appstein docs --check` says whether they are behind without writing a page. What a run does is in [human-docs](human-docs.md); [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) only starts it and prints.
+
+1. **Finds the project and loads `appstein.yaml`**, as `sync` does: no project, or an invalid file, exits **3**.
+2. **Calls `runDocs`** with the project's packs and a `KnowledgeSync` built as `sync` builds it, except `packageSkills: false`: package skills start a process and write agent folders, which belongs to `appstein sync`.
+3. **Prints `formatDocs` of the outcome:**
+
+| Outcome | Printed | To | Exit code |
+|---|---|---|---|
+| The docs are turned off (`docs.enabled: false`) | One line saying so | stdout | 0 |
+| Nothing needed writing | `docs/app/ is up to date (12 pages).` | stdout | 0 |
+| Pages were written or removed | The counts, then a line for each page written or removed. A page whose hand edits were lost says so | stdout | 0 |
+| `--check` found stale pages | Each page with why (`missing`, `behind the app`, `hand-edited`, `no longer rendered`), then `Run \`appstein docs\`` | stdout | 1 |
+| Nothing could be rendered, or a file is in the way | `Nothing in docs/app/ was changed:` and why, any details, then what to do | stderr | 1 |
+| A page couldn't be written or removed | The error, and that some pages may already be written | stderr | 3 |
+
+A refusal is exit 1, not 3: the project has something to fix (fetch the packages, move a file), and Appstein itself didn't fail. Unchanged pages are counted and never listed, so a run after one edit prints one or two lines.
+
 ## Help text
 
 This is the exact text `appstein` prints, generated from the CLI itself:
@@ -193,11 +213,23 @@ Global options:
     --project=<path>    The Flutter project to work on. Defaults to the nearest folder at or above the current one that contains pubspec.yaml.
 
 Available commands:
+  docs     Render the human docs (docs/app/) from the knowledge.
   doctor   Check your environment and explain how to fix problems.
   mcp      Serve Appstein's MCP tools over stdio (started by agents).
   sync     Regenerate the knowledge Appstein keeps in .appstein/.
 
 Run "appstein help <command>" for more information about a command.
+```
+
+```text
+$ appstein help docs
+Render the human docs (docs/app/) from the knowledge.
+
+Usage: appstein docs [arguments]
+-h, --help     Print this usage information.
+    --check    Write no page; exit 1 if a page is missing, behind the app, edited by hand or no longer rendered.
+
+Run "appstein help" to see global options.
 ```
 
 ```text
