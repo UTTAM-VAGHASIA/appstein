@@ -33,8 +33,8 @@ String renderProgressStatus(Progress progress) {
 /// The milestone rail, then for each milestone with slices its bar (one
 /// segment per slice, filled by the share of its product parts that are
 /// done) and its timeline of slices and sub-slices. Pull requests and merge
-/// commits link to the repository; plans link relative to
-/// `docs/superpowers/specs/`.
+/// commits link to the repository; a plan, or the `spec.md` of a slice's
+/// spec folder, links relative to `docs/project/specs/`.
 String renderProgress(Progress progress) {
   final out = <String>['<ol class="pg-rail" aria-label="Milestones">'];
   for (final milestone in progress.milestones) {
@@ -94,6 +94,7 @@ void _item(Progress progress, Slice slice, List<String> out, String indent) {
   final pr = slice.pr;
   final merge = slice.merge;
   final plan = slice.plan;
+  final spec = slice.spec;
   final meta = [
     if (finished != null)
       '<time datetime="$finished">${_longDate(finished)}</time>',
@@ -104,6 +105,9 @@ void _item(Progress progress, Slice slice, List<String> out, String indent) {
           '<code>$merge</code></a>',
     if (plan != null)
       '<a href="../plans/${_escape(Uri.encodeComponent(plan))}">Plan</a>',
+    if (spec != null)
+      '<a href="../slices/${_escape(Uri.encodeComponent(spec))}/spec.md">'
+          'Spec</a>',
   ];
   if (meta.isNotEmpty) {
     out.add('$indent  <p class="pg-meta">${meta.join(' · ')}</p>');

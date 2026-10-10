@@ -6,7 +6,7 @@ packages/appstein_protocol/lib/src/decisions/**
 
 # Decisions and memory
 
-Most of `.appstein/` is generated: Appstein reads the SDK and the code and writes what it found. Two folders are different. `decisions/` and `memory/` hold what no tool can work out from the code: **why** the project is built the way it is, and **what is being worked on**. People and agents write them, and the project commits them. This page explains their formats, the rules for reading and writing them, and how a write stays safe. The design is in [spec §6.7 and §6.8](../superpowers/specs/2026-09-29-appstein-design.md#67-decision-record-format).
+Most of `.appstein/` is generated: Appstein reads the SDK and the code and writes what it found. Two folders are different. `decisions/` and `memory/` hold what no tool can work out from the code: **why** the project is built the way it is, and **what is being worked on**. People and agents write them, and the project commits them. This page explains their formats, the rules for reading and writing them, and how a write stays safe. The design is in [spec §6.7 and §6.8](../project/specs/2026-09-29-appstein-design.md#67-decision-record-format).
 
 Agents reach both through four MCP tools (see [mcp-server](mcp-server.md#decisions-and-memory)): `decisions` and `record_decision`, `memory_read` and `memory_write`.
 

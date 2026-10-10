@@ -1,7 +1,7 @@
 # Where Appstein stands (spec §19.6). This file is the only place progress
 # is written: `fvm dart run tool/gen_docs.dart` renders it into the spec's
-# visual page, and the guide check fails when the page, the plans or spec
-# §18 disagree with it. See docs/guide/docs-tooling.md#progress.
+# visual page, and the guide check fails when the page, the plans, the slice
+# folders or spec §18 disagree with it. See docs/guide/docs-tooling.md#progress.
 #
 # Slices finished before 2026-10-03 give their merge commit (`merge`): their
 # pull requests were in the old private repo, which no longer exists.

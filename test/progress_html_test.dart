@@ -356,6 +356,40 @@ void main() {
     expect(renderProgress(progress), contains('href="../plans/a%20b%26c.md"'));
   });
 
+  test('links a spec folder to its spec, encoded and escaped', () {
+    const progress = Progress(
+      repository: 'https://github.com/owner/repo',
+      milestones: [
+        Milestone(
+          id: 'M1',
+          title: 'F',
+          summary: 'S',
+          line: 1,
+          slices: [
+            Slice(
+              id: '1a',
+              title: 'W',
+              summary: 'S',
+              line: 1,
+              status: SliceStatus.done,
+              spec: '1a b&c',
+              pr: 1,
+              finished: '2026-09-30',
+            ),
+          ],
+        ),
+      ],
+    );
+    expect(
+      renderProgress(progress),
+      contains(
+        '<p class="pg-meta"><time datetime="2026-09-30">30 Sep 2026</time>'
+        ' · <a href="https://github.com/owner/repo/pull/1">PR #1</a>'
+        ' · <a href="../slices/1a%20b%26c/spec.md">Spec</a></p>',
+      ),
+    );
+  });
+
   test('leaves an unmatched backtick as text', () {
     const progress = Progress(
       repository: 'https://github.com/owner/repo',

@@ -143,15 +143,13 @@ void main() {
 
   test('invalid YAML is one problem with its line', () {
     expect(problemsOf('repository: x\nmilestones: [\n'), [
-      matches(
-        RegExp(r'^docs/superpowers/progress\.yaml:\d+: Not valid YAML: '),
-      ),
+      matches(RegExp(r'^docs/project/progress\.yaml:\d+: Not valid YAML: ')),
     ]);
   });
 
   test('an empty file is a problem', () {
     expect(problemsOf(''), [
-      'docs/superpowers/progress.yaml:1: The file must be a map.',
+      'docs/project/progress.yaml:1: The file must be a map.',
     ]);
   });
 
@@ -164,7 +162,7 @@ void main() {
         ),
       ),
       [
-        'docs/superpowers/progress.yaml:1: repository must be an https:// '
+        'docs/project/progress.yaml:1: repository must be an https:// '
             'address without a trailing slash, such as '
             'https://github.com/owner/repo.',
       ],
@@ -180,7 +178,7 @@ void main() {
         ),
       ),
       [
-        'docs/superpowers/progress.yaml:43: Milestone M2 has an unknown key: '
+        'docs/project/progress.yaml:43: Milestone M2 has an unknown key: '
             'titel. Known: id, slices, summary, title.',
       ],
     );
@@ -200,9 +198,68 @@ milestones:
         status: done
 ''';
     expect(problemsOf(text), [
-      'docs/superpowers/progress.yaml:7: Slice 1a is done, so it needs plan, '
-          'pr (or merge) and finished.',
+      'docs/project/progress.yaml:7: Slice 1a is done, so it needs plan (or '
+          'spec), pr (or merge) and finished.',
     ]);
+  });
+
+  group('spec', () {
+    test('a done slice may name its spec folder instead of a plan', () {
+      final read = parseProgress(
+        _valid.replaceFirst(
+          'plan: 2026-09-30-slice-1b1.md',
+          'spec: 1b1-sdk-gaps',
+        ),
+      );
+      expect(read.problems, isEmpty);
+      final slice = read.progress!.allSlices.singleWhere((s) => s.id == '1b.1');
+      expect(slice.spec, '1b1-sdk-gaps');
+      expect(slice.plan, isNull);
+    });
+
+    test('a slice that is not done may name its spec folder', () {
+      final read = parseProgress(
+        _valid.replaceFirst(
+          '            status: next\n',
+          '            status: next\n            spec: 1b2-store\n',
+        ),
+      );
+      expect(read.problems, isEmpty);
+      expect(read.progress!.next?.spec, '1b2-store');
+    });
+
+    test('a spec must be a folder name', () {
+      const message =
+          'docs/project/progress.yaml:31: Slice 1b.1: spec must be a folder '
+          'name in docs/project/slices/, such as 1d2-code-checks.';
+      for (final spec in const [
+        'slices/1b1-sdk-gaps',
+        r'slices\1b1-sdk-gaps',
+      ]) {
+        expect(
+          problemsOf(
+            _valid.replaceFirst('plan: 2026-09-30-slice-1b1.md', 'spec: $spec'),
+          ),
+          [message],
+        );
+      }
+    });
+
+    test('plan and spec together are a problem', () {
+      expect(
+        problemsOf(
+          _valid.replaceFirst(
+            'plan: 2026-09-30-slice-1b1.md\n',
+            'plan: 2026-09-30-slice-1b1.md\n'
+                '            spec: 1b1-sdk-gaps\n',
+          ),
+        ),
+        [
+          'docs/project/progress.yaml:32: Slice 1b.1 has both plan and spec. '
+              'A slice names its plan or its spec folder, not both.',
+        ],
+      );
+    });
   });
 
   group('merge', () {
@@ -227,7 +284,7 @@ milestones:
           _valid.replaceFirst('pr: 4\n', 'pr: 4\n            merge: a52fc1a\n'),
         ),
         [
-          'docs/superpowers/progress.yaml:33: Slice 1b.1 has both pr and '
+          'docs/project/progress.yaml:33: Slice 1b.1 has both pr and '
               'merge. Use merge only for a pull request that no longer exists.',
         ],
       );
@@ -235,21 +292,21 @@ milestones:
 
     test('uppercase hex is a problem', () {
       expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: A52FC1A')), [
-        'docs/superpowers/progress.yaml:32: Slice 1b.1: merge must be a '
+        'docs/project/progress.yaml:32: Slice 1b.1: merge must be a '
             'commit id of 7 to 40 lowercase hex digits, not A52FC1A.',
       ]);
     });
 
     test('a commit id shorter than 7 digits is a problem', () {
       expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: a52fc1')), [
-        'docs/superpowers/progress.yaml:32: Slice 1b.1: merge must be a '
+        'docs/project/progress.yaml:32: Slice 1b.1: merge must be a '
             'commit id of 7 to 40 lowercase hex digits, not a52fc1.',
       ]);
     });
 
     test('a commit id YAML reads as a number must be quoted', () {
       const message =
-          'docs/superpowers/progress.yaml:32: Slice 1b.1: merge must be '
+          'docs/project/progress.yaml:32: Slice 1b.1: merge must be '
           'text. Quote a commit id that YAML reads as a number, such as '
           "'1234567'.";
       expect(problemsOf(_valid.replaceFirst('pr: 4', 'merge: 1234567')), [
@@ -273,7 +330,7 @@ milestones:
           ),
         ),
         [
-          'docs/superpowers/progress.yaml:38: Slice 1b.2: merge is only for '
+          'docs/project/progress.yaml:38: Slice 1b.2: merge is only for '
               'a done slice.',
         ],
       );
@@ -289,7 +346,7 @@ milestones:
         ),
       ),
       [
-        'docs/superpowers/progress.yaml:38: Slice 1b.2: pr is only for a '
+        'docs/project/progress.yaml:38: Slice 1b.2: pr is only for a '
             'done slice.',
       ],
     );
@@ -299,7 +356,7 @@ milestones:
     expect(
       problemsOf(_valid.replaceFirst('            status: planned\n', '')),
       [
-        'docs/superpowers/progress.yaml:38: Slice 1b.3 needs a status (done, '
+        'docs/project/progress.yaml:38: Slice 1b.3 needs a status (done, '
             'next or planned), or sub-slices.',
       ],
     );
@@ -309,7 +366,7 @@ milestones:
     expect(
       problemsOf(_valid.replaceFirst('status: planned', 'status: later')),
       [
-        'docs/superpowers/progress.yaml:41: Slice 1b.3: status must be done, '
+        'docs/project/progress.yaml:41: Slice 1b.3: status must be done, '
             'next or planned, not later.',
       ],
     );
@@ -317,21 +374,21 @@ milestones:
 
   test('more than one next slice is a problem', () {
     expect(problemsOf(_valid.replaceFirst('status: planned', 'status: next')), [
-      'docs/superpowers/progress.yaml:38: More than one slice is next '
+      'docs/project/progress.yaml:38: More than one slice is next '
           '(1b.2, 1b.3). Only one slice can be next.',
     ]);
   });
 
   test('a sub-slice id must start with its parent id', () {
     expect(problemsOf(_valid.replaceFirst('id: 1b.3', 'id: 1c.3')), [
-      'docs/superpowers/progress.yaml:38: Slice 1c.3: a sub-slice of 1b '
+      'docs/project/progress.yaml:38: Slice 1c.3: a sub-slice of 1b '
           'needs an id starting with 1b.',
     ]);
   });
 
   test('a duplicate id is a problem', () {
     expect(problemsOf(_valid.replaceFirst('id: 1b.3', 'id: 1b.2')), [
-      'docs/superpowers/progress.yaml:38: 1b.2 is used twice (first on line '
+      'docs/project/progress.yaml:38: 1b.2 is used twice (first on line '
           '34). IDs must be unique.',
     ]);
   });
@@ -342,7 +399,7 @@ milestones:
         _valid.replaceFirst('finished: 2026-10-01', 'finished: 2026-02-30'),
       ),
       [
-        'docs/superpowers/progress.yaml:33: Slice 1b.1: finished must be a '
+        'docs/project/progress.yaml:33: Slice 1b.1: finished must be a '
             'date like 2026-10-01, not 2026-02-30.',
       ],
     );
@@ -350,7 +407,7 @@ milestones:
 
   test('a pr that is not a positive whole number is a problem', () {
     expect(problemsOf(_valid.replaceFirst('pr: 4', 'pr: four')), [
-      'docs/superpowers/progress.yaml:32: Slice 1b.1: pr must be a whole '
+      'docs/project/progress.yaml:32: Slice 1b.1: pr must be a whole '
           'number above 0.',
     ]);
   });
@@ -364,8 +421,8 @@ milestones:
         ),
       ),
       [
-        'docs/superpowers/progress.yaml:31: Slice 1b.1: plan must be a file '
-            'name in docs/superpowers/plans/, such as '
+        'docs/project/progress.yaml:31: Slice 1b.1: plan must be a file '
+            'name in docs/project/plans/, such as '
             '2026-09-29-slice-1a-workspace-cli-doctor.md.',
       ],
     );
@@ -375,14 +432,14 @@ milestones:
     test('a missing file is a problem', () {
       final repo = tempFolder();
       expect(readProgress(repo.path).problems.map((x) => '$x'), [
-        'docs/superpowers/progress.yaml: Missing. It records where each '
+        'docs/project/progress.yaml: Missing. It records where each '
             'milestone and slice stands (spec §19.6).',
       ]);
     });
 
     test('reads the file in the repo', () {
       final repo = tempFolder();
-      writeFile(repo, 'docs/superpowers/progress.yaml', _valid);
+      writeFile(repo, 'docs/project/progress.yaml', _valid);
       final read = readProgress(repo.path);
       expect(read.problems, isEmpty);
       expect(read.progress!.next?.id, '1b.2');

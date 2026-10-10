@@ -6,7 +6,7 @@ packages/appstein_engine/lib/official_mvvm.dart
 
 # The project map
 
-The project map is what `appstein sync` writes about a Flutter app's own code: which symbols it declares, which layer each file is in, which packages it uses, which features and routes it has. An agent reads these files instead of searching the code. This page explains how the map is built, one step at a time. The files' formats are in the protocol package ([`map/`](../../packages/appstein_protocol/lib/src/map/map_files.dart)), and the decisions behind them are in [spec §6.1 and §6.5](../superpowers/specs/2026-09-29-appstein-design.md). How the files are written to disk is on the [knowledge-store](knowledge-store.md) page.
+The project map is what `appstein sync` writes about a Flutter app's own code: which symbols it declares, which layer each file is in, which packages it uses, which features and routes it has. An agent reads these files instead of searching the code. This page explains how the map is built, one step at a time. The files' formats are in the protocol package ([`map/`](../../packages/appstein_protocol/lib/src/map/map_files.dart)), and the decisions behind them are in [spec §6.1 and §6.5](../project/specs/2026-09-29-appstein-design.md). How the files are written to disk is on the [knowledge-store](knowledge-store.md) page.
 
 ## What the map is
 

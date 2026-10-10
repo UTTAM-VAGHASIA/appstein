@@ -22,7 +22,7 @@ Appstein is currently:
 - package skills: `sync` runs package:skills when the dependencies change, so the agents set up in the project get the skills packages ship (see [package-skills](package-skills.md));
 - three packs: `official_mvvm`, which knows Flutter's recommended app architecture, and `android` and `ios`, which read the native files.
 
-The rest of the verifier's checks, `package_check` for the MCP server, and more packs come in later slices ([spec §18](../superpowers/specs/2026-09-29-appstein-design.md#18-milestones)).
+The rest of the verifier's checks, `package_check` for the MCP server, and more packs come in later slices ([spec §18](../project/specs/2026-09-29-appstein-design.md#18-milestones)).
 
 ## The four packages
 

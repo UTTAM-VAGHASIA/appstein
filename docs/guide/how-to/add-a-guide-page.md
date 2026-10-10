@@ -2,7 +2,7 @@
 
 # How to: add a guide page
 
-These steps add a page to this guide. A new page usually comes with new code: the slice that builds something also writes its page ([spec §19.6](../../superpowers/specs/2026-09-29-appstein-design.md#196-documentation-for-humans-working-on-appstein)). [docs-tooling](../docs-tooling.md) explains every rule the guide check applies.
+These steps add a page to this guide. A new page usually comes with new code: the slice that builds something also writes its page ([spec §19.6](../../project/specs/2026-09-29-appstein-design.md#196-documentation-for-humans-working-on-appstein)). [docs-tooling](../docs-tooling.md) explains every rule the guide check applies.
 
 ## 1. Create the page
 

@@ -312,4 +312,4 @@ Defined in [exit_codes.dart](../../packages/appstein_cli/lib/src/exit_codes.dart
 
 <!-- /generated:exit-codes -->
 
-[Spec §9.5](../superpowers/specs/2026-09-29-appstein-design.md#95-exit-codes) defines the codes, including `2`, which later slices use for agent hook mode.
+[Spec §9.5](../project/specs/2026-09-29-appstein-design.md#95-exit-codes) defines the codes, including `2`, which later slices use for agent hook mode.

@@ -11,7 +11,7 @@ The `appstein_lints` package is an analyzer plugin with one rule today, `layer_i
 
 ## Why a plugin
 
-An analyzer plugin runs inside the Dart analysis server, the same process that gives your IDE its errors and warnings. So its diagnostics show up everywhere the analyzer runs: VS Code, IntelliJ, `dart analyze`, CI, and any agent that reads analyzer output. There is no separate tool to run and nothing extra for an agent to learn. The spec's reasons are in [spec §3](../superpowers/specs/2026-09-29-appstein-design.md#3-what-the-research-changed-key-facts) (first-party analyzer plugins) and [§9.6](../superpowers/specs/2026-09-29-appstein-design.md#96-lint-rules-in-m1-appstein_lints-one-test-file-per-rule).
+An analyzer plugin runs inside the Dart analysis server, the same process that gives your IDE its errors and warnings. So its diagnostics show up everywhere the analyzer runs: VS Code, IntelliJ, `dart analyze`, CI, and any agent that reads analyzer output. There is no separate tool to run and nothing extra for an agent to learn. The spec's reasons are in [spec §3](../project/specs/2026-09-29-appstein-design.md#3-what-the-research-changed-key-facts) (first-party analyzer plugins) and [§9.6](../project/specs/2026-09-29-appstein-design.md#96-lint-rules-in-m1-appstein_lints-one-test-file-per-rule).
 
 ## How the plugin is wired
 
@@ -26,7 +26,7 @@ For each file it analyzes, the rule first looks up the layer rules that apply. W
 
 ### What it enforces
 
-Code is divided into **layers**, each a tag with some path globs, and each layer may import only the layers it is allowed to. An `import` or `export` that crosses a forbidden boundary is reported at its URI. For a stack such as `official_mvvm`, this keeps UI code from reaching into data code directly ([spec §9.6](../superpowers/specs/2026-09-29-appstein-design.md#96-lint-rules-in-m1-appstein_lints-one-test-file-per-rule)). On our own repo it enforces the package boundaries of [spec §5.1](../superpowers/specs/2026-09-29-appstein-design.md#51-repository-layout-dart-pub-workspace).
+Code is divided into **layers**, each a tag with some path globs, and each layer may import only the layers it is allowed to. An `import` or `export` that crosses a forbidden boundary is reported at its URI. For a stack such as `official_mvvm`, this keeps UI code from reaching into data code directly ([spec §9.6](../project/specs/2026-09-29-appstein-design.md#96-lint-rules-in-m1-appstein_lints-one-test-file-per-rule)). On our own repo it enforces the package boundaries of [spec §5.1](../project/specs/2026-09-29-appstein-design.md#51-repository-layout-dart-pub-workspace).
 
 The rule has two diagnostics, both under the name `layer_imports`:
 
@@ -130,7 +130,7 @@ Rules are tested with `package:analyzer_testing`, which analyzes small in-memory
 
 ## Known gaps
 
-`layer_imports` checks a conditional import or export (`if (dart.library.io) '…'`) only by its main URI, and never checks the `if (...)` alternatives. `layers.json` does the same, with the same expression, so the lint and the map agree. Checking the alternatives is a known gap, carried to slice 1d. This and the plugin's cost are listed in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../superpowers/plans/2026-09-29-slice-1a-workspace-cli-doctor.md).
+`layer_imports` checks a conditional import or export (`if (dart.library.io) '…'`) only by its main URI, and never checks the `if (...)` alternatives. `layers.json` does the same, with the same expression, so the lint and the map agree. Checking the alternatives is a known gap, carried to slice 1d. This and the plugin's cost are listed in the slice 1a plan's "Carried to later slices" section, in [`2026-09-29-slice-1a-workspace-cli-doctor.md`](../project/plans/2026-09-29-slice-1a-workspace-cli-doctor.md).
 
 ## Adding a rule
 

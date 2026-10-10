@@ -8,7 +8,7 @@ packages/appstein_protocol/lib/src/config/**
 
 ## What the file is
 
-`appstein.yaml` sits at a project's root and holds the project's Appstein settings: which packs it uses, verifier settings, where human docs go, and so on. The keys, and why each exists, are in [spec §7](../superpowers/specs/2026-09-29-appstein-design.md#7-project-configuration-appsteinyaml). This page explains how the code loads and validates the file.
+`appstein.yaml` sits at a project's root and holds the project's Appstein settings: which packs it uses, verifier settings, where human docs go, and so on. The keys, and why each exists, are in [spec §7](../project/specs/2026-09-29-appstein-design.md#7-project-configuration-appsteinyaml). This page explains how the code loads and validates the file.
 
 Two packages share the work:
 
@@ -101,4 +101,4 @@ Windows PowerShell 5.1 writes UTF-8 files with a byte order mark (BOM), the invi
 - **`ProjectCheck` in `appstein doctor`**, which reports whether the file is valid and shows the stack and platforms ([doctor](doctor.md#finding-the-project)).
 - **`appstein sync`**, which reads **`packs.stack`** to choose the stack pack and **`delta.baseline`** to choose how far back the version delta's curated notes reach ([version-delta](version-delta.md)). `packsFor` in the CLI maps `official_mvvm` to `OfficialMvvmPack`, and the pack's layer rules, features and routes shape the project map (see [cli](cli.md#appstein-sync) and [project-map](project-map.md#packs-and-the-core)). A project with no `appstein.yaml` gets the defaults, so `official_mvvm`. A broken file stops `sync` with exit code 3 before anything is written. It also reads **`packs.platforms`**: `packsFor` gives each listed platform its pack (`android` gives `AndroidPack`, `ios` gives `IosPack`), and those packs write `native.json` ([native-config](native-config.md)).
 
-The other keys (`verify.fast_timeout_seconds`, `verify.build_on_full`, `packages.*`, `integrations.graphify_export`, `integrations.developer_knowledge_mcp`) are read by no command yet. The slices that use them are planned in the [spec](../superpowers/specs/2026-09-29-appstein-design.md#53-commands).
+The other keys (`verify.fast_timeout_seconds`, `verify.build_on_full`, `packages.*`, `integrations.graphify_export`, `integrations.developer_knowledge_mcp`) are read by no command yet. The slices that use them are planned in the [spec](../project/specs/2026-09-29-appstein-design.md#53-commands).

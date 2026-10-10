@@ -7,7 +7,7 @@ packages/appstein_engine/lib/src/project/**
 
 ## What it is for
 
-`appstein doctor` checks the machine and the project, and says how to fix each problem it finds. Most Appstein failures are environment problems, so doctor is the first thing to run when something goes wrong. What it should check is decided in [spec §5.3](../superpowers/specs/2026-09-29-appstein-design.md#53-commands). This page explains how the code does it.
+`appstein doctor` checks the machine and the project, and says how to fix each problem it finds. Most Appstein failures are environment problems, so doctor is the first thing to run when something goes wrong. What it should check is decided in [spec §5.3](../project/specs/2026-09-29-appstein-design.md#53-commands). This page explains how the code does it.
 
 The code lives in `packages/appstein_engine/lib/src/doctor/`. The command-line side (the `doctor` command, printing and the exit code) is in [cli](cli.md).
 

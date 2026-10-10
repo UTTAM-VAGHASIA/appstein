@@ -72,12 +72,12 @@ Future<GuideRegeneration> regenerateGuide(
 }
 
 /// The spec's visual page, which shows the progress sections (spec §19.6).
-const visualPage = 'docs/superpowers/specs/2026-09-29-appstein-design.html';
+const visualPage = 'docs/project/specs/2026-09-29-appstein-design.html';
 
 /// Renders the progress sections of [visualPage] again (spec §19.6). With
 /// [write], an out-of-date page is rewritten; without it, nothing is
 /// written. [bodies] replaces the sections rendered from
-/// `docs/superpowers/progress.yaml`, for tests; without it, a progress file
+/// `docs/project/progress.yaml`, for tests; without it, a progress file
 /// with problems is reported as those problems. A missing page, a section
 /// the page doesn't show and a malformed or unknown marker are problems.
 GuideRegeneration regenerateVisualPage(

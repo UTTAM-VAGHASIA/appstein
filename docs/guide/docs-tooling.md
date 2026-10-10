@@ -12,12 +12,12 @@ A guide that drifts from the code is worse than none, because readers trust it. 
 
 ## The rules
 
-The rules come from [spec §19.6](../superpowers/specs/2026-09-29-appstein-design.md#196-documentation-for-humans-working-on-appstein):
+The rules come from [spec §19.6](../project/specs/2026-09-29-appstein-design.md#196-documentation-for-humans-working-on-appstein):
 
 - **Every source file has a page.** Each page lists the files it explains, and the check fails if a source file is on no page's list.
 - **Code changes come with their page.** A change to a covered file must also change a page that covers it, or say in a commit trailer why the page is still right.
 - **Facts the code already knows are generated, not typed.** The CLI's help, the exit codes, the doctor checks, the CI jobs and the package graph are written by a tool.
-- **Progress is data, not prose.** Where each milestone and slice stands is written once, in `docs/superpowers/progress.yaml`, and drawn on the spec's visual page (see [Progress](#progress)).
+- **Progress is data, not prose.** Where each milestone and slice stands is written once, in `docs/project/progress.yaml`, and drawn on the spec's visual page (see [Progress](#progress)).
 - **CI is the gate; local hooks warn early.** The check runs in CI's `docs` job, and a git hook runs it after each commit as a warning. Another hook warns when the knowledge graph doesn't hold the current docs (see [Is the graph current?](#is-the-graph-current)).
 
 ## Covers comments
@@ -88,8 +88,8 @@ Never edit between the markers by hand: the next run overwrites it, and the chec
 | `doctor-checks` | [doctor](doctor.md) | `defaultDoctorChecks()`: each check's order, ID and title, and the first paragraph of its `///` comment |
 | `ci-jobs` | [ci](ci.md) | `.github/workflows/ci.yml`: the triggers, and each job's runners and step names |
 | `package-graph` | [architecture](architecture.md) | The root `pubspec.yaml`'s workspace list and each package's dependencies, without dev dependencies |
-| `progress-status` | the spec's [visual page](../superpowers/specs/2026-09-29-appstein-design.html) | `docs/superpowers/progress.yaml`: the milestone being built and the slice that is next |
-| `progress` | the spec's [visual page](../superpowers/specs/2026-09-29-appstein-design.html) | `docs/superpowers/progress.yaml`: the milestone rail, each milestone's slice bar and its timeline |
+| `progress-status` | the spec's [visual page](../project/specs/2026-09-29-appstein-design.html) | `docs/project/progress.yaml`: the milestone being built and the slice that is next |
+| `progress` | the spec's [visual page](../project/specs/2026-09-29-appstein-design.html) | `docs/project/progress.yaml`: the milestone rail, each milestone's slice bar and its timeline |
 
 Rules, from [`generated_sections.dart`](../../tool/src/generated_sections.dart) and [`generated_docs.dart`](../../tool/src/generated_docs.dart):
 
@@ -122,7 +122,7 @@ Run both from the repo root.
 3. **Covers comments and coverage.**
 4. **Stale pages**, only with `--since`.
 5. **Generated sections are up to date.**
-6. **Progress** ([`progress.dart`](../../tool/src/progress.dart) and [`progress_check.dart`](../../tool/src/progress_check.dart)): `progress.yaml` is valid and agrees with the plans and spec §18, and the visual page's progress sections are up to date. See [Progress](#progress).
+6. **Progress** ([`progress.dart`](../../tool/src/progress.dart) and [`progress_check.dart`](../../tool/src/progress_check.dart)): `progress.yaml` is valid and agrees with the plans, the slice folders and spec §18, and the visual page's progress sections are up to date. See [Progress](#progress).
 
 Every check reads Markdown through [`markdown.dart`](../../tool/src/markdown.dart), which tracks code fences and picks out links to files. Anything inside a fence (a link, a path, a covers comment, a marker) is an example and is skipped.
 
@@ -176,7 +176,7 @@ graphify: the graph is behind on 1 doc (new or changed: docs/guide/cli.md). Run 
 | `1` | Docs are behind |
 | `3` | The check couldn't run: there is no graph yet, graphify can't be imported, or a graphify release changed the functions the check calls. It prints `graphify: the graph check could not run: <reason>`. An unknown option, or a mode together with another option, also exits 3, with a usage line on stderr |
 
-**Why it isn't in CI.** CI has no graph: `graphify-out/` is git-ignored and built on each developer's machine. CI does test the script against a pinned graphify (see [ci](ci.md)). The rule lives in the per-slice process instead: before a slice merges, this check must report nothing ([spec §19.4](../superpowers/specs/2026-09-29-appstein-design.md#194-git-and-process)).
+**Why it isn't in CI.** CI has no graph: `graphify-out/` is git-ignored and built on each developer's machine. CI does test the script against a pinned graphify (see [ci](ci.md)). The rule lives in the per-slice process instead: before a slice merges, this check must report nothing ([spec §19.4](../project/specs/2026-09-29-appstein-design.md#194-git-and-process)).
 
 ## Repairing the graph
 
@@ -206,7 +206,7 @@ In Git Bash, macOS or Linux:
 It prints one line for what it did, then the usual warning if anything else is behind:
 
 ```text
-graphify: repaired 1 doc from the cache (docs/superpowers/plans/2026-09-30-slice-1b1-sdk-gaps.md).
+graphify: repaired 1 doc from the cache (docs/project/plans/2026-09-30-slice-1b1-sdk-gaps.md).
 ```
 
 | Line | Code |
@@ -223,7 +223,7 @@ graphify: repaired 1 doc from the cache (docs/superpowers/plans/2026-09-30-slice
 - It writes only to graphify's rebuild log, `~/.cache/graphify-rebuild.log` (or `GRAPHIFY_REBUILD_LOG`). It opens the log itself and adds to it, so graphify's lines stay. Each of its lines starts with `[appstein]` and the time:
 
 ```text
-[appstein] 2026-10-01 01:32:32 graphify: repaired 1 doc from the cache (docs/superpowers/plans/2026-09-30-slice-1a2-graph-staleness.md).
+[appstein] 2026-10-01 01:32:32 graphify: repaired 1 doc from the cache (docs/project/plans/2026-09-30-slice-1a2-graph-staleness.md).
 ```
 
 `APPSTEIN_REPAIR_START_WAIT` and `APPSTEIN_REPAIR_MAX_WAIT` (seconds) change the waits, and `APPSTEIN_REPAIR_TIMEOUT` (seconds) sets the job's whole limit directly; the tests use them to stay short. The repair rebuilds the folder `graphify-out/.graphify_root` names, as graphify's hook does (when it is a folder inside the repo), else the repo root.
@@ -271,7 +271,7 @@ What each block does:
 
 ## Progress
 
-`docs/superpowers/progress.yaml` records where every milestone and slice stands. It is the only place progress is written; the spec's visual page draws it, and `AGENTS.md` points to it instead of retelling it.
+`docs/project/progress.yaml` records where every milestone and slice stands. It is the only place progress is written; the spec's visual page draws it, and `AGENTS.md` points to it instead of retelling it.
 
 ```text
 repository: https://github.com/UTTAM-VAGHASIA/appstein
@@ -293,6 +293,28 @@ milestones:
             finished: 2026-10-03
 ```
 
+**A slice names its plan or its spec folder.** A slice is written up in one of two ways, and `progress.yaml` says which:
+
+- `plan` names one Markdown file in `docs/project/plans/`. Its notes go under a `## Notes from execution` heading in the same file.
+- `spec` names a folder in `slices/`, which sits next to `plans/` in `docs/project/`. The folder holds the slice's `spec.md`, its ticket files under `issues/`, and, once the work is finished, `notes.md`: what was built, the decisions, and what is carried to later slices.
+
+```text
+          - id: 1d.2
+            title: Code checks and fast verify
+            summary: …
+            status: next
+            spec: 1d2-code-checks
+```
+
+```text
+docs/project/slices/1d2-code-checks/
+  spec.md
+  issues/
+  notes.md
+```
+
+The `slices/` folder need not exist while no slice names a folder in it, and today none does.
+
 **Fields**, read by [`progress.dart`](../../tool/src/progress.dart):
 
 | Field | Meaning |
@@ -300,27 +322,31 @@ milestones:
 | `id` | `M1`, `M2` … for a milestone; `1a`, `1b` … for a slice; a sub-slice adds `.1`, `.2` … to its parent's id. Unique across the file |
 | `title`, `summary` | A short name, and a sentence on what it delivers. Text in backticks is shown as code |
 | `status` | `done` (finished: its pull request is open or merged), `next` (being built, or the one to build next) or `planned`. At most one slice is `next`. A slice without a status must have sub-slices, and its stage comes from them |
-| `plan` | The plan's file name in `docs/superpowers/plans/` |
-| `pr`, `merge`, `finished` | The pull request number, and the day the slice was marked done (`YYYY-MM-DD`). A slice merged in the old private repo, whose pull requests no longer exist, gives its merge commit as `merge` instead: 7 to 40 lowercase hex digits, in quotes when YAML would read them as a number (such as `1234567` or `1234e56`). A done slice needs `plan`, `finished`, and `pr` or `merge` but not both; only a done slice may have `pr`, `merge` or `finished` |
+| `plan` | The plan's file name in `docs/project/plans/`: a name ending in `.md`, without a folder |
+| `spec` | The name of the slice's folder in `slices/`, without a path. A slice has `plan` or `spec`, not both |
+| `pr`, `merge`, `finished` | The pull request number, and the day the slice was marked done (`YYYY-MM-DD`). A slice merged in the old private repo, whose pull requests no longer exist, gives its merge commit as `merge` instead: 7 to 40 lowercase hex digits, in quotes when YAML would read them as a number (such as `1234567` or `1234e56`). A done slice needs `plan` or `spec`, `finished`, and `pr` or `merge` but not both; only a done slice may have `pr`, `merge` or `finished` |
 | `tooling` | `true` for a slice that builds tooling for this repo rather than the product. The page tags it, and a slice's progress bar leaves it out, so tooling doesn't make the product look further along |
 | `slices` | Sub-slices, in order |
 
-**What the page shows**, from [`progress_html.dart`](../../tool/src/progress_html.dart): a pill at the top ("Building M1 · next: 1b.2 …") linking to the Progress section; a rail of milestones (done, in progress or planned); for each milestone with slices, a bar with one segment per slice, filled by the share of its product parts that are done; and a timeline of slices and sub-slices with their dates, pull requests (or merge commits) and plans. The markup is generated; the page's own CSS styles the `pg-*` classes.
+**What the page shows**, from [`progress_html.dart`](../../tool/src/progress_html.dart): a pill at the top ("Building M1 · next: 1b.2 …") linking to the Progress section; a rail of milestones (done, in progress or planned); for each milestone with slices, a bar with one segment per slice, filled by the share of its product parts that are done; and a timeline of slices and sub-slices with their dates, pull requests (or merge commits), and a "Plan" link to the plan or a "Spec" link to the folder's `spec.md`. The markup is generated; the page's own CSS styles the `pg-*` classes.
 
 **What the guide check refuses**, from [`progress_check.dart`](../../tool/src/progress_check.dart):
 
-- a plan in `docs/superpowers/plans/` (a `.md` file directly in the folder) that no slice names, a plan named by two slices, or a slice naming a plan that isn't there;
+- a plan in `docs/project/plans/` (a `.md` file directly in the folder) that no slice names, a plan named by two slices, or a slice naming a plan that isn't there;
 - a plan with a `## Notes from execution` heading whose slice isn't done. The notes are written when a slice finishes, so they are the signal;
+- a folder directly in `slices/` that no slice names, a folder named by two slices, or a slice naming a folder that isn't there. Files directly in `slices/` are ignored;
+- a slice whose folder has no `spec.md`;
+- a folder with a `notes.md` whose slice isn't done. Only a `notes.md` directly in the folder counts, and the file's presence is the signal, whatever it says. The names `spec.md` and `notes.md` are matched exactly, so `Spec.md` doesn't count on Windows either;
 - a milestone in spec §18 missing from the file, or one the file has that §18 doesn't; the same for the slices of each milestone §18 has a table for (today only M1). Sub-slices aren't in the spec, so they aren't compared;
-- anything `progress.dart` refuses: an unknown key, a bad status, id, date or commit ID, a done slice without its plan, pull request (or merge commit) and date, a slice with both `pr` and `merge`, more than one slice `next`;
+- anything `progress.dart` refuses: an unknown key, a bad status, id, date or commit ID, a `plan` or `spec` that isn't a plain name, a slice with both `plan` and `spec`, a done slice without its plan (or spec folder), pull request (or merge commit) and date, a slice with both `pr` and `merge`, more than one slice `next`;
 - a `merge` commit that isn't in the repo (from `checkMerges`). A shallow clone lacks old commits, so the check needs the full history, as CI's docs job has;
 - the visual page's progress sections not matching the file.
 
 **Through a slice:**
 
 1. The slice to build is already `next` (the previous slice set it).
-2. The commit that adds the slice's plan also sets the slice's `plan`. Without it, the check reports the plan as belonging to no slice.
-3. Once the pull request is open, one more commit records the result: the plan's notes from execution, the slice `done` with `pr` and `finished`, and the following slice `next`. Then `fvm dart run tool/gen_docs.dart`. It comes after the PR opens because GitHub gives the number only then; before that commit, the slice is still `next` and its plan has no notes, so every check passes on the pull request's runs before and after that commit.
+2. The commit that adds the slice's plan also sets the slice's `plan`; the commit that adds a slice folder sets the slice's `spec`. Without it, the check reports the plan or the folder as belonging to no slice.
+3. Once the pull request is open, one more commit records the result: the notes (the plan's notes from execution, or the folder's `notes.md`), the slice `done` with `pr` and `finished`, and the following slice `next`. Then `fvm dart run tool/gen_docs.dart`. It comes after the PR opens because GitHub gives the number only then; before that commit, the slice is still `next` and has no notes, so every check passes on the pull request's runs before and after that commit.
 
 ## The docs step of each slice
 
@@ -350,4 +376,4 @@ Any edit after step 3, such as a review fix, puts the graph behind again, and th
 - **The extra rebuild can overlap an agent's `/graphify . --update`.** The background repair's rebuild (about 20 s after a merge) can interleave with an agent's `/graphify . --update`, which doesn't take graphify's lock. graphify's own hooks share this risk.
 - **The background repair reports only to the log.** If it fails, the terminal doesn't show it. The next commit's warning names any doc still missing, and the `[appstein]` lines in `~/.cache/graphify-rebuild.log` say why.
 - **A branch from before the repair** (slice 1a.3) has a `check_graph.py` without `--detach`. The `post-checkout` hook skips the repair there, and the next pull or checkout of a newer branch runs it.
-- **Progress is only as true as its last edit.** The check proves the page matches the file and the file agrees with the plans and §18. It can't tell that a slice marked `next` is really being built, or that a summary is accurate.
+- **Progress is only as true as its last edit.** The check proves the page matches the file and the file agrees with the plans, the slice folders and §18. It can't tell that a slice marked `next` is really being built, or that a summary is accurate.
