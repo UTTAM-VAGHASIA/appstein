@@ -166,7 +166,7 @@ void main() {
       writeFile(repo, visualPage, page);
       final result = regenerateVisualPage(repo.path, write: false);
       expect(result.problems.map((x) => '$x'), [
-        'docs/superpowers/progress.yaml: Missing. It records where each '
+        'docs/project/progress.yaml: Missing. It records where each '
             'milestone and slice stands (spec §19.6).',
       ]);
     });

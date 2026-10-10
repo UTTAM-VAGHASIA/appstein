@@ -217,7 +217,7 @@ Appstein presents a technical developer tool the way a premium hardware maker pr
 
 Material is soft and physical without being skeuomorphic. Cards have a hairline border and a two-layer ambient shadow, the sticky nav is frosted glass, and the hero is a rendered phone mockup with floating proof cards (an MCP answer and a passing verifier run). Neither of those is a stock illustration. The mockup shows the product doing its job. Light and dark are both first-class. The page follows the system theme until the reader flips the sun/moon switch, then remembers that choice.
 
-The owner explicitly rejected the earlier directions: a periodic-table grid of elements, a "build instructions" assembly-manual metaphor, a terminal/wayfinding-signage look, and a dense text-first docs page. All four were judged too complex, too themed, too bold, or not clean enough (drafts kept in `docs/superpowers/specs/drafts/`). The system stays clean because it adds no concept on top of the product itself.
+The owner explicitly rejected the earlier directions: a periodic-table grid of elements, a "build instructions" assembly-manual metaphor, a terminal/wayfinding-signage look, and a dense text-first docs page. All four were judged too complex, too themed, too bold, or not clean enough (drafts kept in `docs/project/specs/drafts/`). The system stays clean because it adds no concept on top of the product itself.
 
 **Key Characteristics:**
 - One blue accent, tinted cool neutrals, and green/amber/red only as pass/warning/error.

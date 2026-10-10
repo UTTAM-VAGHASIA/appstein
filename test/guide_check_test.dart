@@ -27,7 +27,7 @@ void main() {
     expect(
       problems.map((problem) => '$problem'),
       contains(
-        'docs/superpowers/progress.yaml: Missing. It records where each '
+        'docs/project/progress.yaml: Missing. It records where each '
         'milestone and slice stands (spec §19.6).',
       ),
     );
@@ -63,16 +63,12 @@ milestones:
     });
 
     test('a merge commit that is not in the repo is reported', () async {
-      writeFile(
-        repo,
-        'docs/superpowers/progress.yaml',
-        progressWith('abcdef0'),
-      );
+      writeFile(repo, 'docs/project/progress.yaml', progressWith('abcdef0'));
       final problems = await checkGuide(repo.path);
       expect(
         problems.map((problem) => '$problem'),
         contains(
-          'docs/superpowers/progress.yaml:7: Slice 1a: merge abcdef0 is not a '
+          'docs/project/progress.yaml:7: Slice 1a: merge abcdef0 is not a '
           'commit in this repo. A shallow clone lacks old commits; run git '
           'fetch --unshallow.',
         ),
@@ -81,7 +77,7 @@ milestones:
 
     test('a merge commit in the repo is not reported', () async {
       final head = runGit(repo, ['rev-parse', '--short=7', 'HEAD']).trim();
-      writeFile(repo, 'docs/superpowers/progress.yaml', progressWith(head));
+      writeFile(repo, 'docs/project/progress.yaml', progressWith(head));
       final problems = await checkGuide(repo.path);
       expect(
         problems.map((problem) => '$problem'),

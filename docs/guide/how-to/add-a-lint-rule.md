@@ -2,7 +2,7 @@
 
 # How to: add a lint rule
 
-These steps add a rule to the `appstein_lints` analyzer plugin. Read [lints](../lints.md) first for how the plugin is loaded. The one existing rule, [`layer_imports_rule.dart`](../../../packages/appstein_lints/lib/src/layer_imports/layer_imports_rule.dart), is the example to follow. Which rules M1 plans is in [spec §9.6](../../superpowers/specs/2026-09-29-appstein-design.md#96-lint-rules-in-m1-appstein_lints-one-test-file-per-rule).
+These steps add a rule to the `appstein_lints` analyzer plugin. Read [lints](../lints.md) first for how the plugin is loaded. The one existing rule, [`layer_imports_rule.dart`](../../../packages/appstein_lints/lib/src/layer_imports/layer_imports_rule.dart), is the example to follow. Which rules M1 plans is in [spec §9.6](../../project/specs/2026-09-29-appstein-design.md#96-lint-rules-in-m1-appstein_lints-one-test-file-per-rule).
 
 ## 1. Write the rule class
 

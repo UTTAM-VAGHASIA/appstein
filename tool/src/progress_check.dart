@@ -8,10 +8,14 @@ import 'progress.dart';
 
 /// The design spec, whose §18 lists the milestones and each milestone's
 /// slices.
-const specFile = 'docs/superpowers/specs/2026-09-29-appstein-design.md';
+const specFile = 'docs/project/specs/2026-09-29-appstein-design.md';
 
 /// The folder of slice plans, one Markdown file per slice.
-const plansFolder = 'docs/superpowers/plans';
+const plansFolder = 'docs/project/plans';
+
+/// The folder of slice folders. Each holds a slice's `spec.md`, its ticket
+/// files under `issues/` and, once the slice is finished, its `notes.md`.
+const slicesFolder = 'docs/project/slices';
 
 final _notes = RegExp(r'^## Notes from execution\b');
 
@@ -31,10 +35,14 @@ bool _hasNotes(String text) {
 /// - every plan in [plansFolder] (a `.md` file directly in it) is named by
 ///   exactly one slice, and every plan a slice names exists;
 /// - a slice whose plan has a `## Notes from execution` heading is done;
+/// - every folder directly in [slicesFolder] is named by exactly one slice,
+///   and every folder a slice names exists and has a `spec.md`;
+/// - a slice whose folder has a `notes.md` is done;
 /// - the milestones match spec §18, and so do the slices of each milestone
 ///   §18 has a table for.
 List<GuideProblem> checkProgress(String repoRoot, Progress progress) => [
   ..._checkPlans(repoRoot, progress),
+  ..._checkSlices(repoRoot, progress),
   ..._checkSpec(repoRoot, progress),
 ];
 
@@ -127,6 +135,88 @@ List<GuideProblem> _checkPlans(String repoRoot, Progress progress) {
           slice.line,
           'Slice ${slice.id} names the plan ${entry.key}, which is not in '
           '$plansFolder/.',
+        ),
+      );
+    }
+  }
+  return problems;
+}
+
+/// The slice-folder rules, each the mirror of a plan rule. File names are
+/// compared exactly, so `Spec.md` isn't `spec.md` on Windows or macOS
+/// either, and the check says the same on every machine.
+List<GuideProblem> _checkSlices(String repoRoot, Progress progress) {
+  final problems = <GuideProblem>[];
+  final owners = <String, List<Slice>>{};
+  for (final slice in progress.allSlices) {
+    final spec = slice.spec;
+    if (spec != null) owners.putIfAbsent(spec, () => []).add(slice);
+  }
+  final root = Directory(p.join(repoRoot, slicesFolder));
+  final folders = <String>[
+    if (root.existsSync())
+      for (final entry in root.listSync())
+        if (entry is Directory) p.basename(entry.path),
+  ]..sort();
+  for (final folder in folders) {
+    final slices = owners[folder] ?? const <Slice>[];
+    if (slices.isEmpty) {
+      problems.add(
+        GuideProblem(
+          '$slicesFolder/$folder',
+          null,
+          'No slice in $progressFile names this folder. Set it as the spec '
+              'of the slice it builds.',
+        ),
+      );
+      continue;
+    }
+    if (slices.length > 1) {
+      problems.add(
+        GuideProblem(
+          progressFile,
+          slices[1].line,
+          'Slices ${slices.map((slice) => slice.id).join(' and ')} both name '
+          'the spec folder $folder. A spec folder belongs to one slice.',
+        ),
+      );
+    }
+    final files = <String>{
+      for (final entry in Directory(p.join(root.path, folder)).listSync())
+        if (entry is File) p.basename(entry.path),
+    };
+    for (final slice in slices) {
+      if (!files.contains('spec.md')) {
+        problems.add(
+          GuideProblem(
+            progressFile,
+            slice.line,
+            'Slice ${slice.id} names the spec folder $folder, which has no '
+            'spec.md.',
+          ),
+        );
+      }
+      if (files.contains('notes.md') && slice.status != SliceStatus.done) {
+        problems.add(
+          GuideProblem(
+            progressFile,
+            slice.line,
+            "Slice ${slice.id}'s spec folder has notes.md, so the slice is "
+            'finished. Mark it done, with its pr and finished date.',
+          ),
+        );
+      }
+    }
+  }
+  for (final entry in owners.entries) {
+    if (folders.contains(entry.key)) continue;
+    for (final slice in entry.value) {
+      problems.add(
+        GuideProblem(
+          progressFile,
+          slice.line,
+          'Slice ${slice.id} names the spec folder ${entry.key}, which is not '
+          'in $slicesFolder/.',
         ),
       );
     }

@@ -5,7 +5,7 @@ packages/appstein_protocol/lib/src/mcp/**
 
 # The MCP server
 
-`appstein mcp` lets an agent ask Appstein questions while it works. Instead of reading files or running `appstein sync` and parsing the output, the agent calls a tool such as `where_is` and gets a small, structured answer. It also lets the agent record a decision or the task it is working on. This page explains what the server does on each call, and the rules behind each tool. The design is in [spec §8](../superpowers/specs/2026-09-29-appstein-design.md#8-mcp-server).
+`appstein mcp` lets an agent ask Appstein questions while it works. Instead of reading files or running `appstein sync` and parsing the output, the agent calls a tool such as `where_is` and gets a small, structured answer. It also lets the agent record a decision or the task it is working on. This page explains what the server does on each call, and the rules behind each tool. The design is in [spec §8](../project/specs/2026-09-29-appstein-design.md#8-mcp-server).
 
 ## What it is
 

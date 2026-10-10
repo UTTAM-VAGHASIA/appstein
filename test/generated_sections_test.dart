@@ -103,7 +103,7 @@ void main() {
 
   test('with guideLinks off, a page outside docs/guide/ may have sections', () {
     final result = regenerate(
-      'docs/superpowers/specs/page.html',
+      'docs/project/specs/page.html',
       '<p>\n<!-- generated:alpha -->\nold\n<!-- /generated:alpha -->\n</p>\n',
       {'alpha': '<b>A</b>'},
       guideLinks: false,

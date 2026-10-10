@@ -7,7 +7,7 @@ import 'guide_checker.dart';
 
 /// Where Appstein's progress is recorded, relative to the repo root
 /// (spec §19.6).
-const progressFile = 'docs/superpowers/progress.yaml';
+const progressFile = 'docs/project/progress.yaml';
 
 /// Where a slice stands, as `progress.yaml` records it.
 enum SliceStatus {
@@ -52,6 +52,7 @@ final class Slice {
     required this.line,
     this.status,
     this.plan,
+    this.spec,
     this.pr,
     this.merge,
     this.finished,
@@ -76,8 +77,12 @@ final class Slice {
   /// its [slices].
   final SliceStatus? status;
 
-  /// The file name of the slice's plan in `docs/superpowers/plans/`.
+  /// The file name of the slice's plan in `docs/project/plans/`.
   final String? plan;
+
+  /// The name of the slice's folder in `docs/project/slices/`, which holds
+  /// its `spec.md`. A slice has a [plan] or a spec folder, not both.
+  final String? spec;
 
   /// The number of the pull request that merged it.
   final int? pr;
@@ -249,6 +254,7 @@ const _sliceKeys = {
   'summary',
   'status',
   'plan',
+  'spec',
   'pr',
   'merge',
   'finished',
@@ -371,8 +377,24 @@ final class _Parser {
         (plan.contains('/') || plan.contains(r'\') || !plan.endsWith('.md'))) {
       _problem(
         map.nodes['plan']!,
-        '$what: plan must be a file name in docs/superpowers/plans/, such as '
+        '$what: plan must be a file name in docs/project/plans/, such as '
         '2026-09-29-slice-1a-workspace-cli-doctor.md.',
+      );
+    }
+    final spec = _string(map, 'spec', what, required: false);
+    if (spec != null && (spec.contains('/') || spec.contains(r'\'))) {
+      _problem(
+        map.nodes['spec']!,
+        '$what: spec must be a folder name in docs/project/slices/, such as '
+        '1d2-code-checks.',
+      );
+    }
+    final specNode = map.nodes['spec'];
+    if (map.nodes['plan'] != null && specNode != null) {
+      _problem(
+        specNode,
+        '$what has both plan and spec. A slice names its plan or its spec '
+        'folder, not both.',
       );
     }
     final pr = _positiveInt(map, 'pr', what);
@@ -391,7 +413,7 @@ final class _Parser {
     }
     if (status == SliceStatus.done) {
       final missing = [
-        if (map.nodes['plan'] == null) 'plan',
+        if (map.nodes['plan'] == null && specNode == null) 'plan (or spec)',
         if (map.nodes['pr'] == null && map.nodes['merge'] == null)
           'pr (or merge)',
         if (map.nodes['finished'] == null) 'finished',
@@ -423,6 +445,7 @@ final class _Parser {
       line: node.span.start.line + 1,
       status: status,
       plan: plan,
+      spec: spec,
       pr: pr,
       merge: merge,
       finished: finished,

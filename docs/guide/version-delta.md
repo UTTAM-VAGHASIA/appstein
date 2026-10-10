@@ -5,7 +5,7 @@ packages/appstein_protocol/lib/src/knowledge/delta_knowledge.dart
 
 # The version delta
 
-`appstein sync` writes `.appstein/platform/delta.md` (spec §6.4). It's a cheat sheet an agent reads before it writes code: which APIs of the installed Flutter, Dart and the project's packages are deprecated, removed or moved, and what to use instead, plus Appstein's curated notes. This page explains where each line comes from and why it is built this way. The facts behind each decision were checked against Flutter's and Dart's own files; they're listed in the [slice 1b.5 plan](../superpowers/plans/2026-10-01-slice-1b5-version-delta.md#decisions-made-while-planning-for-the-owners-review).
+`appstein sync` writes `.appstein/platform/delta.md` (spec §6.4). It's a cheat sheet an agent reads before it writes code: which APIs of the installed Flutter, Dart and the project's packages are deprecated, removed or moved, and what to use instead, plus Appstein's curated notes. This page explains where each line comes from and why it is built this way. The facts behind each decision were checked against Flutter's and Dart's own files; they're listed in the [slice 1b.5 plan](../project/plans/2026-10-01-slice-1b5-version-delta.md#decisions-made-while-planning-for-the-owners-review).
 
 ## What the file holds
 

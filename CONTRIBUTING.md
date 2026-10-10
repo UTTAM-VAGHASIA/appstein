@@ -1,6 +1,6 @@
 # Contributing to Appstein
 
-Thanks for your interest. Appstein is pre-alpha: the design is settled in the [spec](docs/superpowers/specs/2026-09-29-appstein-design.md), and the code is built one slice at a time ([progress](docs/superpowers/progress.yaml)). Small fixes are welcome any time. For anything bigger, open an issue first, so we agree on the approach before you write code.
+Thanks for your interest. Appstein is pre-alpha: the design is settled in the [spec](docs/project/specs/2026-09-29-appstein-design.md), and the code is built one slice at a time ([progress](docs/project/progress.yaml)). Small fixes are welcome any time. For anything bigger, open an issue first, so we agree on the approach before you write code.
 
 ## Ground rules
 

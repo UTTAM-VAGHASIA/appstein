@@ -4,7 +4,7 @@ packages/appstein_engine/lib/src/docs/**
 
 # Human docs
 
-Everything in `.appstein/` is shaped for agents: compact, machine-readable and git-ignored. `appstein docs` renders the same knowledge as Markdown pages a person can read, in the project's docs folder (by default `app` inside its `docs` folder), and those pages are committed. This page explains how a page is built, how Appstein knows which files in that folder are its own, and how it decides that a page is behind. The design is in [spec §6.9](../superpowers/specs/2026-09-29-appstein-design.md#69-human-documentation-docsapp).
+Everything in `.appstein/` is shaped for agents: compact, machine-readable and git-ignored. `appstein docs` renders the same knowledge as Markdown pages a person can read, in the project's docs folder (by default `app` inside its `docs` folder), and those pages are committed. This page explains how a page is built, how Appstein knows which files in that folder are its own, and how it decides that a page is behind. The design is in [spec §6.9](../project/specs/2026-09-29-appstein-design.md#69-human-documentation-docsapp).
 
 Nothing is written just for the docs. A page's facts come from the project map, the decisions and `///` doc comments. The only prose Appstein adds is **concept text** ("what a view model is"), written once inside each pack.
 

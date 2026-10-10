@@ -1013,7 +1013,7 @@ The benchmark lives in `benchmark/`.
 | `analyze` | `dart format --set-exit-if-changed`, `dart analyze` (incl. our boundary lints and `public_member_api_docs`), `dependency_validator` |
 | `test` | Unit + golden tests on Linux, Windows and macOS |
 | `skills` | Snippet analysis against current stable and minimum supported SDK; link check; size budget |
-| `docs` | `dart doc` for every package, failing on warnings; developer guide checks (§19.6): snippet analysis, link check, every file path it mentions exists, every source file covered by a page, no stale pages, generated sections up to date, and the progress record consistent with the plans and §18 |
+| `docs` | `dart doc` for every package, failing on warnings; developer guide checks (§19.6): snippet analysis, link check, every file path it mentions exists, every source file covered by a page, no stale pages, generated sections up to date, and the progress record consistent with the plans, the slice folders and §18 |
 | `integration-android` | `appstein create` → `verify --full` on Linux (real Android debug build) |
 | `integration-ios` | `appstein create` → `verify --full` on macOS (real iOS debug build) |
 | `integration-windows` | `appstein create` → `verify --full` on Windows (Android build) |
@@ -1022,7 +1022,7 @@ The benchmark lives in `benchmark/`.
 ### 19.4 Git and process
 
 - **Git:** agents may run read-only git. Commits happen only with owner approval, and nothing is pushed unless asked. Commits may include the Co-Authored-By trailer.
-- **Per slice:** spec → implementation plan → TDD implementation → verify → docs (API doc comments, the guide pages for what the slice built, the slice's entry in `docs/superpowers/progress.yaml` marked done, with its pull request number once the PR is open, `gen_docs` and the guide check (§19.6), then `/graphify . --update` until the graph warning is silent) → owner review → commit. The warning must still be silent when a slice merges, because edits made after the update put the graph behind again.
+- **Per slice:** design interview → slice spec → tickets → TDD implementation of each ticket → verify → docs (API doc comments, the guide pages for what the slice built, the slice's `notes.md`, the slice's entry in `docs/project/progress.yaml` marked done, with its pull request number once the PR is open, `gen_docs` and the guide check (§19.6), then `/graphify . --update` until the graph warning is silent) → owner review → commit. The owner approves the slice spec, then the ticket breakdown, before code is written. A slice spec lives with its tickets in a folder of `docs/project/slices/`. It covers that slice only and cites the sections of this spec it implements; where the two disagree, this spec stands until the owner changes it. Slices finished before 1d.2 have a plan in `docs/project/plans/` instead. The warning must still be silent when a slice merges, because edits made after the update put the graph behind again.
 
 ### 19.5 Distribution and versioning
 
@@ -1036,7 +1036,7 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 
 | Layer | Answers | Where | Kept correct by |
 |---|---|---|---|
-| **Spec** | What we decided and why | `docs/superpowers/specs/` | Owner review (it is the source of truth) |
+| **Spec** | What we decided and why | `docs/project/specs/` (the product design) and `docs/project/slices/` (one spec per slice) | Owner review (it is the source of truth) |
 | **Developer guide** | How the code works now, and how to change it | `docs/guide/` | CI checks (below) and the per-slice docs step |
 | **API reference** | What each public class and function does | `///` doc comments → `dart doc` (pub.dev hosts it for published packages) | `public_member_api_docs` lint + `dart doc` in CI |
 
@@ -1063,11 +1063,14 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 - **Every source file has a page.** Each page starts with a hidden `<!-- covers: … -->` comment listing the paths it explains. Source means `packages/*/lib/`, `packages/*/bin/`, `tool/` and `.github/workflows/`. The guide check fails if any source file is covered by no page.
 - **Code changes come with their page.** In CI, the check fails when a change edits a covered file but not the hand-written text of any page covering it (a regenerated section alone doesn't count). If the page is still right, a commit trailer `Docs-Checked: <page> - <reason>` says so and clears it. This is the idea behind `docs.stale` (§6.9), applied to our own repo.
 - **Facts the code already knows are generated, not typed.** `tool/gen_docs.dart` writes them between `<!-- generated:<name> -->` markers: the doctor checks, the CLI commands and exit codes, the CI jobs and the package dependency diagram. CI fails if regenerating would change a page.
-- **Progress is data, not prose.** `docs/superpowers/progress.yaml` records every milestone and slice: its status (done, next or planned), its plan, its pull request (or, for a slice merged in the old private repo, its merge commit), the date it finished and what it delivered. `gen_docs` renders it into the spec's visual page as a status line at the top and a progress section with the milestone rail and the slice timeline. The guide check fails when:
+- **Progress is data, not prose.** `docs/project/progress.yaml` records every milestone and slice: its status (done, next or planned), its plan or spec folder, its pull request (or, for a slice merged in the old private repo, its merge commit), the date it finished and what it delivered. `gen_docs` renders it into the spec's visual page as a status line at the top and a progress section with the milestone rail and the slice timeline. The guide check fails when:
   - the page doesn't match the file;
-  - a plan in `docs/superpowers/plans/` belongs to no slice;
+  - a plan in `docs/project/plans/` belongs to no slice;
   - a plan with notes from execution belongs to a slice that isn't done;
-  - a done slice has no plan, or neither a pull request nor a merge commit;
+  - a folder in `docs/project/slices/` belongs to no slice, or has no `spec.md`;
+  - a slice folder with a `notes.md` belongs to a slice that isn't done;
+  - a slice has both a plan and a spec folder;
+  - a done slice has neither a plan nor a spec folder, or neither a pull request nor a merge commit;
   - a merge commit isn't in the repo;
   - a §18 slice is missing;
   - more than one slice is next.
