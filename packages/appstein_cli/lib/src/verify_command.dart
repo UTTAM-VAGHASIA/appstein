@@ -22,13 +22,15 @@ typedef VerifyChecks =
 /// when Appstein itself failed (no project, a bad `appstein.yaml`, bad
 /// usage, a check that threw).
 final class VerifyCommand extends Command<int> {
-  /// Creates the command. [checks] replaces the project's checks, for
-  /// tests.
+  /// Creates the command. [checks] replaces the project's checks, and
+  /// [dartSdkPath] the Dart SDK the analysis reads `dart:` libraries from,
+  /// for tests.
   VerifyCommand({
     required this.out,
     required this.err,
     required this.environment,
     this.checks = checksFor,
+    this.dartSdkPath,
   }) {
     argParser
       ..addFlag(
@@ -60,6 +62,10 @@ final class VerifyCommand extends Command<int> {
 
   /// Builds the project's checks from its packs.
   final VerifyChecks checks;
+
+  /// Where the analysis reads `dart:` libraries from, instead of the Flutter
+  /// SDK's own Dart SDK. Only tests set it.
+  final String? dartSdkPath;
 
   @override
   String get name => 'verify';
@@ -116,6 +122,7 @@ final class VerifyCommand extends Command<int> {
       ),
       mode: results.flag('fast') ? VerifyMode.fast : VerifyMode.full,
       checks: checks(packs),
+      dartSdkPath: dartSdkPath,
     );
     out.write(
       results.option('format') == 'json'

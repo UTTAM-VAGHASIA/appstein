@@ -209,9 +209,9 @@ A refusal is exit 1, not 3: the project has something to fix (fetch the packages
 
 Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3.
 
-`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`.
+`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`. It also takes `dartSdkPath` (for `verify` only), the Dart SDK the analysis reads `dart:` libraries from.
 
-The CLI's own tests can't build a project map (their fake Flutter SDK has no Dart SDK), so every run there reports `knowledge.stale`. Runs on a whole project are in the engine's [`verify_fixture_test.dart`](../../packages/appstein_engine/test/verify/verify_fixture_test.dart), and with the compiled binary in [`tool/measure_sync.dart`](../../tool/measure_sync.dart) (see [ci](ci.md)).
+The CLI's own tests use a fake Flutter SDK, which has no Dart SDK, so a run that isn't given one can't build a project map and reports `knowledge.stale`. A test that needs the map passes `dartSdkPath: testDartSdk` (the Dart SDK running the tests; [`dart_sdk.dart`](../../packages/appstein_cli/test/support/dart_sdk.dart)). `verify_command_test.dart` does this for a small healthy project (fresh packages, default config, its docs rendered first with the engine's `runDocs`, which `appstein docs` uses) and sees exit 0 with the summary line alone, in text and in JSON. Runs on the fixture app are in the engine's [`verify_fixture_test.dart`](../../packages/appstein_engine/test/verify/verify_fixture_test.dart), and with the compiled binary in [`tool/measure_sync.dart`](../../tool/measure_sync.dart) (see [ci](ci.md)).
 
 ## Help text
 

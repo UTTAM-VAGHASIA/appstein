@@ -22,7 +22,9 @@ import 'version.dart';
 /// (also for tests) builds the environment when [environment] is null.
 /// [mcpChannel] (also for tests) gives the connection `appstein mcp` serves;
 /// by default stdin and stdout. [verifyChecks] (also for tests) replaces the
-/// checks `appstein verify` runs.
+/// checks `appstein verify` runs, and [dartSdkPath] (also for tests) is the
+/// Dart SDK it reads `dart:` libraries from, where a fake Flutter SDK has
+/// none.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -34,6 +36,7 @@ Future<int> runAppstein(
   HostEnvironment Function()? environmentFactory,
   McpChannel Function()? mcpChannel,
   VerifyChecks? verifyChecks,
+  String? dartSdkPath,
 }) async {
   final output = out ?? stdout;
   final errors = err ?? stderr;
@@ -59,6 +62,7 @@ Future<int> runAppstein(
           err: errors,
           environment: machine,
           checks: verifyChecks ?? checksFor,
+          dartSdkPath: dartSdkPath,
         ),
       )
       ..addCommand(

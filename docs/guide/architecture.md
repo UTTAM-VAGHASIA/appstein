@@ -105,7 +105,7 @@ The engine's core (everything outside the pack folders `lib/src/packs/official_m
 | `native/` | Native config: the extractor seam and `NativeSync`, which writes `native.json` from the platform packs | [native-config](native-config.md) |
 | `delta/` | The version delta: `fix_data` migrations, the deprecations the imports expose, the Markdown | [version-delta](version-delta.md) |
 | `mcp/` | The MCP server: the tool list, the queue, the freshness step, and one function per tool | [mcp-server](mcp-server.md) |
-| `decisions/` | Decision records: the text of one file, and the store that reads the folder by the spec's rules and writes under the lock | [decisions-and-memory](decisions-and-memory.md) |
+| `decisions/` | Decision records: the text of one file, how a `\` in a path is read, and the store that reads the folder by the spec's rules and writes under the lock | [decisions-and-memory](decisions-and-memory.md) |
 | `memory/` | The memory files: where they are, and how a lesson line is appended | [decisions-and-memory](decisions-and-memory.md) |
 | `docs/` | The human docs: what a page may read, the renderer, the page marker, the engine's own pages, and the code that compares, writes and deletes in the docs folder | [human-docs](human-docs.md) |
 | `verify/` | The verifier: the frame (`runVerify`), the check interfaces, the engine's checks, suppressions | [verify](verify.md) |

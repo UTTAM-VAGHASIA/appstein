@@ -14,6 +14,7 @@ Agents reach both through four MCP tools (see [mcp-server](mcp-server.md#decisio
 |---|---|
 | [`decision_record.dart`](../../packages/appstein_protocol/lib/src/decisions/decision_record.dart) | `DecisionRecord`, `DecisionStatus`, and `decisionChecks`, the two check names a record may list |
 | [`decision_file.dart`](../../packages/appstein_engine/lib/src/decisions/decision_file.dart) | The text of one file: reading it, writing a new one, changing its status word, and the slug for its name. No file access |
+| [`decision_path.dart`](../../packages/appstein_engine/lib/src/decisions/decision_path.dart) | `decisionPathReadings`: the ways to read a `\` in a decision's path (below) |
 | [`decision_store.dart`](../../packages/appstein_engine/lib/src/decisions/decision_store.dart) | `readDecisions`, which reads the folder by the reading rules, and `writeDecision`, which adds, replaces or accepts under the write lock |
 | [`memory_store.dart`](../../packages/appstein_engine/lib/src/memory/memory_store.dart) | The two memory paths, reading a memory file, and the lesson line: `lessonLine`, `lessonsIn`, `withLesson` |
 
@@ -36,9 +37,33 @@ Why: Flutter's architecture guide recommends it; one stack pack keeps checks exa
 
 - **The file name** is `NNNN-<slug>.md`. The number in the name is the decision's number; `id` only repeats it and is never read.
 - **`status`** is `proposed`, `accepted` or `superseded`. Only an accepted decision binds.
-- **`paths`** are glob patterns from the project folder. They say where the decision applies; an empty list means everywhere.
+- **`paths`** are glob patterns from the project folder. They say where the decision applies; an empty list means everywhere. See "Paths and backslashes" below for a `\` in a path.
 - **`checks`** name verifier checks that confirm the decision. They are stored now and run in slice 1d.
 - **The text below the front matter** is the reason. A leading `Why:` is dropped when it is read.
+
+## Paths and backslashes
+
+A `\` in a decision's path is ambiguous: a Windows separator (`lib\ui\x.dart`), or an escape for a glob character (`lib/a\[1\].dart` names the file `a[1].dart`). One function, [`decisionPathReadings`](../../packages/appstein_engine/lib/src/decisions/decision_path.dart), gives every reader the same answer. A path has up to two readings:
+
+- **(a)** every `\` is a separator;
+- **(b)** a `\` right before `[`, `]`, `{` or `}` escapes that character, and every other `\` is a separator.
+
+A reading that is not a valid glob is dropped. A path matches when any remaining reading matches, and it is "not a valid pattern" only when no reading is valid. The readers:
+
+- **`paths.exist`** looks for a file for each reading, and applies its guards (never leaving the project, letter case, links) to each ([verify](verify.md#the-checks-in-this-slice)).
+- **The `decisions` tool** covers a file when any valid reading covers it. A path with no valid reading is named in `problems`.
+- **`record_decision`** stores the escape reading (b), so a stored path has `/` separators and a `\` only where it escapes. When (b) is not a valid glob but (a) is (`lib\{ui,data}\x.dart`), it stores (a). A path that leaves the project in either reading is refused.
+
+**In the decision file, YAML reads the backslash too.** Written as a block item or in single quotes, `\[` reaches the reader as it is. Inside double quotes or a flow list `[...]`, YAML reads `\[` as a bad escape, and the whole file becomes unreadable ("its front matter is not valid YAML"), so there the backslash must be doubled: `"lib/a\\[1\\].dart"`.
+
+```yaml
+paths:
+  - lib/a\[1\].dart        # a block item
+  - 'lib/b\[1\].dart'      # single quotes
+  - "lib/c\\[1\\].dart"    # double quotes: doubled
+```
+
+`record_decision` writes its paths in a flow list and quotes and doubles them where YAML needs it, so a path it stored reads back as it was given.
 
 ## Reading: one reader, three rules
 

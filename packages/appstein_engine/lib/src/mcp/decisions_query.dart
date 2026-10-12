@@ -4,6 +4,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
 
+import '../decisions/decision_path.dart';
 import '../decisions/decision_store.dart';
 import 'tool_answer.dart';
 
@@ -226,21 +227,26 @@ String _posix(String path) {
 }
 
 /// Whether one of [record]'s path patterns covers [path]: the glob matches
-/// it, or the pattern names it or a folder above it. A pattern that isn't
-/// a valid glob covers nothing and is named in [problems].
+/// it, or the pattern names it or a folder above it. A pattern covers it
+/// when any reading of its backslashes does ([decisionPathReadings]). A
+/// pattern with no valid reading covers nothing and is named in [problems].
 bool _covers(DecisionRecord record, String path, List<String> problems) {
   var covers = false;
   for (final raw in record.paths) {
-    final pattern = _posix(raw).replaceFirst(RegExp(r'/+$'), '');
-    if (pattern == path || path.startsWith('$pattern/')) covers = true;
-    try {
+    var valid = false;
+    for (final reading in decisionPathReadings(raw)) {
+      if (!reading.valid) continue;
+      valid = true;
+      final pattern = reading.pattern;
+      if (pattern == path || path.startsWith('$pattern/')) covers = true;
       final glob = Glob(pattern, context: p.posix);
       // A folder is covered when something in it would be.
       final folder = !RegExp(r'\.[A-Za-z0-9]+$').hasMatch(path);
       if (glob.matches(path) || (folder && glob.matches('$path/_'))) {
         covers = true;
       }
-    } on FormatException {
+    }
+    if (!valid) {
       problems.add(
         'Decision ${record.numberText ?? record.file} has a path pattern '
         'that is not valid: `$raw`.',

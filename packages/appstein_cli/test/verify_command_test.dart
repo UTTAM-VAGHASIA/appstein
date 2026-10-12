@@ -7,6 +7,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
 
 const _stale = Finding(
@@ -220,10 +221,11 @@ void main() {
     });
   });
 
-  // The fake Flutter SDK has no Dart SDK, so the project map can't be built
-  // here: every run reports `knowledge.stale`. The runs on a whole project
-  // are in the engine's `verify_fixture_test.dart`, and with the real binary
-  // in `tool/measure_sync.dart`.
+  // The fake Flutter SDK has no Dart SDK, so unless a run is given one
+  // (`dartSdkPath: testDartSdk`) the project map can't be built: it reports
+  // `knowledge.stale`. The runs on the fixture app are in the engine's
+  // `verify_fixture_test.dart`, and with the real binary in
+  // `tool/measure_sync.dart`.
   group('appstein verify', () {
     late StringBuffer out;
     late StringBuffer err;
@@ -249,6 +251,7 @@ void main() {
       String? workingDirectory,
       List<({VerifyCheck check, String? pack})> Function(List<Pack> packs)?
       verifyChecks,
+      String? dartSdkPath,
     }) => runAppstein(
       args,
       out: out,
@@ -259,6 +262,7 @@ void main() {
         workingDirectory: workingDirectory ?? project,
       ),
       verifyChecks: verifyChecks,
+      dartSdkPath: dartSdkPath,
     );
 
     void config(String text) =>
@@ -481,6 +485,101 @@ void main() {
         expect(err.toString(), contains('appstein doctor'));
       },
     );
+
+    group('on a healthy project', () {
+      setUp(() async {
+        // The project's packages count as fresh, so the knowledge can be
+        // built without `flutter pub get`. Its docs are rendered, as
+        // `appstein docs` does, so none is stale.
+        File(p.join(project, 'lib', 'main.dart'))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('void main() {}\n');
+        File(p.join(project, '.dart_tool', 'package_config.json'))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(
+            jsonEncode({
+              'configVersion': 2,
+              'packages': [
+                {
+                  'name': 'my_app',
+                  'rootUri': '../',
+                  'packageUri': 'lib/',
+                  'languageVersion': '3.12',
+                },
+              ],
+              'generator': 'pub',
+            }),
+          );
+        File(
+          p.join(project, '.dart_tool', 'version'),
+        ).writeAsStringSync('3.47.5');
+        File(
+          p.join(project, 'pubspec.lock'),
+        ).writeAsStringSync('packages: {}\n');
+        final now = DateTime.now();
+        File(
+          p.join(project, 'pubspec.yaml'),
+        ).setLastModifiedSync(now.subtract(const Duration(hours: 1)));
+        File(p.join(project, 'pubspec.lock')).setLastModifiedSync(now);
+        File(
+          p.join(project, '.dart_tool', 'package_config.json'),
+        ).setLastModifiedSync(now);
+
+        const config = AppsteinConfig();
+        final packs = packsFor(config);
+        final outcome = await runDocs(
+          projectRoot: project,
+          config: config,
+          packs: packs,
+          sync: KnowledgeSync(
+            environment: HostEnvironment(
+              os: HostOs.current,
+              variables: {'FLUTTER_ROOT': sdk},
+              workingDirectory: project,
+            ),
+            appsteinVersion: appsteinVersion,
+            packs: packs,
+            baseline: config.delta.baseline,
+            agents: config.integrations.agents,
+            packageSkills: false,
+          ),
+          check: false,
+          dartSdkPath: testDartSdk,
+        );
+        expect(outcome, isA<DocsDone>());
+      });
+
+      test('prints the summary alone, with exit 0', () async {
+        expect(await run(['verify'], dartSdkPath: testDartSdk), ExitCodes.ok);
+        expect(err.toString(), isEmpty);
+        expect(
+          out.toString(),
+          '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
+        );
+      });
+
+      test(
+        '--format json has no findings and nothing that did not run',
+        () async {
+          expect(
+            await run(['verify', '--format', 'json'], dartSdkPath: testDartSdk),
+            ExitCodes.ok,
+          );
+          expect(err.toString(), isEmpty);
+          final result = VerifyResult.fromJson(
+            jsonDecode(out.toString()) as Map<String, Object?>,
+          );
+          expect(result.findings, isEmpty);
+          expect(result.notRun, isEmpty);
+          expect(result.suppressed, 0);
+          expect(result.activeSuppressions, 0);
+          expect(
+            (jsonDecode(out.toString()) as Map<String, Object?>)['summary'],
+            {'errors': 0, 'warnings': 0, 'info': 0},
+          );
+        },
+      );
+    });
 
     test('is in the help, with its flags', () async {
       expect(await run(['help']), ExitCodes.ok);

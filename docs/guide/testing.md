@@ -59,6 +59,7 @@ Fakes can only answer the way we expect Flutter to. Some tests therefore run aga
 ## CLI tests
 
 - **In-process runs.** `runAppstein` takes output sinks, an environment, a runner and the doctor's checks as parameters. `runner_test.dart` passes `StringBuffer`s, an environment with no variables and made-up checks, then checks the text and the returned code. An extra command that throws on purpose tests the crash path.
+- **The CLI's Dart SDK.** The CLI tests use a fake Flutter SDK, which has no Dart SDK, so a run can't build the project's knowledge on its own. [`dart_sdk.dart`](../../packages/appstein_cli/test/support/dart_sdk.dart) has `testDartSdk` (the same definition as the engine's); a test passes it as `runAppstein`'s `dartSdkPath` when the knowledge must be built, as the healthy-project runs of `verify_command_test.dart` do.
 - **The async crash path.** `runGuarded` changes the process's own exit code, and it exists to catch an error that escapes every future. That can't be tested inside the test runner's process. So `run_guarded_test.dart` starts [`async_error_harness.dart`](../../packages/appstein_cli/test/support/async_error_harness.dart) as a separate Dart process. The harness throws from a timer, outside the awaited future, and the test expects exit code 3 and the crash message on stderr.
 
 ## Flutter's own files as fixtures

@@ -55,6 +55,45 @@ void main() {
     expect(set.bytes.keys, ['0001-a.md', '0002-b.md', '0003-c.md']);
   });
 
+  test('an escaped glob character in paths reads as a block item or in '
+      'single quotes; inside double quotes or a flow list the backslash '
+      'must be doubled, or the file is unreadable', () {
+    String write(String name, String paths) {
+      File(p.join(root, '.appstein', 'decisions', name))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          '---\ntitle: Escapes\nstatus: accepted\ndate: 2026-10-01\n'
+          '$paths---\nWhy: because.\n',
+        );
+      return name;
+    }
+
+    write('0001-block.md', 'paths:\n  - lib/a\\[1\\].dart\n');
+    write('0002-single.md', "paths:\n  - 'lib/a\\[1\\].dart'\n");
+    write('0003-double.md', 'paths:\n  - "lib/a\\\\[1\\\\].dart"\n');
+    write('0004-flow.md', 'paths: ["lib/a\\\\[1\\\\].dart"]\n');
+    write('0005-bad-double.md', 'paths:\n  - "lib/a\\[1\\].dart"\n');
+    write('0006-bad-flow.md', 'paths: [lib/a\\[1\\].dart]\n');
+
+    final set = readDecisions(root);
+    for (final entry in set.entries) {
+      expect(entry.record.paths, [
+        r'lib/a\[1\].dart',
+      ], reason: entry.record.file);
+    }
+    expect(
+      [for (final entry in set.entries) entry.record.file],
+      ['0001-block.md', '0002-single.md', '0003-double.md', '0004-flow.md'],
+    );
+    expect(
+      [for (final file in set.unreadable) (file.file, file.problem)],
+      [
+        ('0005-bad-double.md', 'its front matter is not valid YAML'),
+        ('0006-bad-flow.md', 'its front matter is not valid YAML'),
+      ],
+    );
+  });
+
   test('a decision an active one names in supersedes counts as superseded, '
       'whatever its own status line says', () {
     handDecision(root, '0001-a.md');

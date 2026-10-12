@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
 
+import '../../decisions/decision_path.dart';
 import '../../decisions/decision_store.dart';
 import '../decision_check.dart';
 import '../verify_check.dart';
@@ -21,7 +22,7 @@ final _globCharacter = RegExp(r'[*?\[\]{}]');
 const _toolFolders = {'.dart_tool', '.git', 'build'};
 
 /// What a pattern matches.
-enum _Match { found, none, leaves }
+enum _Match { found, none, leaves, invalid }
 
 /// `paths.exist`, the engine's decision check (spec §6.7): every path
 /// pattern of the decision still matches a file or a folder of the project.
@@ -30,6 +31,12 @@ enum _Match { found, none, leaves }
 ///   (also inside braces, and in the forms Windows reads as `..`) and a path
 ///   through a link are reported and never followed, so a decision file
 ///   can't make `verify` look at folders outside the project.
+/// - **A `\` has two readings, and the path matches when either does.** As
+///   a Windows separator (`lib\ui\x.dart`), or, right before `[`, `]`, `{`
+///   or `}`, as an escape (`a\[1\].dart` names the file `a[1].dart`). A
+///   reading that isn't a valid glob is dropped, and the path is "not a valid
+///   pattern" only when no reading is valid ([decisionPathReadings]). Every
+///   guard here applies to each reading.
 /// - **Letter case counts on every system,** so the same decision holds on
 ///   a Windows laptop and in CI on Linux.
 /// - **It stops at the first match,** starts in the folders the pattern
@@ -49,53 +56,68 @@ final class PathsExistCheck implements DecisionCheck {
     final root = context.projectRoot;
     final problems = <String>[];
     for (final raw in decision.record.paths) {
-      const leaves = 'could leave the project, so it was not checked.';
-      var pattern = raw.replaceAll(r'\', '/');
-      if (_absolute.hasMatch(pattern) || _parent.hasMatch(pattern)) {
-        problems.add('The path `$raw` $leaves');
-        continue;
-      }
-      while (pattern.startsWith('./')) {
-        pattern = pattern.substring(2);
-      }
-      pattern = pattern.replaceFirst(RegExp(r'/+$'), '');
-      final segments = [
-        for (final segment in pattern.split('/'))
-          if (segment.isNotEmpty && segment != '.') segment,
-      ];
-
-      // The folders named before the first wildcard: where the search
-      // starts.
-      final fixed = segments
-          .takeWhile((segment) => !_globCharacter.hasMatch(segment))
-          .toList();
-      final _Match match;
-      if (fixed.length == segments.length) {
-        match = _exact(root, segments);
-      } else {
-        final Glob glob;
-        try {
-          glob = Glob(segments.join('/'), context: p.posix);
-        } on FormatException {
-          problems.add('The path `$raw` is not a valid pattern.');
-          continue;
+      // The path matches when any of its readings does. One that leaves the
+      // project is not followed and outweighs "no file", so a reading that
+      // might be the one meant is never skipped quietly.
+      var leaves = false;
+      var valid = false;
+      var found = false;
+      for (final reading in decisionPathReadings(raw)) {
+        switch (_match(root, reading)) {
+          case _Match.found:
+            found = true;
+            valid = true;
+          case _Match.none:
+            valid = true;
+          case _Match.leaves:
+            leaves = true;
+          case _Match.invalid:
+            break;
         }
-        match = switch (_exact(root, fixed)) {
-          _Match.found => _search(root, fixed, glob),
-          final other => other,
-        };
+        if (found) break;
       }
-      switch (match) {
-        case _Match.found:
-          break;
-        case _Match.none:
-          problems.add('The path `$raw` matches no file.');
-        case _Match.leaves:
-          problems.add('The path `$raw` $leaves');
+      if (found) continue;
+      if (leaves) {
+        problems.add(
+          'The path `$raw` could leave the project, so it was not checked.',
+        );
+      } else if (valid) {
+        problems.add('The path `$raw` matches no file.');
+      } else {
+        problems.add('The path `$raw` is not a valid pattern.');
       }
     }
     return problems;
   }
+}
+
+/// What one [reading] of a path matches below [root].
+_Match _match(String root, DecisionPathReading reading) {
+  final pattern = reading.pattern;
+  if (_absolute.hasMatch(pattern) || _parent.hasMatch(pattern)) {
+    return _Match.leaves;
+  }
+  if (!reading.valid) return _Match.invalid;
+  final segments = [
+    for (final segment in pattern.split('/'))
+      if (segment.isNotEmpty && segment != '.') segment,
+  ];
+
+  // The folders named before the first wildcard: where the search starts.
+  final fixed = segments
+      .takeWhile((segment) => !_globCharacter.hasMatch(segment))
+      .toList();
+  if (fixed.length == segments.length) return _exact(root, segments);
+  final Glob glob;
+  try {
+    glob = Glob(segments.join('/'), context: p.posix);
+  } on FormatException {
+    return _Match.invalid;
+  }
+  return switch (_exact(root, fixed)) {
+    _Match.found => _search(root, fixed, glob),
+    final other => other,
+  };
 }
 
 /// Whether [segments] name a file or folder below [root], by their exact

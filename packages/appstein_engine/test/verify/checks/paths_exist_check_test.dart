@@ -61,6 +61,62 @@ void main() {
     expect(problems([r'lib\main.dart']), isEmpty);
   });
 
+  test('a backslash that escapes a glob character names that character', () {
+    file('lib/a[1].dart');
+    file('lib/b1.dart');
+    expect(problems([r'lib/a\[1\].dart']), isEmpty);
+    // Escaped, `[1]` is not a character class, so `b1.dart` is not matched.
+    expect(problems([r'lib/b\[1\].dart']), [
+      r'The path `lib/b\[1\].dart` matches no file.',
+    ]);
+    // A separator before an escaped character still works.
+    expect(problems([r'lib\a\[1\].dart']), isEmpty);
+  });
+
+  test('a backslash that is not before a glob character stays a separator', () {
+    file('lib/ui/home.dart');
+    expect(problems([r'lib\ui\home.dart', r'lib\ui']), isEmpty);
+    expect(problems([r'lib\ui\gone.dart']), [
+      r'The path `lib\ui\gone.dart` matches no file.',
+    ]);
+  });
+
+  test('a backslash before `*` or `?` is a separator, as on Windows', () {
+    file('lib/main.dart');
+    file('lib/ui/home.dart');
+    expect(
+      problems([r'lib\*.dart', r'lib\ui\?ome.dart', r'lib\*\home.dart']),
+      isEmpty,
+    );
+    expect(problems([r'lib\ui\?one.dart']), [
+      r'The path `lib\ui\?one.dart` matches no file.',
+    ]);
+  });
+
+  test('a path with a backslash has two readings, and either may match', () {
+    // Every `\` a separator (as before), or a `\` before `[ ] { }` an escape.
+    file('lib/ui/x.dart');
+    file('lib/a{b}.dart');
+    expect(
+      problems([
+        r'lib\{ui,data}\x.dart',
+        r'lib\[a-z]i\x.dart',
+        r'lib/a\{b\}.dart',
+      ]),
+      isEmpty,
+    );
+    expect(problems([r'lib\{ui,data}\gone.dart']), [
+      r'The path `lib\{ui,data}\gone.dart` matches no file.',
+    ]);
+  });
+
+  test('a path that is no valid pattern under any reading is named', () {
+    expect(problems([r'lib\a}\x[', 'lib/[x']), [
+      r'The path `lib\a}\x[` is not a valid pattern.',
+      'The path `lib/[x` is not a valid pattern.',
+    ]);
+  });
+
   test('each pattern that matches nothing is named', () {
     file('lib/main.dart');
     expect(problems(['lib/gone.dart', 'lib/main.dart', 'lib/ui/**']), [

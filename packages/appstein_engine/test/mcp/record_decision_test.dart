@@ -109,6 +109,28 @@ void main() {
       },
     );
 
+    test('a backslash before [ ] { } is kept as an escape; any other becomes '
+        '/; a path valid only with every backslash a separator is stored '
+        'that way', () async {
+      final reply = await record({
+        'title': 'Escapes',
+        'why': 'x',
+        'paths': [
+          r'lib\a\[1\].dart',
+          r'lib/a\{b\}.dart',
+          r'lib\{ui,data}\x.dart',
+        ],
+      });
+      final stored = [
+        r'lib/a\[1\].dart',
+        r'lib/a\{b\}.dart',
+        'lib/{ui,data}/x.dart',
+      ];
+      expect((reply.result['decision']! as Map)['paths'], stored);
+      // It reads back from the file as it was recorded.
+      expect(readDecisions(root).entries.single.record.paths, stored);
+    });
+
     test('the next number follows the highest file, an unreadable one '
         'included', () async {
       handDecision(root, '0003-a.md');

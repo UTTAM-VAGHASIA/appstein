@@ -217,6 +217,31 @@ integrations:
         3,
       ),
       (
+        'suppressions:\n  - id: docs.stale\n    path: C:docs\n',
+        'must be relative',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: ./C:docs\n',
+        'must be relative',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: " /docs"\n',
+        'must be relative',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: " C:docs"\n',
+        'must be relative',
+        3,
+      ),
+      (
+        'suppressions:\n  - id: docs.stale\n    path: "z:"\n',
+        'must be relative',
+        3,
+      ),
+      (
         'suppressions:\n  - id: docs.stale\n    path: /docs\n',
         'must be relative',
         3,

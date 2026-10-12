@@ -55,7 +55,7 @@ suppressions:
 ```
 
 - `id` is a check ID, in the same form as a `verify.severity` key.
-- `path` is a file, a folder or a glob, from the project folder, with `/`. A backslash, an absolute path, `..` and a glob that isn't valid are errors.
+- `path` is a file, a folder or a glob, from the project folder, with `/`. A backslash, an absolute path (also a drive-relative one such as `C:foo`; the path is trimmed and normalized first, so ` /docs` and `./C:foo` are refused too), `..` and a glob that isn't valid are errors.
 - `reason` may be missing or blank as far as the loader is concerned: it then loads as no reason, and `appstein verify` reports the entry as the error `suppression.no_reason`. A config error would stop every command; a finding names the line and still lets `verify` run.
 - Any other key in an entry is an error, with the "did you mean" hint.
 
