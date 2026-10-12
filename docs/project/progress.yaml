@@ -178,7 +178,9 @@ milestones:
         summary: Fast and full checks, Android and iOS checks with static release readiness, the package gate, the M1 lint rules, `docs.stale`, suppressions, and the `verify` and `package_check` MCP tools.
         # 1d was split in six (owner decision, 2026-10-06): the frame every
         # check plugs into first, then the checks in the order they depend
-        # on each other.
+        # on each other. 1d.2 was split in two (owner decision, 2026-10-12):
+        # the checks, then the hook's route to them as 1d.7, which is built
+        # straight after 1d.2. The ids keep their numbering.
         slices:
           - id: 1d.1
             title: Verify core
@@ -188,9 +190,14 @@ milestones:
             pr: 9
             finished: 2026-10-06
           - id: 1d.2
-            title: Code checks and fast verify
-            summary: Analyze, fix, format and test checks, warm analysis inside the MCP process, the hook exit code, and fast verify measured against 5 s.
+            title: Code checks
+            summary: "The analyze, format, fix and test checks, answered by an analysis server that `appstein mcp` keeps running, with the unverified files, `--files`, `--apply` and the Dart suppression comments."
             status: next
+            spec: 1d2-code-checks
+          - id: 1d.7
+            title: Hook mode and fast verify in 5 s
+            summary: "`--hook claude` with its exit code, the hook's route to the running `appstein mcp`, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route."
+            status: planned
           - id: 1d.3
             title: Lint rules
             summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.

@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d.2</b> Code checks and fast verify</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d.2</b> Code checks</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -676,7 +676,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1b" style="--fill:100%"><b>1b</b><span>Knowledge layers 1–2</span><i>8 of 8 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1c" style="--fill:100%"><b>1c</b><span>MCP server</span><i>5 of 5 done</i></a>
-    <a class="pg-seg pg-underway" href="#pg-1d" style="--fill:17%"><b>1d</b><span>Verifier</span><i>1 of 6 done</i></a>
+    <a class="pg-seg pg-underway" href="#pg-1d" style="--fill:14%"><b>1d</b><span>Verifier</span><i>1 of 7 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1f" style="--fill:0%"><b>1f</b><span>upgrade, skills, benchmark</span><i>0 of 1 done</i></a>
   </div>
@@ -800,8 +800,13 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <p class="pg-meta"><time datetime="2026-10-06">6 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/9">PR #9</a> · <a href="../plans/2026-10-06-slice-1d1-verify-core.md">Plan</a></p>
         </li>
         <li class="pg-item pg-next" id="pg-1d-2">
-          <p class="pg-title"><b>1d.2</b> Code checks and fast verify <span class="tag info">Next</span></p>
-          <p class="pg-summary">Analyze, fix, format and test checks, warm analysis inside the MCP process, the hook exit code, and fast verify measured against 5 s.</p>
+          <p class="pg-title"><b>1d.2</b> Code checks <span class="tag info">Next</span></p>
+          <p class="pg-summary">The analyze, format, fix and test checks, answered by an analysis server that <code>appstein mcp</code> keeps running, with the unverified files, <code>--files</code>, <code>--apply</code> and the Dart suppression comments.</p>
+          <p class="pg-meta"><a href="../slices/1d2-code-checks/spec.md">Spec</a></p>
+        </li>
+        <li class="pg-item pg-planned" id="pg-1d-7">
+          <p class="pg-title"><b>1d.7</b> Hook mode and fast verify in 5 s <span class="tag neutral">Planned</span></p>
+          <p class="pg-summary"><code>--hook claude</code> with its exit code, the hook's route to the running <code>appstein mcp</code>, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route.</p>
         </li>
         <li class="pg-item pg-planned" id="pg-1d-3">
           <p class="pg-title"><b>1d.3</b> Lint rules <span class="tag neutral">Planned</span></p>
@@ -1102,14 +1107,14 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     </div>
 
     <div class="vpanel" id="v-fast" role="tabpanel" aria-labelledby="tab-fast" hidden>
-      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>dart analyze</b> on changed files and dependents; fails on errors and deprecated use</li><li><b>dart fix --dry-run</b> lists pending migrations</li><li><b>Format</b> check, applied later at Stop</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>Analyzer errors</b> and deprecated use, anywhere in the project</li><li><b>Warnings, lints and format</b> on the unverified files</li><li>An <code>// ignore:</code> can’t hide deprecated use</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="12" height="12" rx="3"/><path d="M6 9h6"/></svg>Lints</h3><ul><li><b>appstein_lints</b> rules, run inside the analyzer</li><li>Layer rules from the stack pack</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h10M4 12h10"/><circle cx="7" cy="6" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>Packages</h3><ul><li>Package gate, if dependencies changed</li><li>Package skills refreshed</li></ul></div>
-      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b> with warm analysis (1d)</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b> on a running <code>appstein mcp</code>, which keeps the analyzer warm</li></ul></div>
     </div>
 
     <div class="vpanel" id="v-full" role="tabpanel" aria-labelledby="tab-full">
-      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>fix + format</b> first, then every fast check on the whole project</li><li><b>flutter test</b> with accessibility guideline tests</li><li>Every feature folder has a test</li><li>Decisions still match the code</li><li>Human docs up to date (warning)</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>fix + format</b> first when run with <code>--apply</code>; then every fast check on the whole project</li><li><b>Pending fixes</b> listed per file</li><li><b>flutter test</b> with accessibility guideline tests</li><li>Every feature folder has a test</li><li>Decisions still match the code</li><li>Human docs up to date (warning)</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="2.5" width="8" height="13" rx="2"/><path d="M8 13h2"/></svg>Android</h3><ul><li><b>Toolchain</b> inside Flutter’s matrix</li><li><b>AGP 9 built-in Kotlin</b> rule</li><li><b>flutter.*</b> SDK variables; compile/target SDK ≥ 36; minSdk covers every plugin</li><li><b>16 KB</b> page size: NDK r28+, <code>zipalign -c -P 16</code></li><li>No signing secrets in git · real debug build</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4.5" y="2" width="9" height="14" rx="2.5"/><path d="M8 4h2"/></svg>iOS</h3><ul><li><b>Deployment target</b> ≥ SDK minimum (15 on 3.47), consistent everywhere</li><li><b>SwiftPM</b> on; plugins without it flagged (CocoaPods read-only 2026-12-02)</li><li><b>UIScene</b> manifest</li><li><b>PrivacyInfo</b> + usage descriptions</li><li>Real build on macOS only</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 2.5l5.5 2v4.5c0 3.2-2.3 5.6-5.5 6.5-3.2-.9-5.5-3.3-5.5-6.5V4.5z"/></svg>Release-ready (static)</h3><ul><li>App / bundle ID not <code>com.example</code></li><li>App name and icon not the template default</li><li><code>version:</code> set in pubspec</li><li>Signing config present or marked TODO</li></ul></div>
@@ -1209,7 +1214,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <span><code>doctor</code>environment check</span>
     </div>
     <div class="perf">
-      <div><b>&lt; 5 s</b><span>fast verify</span></div>
+      <div><b>&lt; 5 s</b><span>fast verify, on a running <code>appstein mcp</code></span></div>
       <div><b>&lt; 2 s</b><span>incremental sync, 200 files</span></div>
       <div><b>&lt; 1 s</b><span>MCP answers</span></div>
       <div><b>&lt; 200 ms</b><span>hook start-up (AOT)</span></div>
@@ -1428,10 +1433,10 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div>
         <h3 style="font-size:1.5rem;letter-spacing:-.02em">Still to prove</h3>
         <p class="muted" style="margin:10px 0 0;max-width:34ch">Open items, each resolved in a named slice, with a fallback where one is needed.</p>
-        <p class="muted small" style="margin:10px 0 0;max-width:34ch"><b>Settled in 1a:</b> Flutter 3.44+ is the minimum supported version. Cold analysis is too slow, so fast verify uses warm analysis.</p>
+        <p class="muted small" style="margin:10px 0 0;max-width:34ch"><b>Settled in 1a:</b> Flutter 3.44+ is the minimum supported version. Cold analysis is too slow, so fast verify uses warm analysis. <b>Measured for 1d.2:</b> warm analysis answers about 0.1 s after an edit; a run from the terminal starts its own analyzer and has no time limit.</p>
       </div>
       <div class="checklist">
-        <div>Warm analysis keeps fast verify under 5 s <span class="tag neutral">1d</span></div>
+        <div>The hook’s route to warm analysis keeps fast verify under 5 s <span class="tag neutral">1d.7</span></div>
         <div>Codex hooks, blocking and MCP config location <span class="tag neutral">1e</span></div>
         <div>Project-level enabling of the official Claude Code plugin <span class="tag neutral">1e</span></div>
         <div>No duplicate Dart MCP server <span class="tag neutral">1e</span></div>
