@@ -7,8 +7,10 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
+import 'support/scripted_code_analysis.dart';
 
 const _stale = Finding(
   id: 'knowledge.stale',
@@ -252,7 +254,16 @@ void main() {
       List<({VerifyCheck check, String? pack})> Function(List<Pack> packs)?
       verifyChecks,
       String? dartSdkPath,
+      ScriptedCodeAnalysis? analysis,
+      bool realServer = false,
+      CodeAnalysisScope? scope,
     }) => runAppstein(
+      // The fake SDK has no `dart` to run an analysis server with, so a run
+      // gets a scripted answer (nothing found) unless it asks for the real
+      // server, which is then the one of `dartSdkPath`, or gives a scope.
+      codeAnalysis:
+          scope ??
+          (realServer ? null : (analysis ?? ScriptedCodeAnalysis()).scope),
       args,
       out: out,
       err: err,
@@ -486,6 +497,199 @@ void main() {
       },
     );
 
+    group('the Dart checks, with a scripted analysis', () {
+      const error = CodeDiagnostic(
+        file: 'lib/ui/home screen.dart',
+        line: 12,
+        code: 'undefined_method',
+        message: "The method 'go' isn't defined for the type 'Home'.",
+        level: DiagnosticLevel.error,
+        correction: "Try correcting the name, or defining a method 'go'.",
+      );
+
+      test('an analyzer error is a dart.error in its file\'s group, beside '
+          'knowledge.stale, with exit 1', () async {
+        expect(
+          await run([
+            'verify',
+            '--fast',
+          ], analysis: ScriptedCodeAnalysis(found: const [error])),
+          ExitCodes.errorsFound,
+        );
+        expect(err.toString(), isEmpty);
+        expect(out.toString(), contains('  error knowledge.stale: '));
+        expect(
+          out.toString(),
+          contains(
+            '\n'
+            'lib/ui/home screen.dart\n'
+            "  error dart.error (line 12): The method 'go' isn't defined for "
+            "the type 'Home'. (`undefined_method`)\n"
+            "    fix: Try correcting the name, or defining a method 'go'.\n",
+          ),
+        );
+        expect(
+          out.toString(),
+          endsWith('2 errors, 0 warnings, 0 info. No findings suppressed.\n'),
+        );
+      });
+
+      test('--format json carries the file, the line and the code', () async {
+        await run([
+          'verify',
+          '--format',
+          'json',
+        ], analysis: ScriptedCodeAnalysis(found: const [error]));
+        final result = VerifyResult.fromJson(
+          jsonDecode(out.toString()) as Map<String, Object?>,
+        );
+        final found = result.findings.singleWhere(
+          (finding) => finding.id == 'dart.error',
+        );
+        expect(found.file, 'lib/ui/home screen.dart');
+        expect(found.line, 12);
+        expect(found.severity, Severity.error);
+        expect(found.message, endsWith('(`undefined_method`)'));
+      });
+
+      test('an analyzer plugin that failed is an error on the project, with '
+          'exit 1', () async {
+        expect(
+          await run(
+            ['verify', '--fast'],
+            analysis: ScriptedCodeAnalysis(
+              pluginFailures: const [
+                'An error occurred while setting up the analyzer plugin: '
+                    'version solving failed',
+              ],
+            ),
+          ),
+          ExitCodes.errorsFound,
+        );
+        expect(
+          out.toString(),
+          contains(
+            '  error dart.plugin_failed: An analyzer plugin failed, so its '
+            'rules were not checked: An error occurred while setting up the '
+            'analyzer plugin: version solving failed.\n'
+            '    fix: Check the plugin\'s entry under `plugins:` in '
+            '`analysis_options.yaml`, and run `appstein doctor`.\n',
+          ),
+        );
+      });
+
+      test('a suppression and verify.severity in appstein.yaml work on '
+          'dart.error', () async {
+        config(
+          'appstein: 1\n'
+          'verify:\n'
+          '  severity:\n'
+          '    dart.error: warning\n'
+          'suppressions:\n'
+          '  - id: dart.error\n'
+          '    path: lib/legacy\n'
+          '    reason: rewritten next month\n',
+        );
+        await run(
+          ['verify', '--fast'],
+          analysis: ScriptedCodeAnalysis(
+            found: const [
+              error,
+              CodeDiagnostic(
+                file: 'lib/legacy/old.dart',
+                line: 1,
+                code: 'undefined_method',
+                message: 'Old.',
+                level: DiagnosticLevel.error,
+              ),
+            ],
+          ),
+        );
+        expect(out.toString(), contains('\n  warning dart.error (line 12): '));
+        expect(out.toString(), isNot(contains('lib/legacy/old.dart')));
+        expect(
+          out.toString(),
+          endsWith(
+            '1 error, 1 warning, 0 info. 1 finding suppressed by 1 '
+            'suppression.\n',
+          ),
+        );
+      });
+
+      test('fails, with exit 3, when the analysis server can\'t answer: the '
+          'reason and `appstein doctor`, no finding and no check '
+          'blamed', () async {
+        expect(
+          await run(
+            ['verify', '--fast'],
+            analysis: ScriptedCodeAnalysis(
+              failure: const CodeAnalysisException(
+                'its analysis was not done within 180 s',
+              ),
+            ),
+          ),
+          ExitCodes.appsteinFailed,
+        );
+        expect(out.toString(), isEmpty);
+        expect(
+          err.toString(),
+          'The Dart analysis server could not answer: its analysis was not '
+          'done within 180 s.\n'
+          'Run `appstein doctor` to check your setup.\n',
+        );
+      });
+
+      test('fails, with exit 3, when the project\'s SDK has no Dart to run '
+          'the server with', () async {
+        // The real route, on the fake Flutter SDK: nothing is started.
+        expect(
+          await run(['verify', '--fast'], realServer: true),
+          ExitCodes.appsteinFailed,
+        );
+        expect(out.toString(), isEmpty);
+        expect(
+          err.toString(),
+          allOf(
+            startsWith(
+              'The Dart analysis server could not answer: there is no Dart '
+              'executable at ',
+            ),
+            contains(p.join(sdk, 'bin', 'cache', 'dart-sdk', 'bin')),
+            endsWith('Run `appstein doctor` to check your setup.\n'),
+          ),
+        );
+      });
+    });
+
+    group('the guard mode', () {
+      test('is not in the help', () async {
+        expect(await run(['help']), ExitCodes.ok);
+        expect(out.toString(), isNot(contains('guard')));
+      });
+
+      test('fails, with exit 3, without the dart executable', () async {
+        expect(await run([analysisGuardCommandName]), ExitCodes.appsteinFailed);
+        expect(
+          err.toString(),
+          startsWith('Pass the dart executable that runs the server.\n'),
+        );
+      });
+
+      test('is started with the running dart and this package\'s entry '
+          'script, where Appstein is not a compiled binary', () {
+        final command = analysisGuardCommand();
+        expect(command, hasLength(3));
+        expect(command.first, Platform.resolvedExecutable);
+        expect(p.split(command[1]).sublist(p.split(command[1]).length - 3), [
+          'appstein_cli',
+          'bin',
+          'appstein.dart',
+        ]);
+        expect(File(command[1]).existsSync(), isTrue);
+        expect(command.last, analysisGuardCommandName);
+      });
+    });
+
     group('on a healthy project', () {
       setUp(() async {
         // The project's packages count as fresh, so the knowledge can be
@@ -557,6 +761,87 @@ void main() {
           '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
         );
       });
+
+      // The whole path: the command starts the guard (`dart bin/appstein.dart
+      // analysis-server-guard`), the guard starts the analysis server of the
+      // SDK that runs the tests, and both are gone when the command returns.
+      // The scope is the command's own, wrapped only to note the process IDs
+      // the guard named, since a server left behind by a guard that has
+      // ended is no longer a child of this process.
+      test('with a real analysis server: a compile error is a dart.error with '
+          'exit 1, in a fast and a full run; without it, exit 0; no process '
+          'is left', () async {
+        final before = await childProcesses();
+        final own = terminalCodeAnalysis(
+          projectRoot: project,
+          environment: HostEnvironment(
+            os: HostOs.current,
+            variables: {'FLUTTER_ROOT': sdk},
+            workingDirectory: project,
+          ),
+          dartSdkPath: testDartSdk,
+        );
+        final started = <({int guard, int server})>[];
+        Future<T> noting<T>(Future<T> Function(CodeAnalysis analysis) body) =>
+            own<T>((analysis) async {
+              try {
+                return await body(analysis);
+              } finally {
+                final processes = (analysis as AnalysisServer).processes;
+                if (processes != null) started.add(processes);
+              }
+            });
+        final broken = File(p.join(project, 'lib', 'my folder', 'b.dart'))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
+        for (final mode in ['--fast', '--full']) {
+          out.clear();
+          expect(
+            await run(
+              ['verify', mode],
+              dartSdkPath: testDartSdk,
+              scope: noting,
+            ),
+            ExitCodes.errorsFound,
+            reason: '$mode\n$err',
+          );
+          expect(err.toString(), isEmpty);
+          expect(
+            out.toString(),
+            allOf(
+              contains('lib/my folder/b.dart\n  error dart.error (line 2): '),
+              contains(' (`return_of_invalid_type`)\n'),
+              contains('1 error, '),
+            ),
+          );
+        }
+
+        broken.deleteSync();
+        out.clear();
+        expect(
+          await run(
+            ['verify', '--fast'],
+            dartSdkPath: testDartSdk,
+            scope: noting,
+          ),
+          ExitCodes.ok,
+          reason: '$err',
+        );
+        expect(
+          out.toString(),
+          '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
+        );
+
+        final left = await childProcesses()
+          ..removeWhere((id, _) => before.containsKey(id));
+        expect(left, isEmpty);
+        // Three runs, each with a guard and a server of its own, all gone.
+        expect(started, hasLength(3));
+        for (final (:guard, :server) in started) {
+          expect(await processAlive(guard), isFalse, reason: 'guard $guard');
+          expect(await processAlive(server), isFalse, reason: 'server $server');
+        }
+      }, timeout: const Timeout(Duration(minutes: 5)));
 
       test(
         '--format json has no findings and nothing that did not run',

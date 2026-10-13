@@ -1,5 +1,6 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
+import '../analysis/code_analysis.dart';
 import '../decisions/decision_store.dart';
 import '../knowledge/knowledge_lock.dart';
 import '../knowledge/knowledge_refresh.dart';
@@ -32,18 +33,26 @@ String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 /// 2. When that failed, or a file of the project map can't be read, it
 ///    reports `knowledge.stale` as an error. Checks that need the map are
 ///    not run and are named in [VerifyResult.notRun].
-/// 3. Holding the knowledge lock, it reads the knowledge once and runs each
+/// 3. Before it takes the knowledge lock, it lets each selected
+///    [GatheringCheck] gather what it will judge ([VerifyGathering]). The
+///    code analysis is asked here, at most once, and never under the lock.
+/// 4. Holding the knowledge lock, it reads the knowledge once and runs each
 ///    of [checks] that [mode] selects. When the lock stays busy, it reports
 ///    `knowledge.stale` and runs the checks that don't need the map: files
 ///    are replaced whole, so reading without the lock is safe.
-/// 4. It applies `verify.severity` from [config], then the suppressions.
+/// 5. It applies `verify.severity` from [config], then the suppressions.
 ///
 /// [checks] is every check of the project, each with the pack that
 /// contributed it (null for the engine's); `checksFor` builds the list.
-/// [dartSdkPath] is passed to the sync, for tests.
+/// [codeAnalysis] answers the code checks. The caller owns it: a terminal
+/// run gives a server of its own and stops it afterwards
+/// (`ownAnalysisServer`). It is not asked, so no server is started, when no
+/// selected check gathers its reading. [dartSdkPath] is passed to the sync,
+/// for tests.
 ///
 /// Throws a [VerifyCheckError] when a check throws, or reports an ID it
-/// doesn't declare.
+/// doesn't declare, and a [CodeAnalysisException] when the code analysis
+/// can't answer. Neither is a finding: Appstein failed (spec §9.5).
 Future<VerifyResult> runVerify({
   required String projectRoot,
   required AppsteinConfig config,
@@ -51,6 +60,7 @@ Future<VerifyResult> runVerify({
   required KnowledgeSync sync,
   required VerifyMode mode,
   required List<({VerifyCheck check, String? pack})> checks,
+  required CodeAnalysis codeAnalysis,
   KnowledgeRefresh? refreshed,
   String? dartSdkPath,
 }) async {
@@ -62,6 +72,25 @@ Future<VerifyResult> runVerify({
         dartSdkPath: dartSdkPath,
         runAgain: _runAgain,
       );
+  // Everything slow, and everything the analysis server answers, is
+  // gathered here: after the refresh, which may fetch the packages the
+  // analysis reads, and before the knowledge lock, which other Appstein
+  // processes wait for.
+  final gathering = VerifyGathering(codeAnalysis);
+  for (final (:check, pack: _) in checks) {
+    if (check is! GatheringCheck) continue;
+    if (mode == VerifyMode.fast && check.mode != VerifyMode.fast) continue;
+    // It will not run: `knowledge.stale` is reported and it is named.
+    if (check.needsMap && !refresh.ok) continue;
+    try {
+      await gathering.gatherFor(check);
+    } on CodeAnalysisException {
+      // The analysis server failed, not the check that asked it.
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      throw VerifyCheckError(check.ids.first, error, stackTrace);
+    }
+  }
 
   Future<VerifyResult> body(KnowledgeRefresh refresh) async {
     final knowledge = KnowledgeSnapshot(projectRoot);
@@ -93,12 +122,15 @@ Future<VerifyResult> runVerify({
     // of it, did not run: a suppression of one is not "unused".
     final incomplete = <String>{};
     var running = const <String>[];
+    late VerifyCheck runningCheck;
     final context = VerifyContext(
       projectRoot: projectRoot,
       config: config,
       packs: packs,
       knowledge: knowledge,
       decisions: readDecisions(projectRoot),
+      // Only for the check that gathered it, and by name when it didn't.
+      codeReader: () => gathering.codeFor(runningCheck),
       staleProblem: stale,
       onSkipped: (part) {
         notRun[part] = CheckNotRun(id: part, reason: mapStale);
@@ -114,6 +146,7 @@ Future<VerifyResult> runVerify({
         continue;
       }
       running = check.ids;
+      runningCheck = check;
       final List<Finding> found;
       try {
         found = await check.run(context);

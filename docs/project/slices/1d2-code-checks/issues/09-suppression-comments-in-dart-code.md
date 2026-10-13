@@ -1,10 +1,10 @@
-# 09: Suppression comments in Dart code
+# Suppression comments in Dart code
 
 **What to build:** a person can hide a finding next to the code it is about, with a comment that needs a reason: `// appstein:ignore <check-id> — <reason>` for one line and `// appstein:ignore-file <check-id> — <reason>` for a file. The comments follow the same honesty rules as the suppressions in `appstein.yaml` (design §9.7), and the summary counts what they hide.
 
 **Blocked by:** 05.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] `// appstein:ignore <check-id> — <reason>` at the end of a line of code hides that check's findings on that line. Alone on a line, it hides them on the next line of code.
 - [ ] `// appstein:ignore-file <check-id> — <reason>` anywhere before the file's first declaration hides that check's findings in the file. After the first declaration it hides nothing and is reported as unused.

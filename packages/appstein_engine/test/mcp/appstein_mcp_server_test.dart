@@ -14,6 +14,7 @@ import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/scripted_code_analysis.dart';
 import 'support/mcp_client.dart';
 import 'support/mcp_support.dart';
 
@@ -22,8 +23,10 @@ void main() {
   late String app;
   late FakeProcessRunner runner;
   late KnowledgeSync Function() syncFor;
+  late ScriptedCodeAnalysis analysis;
 
   setUp(() {
+    analysis = ScriptedCodeAnalysis();
     sdk = fakeFlutter();
     app = copyFixtureApp();
     runner = FakeProcessRunner();
@@ -41,6 +44,7 @@ void main() {
       controller.local,
       projectRoot: app,
       syncFor: () => syncFor(),
+      codeAnalysis: analysis.scope,
       appsteinVersion: '0.1.0-dev',
       dartSdkPath: testDartSdk,
       clock: () => DateTime(2026, 10, 6, 23, 59),
@@ -433,6 +437,41 @@ void main() {
       );
       // It reads like `appstein verify --format json`.
       expect(VerifyResult.fromJson(json).warnings, 14);
+    });
+
+    test('an analysis server that can\'t answer is an error reply with the '
+        'reason and `appstein doctor`, and the server keeps '
+        'running', () async {
+      analysis.failure = const CodeAnalysisException(
+        'its analysis was not done within 180 s',
+      );
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'fast'});
+      expect(failed.isError, isTrue);
+      expect(
+        textOf(failed),
+        startsWith(
+          'The Dart analysis server could not answer: its analysis was not '
+          'done within 180 s. Run `appstein doctor` to see what is wrong.',
+        ),
+      );
+      expect(textOf(failed), isNot(contains('..')));
+
+      // The next call is answered, by `verify` too once the analysis can.
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+      analysis
+        ..failure = null
+        ..found = const [
+          CodeDiagnostic(
+            file: 'lib/main.dart',
+            line: 1,
+            code: 'some_code',
+            message: 'Wrong.',
+            level: DiagnosticLevel.error,
+          ),
+        ];
+      final json = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(ids(json), ['dart.error']);
     });
 
     test('fast: no full check runs', () async {

@@ -6,6 +6,7 @@ import 'package:dart_mcp/server.dart';
 import 'package:dart_mcp/stdio.dart';
 import 'package:stream_channel/stream_channel.dart';
 
+import '../analysis/code_analysis.dart';
 import '../config/config_loader.dart';
 import '../knowledge/knowledge_lock.dart';
 import '../knowledge/knowledge_refresh.dart';
@@ -53,12 +54,14 @@ const _doctor = 'Run `appstein doctor` to see what is wrong.';
 /// `stale`, from the files on disk; with no file to answer from, the reply
 /// is an error. Nothing is ever written to stdout but protocol messages.
 final class AppsteinMcpServer extends MCPServer with ToolsSupport {
-  /// Serves the project at [projectRoot] over [channel]. [dartSdkPath]
-  /// overrides where `dart:` libraries are read from, for tests.
+  /// Serves the project at [projectRoot] over [channel]. [codeAnalysis]
+  /// gives each `verify` call its code analysis. [dartSdkPath] overrides
+  /// where `dart:` libraries are read from, for tests.
   AppsteinMcpServer(
     super.channel, {
     required this.projectRoot,
     required this.syncFor,
+    required this.codeAnalysis,
     required String appsteinVersion,
     this.dartSdkPath,
     DateTime Function()? clock,
@@ -267,6 +270,10 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// The sync to run before each answer; called once per answer.
   final KnowledgeSync Function() syncFor;
 
+  /// Gives each `verify` call the project's code analysis, and decides how
+  /// long its analysis server lives.
+  final CodeAnalysisScope codeAnalysis;
+
   /// Where `dart:` libraries are read from; null for the Flutter SDK's.
   final String? dartSdkPath;
 
@@ -398,15 +405,18 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       final mode = arguments['scope'] == 'fast'
           ? VerifyMode.fast
           : VerifyMode.full;
-      final result = await runVerify(
-        projectRoot: projectRoot,
-        config: config,
-        packs: using.packs,
-        sync: using,
-        mode: mode,
-        checks: checksFor(using.packs),
-        refreshed: KnowledgeRefresh.fromFreshness(freshness),
-        dartSdkPath: dartSdkPath,
+      final result = await codeAnalysis(
+        (analysis) => runVerify(
+          projectRoot: projectRoot,
+          config: config,
+          packs: using.packs,
+          sync: using,
+          mode: mode,
+          checks: checksFor(using.packs),
+          codeAnalysis: analysis,
+          refreshed: KnowledgeRefresh.fromFreshness(freshness),
+          dartSdkPath: dartSdkPath,
+        ),
       );
       return switch (verifyAnswer(result, mode: mode)) {
         ToolReply(result: final json, :final summary) => _reply(
@@ -416,6 +426,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
         ),
         ToolRefusal(:final message) => _refuse(message, freshness),
       };
+    } on CodeAnalysisException catch (error) {
+      // A broken setup, not a bug to report; the server keeps running.
+      return _refuse('$error $_doctor', freshness);
     } on Object catch (error) {
       return _refuse(
         'Appstein failed to answer: $error. $_doctor If this keeps '

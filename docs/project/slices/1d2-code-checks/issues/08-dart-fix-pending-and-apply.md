@@ -1,14 +1,17 @@
-# 08: `dart.fix_pending` and `--apply`
+# `dart.fix_pending` and `--apply`
 
 **What to build:** a full run lists the fixes `dart fix` would apply. A full run with `--apply` applies them and formats the project first, then checks, and names each file it rewrote. Without `--apply`, `verify` changes no project file, so CI can run it on the code it checks.
 
 **Blocked by:** 07.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] A full run reports one `dart.fix_pending` warning per file and code, with the count (`deprecated_member_use: 6 fixes`), on the file with no line. The totals equal what `dart fix --dry-run` of the pinned SDK prints for the same project.
+- [ ] The pending fixes are asked for in passes on the running server, each pass applied to an overlay in the server's memory and never to disk. The run's reading of the diagnostics is taken before the first pass, so no finding is judged against the fixed code, and the overlays are removed when the passes end, also when they fail. On a kept server, the next reading shows the code as it is on disk.
+- [ ] The passes run while gathering, never under the knowledge lock.
 - [ ] A fast run never runs this check and doesn't name it as not run.
 - [ ] `appstein verify --apply` (full run) applies the pending fixes to the whole project, formats the whole project, brings the knowledge up to date, then runs every check. A fix or a format it applied is no longer reported.
+- [ ] `--apply` rewrites files before the knowledge is brought up to date, in the terminal and in the tool, and the reading that follows is of the rewritten files (ticket 04's rule that a reading is never older than the files on disk).
 - [ ] Generated files (ticket 07's rule) are not formatted by `--apply`.
 - [ ] The result names each file `--apply` rewrote: an `applied` list in the JSON output, and a list before the findings in the text output. Without `--apply` the list is empty and the text output has no such section.
 - [ ] `--apply` with `--fast` is a usage error (exit 3) with a clear message.

@@ -4,6 +4,7 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
+import 'analysis_guard_command.dart';
 import 'docs_command.dart';
 import 'doctor_command.dart';
 import 'exit_codes.dart';
@@ -24,7 +25,8 @@ import 'version.dart';
 /// by default stdin and stdout. [verifyChecks] (also for tests) replaces the
 /// checks `appstein verify` runs, and [dartSdkPath] (also for tests) is the
 /// Dart SDK it reads `dart:` libraries from, where a fake Flutter SDK has
-/// none.
+/// none. [codeAnalysis] (also for tests) replaces the analysis server that
+/// `appstein verify` and the `verify` tool of `appstein mcp` would start.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -36,6 +38,7 @@ Future<int> runAppstein(
   HostEnvironment Function()? environmentFactory,
   McpChannel Function()? mcpChannel,
   VerifyChecks? verifyChecks,
+  CodeAnalysisScope? codeAnalysis,
   String? dartSdkPath,
 }) async {
   final output = out ?? stdout;
@@ -62,6 +65,7 @@ Future<int> runAppstein(
           err: errors,
           environment: machine,
           checks: verifyChecks ?? checksFor,
+          codeAnalysis: codeAnalysis,
           dartSdkPath: dartSdkPath,
         ),
       )
@@ -71,8 +75,10 @@ Future<int> runAppstein(
           err: errors,
           environment: machine,
           channel: mcpChannel ?? () => stdioMcpChannel(stdin, stdout),
+          codeAnalysis: codeAnalysis,
         ),
-      );
+      )
+      ..addCommand(AnalysisGuardCommand());
     extraCommands.forEach(runner.addCommand);
     return await runner.run(arguments) ?? ExitCodes.ok;
   } on UsageException catch (error) {
@@ -83,6 +89,13 @@ Future<int> runAppstein(
     return ExitCodes.appsteinFailed;
   } on ConfigException catch (error) {
     errors.writeln('Invalid appstein.yaml: $error');
+    return ExitCodes.appsteinFailed;
+  } on CodeAnalysisException catch (error) {
+    // The analysis server could not answer: a broken setup, not a bug to
+    // report with a stack trace, and never "no errors" (spec §9.5).
+    errors
+      ..writeln(error)
+      ..writeln('Run `appstein doctor` to check your setup.');
     return ExitCodes.appsteinFailed;
   } on VerifyCheckError catch (error) {
     // The message names the check, and the trace is where the check threw.

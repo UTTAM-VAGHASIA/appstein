@@ -4,6 +4,7 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:args/command_runner.dart';
 
+import 'analysis_guard_command.dart';
 import 'exit_codes.dart';
 import 'packs.dart';
 import 'project_option.dart';
@@ -16,13 +17,16 @@ typedef VerifyChecks =
 /// `appstein verify [--fast | --full] [--format text|json]`: checks the
 /// project against its knowledge (spec §5.3, §9), after bringing the
 /// knowledge up to date. It never writes a project file outside
-/// `.appstein/`.
+/// `.appstein/`. For the code checks it starts the project's Dart analysis
+/// server, waits for the first analysis, and stops the server before it
+/// returns.
 ///
 /// Exit codes (spec §9.5): 0 when no finding is an error; 1 when one is; 3
 /// when Appstein itself failed (no project, a bad `appstein.yaml`, bad
-/// usage, a check that threw).
+/// usage, a check that threw, an analysis server that could not answer).
 final class VerifyCommand extends Command<int> {
-  /// Creates the command. [checks] replaces the project's checks, and
+  /// Creates the command. [checks] replaces the project's checks,
+  /// [codeAnalysis] the analysis server the run would start, and
   /// [dartSdkPath] the Dart SDK the analysis reads `dart:` libraries from,
   /// for tests.
   VerifyCommand({
@@ -30,6 +34,7 @@ final class VerifyCommand extends Command<int> {
     required this.err,
     required this.environment,
     this.checks = checksFor,
+    this.codeAnalysis,
     this.dartSdkPath,
   }) {
     argParser
@@ -63,8 +68,14 @@ final class VerifyCommand extends Command<int> {
   /// Builds the project's checks from its packs.
   final VerifyChecks checks;
 
-  /// Where the analysis reads `dart:` libraries from, instead of the Flutter
-  /// SDK's own Dart SDK. Only tests set it.
+  /// Gives the run its code analysis. When null, the run starts an analysis
+  /// server of its own and stops it when it ends ([terminalCodeAnalysis]).
+  /// Only tests set it.
+  final CodeAnalysisScope? codeAnalysis;
+
+  /// Where the analysis reads `dart:` libraries from, and whose `dart` runs
+  /// the analysis server, instead of the Flutter SDK's own Dart SDK. Only
+  /// tests set it.
   final String? dartSdkPath;
 
   @override
@@ -104,25 +115,37 @@ final class VerifyCommand extends Command<int> {
       return ExitCodes.appsteinFailed;
     }
     final packs = packsFor(config);
-    // A check that throws is Appstein's failure: the runner reports the
-    // `VerifyCheckError` and exits 3.
-    final result = await runVerify(
-      projectRoot: projectRoot,
-      config: config,
-      packs: packs,
-      // Package skills start a process and write agent folders, which
-      // belongs to `appstein sync`.
-      sync: KnowledgeSync(
-        environment: environment,
-        appsteinVersion: appsteinVersion,
+    final analysis =
+        codeAnalysis ??
+        terminalCodeAnalysis(
+          projectRoot: projectRoot,
+          environment: environment,
+          dartSdkPath: dartSdkPath,
+        );
+    // A check that throws and an analysis server that can't answer are
+    // Appstein's failure: the runner reports the `VerifyCheckError` or the
+    // `CodeAnalysisException` and exits 3. The server is stopped either
+    // way, by the scope.
+    final result = await analysis(
+      (codeAnalysis) => runVerify(
+        projectRoot: projectRoot,
+        config: config,
         packs: packs,
-        baseline: config.delta.baseline,
-        agents: config.integrations.agents,
-        packageSkills: false,
+        // Package skills start a process and write agent folders, which
+        // belongs to `appstein sync`.
+        sync: KnowledgeSync(
+          environment: environment,
+          appsteinVersion: appsteinVersion,
+          packs: packs,
+          baseline: config.delta.baseline,
+          agents: config.integrations.agents,
+          packageSkills: false,
+        ),
+        mode: results.flag('fast') ? VerifyMode.fast : VerifyMode.full,
+        checks: checks(packs),
+        codeAnalysis: codeAnalysis,
+        dartSdkPath: dartSdkPath,
       ),
-      mode: results.flag('fast') ? VerifyMode.fast : VerifyMode.full,
-      checks: checks(packs),
-      dartSdkPath: dartSdkPath,
     );
     out.write(
       results.option('format') == 'json'
@@ -132,6 +155,25 @@ final class VerifyCommand extends Command<int> {
     return verifyExitCode(result);
   }
 }
+
+/// The code analysis of a run that owns its analysis server: each run
+/// starts the server of the SDK the project at [projectRoot] uses, behind
+/// the guard ([analysisGuardCommand]), when a check first asks, and stops
+/// it when the run ends, normally or with an error. A terminal `appstein
+/// verify` uses it, and `appstein mcp` does for each `verify` call until it
+/// keeps one server running (slice 1d.2, ticket 04).
+///
+/// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
+CodeAnalysisScope terminalCodeAnalysis({
+  required String projectRoot,
+  required HostEnvironment environment,
+  String? dartSdkPath,
+}) => ownAnalysisServer(
+  projectRoot: projectRoot,
+  guardCommand: analysisGuardCommand(),
+  dartExecutable: () =>
+      projectDartExecutable(environment, projectRoot, dartSdkPath: dartSdkPath),
+);
 
 /// The exit code of `appstein verify` for [result] (spec §9.5): 1 when a
 /// finding is an error, else 0. Warnings, info findings and checks that did

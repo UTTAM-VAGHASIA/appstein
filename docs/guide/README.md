@@ -48,7 +48,7 @@ The four packages form a [pub workspace](https://dart.dev/tools/pub/workspaces):
 | [incremental-sync](incremental-sync.md) | How `appstein sync --detect` decides whether to rebuild, and the analyzer cache that makes a rebuild take about 1 s |
 | [package-skills](package-skills.md) | How `appstein sync` runs package:skills when the dependencies change, for the agents set up in the project |
 | [mcp-server](mcp-server.md) | How `appstein mcp` answers agents: the twelve tools, freshness on every call, what a write tool does differently, and the reply format |
-| [verify](verify.md) | How `appstein verify` checks a project against its knowledge: one run step by step, each check, findings, suppressions and exit codes |
+| [verify](verify.md) | How `appstein verify` checks a project against its knowledge: one run step by step, each check, findings, suppressions and exit codes; and the Dart analysis server its code checks ask, with the guard that stops it |
 | [decisions-and-memory](decisions-and-memory.md) | How decisions and memory are stored, the rules for reading them, and how `record_decision` and `memory_write` change committed files safely |
 | [human-docs](human-docs.md) | How `appstein docs` renders the knowledge into Markdown pages for people, tells its pages from a team's notes, and decides that a page is behind |
 | [native-config](native-config.md) | How `appstein sync` reads the Android and iOS setup into `native.json`, and why a value is found, unknown or absent |

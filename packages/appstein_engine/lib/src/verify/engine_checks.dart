@@ -1,8 +1,10 @@
 import '../packs/pack.dart';
+import 'checks/dart_error_check.dart';
 import 'checks/decisions_check.dart';
 import 'checks/docs_stale_check.dart';
 import 'checks/lessons_long_check.dart';
 import 'checks/paths_exist_check.dart';
+import 'checks/plugin_failed_check.dart';
 import 'checks/test_required_check.dart';
 import 'decision_check.dart';
 import 'verify_check.dart';
@@ -43,6 +45,8 @@ List<({VerifyCheck check, String? pack})> checksFor(List<Pack> packs) {
     (check: DecisionsCheck(decisionChecks), pack: null),
     (check: const LessonsLongCheck(), pack: null),
     (check: const TestRequiredCheck(), pack: null),
+    (check: const DartErrorCheck(), pack: null),
+    (check: const PluginFailedCheck(), pack: null),
     for (final pack in packs)
       for (final check in pack.checks) (check: check, pack: pack.id),
   ];

@@ -272,6 +272,8 @@ Input: `scope`, `fast` or `full`. The reply is what `appstein verify --format js
 
 It reads `appstein.yaml` on every call, for `verify.severity` and `suppressions`. An invalid file is an error reply that names it, and so is a sync that can't be built: without packs there is no list of checks. A check that throws becomes the usual "Appstein failed to answer" error.
 
+**The code analysis.** The server is given a `CodeAnalysisScope` (`codeAnalysis`), and `_verify` runs `runVerify` inside it. The scope decides how long the analysis server lives. `appstein mcp` gives the one a terminal run uses, so each `verify` call starts the project's analysis server, waits for its first analysis, and stops it: the same findings as a terminal run, at the cost of a start per call. Keeping one server running between calls is the next ticket of slice 1d.2, and changes only the scope. An analysis server that can't answer is an error reply of its own, the reason followed by "Run `appstein doctor` to see what is wrong.", without the request to report a bug; the MCP server keeps running, and the next call is answered. See [verify](verify.md#the-analysis-server).
+
 ## Replies for Claude Code
 
 A reply holds the same result three times, because clients read it differently:

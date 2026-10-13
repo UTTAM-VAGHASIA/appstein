@@ -1,10 +1,10 @@
-# 12: Close the slice
+# Close the slice
 
 **What to build:** the slice is checked as a whole, on a real app and by a second reader, and its records are complete: what was built, what was decided on the way, and what later slices inherit.
 
 **Blocked by:** 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] The compiled binary is run on a copy of the fixture app with real packages: a fast run, a full run, `--apply`, `--files`, both output formats, and the `verify` tool from Claude Code. Every line of output is read, and anything wrong is fixed test first.
 - [ ] Every check of the slice has a passing and a failing fixture (design §18).

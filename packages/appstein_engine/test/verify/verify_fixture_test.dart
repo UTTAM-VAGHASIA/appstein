@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/scripted_code_analysis.dart';
 import 'support/verify_support.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
@@ -64,6 +65,8 @@ void main() {
           ('decision.drift', null),
           ('memory.lessons_long', null),
           ('verify.test_required', null),
+          ('dart.error', null),
+          ('dart.plugin_failed', null),
           ('a.one', 'a'),
           ('b.one', 'b'),
         ],
@@ -142,6 +145,8 @@ void main() {
       sync: sync(flutterRoot: flutterRoot),
       mode: mode,
       checks: checksFor(_packs),
+      // The runs with a real analysis server are in `verify_dart_test.dart`.
+      codeAnalysis: ScriptedCodeAnalysis(),
       dartSdkPath: testDartSdk,
     );
 

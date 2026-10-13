@@ -1,5 +1,6 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
+import '../analysis/code_analysis.dart';
 import '../decisions/decision_store.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
@@ -13,9 +14,10 @@ enum VerifyMode {
   full,
 }
 
-/// What a check may read: the project, its configuration and one reading of
+/// What a check may read: the project, its configuration, one reading of
 /// its knowledge, taken while `verify` holds the knowledge lock, so every
-/// check judges the same state (spec §9).
+/// check judges the same state (spec §9), and what was gathered for the run
+/// before the lock was taken ([VerifyGathering]).
 final class VerifyContext {
   /// Creates the context.
   const VerifyContext({
@@ -24,9 +26,33 @@ final class VerifyContext {
     required this.packs,
     required this.knowledge,
     required this.decisions,
+    this.codeReader,
     this.staleProblem,
     this.onSkipped,
   });
+
+  /// Gives [code]: the run's one reading of the code analysis. `runVerify`
+  /// passes one that throws when the check that is running did not gather
+  /// the reading. Null, as in a context built for a check that never reads
+  /// it, makes [code] throw.
+  final CodeReading Function()? codeReader;
+
+  /// What the analyzer says about the project's code: the one reading this
+  /// run took, before the knowledge lock, which every check sees. It
+  /// doesn't need the project map, so a check that reads only this runs
+  /// while the knowledge is stale.
+  ///
+  /// Only a check that asked for it in its own [GatheringCheck.gather] may
+  /// read it. For any other check it throws a [StateError] that names the
+  /// check, also when another check of the run gathered the reading: a
+  /// check that only works beside another one would read nothing in a run
+  /// that leaves the other out, and must never take a reading nobody took
+  /// for "no diagnostics".
+  CodeReading get code =>
+      (codeReader ??
+      (throw StateError(
+        'This context has no reading of the code analysis. $_howToGather',
+      )))();
 
   /// Why the knowledge could not be refreshed; null when it was, or when
   /// the context was built without a refresh.
@@ -66,6 +92,72 @@ final class VerifyContext {
   final DecisionSet decisions;
 }
 
+/// What a run gathers before it takes the knowledge lock: the answers that
+/// take long, or that come from outside `.appstein/`. Under the lock a check
+/// only judges what was gathered, so other Appstein processes never wait
+/// for an analysis server.
+///
+/// Each kind of answer is gathered once per run, however many checks ask
+/// for it, so every check judges the same one. Today there is one kind, the
+/// code analysis's reading. A later check with slow work of its own (a
+/// file's formatting, the pending fixes, a test run) adds it here in the
+/// same way: a method the check calls from [GatheringCheck.gather], and a
+/// getter on [VerifyContext] for what it found.
+final class VerifyGathering {
+  /// Creates the gathering of one run, which asks [codeAnalysis].
+  VerifyGathering(CodeAnalysis codeAnalysis) : _codeAnalysis = codeAnalysis;
+
+  final CodeAnalysis _codeAnalysis;
+  Future<CodeReading>? _asked;
+  CodeReading? _code;
+
+  /// The run's one reading of the code analysis. The first call asks the
+  /// analysis, which starts its server when none is running; later calls
+  /// get the same reading. A run in which no check calls this starts no
+  /// server.
+  ///
+  /// Throws a `CodeAnalysisException` when the analysis can't answer.
+  Future<CodeReading> code() {
+    _codeAskers.add(_gatheringFor);
+    return _asked ??= _codeAnalysis.read().then((reading) => _code = reading);
+  }
+
+  // The check whose `gather` is running, and the checks that asked for the
+  // reading: `runVerify` sets the first, so the reading is given only to a
+  // check that gathered it.
+  VerifyCheck? _gatheringFor;
+  final _codeAskers = <VerifyCheck?>{};
+
+  /// Runs [check]'s `gather`, noting what it asks for as asked by [check].
+  Future<void> gatherFor(GatheringCheck check) async {
+    _gatheringFor = check;
+    try {
+      await check.gather(this);
+    } finally {
+      _gatheringFor = null;
+    }
+  }
+
+  /// The reading [code] took, for [check] when it runs.
+  ///
+  /// Throws a [StateError] that names [check] when it did not ask for the
+  /// reading in its own `gather`.
+  CodeReading codeFor(VerifyCheck check) {
+    final reading = _code;
+    if (reading == null || !_codeAskers.contains(check)) {
+      throw StateError(
+        'The check `${check.ids.first}` read the code analysis without '
+        'gathering it. $_howToGather',
+      );
+    }
+    return reading;
+  }
+}
+
+const _howToGather =
+    'A check that reads `context.code` implements `GatheringCheck` and '
+    'calls `gathering.code()` in `gather`.';
+
 /// One check of `appstein verify` (spec §9). The engine has the checks that
 /// hold for every project; a pack contributes its own.
 abstract interface class VerifyCheck {
@@ -87,8 +179,23 @@ abstract interface class VerifyCheck {
   Future<List<Finding>> run(VerifyContext context);
 }
 
+/// A check with something to gather before the knowledge lock is taken:
+/// anything slow, and anything the analysis server answers.
+abstract interface class GatheringCheck implements VerifyCheck {
+  /// Asks [gathering] for what [run] will judge. `runVerify` calls it once
+  /// per run, after the knowledge refresh and before the lock, for each
+  /// check the mode selects and the stale knowledge doesn't rule out. It
+  /// never writes a project file.
+  ///
+  /// A `CodeAnalysisException` it lets through fails the run as the
+  /// analysis server's failure; anything else it throws is this check's.
+  Future<void> gather(VerifyGathering gathering);
+}
+
 /// A check threw or broke its contract: Appstein itself failed (exit `3`,
-/// spec §9.5).
+/// spec §9.5). A code analysis that can't answer is not this: `runVerify`
+/// passes its `CodeAnalysisException` on as it is, since no check is to
+/// blame.
 final class VerifyCheckError implements Exception {
   /// Creates the error.
   VerifyCheckError(this.checkId, this.error, this.stackTrace);

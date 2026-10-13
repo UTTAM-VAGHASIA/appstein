@@ -1,6 +1,9 @@
 /// The Appstein engine: everything the CLI does, with no command-line code.
 library;
 
+export 'src/analysis/analysis_guard.dart';
+export 'src/analysis/analysis_server.dart';
+export 'src/analysis/code_analysis.dart';
 export 'src/android/android_sdk_locator.dart';
 export 'src/android/flutter_settings.dart';
 export 'src/android/java_locator.dart';
@@ -103,10 +106,12 @@ export 'src/toolchain/gradle_utils_parser.dart';
 export 'src/toolchain/toolchain_files.dart';
 export 'src/toolchain/toolchain_reader.dart';
 export 'src/toolchain/xcode_template_parser.dart';
+export 'src/verify/checks/dart_error_check.dart';
 export 'src/verify/checks/decisions_check.dart';
 export 'src/verify/checks/docs_stale_check.dart';
 export 'src/verify/checks/lessons_long_check.dart';
 export 'src/verify/checks/paths_exist_check.dart';
+export 'src/verify/checks/plugin_failed_check.dart';
 export 'src/verify/checks/test_required_check.dart';
 export 'src/verify/decision_check.dart';
 export 'src/verify/engine_checks.dart';

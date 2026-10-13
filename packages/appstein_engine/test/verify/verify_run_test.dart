@@ -12,6 +12,7 @@ import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/scripted_code_analysis.dart';
 import 'support/verify_support.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
@@ -35,6 +36,64 @@ final class _SkippingCheck implements VerifyCheck {
   }
 }
 
+/// A check that gathers the code analysis's reading, and keeps the one it
+/// was given when it ran. It writes what it does to [log].
+final class _ReadingCheck implements GatheringCheck {
+  _ReadingCheck(this.name, {this.needsMap = false, this.log, this.gatherError});
+
+  final String name;
+
+  @override
+  VerifyMode get mode => VerifyMode.full;
+
+  @override
+  final bool needsMap;
+
+  final List<String>? log;
+
+  /// What [gather] throws instead of asking, when set.
+  final Object? gatherError;
+
+  /// The reading [run] was given.
+  CodeReading? seen;
+
+  @override
+  List<String> get ids => [name];
+
+  @override
+  Future<void> gather(VerifyGathering gathering) async {
+    log?.add('gather $name');
+    if (gatherError case final error?) throw error;
+    await gathering.code();
+  }
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    log?.add('run $name');
+    seen = context.code;
+    return const [];
+  }
+}
+
+/// A check that reads the code analysis's reading without gathering it:
+/// a bug.
+final class _ForgetfulCheck implements VerifyCheck {
+  @override
+  List<String> get ids => const ['forgetful.check'];
+
+  @override
+  VerifyMode get mode => VerifyMode.full;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    context.code;
+    return const [];
+  }
+}
+
 void main() {
   late String sdk;
   late String app;
@@ -54,7 +113,9 @@ void main() {
     String? flutterRoot,
     Duration lockTimeout = const Duration(seconds: 10),
     Map<VerifyCheck, String> from = const {},
+    CodeAnalysis? codeAnalysis,
   }) => runVerify(
+    codeAnalysis: codeAnalysis ?? ScriptedCodeAnalysis(),
     projectRoot: app,
     config: config,
     packs: _packs,
@@ -317,6 +378,314 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('the code analysis', () {
+    CodeDiagnostic diagnostic(
+      DiagnosticLevel level, {
+      String file = 'lib/a.dart',
+      int line = 3,
+      String code = 'some_code',
+      String message = 'Something is wrong.',
+      String? correction,
+    }) => CodeDiagnostic(
+      file: file,
+      line: line,
+      code: code,
+      message: message,
+      level: level,
+      correction: correction,
+    );
+
+    test('a run in which no check gathers it never asks it', () async {
+      final analysis = ScriptedCodeAnalysis();
+      await run([
+        FakeCheck(['a.a']),
+      ], codeAnalysis: analysis);
+      expect(analysis.asked, 0);
+    });
+
+    test('it is asked once per run, before any check runs, and every check '
+        'judges that one reading', () async {
+      final log = <String>[];
+      late ScriptedCodeAnalysis analysis;
+      analysis = ScriptedCodeAnalysis(
+        found: [diagnostic(DiagnosticLevel.error, code: 'first')],
+        onAsked: () async {
+          log.add('asked');
+          // A second ask would answer something else.
+          if (analysis.asked > 1) {
+            analysis.found = [diagnostic(DiagnosticLevel.error, code: 'later')];
+          }
+        },
+      );
+      final one = _ReadingCheck('one.check', log: log);
+      final two = _ReadingCheck('two.check', log: log);
+      await run([one, two], codeAnalysis: analysis);
+      expect(analysis.asked, 1);
+      expect(log, [
+        'gather one.check',
+        'asked',
+        'gather two.check',
+        'run one.check',
+        'run two.check',
+      ]);
+      expect(one.seen, same(two.seen));
+      expect(
+        [for (final found in one.seen!.diagnostics) found.code],
+        ['first'],
+      );
+    });
+
+    test('it is asked while the knowledge lock is free', () async {
+      // A lock taken from here would wait if the run held it: on Windows a
+      // second handle in one process can't share a file lock.
+      Object? lockProblem;
+      final analysis = ScriptedCodeAnalysis(
+        onAsked: () async {
+          try {
+            await KnowledgeStore(
+              app,
+            ).locked(() async {}, timeout: const Duration(milliseconds: 300));
+          } on Object catch (error) {
+            lockProblem = error;
+          }
+        },
+      );
+      await run([_ReadingCheck('one.check')], codeAnalysis: analysis);
+      expect(analysis.asked, 1);
+      expect(lockProblem, isNull);
+    });
+
+    test('a check that reads the reading without gathering it fails '
+        'loudly', () async {
+      await expectLater(
+        run([_ForgetfulCheck()]),
+        throwsA(
+          isA<VerifyCheckError>()
+              .having((e) => e.checkId, 'checkId', 'forgetful.check')
+              .having((e) => '$e', 'text', contains('GatheringCheck')),
+        ),
+      );
+    });
+
+    test('also when another check of the run gathered it, and the error '
+        'names the check that didn\'t', () async {
+      final gathered = _ReadingCheck('one.check');
+      await expectLater(
+        run([gathered, _ForgetfulCheck()]),
+        throwsA(
+          isA<VerifyCheckError>()
+              .having((e) => e.checkId, 'checkId', 'forgetful.check')
+              .having(
+                (e) => '${e.error}',
+                'the error',
+                allOf(
+                  isA<String>(),
+                  contains(
+                    'The check `forgetful.check` read the code analysis '
+                    'without gathering it.',
+                  ),
+                ),
+              ),
+        ),
+      );
+      // The check that gathered it was given it.
+      expect(gathered.seen, isNotNull);
+    });
+
+    test('a check that throws while gathering is a failed check', () async {
+      await expectLater(
+        run([_ReadingCheck('bad.check', gatherError: StateError('boom'))]),
+        throwsA(
+          isA<VerifyCheckError>().having(
+            (e) => e.checkId,
+            'checkId',
+            'bad.check',
+          ),
+        ),
+      );
+    });
+
+    test('a map check gathers nothing while the knowledge is stale', () async {
+      final analysis = ScriptedCodeAnalysis();
+      final check = _ReadingCheck('map.check', needsMap: true);
+      final result = await run(
+        [check],
+        codeAnalysis: analysis,
+        refreshed: const KnowledgeRefresh.failed('x'),
+      );
+      expect(analysis.asked, 0);
+      expect(check.seen, isNull);
+      expect(result.notRun.single.id, 'map.check');
+    });
+
+    test('dart.plugin_failed: each plugin failure is an error on the '
+        'project, in a fast run too', () async {
+      final result = await run(
+        [const DartErrorCheck(), const PluginFailedCheck()],
+        mode: VerifyMode.fast,
+        codeAnalysis: ScriptedCodeAnalysis(
+          pluginFailures: [
+            'An error occurred while setting up the analyzer plugin package '
+                'at X: version solving failed',
+          ],
+        ),
+      );
+      final failed = result.findings.single;
+      expect(failed.id, pluginFailedId);
+      expect(pluginFailedId, 'dart.plugin_failed');
+      expect(failed.severity, Severity.error);
+      expect(failed.file, isNull);
+      expect(failed.line, isNull);
+      expect(
+        failed.message,
+        'An analyzer plugin failed, so its rules were not checked: An error '
+        'occurred while setting up the analyzer plugin package at X: '
+        'version solving failed.',
+      );
+      expect(
+        failed.fixHint,
+        allOf(
+          contains('`appstein doctor`'),
+          contains('`plugins:`'),
+          contains('`analysis_options.yaml`'),
+        ),
+      );
+      expect(result.errors, 1);
+    });
+
+    test('dart.plugin_failed: nothing when every plugin loaded', () async {
+      final result = await run([
+        const PluginFailedCheck(),
+      ], codeAnalysis: ScriptedCodeAnalysis());
+      expect(result.findings, isEmpty);
+    });
+
+    test('dart.error: an error-level diagnostic is an error with its file, '
+        'line, message, code and correction', () async {
+      final result = await run(
+        [const DartErrorCheck()],
+        mode: VerifyMode.fast,
+        codeAnalysis: ScriptedCodeAnalysis(
+          found: [
+            diagnostic(
+              DiagnosticLevel.error,
+              file: 'lib/ui/home screen.dart',
+              line: 12,
+              code: 'undefined_method',
+              message: "The method 'go' isn't defined for the type 'Home'.",
+              correction: "Try correcting the name, or defining 'go'.",
+            ),
+            diagnostic(DiagnosticLevel.error, code: 'no_correction'),
+          ],
+        ),
+      );
+      expect(ids(result), ['dart.error', 'dart.error']);
+      final [plain, full] = result.findings;
+      expect(full.severity, Severity.error);
+      expect(full.file, 'lib/ui/home screen.dart');
+      expect(full.line, 12);
+      expect(
+        full.message,
+        "The method 'go' isn't defined for the type 'Home'. "
+        '(`undefined_method`)',
+      );
+      expect(full.fixHint, "Try correcting the name, or defining 'go'.");
+      expect(full.pack, isNull);
+      expect(plain.message, 'Something is wrong. (`no_correction`)');
+      expect(plain.fixHint, isNull);
+      expect(result.errors, 2);
+    });
+
+    test('dart.error: a warning and an info-level diagnostic are not '
+        'reported', () async {
+      final result = await run(
+        [const DartErrorCheck()],
+        codeAnalysis: ScriptedCodeAnalysis(
+          found: [
+            diagnostic(DiagnosticLevel.warning, code: 'unused_import'),
+            diagnostic(DiagnosticLevel.info, code: 'prefer_const'),
+          ],
+        ),
+      );
+      expect(result.findings, isEmpty);
+    });
+
+    test('dart.error runs while the knowledge is stale', () async {
+      final result = await run(
+        [const DartErrorCheck()],
+        refreshed: const KnowledgeRefresh.failed('the packages are missing'),
+        codeAnalysis: ScriptedCodeAnalysis(
+          found: [diagnostic(DiagnosticLevel.error)],
+        ),
+      );
+      expect(ids(result), ['knowledge.stale', 'dart.error']);
+      expect(result.notRun, isEmpty);
+    });
+
+    test('dart.error: verify.severity changes it and a suppression hides '
+        'it', () async {
+      final analysis = ScriptedCodeAnalysis(
+        found: [
+          diagnostic(DiagnosticLevel.error, file: 'lib/a.dart'),
+          diagnostic(DiagnosticLevel.error, file: 'lib/legacy/b.dart'),
+        ],
+      );
+      final result = await run(
+        [const DartErrorCheck()],
+        codeAnalysis: analysis,
+        config: const AppsteinConfig(
+          verify: VerifyConfig(severity: {'dart.error': Severity.warning}),
+          suppressions: [
+            SuppressionEntry(
+              id: 'dart.error',
+              path: 'lib/legacy',
+              reason: 'Rewritten next month.',
+              line: 4,
+            ),
+          ],
+        ),
+      );
+      expect(
+        [for (final found in result.findings) (found.file, found.severity)],
+        [('lib/a.dart', Severity.warning)],
+      );
+      expect(result.suppressed, 1);
+      expect(result.errors, 0);
+    });
+
+    test('a server that can\'t answer fails the run, and no check is '
+        'blamed', () async {
+      const failure = CodeAnalysisException(
+        'its analysis was not done within 180 s',
+      );
+      final other = FakeCheck(['other.check']);
+      await expectLater(
+        run([
+          other,
+          const DartErrorCheck(),
+        ], codeAnalysis: ScriptedCodeAnalysis(failure: failure)),
+        throwsA(same(failure)),
+      );
+      // It is known before any check runs, and before the lock is taken.
+      expect(other.runs, 0);
+      expect(
+        '$failure',
+        'The Dart analysis server could not answer: its analysis was not '
+            'done within 180 s.',
+      );
+    });
+
+    test('a full check gathers nothing in a fast run', () async {
+      final analysis = ScriptedCodeAnalysis();
+      await run(
+        [_ReadingCheck('full.check')],
+        mode: VerifyMode.fast,
+        codeAnalysis: analysis,
+      );
+      expect(analysis.asked, 0);
     });
   });
 

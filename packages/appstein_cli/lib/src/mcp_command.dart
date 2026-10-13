@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'exit_codes.dart';
 import 'packs.dart';
 import 'project_option.dart';
+import 'verify_command.dart';
 import 'version.dart';
 
 /// `appstein mcp`: serves Appstein's MCP tools over stdio until the agent
@@ -14,7 +15,8 @@ import 'version.dart';
 /// `appstein.yaml` for every call, so a changed config takes effect at
 /// once, and an invalid one marks replies stale instead of stopping the
 /// server. Package skills are left to `appstein sync`, and the analyzer
-/// cache stays in memory between calls.
+/// cache stays in memory between calls. A `verify` call starts the
+/// project's analysis server and stops it again, as a terminal run does.
 final class McpCommand extends Command<int> {
   /// Creates the command. [channel] gives the connection to serve: stdin
   /// and stdout, or a test's channel.
@@ -23,7 +25,13 @@ final class McpCommand extends Command<int> {
     required this.err,
     required this.environment,
     required this.channel,
+    this.codeAnalysis,
   });
+
+  /// Gives each `verify` call its code analysis. When null, each call starts
+  /// an analysis server of its own and stops it, as a terminal run does
+  /// (`terminalCodeAnalysis`). Only tests set it.
+  final CodeAnalysisScope? codeAnalysis;
 
   /// Where `appstein help mcp` writes its usage. A user-invoked help request
   /// only: while serving, stdout belongs to the protocol and nothing else is
@@ -72,6 +80,12 @@ final class McpCommand extends Command<int> {
         environment: environment,
         held: HeldAnalyzerCache(),
       ),
+      codeAnalysis:
+          codeAnalysis ??
+          terminalCodeAnalysis(
+            projectRoot: projectRoot,
+            environment: environment,
+          ),
       appsteinVersion: appsteinVersion,
     );
     await server.done;

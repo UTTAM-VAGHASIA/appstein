@@ -9,6 +9,7 @@ import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_flutter_sdk.dart';
+import 'support/scripted_code_analysis.dart';
 
 void main() {
   late StringBuffer out;
@@ -42,6 +43,8 @@ void main() {
         err: err,
         environment: machine(cwd: cwd),
         mcpChannel: () => channel,
+        // The fake SDK has no `dart` to run an analysis server with.
+        codeAnalysis: ScriptedCodeAnalysis().scope,
       );
 
   test('serves the tools until the client closes, writing nothing to the '

@@ -1,6 +1,7 @@
 /// The `appstein` command-line tool.
 library;
 
+export 'src/analysis_guard_command.dart';
 export 'src/docs_command.dart';
 export 'src/doctor_printer.dart';
 export 'src/exit_codes.dart';
