@@ -196,11 +196,11 @@ milestones:
             spec: 1d2-code-checks
           - id: 1d.7
             title: Hook mode and fast verify in 5 s
-            summary: "`--hook claude` with its exit code, the hook's route to the running `appstein mcp`, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route."
+            summary: "`--hook claude` with its exit code, the hook's route to the running `appstein mcp`, one analysis server per project shared by every session, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route."
             status: planned
           - id: 1d.3
             title: Lint rules
-            summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.
+            summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`, run for verify on the analyzer the map already has, so the plugin leaves the analysis server; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.
             status: planned
           - id: 1d.4
             title: Package gate

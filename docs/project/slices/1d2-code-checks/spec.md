@@ -98,10 +98,15 @@ The hook that runs a fast run by itself after each edit is not part of this slic
 
 - It is the analysis server of the project's own SDK, found the way Appstein already finds the SDK, so verify agrees with the developer's `dart analyze` and IDE.
 - It is started from the SDK's real executable. On Windows the `dart.bat` wrapper adds about 1.1 s and FVM's wrapper another 1.2 s per start.
-- `appstein mcp` starts it in the background when the server starts, keeps one per project and stops it when the server stops. The `verify` tool waits for it when it isn't ready yet.
+- `appstein mcp` starts it when a `verify` call first needs it, not when the MCP server starts, so a session that never verifies holds no analysis server. It keeps one per project, stops it when it has not been asked anything for 10 minutes, and stops it when the MCP server stops. The `verify` tool waits for it when it isn't ready yet; a call after an idle stop starts it again.
+- One `appstein mcp` with the plugin holds about 2.3 GB for the 200-file app, which the owner does not accept as the final cost (decision record 0001, "Memory"). Starting on demand and stopping when idle is this slice's part. One server per project shared by every session is slice 1d.7's, and taking the plugin out of this server is slice 1d.3's.
 - A terminal `appstein verify` starts its own, waits for the first analysis, runs, and stops it.
-- The first ticket chooses the protocol. The measurement favours LSP (7.6 s and 0.56 GB to start with the plugin, against 20.5 s and 1.35 GB for the legacy protocol), but the legacy protocol is the one that gives per-code fix counts. The ticket finds out why the legacy start is so heavy and whether one protocol can serve every question, before anything is built on the choice.
-- A server that doesn't start, dies or doesn't become ready within a fixed limit is Appstein failing: exit 3 in the terminal and an error reply from the tool, with the reason and "run `appstein doctor`" (§9.5, §15).
+- **The protocol is the legacy analyzer protocol, for every question** (owner's decision, 2026-10-12; decision record 0001, "The protocol"). Ticket 02 measured both protocols. They take the same time and memory to start (about 18 s and 1.5 GB with the plugin; the interview's lighter LSP number was taken before the plugin had finished). Over LSP nothing says when the plugin has finished, so verify could report "no problems" too early, and the server can't list the pending fixes per code. The legacy protocol does both.
+- **The server runs behind a guard.** A legacy server keeps running when its parent is killed, until the next edit of a project file. So Appstein starts it through a guard: the `appstein` binary in a mode of its own, which starts the server, passes its input and output through, and ends it when its own input closes. A killed `appstein mcp` took the guard and the server with it within 0.7 s in the measurement, and the guard cost 22 MB and no measurable time.
+- **"Ready"** is the server's own word that its analysis is done, which over this protocol includes the plugin's. The plugin's diagnostics are taken from the notifications the server sends, since the request for one file's errors leaves them out.
+- **Pending fixes** come from the running server, in passes: ask for the fixes, apply them to an overlay in the server's memory and never to disk, and ask again until a pass finds none. The totals equalled `dart fix --dry-run` in the measurement (17 to 19 s).
+- **The Dart tools' own usage reporting is left as the developer set it.** Appstein does not pass the server's flag that switches it off (owner's decision, 2026-10-12).
+- A server that doesn't start, dies or doesn't become ready within 180 s is Appstein failing: exit 3 in the terminal and an error reply from the tool, with the reason and "run `appstein doctor`" (§9.5, §15). The starts measured on the Windows development machine: 7 to 10 s without the plugin, 18 to 22 s with it, 54 to 66 s for a first start that builds the plugin, and 71 s once for a first start without the plugin, which was not explained. No other machine was measured.
 
 **The checks**
 
@@ -114,6 +119,7 @@ The hook that runs a fast run by itself after each edit is not part of this slic
 | `dart.unformatted` | A file whose formatting would change | warning | unverified files | whole project |
 | `dart.fix_pending` | The fixes `dart fix` would apply, one finding per file and code with the count, on the file with no line | warning | not run | whole project |
 | `test.failed` | A failing test; a test file that can't load; the suite passing its time limit | error | not run | whole project |
+| `dart.plugin_failed` | An analyzer plugin the analysis server could not load, so its rules did not run; on the project, with the server's message (added by the owner on 2026-10-14, after the review of ticket 03) | error | whole project | whole project |
 
 - Each analyzer finding carries the analyzer's code and message. "Whole project" is what the analysis server covers: every Dart file under the project root that `analysis_options.yaml` doesn't exclude.
 - Diagnostics from the `appstein_lints` plugin arrive the same way and are reported under these IDs by their level until slice 1d.3 gives the rules their own IDs.
@@ -185,6 +191,8 @@ A good test here states what a person or an agent sees: given this project, thes
 ## Out of Scope
 
 - **Slice 1d.7, built next:** `--hook claude`, exit code 2, the hook's route to the running `appstein mcp` over a local socket, the loop guard, what a hook does when no `appstein mcp` is running, the `fast_timeout_seconds` cap, the 5 s measurement on the hook's route, and the order of the Stop hook's steps in §5.4.
+- **Slice 1d.7 also:** one analysis server per project, shared by every session that works on it (decision record 0001, "Memory").
+- **Slice 1d.3 also:** running Appstein's lint rules on the analyzer the map already has, so the plugin leaves the analysis server verify uses.
 - **Slice 1d.3:** the lint rules and their own check IDs; a `verify.severity` key that names no check (moved there by the owner, since the design's own example key names a 1d.3 check).
 - **Slice 1d.4:** the package gate, including what a fast run does when dependencies changed.
 - **Slice 1e:** `--hook codex`; whether the `create` template's accessibility guideline tests exist.
@@ -199,13 +207,17 @@ A good test here states what a person or an agent sees: given this project, thes
 | | Time |
 |---|---|
 | Cold `dart analyze`, one file / whole project | 13.2 s / 23.5 s |
-| Cold `dart fix --dry-run` | 12.8 s |
-| Analysis server until ready, LSP / legacy protocol | 7.6 s, 0.56 GB / 20.5 s, 1.35 GB |
-| Warm: edit until the file's and its importer's diagnostics arrive | about 0.06 s, idle by 0.1 s |
+| Cold `dart fix --dry-run` | 12.8 s (21.0 s and 29.3 s in ticket 02, one run each) |
+| Analysis server until ready, LSP / legacy protocol / legacy behind a guard (ticket 02) | 18.3 s, 1.44 GB / 18.8 s, 1.49 GB / 18.6 s, 1.52 GB |
+| The same without the plugin, LSP / legacy (ticket 02) | 7.5 s, 0.63 GB / 7.2 s, 0.63 GB |
+| The first start with the plugin, which builds it (ticket 02, one run) | 54.5 s |
+| Warm: edit until the file's and its importer's diagnostics arrive, LSP / legacy / legacy behind a guard (ticket 02) | 0.10 s and 0.47 s in two runs / 0.08 s / 0.05 s |
 | Warm: format one file | under 0.02 s |
-| Warm: complete fix dry-run (legacy protocol, several passes) | 7.5 s |
+| Warm: complete fix dry-run (legacy protocol, 3 passes and one that finds none; ticket 02) | 18.5 s, and 17.2 s behind a guard (7.5 s in the interview) |
 | In-process analyzer after an edit | about 0.03 s, but no `flutter_lints` lints, no plugin rules, no fixes |
 | `flutter test`, 7 tests in 3 files | 5.8 s |
+
+The rows marked "ticket 02" were measured again with `tool/measure_analysis_server.dart`, which waits for the plugin's diagnostics before it calls a server ready. The interview's 7.6 s and 0.56 GB for LSP were taken when the server said it was done, about 10 s before the plugin had finished.
 
 Not measured: Linux, macOS, CI machines, a 1,000-file app, a fix for a removed API, a test file that fails to compile. In the measurement every pending `fix_data` migration also showed as `deprecated_member_use` on the same line, and `dart fix --dry-run` printed no line numbers.
 

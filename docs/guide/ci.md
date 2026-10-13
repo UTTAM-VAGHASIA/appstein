@@ -3,6 +3,7 @@
 tool/startup_check.dart
 tool/measure_analyze.dart
 tool/measure_sync.dart
+tool/measure_analysis_server.dart
 -->
 
 # Continuous integration
@@ -177,3 +178,42 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 
   **The measured app's disk.** GitHub's standard Windows runners keep the checkout and `RUNNER_TEMP` on D:, a fast local disk, while the system temp folder (`%TEMP%`) is on C:, a remote disk that is much slower to write ([actions/runner-images#8755](https://github.com/actions/runner-images/issues/8755)). The first public CI runs of 1b.7 made the apps on C:, and writing the 57 MB analyzer cache took 0.6–3.8 s there, against 0.07 s on D:, so an edit's `--detect` missed 2 s on Windows only (1.7–4.9 s). With the apps on D: it took 1.6 s. A developer's project lives on their working disk, not on a cloud machine's system disk, so CI measures there. On Linux every folder is on one disk. Defender was ruled out: real-time protection is off on these runners.
 - The analysis measurement reports numbers; it has no time budget to fail. The first numbers (9–16 s for one cold file with the plugin) led the spec to plan warm analysis for fast checks ([spec §9.1](../project/specs/2026-09-29-appstein-design.md#91-fast-checks-after-every-change-changed-files-only-target--5-s)).
+
+## Measured by hand: the analysis server
+
+One measuring tool is not part of CI. [`tool/measure_analysis_server.dart`](../../tool/measure_analysis_server.dart) measures the Dart analysis server that verify's code checks will ask (slice 1d.2, [decision record 0001](../adr/0001-analysis-server-beside-the-map-analyzer.md)). It was written to compare the ways Appstein could talk to that server, and is kept so the numbers can be taken again on another machine or SDK. It measures three arrangements: LSP, the legacy analyzer protocol, and the legacy protocol behind a **guard**. The guard is the tool's own `--guard` mode: a process that starts the server, passes stdin and stdout through, and ends the server when its own stdin closes. It is there because a legacy server doesn't end when its stdin closes or its parent is killed. From the repo root:
+
+```powershell
+fvm dart run tool/measure_analysis_server.dart
+```
+
+It takes about seventeen minutes and needs the network for `flutter pub get`. `--work <folder>` makes the app somewhere other than the system's temporary folder. It starts every server from the Dart executable that runs the tool, and never through a `.bat` wrapper.
+
+What it does:
+
+1. **Generates the app.** The 200 files of `measure_sync.dart`'s app, with `flutter_lints`, and six more Dart files for the findings: three canaries with a layer violation (the first also has an unused import), a file with six deprecated uses that `dart fix` can migrate and a line `dart format` would split, and a deprecated use with no migration.
+2. **Compiles the guard** (itself, with `dart compile exe`), so the guard can be measured both compiled and run by `dart`.
+3. **Times the start.** One first start, then three in each arrangement, first without and then with the `appstein_lints` plugin (the guard with the plugin only). It prints the median time until the server is ready, the memory of its process tree then (working set on Windows, resident set elsewhere), and how much of that is the guard's.
+4. **Asks the four questions of the code analysis** on a ready server with the plugin on, over LSP, the legacy protocol and the legacy protocol behind the compiled guard: the diagnostics after an edit on disk (three edits that break a file, ten that add a plugin finding), whether one diagnostic can be fixed, the pending fixes, and whether a file's formatting would change. It records the most memory the server held while the fixes were asked, and checks that no file under `lib/` changed.
+5. **Runs `dart fix --dry-run`** on the same app, compares its fixes with the legacy protocol's, and records the most memory its processes held.
+6. **Stops the server:** by the protocol's own request, by closing its stdin, by killing its parent (three times), and, with a guard, by killing only the guard (three times). To kill a parent it starts itself again with `--hold`, as a process that holds a ready server, and ends that process. When a server is still running afterwards, it edits a project file and looks again, because a legacy server that has lost its parent ends the next time it has something to say.
+
+**What "ready" means.** With the plugin on, a server is ready when it has said its analysis is done *and* the plugin's `layer_imports` has arrived for each canary. The second half matters. The plugin runs inside the server's process and analyzes every file again, and over LSP the server says "done" about 10 s before the plugin has finished. The table prints both moments. In the runs so far the plugin reported the canaries' folders first and last, so the last one arriving is the sign that it has been through the project.
+
+It exits 1 when a measurement can't be trusted: a diagnostic it waits for never arrives (so the plugin didn't run), a server ends early, the complete pending fixes differ from `dart fix --dry-run`, or a question changed a file. A server that keeps running after its parent is killed is a result, not a failure: the tool prints it and ends that process itself.
+
+**Cleaning up.** The tool records the process ID of everything it starts (servers, guards, holders, `dart fix`) and ends what is still running before it exits, whether it finished, failed or was interrupted with Ctrl+C. It never ends a process it didn't start. Ctrl+C was tried once on Windows with a server running: the server and the tool ended and the work folder was removed. Under `fvm`, whose `dart` is a batch file, the console then asks "Terminate batch job (Y/N)?". One thing stays behind: the server builds the plugin once per app folder and keeps the build (about 13 MB) in its own state folder, `.dartServer/.plugin_manager` under the user's local application data on Windows, so each run of the tool adds one.
+
+On the Windows development machine (2026-10-12, median of three):
+
+| Start | Ready | Said it was done | Memory when ready | Of which the guard |
+|---|---|---|---|---|
+| LSP, plugin off | 7.5 s | 7.5 s | 0.63 GB | |
+| Legacy, plugin off | 7.2 s | 7.2 s | 0.63 GB | |
+| LSP, plugin on | 18.3 s | 8.0 s | 1.44 GB | |
+| Legacy, plugin on | 18.8 s | 18.8 s | 1.49 GB | |
+| Legacy behind a compiled guard, plugin on | 18.6 s | 18.6 s | 1.52 GB | 22 MB |
+| Legacy behind a guard run by `dart`, plugin on | 19.1 s | 19.1 s | 1.66 GB | 219 MB |
+| Legacy, plugin on, the first start, which builds the plugin (one run) | 54.5 s | 54.5 s | 1.45 GB | |
+
+The answers to the questions, and the two options they leave for the owner, are in the decision record.
