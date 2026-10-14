@@ -4,7 +4,7 @@
 
 **Blocked by:** 05.
 
-Status: ready-for-agent
+Status: claimed
 
 - [ ] `// appstein:ignore <check-id> — <reason>` at the end of a line of code hides that check's findings on that line. Alone on a line, it hides them on the next line of code.
 - [ ] `// appstein:ignore-file <check-id> — <reason>` anywhere before the file's first declaration hides that check's findings in the file. After the first declaration it hides nothing and is reported as unused.
@@ -16,3 +16,7 @@ Status: ready-for-agent
 - [ ] `// appstein:ignore dart.deprecated — <reason>` hides both forms of that finding from ticket 05: the diagnostic, and the `// ignore:` comment that hides one.
 - [ ] Text that looks like such a comment inside a string is not a comment.
 - [ ] The guide page for suppressions is updated; the guide check passes.
+
+Added by the owner's decision of 2026-10-14, after the review:
+
+- [ ] A one-line `// appstein:ignore` never hides the `dart.deprecated` finding on an `// ignore_for_file:` comment (naming a deprecated-use code or `type=hint`); only `// appstein:ignore-file` or an `appstein.yaml` entry can. A line comment still hides the finding on an `// ignore:` line and the line of code after it.

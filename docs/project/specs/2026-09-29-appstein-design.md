@@ -256,7 +256,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ```
 .appstein/
 ├── INDEX.md               (generated, git-ignored) always-loaded entry point (≤ 1,500 tokens, enforced by test)
-├── state.json             (generated, git-ignored) input hash per source file, hash of each written file, last changes, last sync
+├── state.json             (generated, git-ignored) input hash per source file, hash of each written file, last changes, last sync, a hash of each Dart file, the unverified files (§9.1)
 ├── .lock                  (git-ignored) the write lock (§15)
 ├── platform/   (generated, git-ignored)
 │   ├── sdk.json           {flutter, dart, channel, languageVersion, fvm, appsteinNotesCoverage}
@@ -589,7 +589,7 @@ A check that throws is Appstein failing (exit `3`, §9.5), and the message names
 
 Fast checks **only report; they never modify files** (§5.4).
 
-**The unverified files** are the files changed since a verify run last found no error in them. A file joins them when the knowledge refresh sees its content changed, or when `--files` names it; it leaves when a run, fast or full, reports no error on it. An error therefore can't scroll out of view when the agent edits another file.
+**The unverified files** are the files changed since a verify run last found no error in them. A file joins them when the knowledge refresh sees its content changed, or when `--files` names it; it leaves when a run, fast or full, reports no error on it. An error therefore can't scroll out of view when the agent edits another file. Nothing counts as verified before it was checked: when there is no earlier state (Appstein's first sync of a project, or a deleted `state.json`), every Dart file is unverified, and no file leaves in a run where a code check did not run in full (an analyzer plugin that failed, stale knowledge, a check named as not run).
 
 - Analysis, as `dart analyze` reports it:
   - `dart.error` (error): an analyzer error, anywhere in the project. An error in any file means the app doesn't build, and the analysis server re-reports the whole project after each edit without saying which files it analyzed again;

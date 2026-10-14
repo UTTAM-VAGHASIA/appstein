@@ -153,6 +153,10 @@ The hook that runs a fast run by itself after each edit is not part of this slic
 - A file joins them when the knowledge refresh sees its content changed, or when it is named in `--files` or the tool's `files` input.
 - A file leaves them when a verify run, fast or full, reports no error on it. A hidden (suppressed) error counts as none. A deleted file leaves after one run.
 - The refresh must see a change in every Dart file the analysis server covers, including tests. Where the map's inputs cover less, the hash scan is widened for this purpose.
+- **Decided after the review of ticket 06** (owner, 2026-10-14):
+  - **Nothing counts as verified before it was checked.** With no earlier state (Appstein's first sync of a project, or a deleted or unreadable `state.json`), every Dart file is unverified. The first fast run shows the whole project's warnings and lints once.
+  - **A partial run lets no file leave.** In a run that reports `dart.plugin_failed` or `knowledge.stale`, or in which a code check was named as not run, no file leaves the unverified files.
+  - The design's description of `state.json` names the Dart file hashes and the unverified files (§6.2).
 
 **`--apply`**
 
@@ -174,6 +178,7 @@ The hook that runs a fast run by itself after each edit is not part of this slic
 - They hide any finding whose file is that Dart file, whichever check reported it, except the four findings nothing can hide (§9.7).
 - The three `suppression.*` findings apply as for `appstein.yaml`: no reason (error, hides nothing), unknown check ID (error), hides nothing (warning, full run only, and not when its check didn't run). Each is on the comment's line.
 - Hidden findings and the comments that hid them are counted in the summary together with the `appstein.yaml` suppressions.
+- **A line comment never reaches a whole file** (owner, 2026-10-14, after the review of ticket 09). The `dart.deprecated` finding on an `// ignore_for_file:` comment can be hidden only by `// appstein:ignore-file` or an `appstein.yaml` entry, whose reach is the whole file: that comment silences deprecated use in the whole file, so a one-line `// appstein:ignore` must not hide it. A line comment still hides the finding on an `// ignore:` line and the line of code after it.
 
 **Fixes carried from 1d.1**
 

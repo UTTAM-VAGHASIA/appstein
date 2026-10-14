@@ -4,7 +4,7 @@
 
 **Blocked by:** 03.
 
-Status: ready-for-agent
+Status: claimed
 
 - [ ] An analyzer warning is a `dart.warning` warning and an info-level diagnostic is a `dart.lint` info finding, each with the file, the line, the analyzer's message and its code. Plugin diagnostics are reported the same way, by their level.
 - [ ] A fast run reports them only on the unverified files; a full run reports them on every file.
@@ -25,3 +25,8 @@ Added by the owner's decision of 2026-10-14, after the review of ticket 05:
 - [ ] A Dart file the analysis covers that can't be opened for reading (on Windows, one another program holds locked) is a `dart.unreadable` error on that file, in fast and full runs, saying it could not be read so nothing in it was checked. It is found by opening each file in the look that comes before every reading, so it costs no second walk of the project. Tested with a real lock on Windows: today that file reads as clean to every code check, `dart.error` included.
 - [ ] Such a file never leaves the unverified files, and it is never read as clean by any check.
 - [ ] `dart.unreadable` can be overridden with `verify.severity` and hidden by a suppression.
+
+Added by the owner's decisions of 2026-10-14, after the review:
+
+- [ ] With no earlier state (the first sync of a project, or a `state.json` deleted or unreadable), every Dart file is unverified.
+- [ ] In a run that reports `dart.plugin_failed` or `knowledge.stale`, or in which a code check was named as not run, no file leaves the unverified files.
