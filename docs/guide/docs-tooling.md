@@ -124,7 +124,7 @@ Run both from the repo root.
 5. **Generated sections are up to date.**
 6. **Progress** ([`progress.dart`](../../tool/src/progress.dart) and [`progress_check.dart`](../../tool/src/progress_check.dart)): `progress.yaml` is valid and agrees with the plans, the slice folders and spec §18, and the visual page's progress sections are up to date. See [Progress](#progress).
 
-[`suite_run.dart`](../../tool/src/suite_run.dart) is not part of the guide check: it judges each step of `tool/test_all.dart` (see [testing](testing.md#run-everything-before-a-commit)).
+[`suite_run.dart`](../../tool/src/suite_run.dart) is not part of the guide check: it judges each step of `tool/test_all.dart` (see [testing](testing.md#run-everything-before-a-commit)). Neither are the five helpers of `tool/measure_sync.dart`, [`mcp_session.dart`](../../tool/src/mcp_session.dart), [`process_memory.dart`](../../tool/src/process_memory.dart), [`warm_measurement.dart`](../../tool/src/warm_measurement.dart), [`warm_verify.dart`](../../tool/src/warm_verify.dart) and [`large_build.dart`](../../tool/src/large_build.dart): they are described in [ci](ci.md#measure), and each has a test in the root `test/` folder.
 
 Every check reads Markdown through [`markdown.dart`](../../tool/src/markdown.dart), which tracks code fences and picks out links to files. Anything inside a fence (a link, a path, a covers comment, a marker) is an example and is skipped.
 

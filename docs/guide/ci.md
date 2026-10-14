@@ -4,6 +4,11 @@ tool/startup_check.dart
 tool/measure_analyze.dart
 tool/measure_sync.dart
 tool/measure_analysis_server.dart
+tool/src/large_build.dart
+tool/src/mcp_session.dart
+tool/src/process_memory.dart
+tool/src/warm_measurement.dart
+tool/src/warm_verify.dart
 -->
 
 # Continuous integration
@@ -85,13 +90,13 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 6. Unit tests
 7. Read the toolchain and map the fixture app with this real SDK (spec §6.5, §12, risk 6)
 
-**`measure`** runs on `ubuntu-latest`, `windows-latest`:
+**`measure`** runs on `ubuntu-latest`, `windows-latest`, `macos-latest`:
 
 1. `actions/checkout@v4`
 2. `subosito/flutter-action@v2`
 3. `dart pub get --enforce-lockfile`
 4. Measure cold analysis with the plugin (spec §9.1)
-5. Measure a full sync and sync --detect (spec §15)
+5. Measure sync, docs and verify, with the warm 5 s limit (spec §9.1, §15)
 
 <!-- /generated:ci-jobs -->
 
@@ -144,7 +149,7 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 
 ### measure
 
-- It runs [`tool/measure_analyze.dart`](../../tool/measure_analyze.dart) on Linux and Windows. The tool creates a fresh Flutter app with about 200 generated files and times `dart analyze`:
+- The job runs on Linux, macOS and Windows, because the warm `verify` limit is held on all three. [`tool/measure_analyze.dart`](../../tool/measure_analyze.dart) runs on Linux and Windows only (`if: runner.os != 'macOS'`): its table has no limit. The tool creates a fresh Flutter app with about 200 generated files and times `dart analyze`:
   - one file without the plugin;
   - the whole project, the first time with the plugin (this includes building the plugin);
   - the whole project with the plugin;
@@ -158,9 +163,10 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
   4. `sync --detect` after each of three edits of a view model, and of the router;
   5. on the 200-file app only, each of the seven MCP tools, three times, in one `appstein mcp` process (see below);
   6. on the 200-file app only, `appstein docs`: once to write every page, then three times with nothing to write and three times with `--check`. Each must take under 2 s (the last two as the median of three), which is spec §15's target for `appstein docs` from fresh knowledge. It also checks what the real command does: the first run must write, the next ones must find the docs up to date, and after a line is added to `routes.md` by hand, `--check` must exit 1, name the page as hand-edited and leave it alone (see [human-docs](human-docs.md#testing-it));
-  7. on the 200-file app only, `appstein verify --fast` and `appstein verify`, three times each. The fast run must take under 5 s as the median of three (spec §9.1); the full run is printed with no target, because the spec sets none. It also checks what the real command does: both must exit 0 (the app's findings are warnings only: a feature without a test, the page edited by hand in step 6) and end with the summary line, and `verify --format json` must report `docs.stale` for the `routes.md` page and no other page (see [verify](verify.md)). On the Windows development machine the fast run took 129 ms and the full run 176 ms.
+  7. on the 200-file app only, the terminal `appstein verify --fast` and `appstein verify`, three times each, **with no limit**: each starts its own analysis server, so its time is mostly that server starting. They are printed, and one more run of each (not timed) is sampled for the most memory its process tree held, the guard and the server (see "The warm `verify` limit" below). It also checks what the real command does: both must exit 0 (the app's findings are warnings only: a feature without a test, the page edited by hand in step 6) and end with the summary line, and `verify --format json` must report `docs.stale` for the `routes.md` page and no other page (see [verify](verify.md));
+  8. on the 200-file app only, the `verify` tool of a running `appstein mcp`, after one file is edited: **the 5 s limit of spec §9.1 and §15**, described below.
 
-  Spec §15 sets the targets, and **this tool does fail**: it exits 1 when the full sync takes 30 s or more, when any `--detect` of 3 and 4 (nothing changed, the view model edit, the router edit) takes 2 s or more as the median of three runs (CI machines vary by about 2× in speed; see [incremental-sync](incremental-sync.md#measuring)), when the map was skipped, when any native section is not `read`, or when a `--detect` gives the wrong answer (it rebuilt with nothing changed, or didn't report the edit). The same rows are measured for a 1,000-file app: their times are printed for information only and never held to a target, but a broken run there (a failed sync, a skipped map, a native section not `read`, a wrong `--detect` answer) still exits 1. A second table says where the time of each full sync and edit went, step by step (see [incremental-sync](incremental-sync.md#where-the-time-goes)), so a missed target shows its cause in the same log. A third holds the MCP answers (below), and an MCP median of 1 s or more also fails the run. All three tables go to the job summary and the log. On the Windows development machine:
+  Spec §15 sets the targets, and **this tool does fail**: it exits 1 when the full sync takes 30 s or more, when any `--detect` of 3 and 4 (nothing changed, the view model edit, the router edit) takes 2 s or more as the median of three runs (CI machines vary by about 2× in speed; see [incremental-sync](incremental-sync.md#measuring)), when the map was skipped, when any native section is not `read`, or when a `--detect` gives the wrong answer (it rebuilt with nothing changed, or didn't report the edit). Step 8 adds the warm `verify` limit. The same rows are measured for a 1,000-file app: their times are printed for information only and never held to a target, but a broken run there (a failed sync, a skipped map, a native section not `read`, a wrong `--detect` answer) still exits 1. A second table says where the time of each full sync and edit went, step by step (see [incremental-sync](incremental-sync.md#where-the-time-goes)), so a missed target shows its cause in the same log. A third holds the `verify` rows: the warm tool with its limit, the start-up and the memory (below). A fourth says what a reading of the project costs (below). The last holds the MCP answers (below), and an MCP median of 1 s or more also fails the run. So the tool prints **five tables**: the main one, the breakdown, `verify`, the reading and the MCP answers. They all go to the job summary and the log. When the warm measurement's own checks fail, the tables measured so far are printed before the run exits 1, so the log of that system keeps the numbers. On the Windows development machine:
 
   | Measurement | 200 files | 1,000 files (info) |
   |---|---|---|
@@ -172,9 +178,49 @@ Every job except `min-sdk` uses `FLUTTER_STABLE`, the Flutter version set at the
 
   See [incremental-sync](incremental-sync.md#measuring) for why each row is measured that way.
 
-  **The time limit.** The `measure` job has `timeout-minutes: 30`; it normally takes about five. In slice 1c.1 a measuring tool printed its tables and then never exited, and both jobs ran for GitHub's default limit of six hours. The limit turns the next such bug into a failure after half an hour.
+  **The time limit.** The `measure` job has `timeout-minutes: 30`; it normally takes five to ten (a local run on a busy Windows machine took about five). In slice 1c.1 a measuring tool printed its tables and then never exited, and both jobs ran for GitHub's default limit of six hours. The limit turns the next such bug into a failure after half an hour.
 
-  **The MCP table.** A third table times the MCP server (see [mcp-server](mcp-server.md#testing-it)). After the last edit's `--detect` the knowledge is fresh. The tool starts one `appstein mcp --project <app>` process, which it talks to with a small JSON-RPC client: it sends `initialize`, then times each `tools/call`. A first `overview` call starts the server and isn't counted. Then each tool is called three times, with the same arguments on the generated app (`where_is` with `feature 5 view model`, `feature` with `feature_5`, `route` with `/feature-7`, `check_api` with `withOpacity`, and `what_changed` and `toolchain` with none). The table has one row per tool: the median in ms, and the three times beside it. Spec §15 sets the target, under 1 s, and the tool exits 1 when a tool's median reaches it, or when a call answers with an error. The 1,000-file app has no MCP rows.
+  **The MCP table.** The last table times the MCP server (see [mcp-server](mcp-server.md#testing-it)). After the last edit's `--detect` the knowledge is fresh. The tool starts one `appstein mcp --project <app>` process, which it talks to with a small JSON-RPC client: it sends `initialize`, then times each `tools/call`. A first `overview` call starts the server and isn't counted. Then each tool is called three times, with the same arguments on the generated app (`where_is` with `feature 5 view model`, `feature` with `feature_5`, `route` with `/feature-7`, `check_api` with `withOpacity`, and `what_changed` and `toolchain` with none). The table has one row per tool: the median in ms, and the three times beside it. Spec §15 sets the target, under 1 s, and the tool exits 1 when a tool's median reaches it, or when a call answers with an error. The 1,000-file app has no MCP rows.
+
+  **The warm `verify` limit.** Spec §15's "fast verify under 5 s" is measured where an agent meets it: on the `verify` tool of a running `appstein mcp`, not on the terminal command, which starts its own analysis server and so spends its time on that (decision record [0001](../adr/0001-analysis-server-beside-the-map-analyzer.md)). After the terminal runs the tool starts a second `appstein mcp --project <app>` (the compiled binary, `McpSession` in [`mcp_session.dart`](../../tool/src/mcp_session.dart)) and:
+  1. calls `verify` with `scope: fast` once. That first call starts the analysis server and waits for it, so it is the **start-up time**; the tool takes the memory of `appstein mcp`'s process tree then ([`process_memory.dart`](../../tool/src/process_memory.dart): the process, the guard and the server), and again after the last call. The reply must have no `dart.error`;
+  2. three times, edits the view model of `feature_9` to add a real error ([`editWithError`](../../tool/src/warm_verify.dart): `int wrongN() => 'xxx';` at the end, a different length and on a different line each time, so a file system with a coarse clock can't hide an edit and a reply left from an earlier edit names the wrong line), calls `verify` with `scope: fast` and times it. **The reply must report a `dart.error` on that file and on the line written**, or the run fails whatever the time ([`missedError`](../../tool/src/warm_verify.dart)): a fast answer that missed the change can't pass. The median of the three must be **under 5 s** (the design says "< 5 s", so exactly 5 s fails; [`warmLimitMiss`](../../tool/src/warm_verify.dart)); at 5 s or more, the run fails with a message that gives the measured time. **The limit is not changed to fit a result**: a miss is a finding for the owner;
+  3. after each of those, restores the file, calls `verify` again and times it (printed, no limit), and the reply must no longer report the error;
+  4. three more times, edits the file and calls `overview` (every tool refreshes the knowledge first, so this call is that refresh) and then `verify`, which has nothing left to refresh: the two rows say **where the time of the call goes** (the refresh, against the look at the disk, the reading and the checks). The reply must report the error again, and after the file is restored, `verify` must report it gone again (untimed), so a stale reply fails in these rows too.
+
+  The steps are `measureWarm` in [`warm_measurement.dart`](../../tool/src/warm_measurement.dart), which the root test `test/warm_measurement_test.dart` runs against a fake MCP server that reads the edited file from disk, or is made to miss every change, to repeat the answer of the call before from the 3rd, 4th or 9th call on (each hits a different check), to name the line of an earlier edit, to answer with an error, to answer too slowly, or not to end.
+
+  A call that gets no answer within 120 s, a line that isn't JSON and a result that isn't an object are failed runs with a message that says so, not a stack trace or a wait for the job's limit. The first request, `initialize`, has a start timeout of its own (also 120 s), because it waits for the process to start; the shorter timeouts of the tests apply only to the calls under test.
+
+  Then it closes `appstein mcp`'s input and checks that it ended by itself and that no process of the tree it saw is still running. The tree is listed after the first call, after the last, and once more just before the session is closed, whatever the end of the measurement was: a first call that hangs or fails is when a guard and a server are most likely left behind. Each process is recorded with the start it had when first seen. **A process counts as part of the tree, and as a leftover, only by ID and start together**: the system names a parent by ID and never clears it, and Windows gives the ID of an ended process to a new program within seconds, so a process that started before its named parent is not its child, and a process with the ID of a tree member whose start is not the recorded one (a program that started later, or one that was already running) is another program ([`processTree`](../../tool/src/process_memory.dart), `survivors`). The process list is checked too: a listing that fails, is empty or does not hold the tool's own process stops the run, instead of reading as no memory and nothing left. The tool ends one process only: `appstein mcp` itself, which it kills when its input closing has not ended it within 30 s (a slow CI runner gets time). That kill is reported and fails the run. A leftover is a bug to find, not something the tool cleans up: it is reported by ID with the command to end it by hand. Any of these fails the run.
+
+  The app is the 200-file app of the other rows: no `analysis_options.yaml`, so no `appstein_lints` plugin and no `flutter_lints` in the analysis server. With the plugin the server takes longer to start and holds more memory (decision record 0001: 18 s and 1.4 GB, against 7.5 s and 0.6 GB); the warm call with it is not in the CI measurement. It was measured once by hand, with a temporary copy of the tool that wrote an `analysis_options.yaml` with the plugin into the 200-file app (the second column below).
+
+  On the Windows development machine (2026-10-14, one run of each; other test runs were going on at the same time, which is why the `sync --detect` rows of the same runs were slower than in the table above):
+
+  | Measurement, 200-file app | No plugin | With the plugin (by hand) |
+  |---|---|---|
+  | **Warm fast `verify`** after an edit that adds an error, median of 3 (limit: under 5 s) | 1,632 ms (1,727, 1,632, 1,519) | 1,670 ms (1,670, 1,671, 1,597) |
+  | after the error is fixed, median of 3 | 1,566 ms | 1,628 ms |
+  | of which the knowledge refresh (an `overview` call), median of 3 | 1,409 ms | 1,489 ms |
+  | of which `verify` once the refresh is done, median of 3 | 248 ms | 249 ms |
+  | First `verify` call (the analysis server starts and is ready) | 5,092 ms | 15,655 ms |
+  | Memory of `appstein mcp`, guard and server, ready / after the calls | 0.98 GB / 1.11 GB | 1.88 GB / 2.27 GB |
+  | Terminal `verify --fast`, three runs, no limit | 28,757 (the first), 4,971, 4,967 ms | 38,258, 29,354, 41,189 ms |
+  | Terminal `verify` (full), three runs, no limit | 4,935, 4,865, 4,868 ms | 29,813, 21,796, 18,915 ms |
+  | Most memory of a terminal fast / full run | 0.90 GB / 0.91 GB | 1.73 GB / 1.86 GB |
+
+  The warm call is a knowledge refresh (the view model is a map input, so the map is rebuilt: about 1.4 s) and a quarter of a second for the rest: the look at the disk, the reading and the checks.
+
+  **What a reading costs.** A warm `verify` call looks at the disk before it asks the analysis server (`DiskLook`, ticket 04), and scans the Dart files outside the map's inputs (`readDartFileHashes`, ticket 06). The tool times both in its own process, three times each, on the 200-file app with no `build/` folder and with a `build/` of 6,000 and of 26,000 files ([`large_build.dart`](../../tool/src/large_build.dart): nested folders, 50 files in each, one file in twenty a Dart file, so the project has 500 and 1,500 Dart files): the look, the first scan (every file is hashed) and a scan with nothing changed (the one a warm call makes). Printed only, with no limit. The look calls the engine's `DiskLook` directly, which the engine does not export. On the same machine and runs (median of three, in ms):
+
+  | | No `build/` | 6,000 files | 26,000 files |
+  |---|---|---|---|
+  | Look at the disk, no plugin / plugin | 35 / 27 | 57 / 61 | 145 / 277 |
+  | Dart-file scan, first (every file hashed), no plugin / plugin | 139 / 130 | 332 / 141 | 859 / 231 |
+  | Dart-file scan, nothing changed, no plugin / plugin | 55 / 57 | 128 / 45 | 379 / 95 |
+
+  The pairs are the same code on the same files, run at different moments on a busy machine, so they show how much these numbers move (the scan of 6,000 files: 128 and 45 ms). With a `build/` of 26,000 files the look and the scan together are about 0.4 to 0.5 s of a warm call; without one, about 0.1 s. That is not what the 1.6 s is made of.
 
   **The measured app's disk.** GitHub's standard Windows runners keep the checkout and `RUNNER_TEMP` on D:, a fast local disk, while the system temp folder (`%TEMP%`) is on C:, a remote disk that is much slower to write ([actions/runner-images#8755](https://github.com/actions/runner-images/issues/8755)). The first public CI runs of 1b.7 made the apps on C:, and writing the 57 MB analyzer cache took 0.6–3.8 s there, against 0.07 s on D:, so an edit's `--detect` missed 2 s on Windows only (1.7–4.9 s). With the apps on D: it took 1.6 s. A developer's project lives on their working disk, not on a cloud machine's system disk, so CI measures there. On Linux every folder is on one disk. Defender was ruled out: real-time protection is off on these runners.
 - The analysis measurement reports numbers; it has no time budget to fail. The first numbers (9–16 s for one cold file with the plugin) led the spec to plan warm analysis for fast checks ([spec §9.1](../project/specs/2026-09-29-appstein-design.md#91-fast-checks-after-every-change-changed-files-only-target--5-s)).
