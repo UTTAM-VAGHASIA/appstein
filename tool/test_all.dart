@@ -120,6 +120,12 @@ Future<void> main(List<String> arguments) async {
     exitCode = 2;
     return;
   }
+  // Each step's whole output, one file per step, replaced on each run.
+  final logs = Directory('.dart_tool/test_all')..createSync(recursive: true);
+  for (final old in logs.listSync().whereType<File>()) {
+    old.deleteSync();
+  }
+  var stepNumber = 0;
   final failed = <String>[];
   for (final step in chosen) {
     stdout.writeln('== ${step.name} ...');
@@ -131,6 +137,13 @@ Future<void> main(List<String> arguments) async {
       environment: environment,
     );
     final output = '${result.stdout}\n${result.stderr}';
+    // The whole output is kept, so a failure can be read afterwards even
+    // when the lines shown here don't say enough.
+    final log = File(
+      '${logs.path}${Platform.pathSeparator}'
+      '${(++stepNumber).toString().padLeft(2, '0')}-'
+      '${step.name.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')}.log',
+    )..writeAsStringSync(output);
     final verdict = step.tests
         ? judgeTestRun(result.exitCode, output)
         : judgeTool(result.exitCode, output);
@@ -144,6 +157,7 @@ Future<void> main(List<String> arguments) async {
       for (final line in failureLines(output)) {
         stdout.writeln('   $line');
       }
+      stdout.writeln('   The whole output: ${log.path}');
     }
   }
   if (failed.isEmpty) {

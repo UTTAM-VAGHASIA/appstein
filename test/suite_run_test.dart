@@ -63,6 +63,23 @@ void main() {
     });
   });
 
+  test('failureLines never shows a passing test for a word in its name, and '
+      'shows what a failure printed after its line', () {
+    final lines = failureLines(
+      '03:35 +1089 ~8 -1: an error added between two calls appears\n'
+      '03:36 +1090 ~8 -1: an uncaught async error exits 3\n'
+      '03:37 +1090 ~8 -2: a test [E]\n'
+      '  TimeoutException after 0:00:30.000000: Test timed out\n'
+      '  package:test_api  fail\n'
+      '03:38 +1091 ~8 -2: the next test\n',
+    );
+    expect(lines, [
+      '03:37 +1090 ~8 -2: a test [E]',
+      '  TimeoutException after 0:00:30.000000: Test timed out',
+      '  package:test_api  fail',
+    ]);
+  });
+
   test('failureLines keeps the failing tests and what they expected', () {
     final lines = failureLines(
       '00:01 +1: fine\n'

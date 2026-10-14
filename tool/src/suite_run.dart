@@ -83,15 +83,24 @@ SuiteVerdict judgeTool(int exitCode, String output) {
   );
 }
 
-/// The lines of a failed run worth showing: the failing tests and what
-/// they expected, at most [limit] of them.
-List<String> failureLines(String output, {int limit = 40}) {
-  final worth = RegExp(
-    r'\[E\]|Expected|Actual|TimeoutException|Error|error|survivor|outliv',
-  );
-  return output
-      .split(RegExp(r'\r?\n'))
-      .where(worth.hasMatch)
-      .take(limit)
-      .toList();
+/// The lines of a failed run worth showing, at most [limit]: each line that
+/// names a failing test (`dart test` ends it with `[E]`) and the [after]
+/// lines that follow it, which hold what the test expected or threw. A
+/// progress line is never shown for its test's name alone, since a name
+/// can hold any word ("an error added … appears").
+List<String> failureLines(String output, {int limit = 60, int after = 12}) {
+  final lines = output.split(RegExp(r'\r?\n'));
+  final shown = <String>[];
+  for (var i = 0; i < lines.length && shown.length < limit; i++) {
+    if (!lines[i].trimRight().endsWith('[E]')) continue;
+    for (var j = i; j <= i + after && j < lines.length; j++) {
+      // The next progress line ends what this failure printed.
+      if (j > i && _counts.hasMatch(lines[j]) && !lines[j].startsWith(' ')) {
+        break;
+      }
+      shown.add(lines[j]);
+      if (shown.length == limit) break;
+    }
+  }
+  return shown;
 }
