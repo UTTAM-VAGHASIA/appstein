@@ -1,0 +1,14 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":37408,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"{root}/test/passing_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading {root}/test/passing_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"count":1,"time":7,"type":"allSuites"}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2385}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":2388}
+{"group":{"id":3,"suiteID":0,"parentID":2,"name":"counter","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":6,"column":3,"url":"{rootUri}/test/passing_test.dart"},"type":"group","time":2388}
+{"test":{"id":4,"name":"counter adds one","suiteID":0,"groupIDs":[2,3],"metadata":{"skip":false,"skipReason":null},"line":7,"column":5,"url":"{rootUri}/test/passing_test.dart"},"type":"testStart","time":2389}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2420}
+{"test":{"id":5,"name":"shows text","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":12,"root_column":3,"root_url":"{rootUri}/test/passing_test.dart"},"type":"testStart","time":2421}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2722}
+{"success":true,"type":"done","time":2754}

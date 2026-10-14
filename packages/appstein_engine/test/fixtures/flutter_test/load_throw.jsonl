@@ -1,0 +1,6 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":3272,"type":"start","time":0}
+{"suite":{"id":8,"platform":"vm","path":"{root}/test/top_level_throw_test.dart"},"type":"suite","time":9}
+{"test":{"id":9,"name":"loading {root}/test/top_level_throw_test.dart","suiteID":8,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":9}
+{"testID":9,"error":"Failed to load \"{root}/test/top_level_throw_test.dart\": Bad state: main threw before declaring","stackTrace":"test\\top_level_throw_test.dart 4:3  main\n","isFailure":false,"type":"error","time":21478}
+{"testID":9,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":21480}
+{"success":false,"type":"done","time":24688}

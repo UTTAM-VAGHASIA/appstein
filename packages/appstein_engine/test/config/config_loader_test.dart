@@ -87,6 +87,48 @@ integrations:
     );
   });
 
+  group('verify.test_timeout_seconds', () {
+    test('is 600 by default, also when verify has other keys', () {
+      expect(parseConfig('').verify.testTimeoutSeconds, 600);
+      expect(
+        parseConfig(
+          'verify:\n  build_on_full: false\n',
+        ).verify.testTimeoutSeconds,
+        600,
+      );
+    });
+
+    test('takes a positive whole number', () {
+      expect(
+        parseConfig(
+          'verify:\n  test_timeout_seconds: 45\n',
+        ).verify.testTimeoutSeconds,
+        45,
+      );
+      expect(
+        parseConfig(
+          'verify:\n  test_timeout_seconds: 1\n',
+        ).verify.testTimeoutSeconds,
+        1,
+      );
+    });
+
+    for (final value in ['0', '-5', '1.5', '"600"', 'soon', 'true', '[600]']) {
+      test('$value is a configuration error on its line', () {
+        expect(
+          () => parseConfig('verify:\n  test_timeout_seconds: $value\n'),
+          throwsA(
+            configError(
+              'verify.test_timeout_seconds must be a whole number of at '
+              'least 1.',
+              line: 2,
+            ),
+          ),
+        );
+      });
+    }
+  });
+
   test('docs.path must stay inside the project', () {
     expect(
       () => parseConfig('docs:\n  path: /tmp/docs\n'),

@@ -99,6 +99,13 @@ Future<int> runAppstein(
       ..writeln(error)
       ..writeln('Run `appstein doctor` to check your setup.');
     return ExitCodes.appsteinFailed;
+  } on TestRunException catch (error) {
+    // The project's tests could not be run at all: a broken setup too, and
+    // never "no test failed" (spec §9.5).
+    errors
+      ..writeln(error)
+      ..writeln('Run `appstein doctor` to check your setup.');
+    return ExitCodes.appsteinFailed;
   } on VerifyCheckError catch (error) {
     // The message names the check, and the trace is where the check threw.
     reportCrash(errors, error, error.stackTrace);

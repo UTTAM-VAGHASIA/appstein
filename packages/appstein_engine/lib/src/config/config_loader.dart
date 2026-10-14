@@ -302,6 +302,7 @@ final class _ConfigReader {
     _checkKeys(map, 'verify', const [
       'fast_timeout_seconds',
       'build_on_full',
+      'test_timeout_seconds',
       'severity',
     ]);
     final severity = <String, Severity>{};
@@ -340,6 +341,12 @@ final class _ConfigReader {
         'build_on_full',
         'verify.build_on_full',
         fallback: defaults.buildOnFull,
+      ),
+      testTimeoutSeconds: _int(
+        map,
+        'test_timeout_seconds',
+        'verify.test_timeout_seconds',
+        fallback: defaults.testTimeoutSeconds,
       ),
       severity: Map.unmodifiable(severity),
     );

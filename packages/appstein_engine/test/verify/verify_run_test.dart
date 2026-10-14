@@ -165,6 +165,34 @@ final class _ForgetfulIgnoresCheck implements VerifyCheck {
   }
 }
 
+/// A check that, once the run knows which findings stay, adds [adds] when
+/// `a.noisy` is not among them. It writes what it was shown to [seen].
+final class _FollowingCheck implements FollowingCheck {
+  _FollowingCheck(this.adds);
+
+  final Finding adds;
+
+  @override
+  VerifyMode get mode => VerifyMode.full;
+
+  final seen = <List<String>>[];
+
+  @override
+  List<String> get ids => const ['a.follow'];
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async => const [];
+
+  @override
+  List<Finding> following(VerifyContext context, List<Finding> kept) {
+    seen.add([for (final finding in kept) finding.id]);
+    return kept.any((finding) => finding.id == 'a.noisy') ? const [] : [adds];
+  }
+}
+
 void main() {
   late String sdk;
   late String app;
@@ -417,6 +445,81 @@ void main() {
       expect(result.findings.single.fixHint, contains('appstein verify'));
       expect((mapCheck.runs, other.runs), (0, 1));
       expect(result.notRun.single.id, 'map.check');
+    });
+  });
+
+  group('a check that follows what stays', () {
+    final noisy = FakeCheck(['a.noisy'], findings: [finding('a.noisy')]);
+
+    test('sees the findings that stay, after severity and suppressions, '
+        'and adds nothing while a.noisy stays', () async {
+      final follower = _FollowingCheck(
+        finding('a.follow', severity: Severity.error),
+      );
+      final result = await run(
+        [noisy, follower],
+        config: const AppsteinConfig(
+          verify: VerifyConfig(severity: {'a.follow': Severity.info}),
+          suppressions: [
+            SuppressionEntry(
+              id: 'a.noisy',
+              path: 'lib',
+              reason: 'Quiet.',
+              line: 2,
+            ),
+          ],
+        ),
+      );
+      // `a.noisy` has no file, so the suppression hides nothing: the unused
+      // one is told, and the check sees it was kept.
+      expect(follower.seen, [
+        ['a.noisy', 'suppression.unused'],
+      ]);
+      expect(ids(result), ['a.noisy', 'suppression.unused']);
+    });
+
+    test('adds its finding when the others are gone, as set by '
+        'verify.severity', () async {
+      final follower = _FollowingCheck(
+        finding('a.follow', severity: Severity.error),
+      );
+      final result = await run(
+        [follower],
+        config: const AppsteinConfig(
+          verify: VerifyConfig(severity: {'a.follow': Severity.info}),
+        ),
+      );
+      expect(
+        [for (final f in result.findings) (f.id, f.severity)],
+        [('a.follow', Severity.info)],
+      );
+    });
+
+    test('is not asked in a fast run when it is a full check', () async {
+      final follower = _FollowingCheck(finding('a.follow'));
+      final result = await run([follower], mode: VerifyMode.fast);
+      expect(follower.seen, isEmpty);
+      expect(result.findings, isEmpty);
+    });
+
+    test('a finding with an ID it does not declare is Appstein failing', () {
+      final follower = _FollowingCheck(finding('c.d'));
+      return expectLater(
+        run([follower]),
+        throwsA(
+          isA<VerifyCheckError>().having(
+            (e) => '$e',
+            'text',
+            allOf(contains('`a.follow`'), contains('`c.d`')),
+          ),
+        ),
+      );
+    });
+
+    test('the finding carries the pack the check came from', () async {
+      final follower = _FollowingCheck(finding('a.follow'));
+      final result = await run([follower], from: {follower: 'some_pack'});
+      expect(result.findings.single.pack, 'some_pack');
     });
   });
 

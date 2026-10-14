@@ -13,6 +13,12 @@ final class FakeProcessRunner implements ProcessRunner {
   /// The working directory of every command run, in the order of [calls].
   final List<String?> workingDirectories = [];
 
+  /// The time limit of every command run, in the order of [calls].
+  final List<Duration> timeouts = [];
+
+  /// Called at the start of every run with the command, as in [calls].
+  Future<void> Function(String command)? onRun;
+
   /// Makes [executable] with [arguments] return [result].
   void when(String executable, List<String> arguments, RunResult result) {
     _results[_key(executable, arguments)] = result;
@@ -29,6 +35,8 @@ final class FakeProcessRunner implements ProcessRunner {
     final key = _key(executable, arguments);
     calls.add(key);
     workingDirectories.add(workingDirectory);
+    timeouts.add(timeout);
+    await onRun?.call(key);
     return _results[key] ?? RunResult.notStarted('not faked: $key');
   }
 

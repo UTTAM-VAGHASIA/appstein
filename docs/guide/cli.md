@@ -51,6 +51,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | `UsageException` (a bad option, an unknown command, a bad `--project`) | The message, a blank line, then the usage text | 3 |
 | `ConfigException` | `Invalid appstein.yaml: ` and the error | 3 |
 | `CodeAnalysisException` (the analysis server of `verify` could not answer) | The reason, then ``Run `appstein doctor` to check your setup.`` No stack trace: it is a broken setup, not a bug to report | 3 |
+| `TestRunException` (the project's tests could not be run at all by a full `verify`: no Flutter SDK, or `flutter test` could not be started; a `flutter test` that started and gave no result is a `test.failed` finding with exit 1; see [verify](verify.md#the-tests)) | The reason, then ``Run `appstein doctor` to check your setup.`` No stack trace, for the same reason | 3 |
 | `VerifyCheckError` (a check of `verify` threw) | `reportCrash`, with the check's name in the message and the trace of where the check threw | 3 |
 | Anything else | `reportCrash`: "Appstein failed unexpectedly", a hint to run `appstein doctor`, and the stack trace | 3 |
 
@@ -211,7 +212,7 @@ A refusal is exit 1, not 3: the project has something to fix (fetch the packages
 3. **Calls `runVerify`** with the project's packs, `checksFor(packs)` and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`. The call is wrapped in `terminalCodeAnalysis`: the run gets an analysis server of its own, started behind the guard when a check first asks and stopped when the run ends, normally or with an error (see [verify](verify.md#the-analysis-server)).
 4. **Prints the result to stdout**, as `formatVerify` or as indented JSON, and exits with `verifyExitCode`: **1** when a finding is an error, else **0**.
 
-Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3. An analysis server that can't answer isn't either: `runAppstein` prints the `CodeAnalysisException`'s reason and exits 3.
+Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3. An analysis server that can't answer isn't either: `runAppstein` prints the `CodeAnalysisException`'s reason and exits 3. Tests that can't be run at all (`TestRunException`: no Flutter SDK, or `flutter test` could not be started) are handled the same way. A `flutter test` that started and ended with a failing exit code without naming a failing test, a run that was stopped at its time limit, and a run whose output ended early are findings (`test.failed`), so they go to stdout and exit 1.
 
 `runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`. It also takes `dartSdkPath` (for `verify` and `mcp`), the Dart SDK the analysis reads `dart:` libraries from and whose `dart` runs the analysis server, and `codeAnalysis`, which replaces the analysis server for `verify` and for the `verify` tool of `mcp`.
 

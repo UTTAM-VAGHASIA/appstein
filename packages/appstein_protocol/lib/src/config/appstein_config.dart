@@ -120,6 +120,7 @@ final class VerifyConfig {
   const VerifyConfig({
     this.fastTimeoutSeconds = 20,
     this.buildOnFull = true,
+    this.testTimeoutSeconds = 600,
     this.severity = const {},
   });
 
@@ -129,6 +130,10 @@ final class VerifyConfig {
   /// Whether `verify --full` runs real debug builds.
   final bool buildOnFull;
 
+  /// How long a full run lets the project's test suite run before it stops
+  /// it and reports `test.failed` on the project (spec §9.2).
+  final int testTimeoutSeconds;
+
   /// Per-check severity overrides, keyed by check ID.
   final Map<String, Severity> severity;
 
@@ -136,6 +141,7 @@ final class VerifyConfig {
   Map<String, Object?> toJson() => {
     'fast_timeout_seconds': fastTimeoutSeconds,
     'build_on_full': buildOnFull,
+    'test_timeout_seconds': testTimeoutSeconds,
     'severity': {for (final e in severity.entries) e.key: e.value.name},
   };
 }

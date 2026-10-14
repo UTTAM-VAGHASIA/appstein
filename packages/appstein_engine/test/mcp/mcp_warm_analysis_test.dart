@@ -14,6 +14,7 @@ import '../analysis/support/analysis_support.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
 import '../support/temp.dart';
 import 'support/mcp_client.dart';
 
@@ -31,12 +32,18 @@ void main() {
     sdk = fakeFlutter();
   });
 
-  KnowledgeSync sync() => knowledgeSync(
-    flutterRoot: sdk,
-    runner: FakeProcessRunner(),
-    packs: _packs,
-    packageSkills: false,
-  );
+  // A full run also runs the project's tests (ticket 10): scripted as a
+  // run whose tests all pass, so the findings here are the analysis's.
+  KnowledgeSync sync() {
+    final runner = FakeProcessRunner();
+    scriptFlutterTest(runner, sdk);
+    return knowledgeSync(
+      flutterRoot: sdk,
+      runner: runner,
+      packs: _packs,
+      packageSkills: false,
+    );
+  }
 
   Future<ServerConnection> serve(KeptAnalysisServer kept) async {
     final controller = StreamChannelController<String>();

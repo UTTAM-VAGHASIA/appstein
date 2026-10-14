@@ -15,6 +15,7 @@ import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
 import '../support/scripted_code_analysis.dart';
 import 'support/mcp_client.dart';
 import 'support/mcp_support.dart';
@@ -36,6 +37,8 @@ void main() {
     sdk = fakeFlutter();
     app = copyFixtureApp();
     runner = FakeProcessRunner();
+    // The app's tests pass, where a full `verify` runs them.
+    scriptFlutterTest(runner, sdk);
     syncFor = () => knowledgeSync(
       flutterRoot: sdk,
       runner: runner,
@@ -641,6 +644,60 @@ void main() {
       );
     });
 
+    test('tests that can\'t be run are an error reply with the reason and '
+        '`appstein doctor`, not a bug to report, and the server keeps '
+        'running', () async {
+      // `flutter test` "can't be started": nothing is scripted for it.
+      runner = FakeProcessRunner();
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'full'});
+      expect(failed.isError, isTrue);
+      expect(failed.structuredContent, isNull);
+      expect(
+        textOf(failed),
+        allOf(
+          startsWith(
+            'The project\'s tests could not be run: `flutter test` could not '
+            'be started with ',
+          ),
+          contains('). Run `appstein doctor` to see what is wrong.'),
+          isNot(contains('report it')),
+        ),
+      );
+      // A fast run never runs them, so it answers.
+      final json = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(json['findings'], isEmpty);
+    });
+
+    test('full: a failing test is a test.failed finding in the '
+        'reply', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(exitCode: 1, stdout: flutterTestOutput('failing', app)),
+      );
+      final server = await serve();
+      final json = structured(await call(server, 'verify', {'scope': 'full'}));
+      final failed = [
+        for (final finding in json['findings']! as List)
+          if ((finding as Map)['id'] == 'test.failed') finding,
+      ];
+      expect(failed, hasLength(7));
+      expect(failed.last, {
+        'id': 'test.failed',
+        'severity': 'error',
+        'file': 'test/widgets/failing_test.dart',
+        'line': 28,
+        'message':
+            'The test `widget throws` failed: The following ArgumentError '
+            'was thrown running a test: Invalid argument(s): bad widget',
+        'fixHint':
+            'Run `flutter test test/widgets/failing_test.dart` to see the '
+            'whole failure.',
+      });
+      expect((json['summary']! as Map)['errors'], 7);
+    });
+
     test('fast: no full check runs', () async {
       final server = await serve();
       final result = await call(server, 'verify', {'scope': 'fast'});
@@ -692,6 +749,9 @@ void main() {
 
     test('knowledge that cannot be refreshed is a finding, not an error '
         'reply; the sync is built once', () async {
+      // Without a Flutter SDK the app's tests could not be run either, which
+      // is an error reply (below): this app has none.
+      Directory(p.join(app, 'test')).deleteSync(recursive: true);
       var syncs = 0;
       syncFor = () {
         syncs++;

@@ -1,0 +1,21 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tests_app/counter.dart';
+
+void main() {
+  group('counter', () {
+    test('adds one', () {
+      expect(next(1), 2);
+    });
+  });
+
+  testWidgets('shows text', (tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: Text('hello'),
+      ),
+    );
+    expect(find.text('hello'), findsOneWidget);
+  });
+}

@@ -23,6 +23,7 @@ import 'record_decision.dart';
 import 'route_query.dart';
 import 'tool_answer.dart';
 import '../verify/engine_checks.dart';
+import '../verify/test_run.dart';
 import '../verify/verify_check.dart';
 import '../verify/verify_run.dart';
 import 'toolchain_report.dart';
@@ -516,6 +517,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       };
     } on CodeAnalysisException catch (error) {
       // A broken setup, not a bug to report; the server keeps running.
+      return _refuse('$error $_doctor', freshness);
+    } on TestRunException catch (error) {
+      // The project's tests could not be run: a broken setup as well.
       return _refuse('$error $_doctor', freshness);
     } on Object catch (error) {
       return _refuse(

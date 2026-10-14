@@ -12,6 +12,7 @@ import '../analysis/support/analysis_support.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
 
@@ -24,21 +25,27 @@ void main() {
     CodeAnalysis analysis, {
     VerifyMode mode = VerifyMode.full,
     AppsteinConfig config = const AppsteinConfig(),
-  }) => runVerify(
-    projectRoot: app,
-    config: config,
-    packs: _packs,
-    sync: knowledgeSync(
-      flutterRoot: fakeFlutter(),
-      runner: FakeProcessRunner(),
+  }) {
+    // The app's tests pass, where a full run gets as far as running them.
+    final sdk = fakeFlutter();
+    final runner = FakeProcessRunner();
+    scriptFlutterTest(runner, sdk);
+    return runVerify(
+      projectRoot: app,
+      config: config,
       packs: _packs,
-      packageSkills: false,
-    ),
-    mode: mode,
-    checks: checksFor(_packs),
-    codeAnalysis: analysis,
-    dartSdkPath: testDartSdk,
-  );
+      sync: knowledgeSync(
+        flutterRoot: sdk,
+        runner: runner,
+        packs: _packs,
+        packageSkills: false,
+      ),
+      mode: mode,
+      checks: checksFor(_packs),
+      codeAnalysis: analysis,
+      dartSdkPath: testDartSdk,
+    );
+  }
 
   List<Finding> dart(VerifyResult result) => [
     for (final finding in result.findings)

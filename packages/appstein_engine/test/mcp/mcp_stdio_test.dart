@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 
 import '../knowledge/support/sync_harness.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
 import 'support/mcp_client.dart';
 
 void main() {
@@ -15,6 +16,8 @@ void main() {
       'umlaut: every tool answers and stdout holds only protocol '
       'messages', () async {
     final sdk = fakeFlutter();
+    // The full `verify` below starts this SDK's `flutter test` for real.
+    fakeFlutterPrints(sdk);
     final app = copyFixtureApp();
     final engine = p.dirname(p.dirname(p.dirname(fixtureAppsDir)));
     // The script itself, not `dart run`: pub never runs, so nothing but the

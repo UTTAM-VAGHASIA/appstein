@@ -1,0 +1,19 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tests_app/counter.dart';
+
+void main() {
+  test('in a folder with a space', () {
+    expect(next(4), 6);
+  });
+
+  testWidgets('a widget in a folder with a space', (tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: Text('hello'),
+      ),
+    );
+    expect(find.text('hello'), findsNothing);
+  });
+}

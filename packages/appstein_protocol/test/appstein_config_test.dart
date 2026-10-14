@@ -13,6 +13,7 @@ void main() {
       'verify': {
         'fast_timeout_seconds': 20,
         'build_on_full': true,
+        'test_timeout_seconds': 600,
         'severity': <String, String>{},
       },
       'docs': {'enabled': true, 'path': 'docs/app'},

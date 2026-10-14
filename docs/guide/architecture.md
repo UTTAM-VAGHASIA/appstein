@@ -12,7 +12,7 @@ This is the overview. It shows the parts and how they connect, then points to th
 Appstein is currently:
 
 - a command line, `appstein`, with `--version` and five commands, `doctor`, `sync`, `mcp`, `docs` and `verify`;
-- a verifier, `appstein verify`, that checks the project against its knowledge and reports findings (see [verify](verify.md)). It has its frame, the checks every project gets and the first code check, analyzer errors, answered by the project's Dart analysis server; the other code checks, the lint rules, the package gate and the native checks come in later slices;
+- a verifier, `appstein verify`, that checks the project against its knowledge and reports findings (see [verify](verify.md)). It has its frame, the checks every project gets, the first code checks, analyzer errors and deprecated API use, answered by the project's Dart analysis server, and failing tests; the other code checks, the lint rules, the package gate and the native checks come in later slices;
 - a renderer, `appstein docs`, that turns the knowledge into Markdown pages for people, in the project's docs folder (see [human-docs](human-docs.md));
 - an MCP server, `appstein mcp`, that answers an agent's questions from the knowledge, with seven read tools, reads and writes the project's decisions and memory with four more, and runs the verifier with `verify` (see [mcp-server](mcp-server.md) and [decisions-and-memory](decisions-and-memory.md));
 - an engine behind it, which holds all the logic;

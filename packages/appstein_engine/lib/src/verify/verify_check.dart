@@ -5,6 +5,7 @@ import '../decisions/decision_store.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
 import 'deprecation_ignores.dart';
+import 'test_run.dart';
 
 /// When a check runs (spec §9.1, §9.2).
 enum VerifyMode {
@@ -31,7 +32,33 @@ final class VerifyContext {
     this.deprecationIgnoresReader,
     this.staleProblem,
     this.onSkipped,
+    this.testsReader,
+    this.onNotRun,
   });
+
+  /// Gives [tests]: the run's one run of the project's tests. `runVerify`
+  /// passes one that throws when the check that is running did not gather
+  /// it. Null makes [tests] throw.
+  final TestRun Function()? testsReader;
+
+  /// What the project's tests gave: the one test run this run made, before
+  /// the knowledge lock ([VerifyGathering.tests]). Only a check that asked
+  /// for it in its own [GatheringCheck.gather] may read it; for any other
+  /// check it throws a [StateError], as [code] does, so a run nobody made is
+  /// never taken for "no test failed".
+  TestRun get tests =>
+      (testsReader ??
+      (throw StateError('This context has no test run. $_howToGatherTests')))();
+
+  /// Told each check that named itself as not run ([notRun]).
+  final void Function(String id, String reason)? onNotRun;
+
+  /// Says that the check named [id] did not run, for a [reason] of its own,
+  /// in words that follow the ID and a colon. `verify` names it among the
+  /// checks that did not run, so nothing is skipped silently, and a
+  /// suppression of it is not reported as unused. A part left out because
+  /// the map can't be used is reported with [skipped] instead.
+  void notRun(String id, String reason) => onNotRun?.call(id, reason);
 
   /// Gives [code]: the run's one reading of the code analysis. `runVerify`
   /// passes one that throws when the check that is running did not gather
@@ -120,20 +147,57 @@ final class VerifyContext {
 /// for an analysis server.
 ///
 /// Each kind of answer is gathered once per run, however many checks ask
-/// for it, so every check judges the same one. Today there is one kind, the
-/// code analysis's reading. A later check with slow work of its own (a
-/// file's formatting, the pending fixes, a test run) adds it here in the
-/// same way: a method the check calls from [GatheringCheck.gather], and a
-/// getter on [VerifyContext] for what it found.
+/// for it, so every check judges the same one. Today there are three: the
+/// code analysis's reading, the comments and settings that hide deprecated
+/// use, and the project's test run. A later check with slow work of its own
+/// (a file's formatting, the pending fixes) adds it here in the same way: a
+/// method the check calls from [GatheringCheck.gather], and a getter on
+/// [VerifyContext] for what it found.
 final class VerifyGathering {
-  /// Creates the gathering of one run, which asks [codeAnalysis] and reads
-  /// the source files of the project at [projectRoot].
-  VerifyGathering(CodeAnalysis codeAnalysis, {this.projectRoot})
+  /// Creates the gathering of one run, which asks [codeAnalysis], reads the
+  /// source files of the project at [projectRoot], and runs the project's
+  /// tests with `runTests` when a check asks for them.
+  VerifyGathering(CodeAnalysis codeAnalysis, {this.projectRoot, this._runTests})
     : _codeAnalysis = codeAnalysis;
 
   /// The project whose source files it reads; null when it was created
-  /// without one, and then only [code] can be asked.
+  /// without one, and then [deprecationIgnores] can't be asked.
   final String? projectRoot;
+
+  final Future<TestRun> Function()? _runTests;
+  Future<TestRun>? _testsAsked;
+  TestRun? _tests;
+
+  /// The run's one run of the project's tests, which can take minutes. The
+  /// first call starts it; later calls get the same run. A run of `verify`
+  /// in which no check calls this starts no test.
+  ///
+  /// Throws a `TestRunException` when the tests can't be run.
+  Future<TestRun> tests() {
+    _testAskers.add(_gatheringFor);
+    final runTests = _runTests;
+    if (runTests == null) {
+      throw StateError('This gathering was given no way to run the tests.');
+    }
+    return _testsAsked ??= runTests().then((run) => _tests = run);
+  }
+
+  final _testAskers = <VerifyCheck?>{};
+
+  /// The test run [tests] made, for [check] when it runs.
+  ///
+  /// Throws a [StateError] that names [check] when it did not ask for the
+  /// test run in its own `gather`, as [codeFor] does for the reading.
+  TestRun testsFor(VerifyCheck check) {
+    final run = _tests;
+    if (run == null || !_testAskers.contains(check)) {
+      throw StateError(
+        'The check `${check.ids.first}` read the test run without gathering '
+        'it. $_howToGatherTests',
+      );
+    }
+    return run;
+  }
 
   final CodeAnalysis _codeAnalysis;
   Future<CodeReading>? _asked;
@@ -237,6 +301,10 @@ const _howToGather =
     'A check that reads `context.code` implements `GatheringCheck` and '
     'calls `gathering.code()` in `gather`.';
 
+const _howToGatherTests =
+    'A check that reads `context.tests` implements `GatheringCheck` and '
+    'calls `gathering.tests()` in `gather`.';
+
 /// One check of `appstein verify` (spec §9). The engine has the checks that
 /// hold for every project; a pack contributes its own.
 abstract interface class VerifyCheck {
@@ -269,6 +337,20 @@ abstract interface class GatheringCheck implements VerifyCheck {
   /// A `CodeAnalysisException` it lets through fails the run as the
   /// analysis server's failure; anything else it throws is this check's.
   Future<void> gather(VerifyGathering gathering);
+}
+
+/// A check that also judges what the run keeps, after `verify.severity` and
+/// the suppressions were applied: a finding that depends on whether the
+/// findings of another check are still there.
+abstract interface class FollowingCheck implements VerifyCheck {
+  /// The findings this check adds once it sees [kept], the findings that
+  /// stay in the result. It is called after [VerifyCheck.run], only in a run
+  /// that ran the check, and may read what [run] could read.
+  ///
+  /// What it returns carries IDs the check declares. `verify.severity`
+  /// applies to it; a suppression does not, so a finding with a file is not
+  /// hidden either. Throwing means Appstein failed, as in [run].
+  List<Finding> following(VerifyContext context, List<Finding> kept);
 }
 
 /// A check threw or broke its contract: Appstein itself failed (exit `3`,

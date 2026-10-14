@@ -1,0 +1,2 @@
+/// Adds one.
+int next(int value) => value + 1;

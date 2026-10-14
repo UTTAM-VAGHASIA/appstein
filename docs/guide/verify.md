@@ -11,18 +11,19 @@ packages/appstein_cli/lib/src/analysis_guard_command.dart
 
 `appstein verify` checks a project against its knowledge and reports **findings** (spec §9). An agent runs it after a change and before it says a task is done. It is the part of Appstein that says "no".
 
-This page covers the frame and the checks of slice 1d.1, and what slice 1d.2 has built so far: the analysis server, the first code checks, `dart.error` and `dart.deprecated`, and the server `appstein mcp` keeps running so the `verify` tool answers from warm analysis. The other code checks (warnings, lints, format, fixes, tests), the lint rules, the package gate and the Android and iOS checks arrive later in slice 1d.2 and in slices 1d.3 to 1d.6.
+This page covers the frame and the checks of slice 1d.1, and what slice 1d.2 has built so far: the analysis server, the first code checks, `dart.error` and `dart.deprecated`, the test check, `test.failed`, and the server `appstein mcp` keeps running so the `verify` tool answers from warm analysis. The other code checks (warnings, lints, format, fixes), the lint rules, the package gate and the Android and iOS checks arrive later in slice 1d.2 and in slices 1d.3 to 1d.6.
 
 ## What a run does
 
-[`runVerify`](../../packages/appstein_engine/lib/src/verify/verify_run.dart) does six things, in this order:
+[`runVerify`](../../packages/appstein_engine/lib/src/verify/verify_run.dart) does seven things, in this order:
 
 1. **Refresh the knowledge**, as `appstein sync --detect` does ([`refreshKnowledge`](../../packages/appstein_engine/lib/src/knowledge/knowledge_refresh.dart), shared with `appstein docs`). The MCP server has already done this before every tool call, so it passes its result in and the knowledge is refreshed once.
-2. **Gather what is slow**, before the lock. Each selected check that implements `GatheringCheck` gets a `VerifyGathering` and asks it for what it will judge. Today that is the code analysis's reading and, for `dart.deprecated`, the `// ignore:` comments in the project's source files. The reading is taken **once per run** however many checks ask: every check judges the same reading, as every check judges the same knowledge. It comes after the refresh, which may fetch the packages the analysis reads. See [gathering](#gathering-before-the-lock).
+2. **Gather what is slow**, before the lock. Each selected check that implements `GatheringCheck` gets a `VerifyGathering` and asks it for what it will judge. Today that is the code analysis's reading and, for `dart.deprecated`, the `// ignore:` comments in the project's source files. The reading is taken **once per run** however many checks ask: every check judges the same reading, as every check judges the same knowledge. It comes after the refresh, which may fetch the packages the analysis reads. A full run also runs the project's tests here, once ([the tests](#the-tests)). See [gathering](#gathering-before-the-lock).
 3. **Take the knowledge lock** and read the knowledge once. Every check gets the same [`VerifyContext`](../../packages/appstein_engine/lib/src/verify/verify_check.dart): the project folder, its `appstein.yaml`, its packs, one `KnowledgeSnapshot`, the decision records and what was gathered. Under the lock a check only judges; nothing asks the analysis server there.
 4. **Run the checks** the mode selects. `fast` runs the fast checks; `full` (the default) runs every check.
 5. **Apply `verify.severity`** from `appstein.yaml`, which can raise or lower a finding's severity.
-6. **Apply the suppressions**, then sort the findings.
+6. **Apply the suppressions.**
+7. **Ask each `FollowingCheck` that ran** what it adds now that the findings that stay are known, apply `verify.severity` to that, then sort the findings. Only `test.failed` does this today ([hidden errors](#the-tests)).
 
 **When the knowledge can't be refreshed** (no Flutter SDK, packages not fetched, a map file that can't be read, another sync holding the lock), the run still happens. A busy lock is waited for once, for the lock timeout; the checks then run without it, because files are replaced whole and reading is safe.
 
@@ -39,6 +40,8 @@ The same holds when `.appstein` itself can't be opened (it is a file, or the fol
 
 **An analysis server that can't answer** is Appstein's failure too, but no check's: `runVerify` passes the `CodeAnalysisException` on as it is, and the CLI prints its reason and exits 3. It is never a finding, and never read as "no errors". See [when the server can't answer](#when-the-server-cant-answer).
 
+**Tests that can't be run at all** (no Flutter SDK, or `flutter test` could not be started) are the same kind of failure: `runVerify` passes the `TestRunException` on, and the CLI prints its reason and exits 3. A `flutter test` that started and gave no result is a finding. See [the tests](#the-tests).
+
 ### Gathering, before the lock
 
 The knowledge lock is shared: while `verify` holds it, an `appstein sync` or another agent's MCP call waits, and gives up after 10 s. An analysis server can take far longer than that to start. So nothing slow happens under the lock.
@@ -48,7 +51,10 @@ The knowledge lock is shared: while `verify` holds it, an `appstein sync` or ano
 - **`context.code`** is that reading, for a check that asked for it in its own `gather`. Any other check that reads it gets a `StateError` that names it and fails the run, also when another check of the run gathered the reading: a check that only works beside another one would read nothing in a run that leaves the other out. A check can therefore never take "nobody asked" for "no diagnostics".
 - **`gathering.deprecationIgnores()`** is the list of what tells the analyzer not to report deprecated use (the `// ignore:` comments and the `analysis_options.yaml` entries), read from the files the analysis server analyzed (see [`dart.deprecated`](#dartdeprecated)). The first call takes the run's reading, which says which files those are, and reads them once; a check reads the list from **`context.deprecationIgnores`** under the same rule as `context.code`: only the check that gathered it may read it.
 - **A check is not asked to gather** when the mode doesn't select it, or when it needs the map and the refresh failed: it will not run.
-- **Later slow work goes in the same place.** A file's formatting, the pending fixes (17 s) and a test run (minutes) are each a method on `VerifyGathering` that a check calls from `gather`, and a getter on the context.
+- **`gathering.tests()`** runs the project's tests, once per run, and **`context.tests`** is what they gave, under the same rule: only for a check that asked for it in its own `gather`. A run in which no check calls it starts no test.
+- **Later slow work goes in the same place.** A file's formatting and the pending fixes (17 s) are each a method on `VerifyGathering` that a check calls from `gather`, and a getter on the context.
+
+**A check can name itself as not run.** A check that decides not to do its work calls `context.notRun(id, reason)` with a reason of its own, and the run names it in `notRun` with that reason. `test.failed` does this while the code has analyzer errors. A suppression of a check named this way is not reported as unused. (`context.skipped(id)` is the same thing with the fixed reason "the project map is not up to date".)
 
 ## The checks so far
 
@@ -66,6 +72,7 @@ The knowledge lock is shared: while `verify` holds it, an `appstein sync` or ano
 | `dart.error` | error | both | | An analyzer error, anywhere in the project |
 | `dart.plugin_failed` | error | both | | An analyzer plugin could not be loaded, so its rules were not checked. The ID is provisional until the owner confirms it |
 | `dart.deprecated` | error | both | | A use of a deprecated API, anywhere in the project; an `// ignore:` or `// ignore_for_file:` comment that names such a use or says `type=hint`; an `analysis_options.yaml` entry that switches the diagnostic off |
+| `test.failed` | error | full | | A failing test, a test file that can't be loaded, a test run that did not finish or gave no result, or tests not run because every analyzer error is hidden |
 | `suppression.no_reason` | error | both | | A suppression has no `reason` |
 | `suppression.unknown_check` | error | both | | A suppression names an ID no check reports |
 | `suppression.unused` | warning | full | | A suppression hides nothing |
@@ -189,6 +196,76 @@ analyzer:
 
 **`verify.test_required`** ([source](../../packages/appstein_engine/lib/src/verify/checks/test_required_check.dart)) reads `map/features.json`. What a feature is, and where its tests live, stays the stack pack's knowledge.
 
+### The tests
+
+**`test.failed`** ([source](../../packages/appstein_engine/lib/src/verify/checks/test_failed_check.dart)) runs the project's tests once in a full run. A fast run never runs them, and doesn't name the check as not run. The run itself is [`runProjectTests`](../../packages/appstein_engine/lib/src/verify/test_run.dart).
+
+**What is run.** `flutter test --machine --no-pub` in the project folder, with the `flutter` of the SDK the project uses (`bin/flutter`, `flutter.bat` on Windows), found with `SdkDetector` like everything else.
+
+- `--machine` makes Flutter print one JSON event per line. Lines that are no event (blank lines, `[{"event":"test.startedProcess",…}]`) are passed over.
+- `--no-pub` keeps Flutter from fetching packages, which could rewrite `pubspec.lock`. The knowledge refresh fetched them before.
+- It is started through the run's process runner, which is the sync's (`KnowledgeSync.runner`), on the machine the sync looks at. So a test scripts `flutter test` by giving the sync a scripted runner.
+- `verify` itself writes no project file (without `--apply`), but the test run leaves what `flutter test` always leaves in the project: `build/` on every run, and `test/failures/*.png` after a failing golden test. This is accepted. Nothing under `.dart_tool/` changes, and no file a project commits.
+
+**When it runs.** While gathering, before the knowledge lock: a suite can take minutes, and another Appstein process waits only 10 s for the lock.
+
+**When it doesn't run.**
+
+| The project | What `verify` does |
+|---|---|
+| The run's code reading has a diagnostic of error level | Does not start the tests: they would not compile. The check names itself in `notRun`: `test.failed: the code has analyzer errors`. It is the reading that counts, so an error that `verify.severity` lowered or a suppression hid still stops the tests, and so does an error in a file no test imports. When none of those errors is left as an error in the result, there is one more finding (see "Tests not run because the errors are hidden" below) |
+| No file under `test/` whose name ends in `_test.dart` (Flutter's own rule for a test file), or no `test/` folder | Starts nothing and reports nothing; the check is not named. A `test/` folder with no `*_test.dart` file is treated like no `test/` folder. A project without tests is `verify.test_required`'s finding. `flutter test` itself exits 1 there with "does not appear to contain any test files" |
+
+**The findings**, each an error:
+
+| What happened | File and line | Message |
+|---|---|---|
+| A test failed, or threw | The test file, and the line the test starts on | ``The test `counter next adds two` failed: Expected: <3> Actual: <2>`` |
+| A test file could not be loaded | The file, no line | `The test file could not be loaded: Compilation failed for testPath=test/broken_test.dart: …` |
+| The run was still going at the limit | The project (no file), beside the failures it had told | ``The tests were still running after 600 s and were stopped. The limit is `verify.test_timeout_seconds` in `appstein.yaml`. Running when it stopped: `shows text` in test/passing_test.dart.`` |
+| The run's output ended without the end of the run, after tests had started | The project (no file), beside the failures it had told | ``The tests did not finish: `flutter test` ended with exit code 1 before it told the end of the run, so only the failures it had told are listed. Running when it stopped: …`` |
+| `flutter test` ended with a failing exit code (or without the end of the run, with no test started) and named no failing test | The project (no file) | ``The tests gave no result: `flutter test` ended with exit code 1 and named no failing test (Error: cannot run without a dependency on "package:flutter_test". …).`` |
+| Every analyzer error is hidden | The project (no file) | ``The tests were not run, because the code has 2 analyzer errors and none is reported as an error: …`` (see below) |
+
+- **The name is the test's full name**: the names of its groups, then its own, as `flutter test` prints it.
+- **The details are the first paragraph of the failure, on one line**, at most 8 lines and 600 characters, without the project's own path. A widget test whose failure the test framework did not raise (a failed expectation is raised by it, a `RenderFlex` overflow is not) has an error that only says "Test failed. See exception logs above."; its details are taken from the first block that test printed before its error, whose banner reads `EXCEPTION CAUGHT BY …`: `FLUTTER TEST FRAMEWORK` ("The following TestFailure was thrown running a test: …"), `RENDERING LIBRARY` ("The following assertion was thrown during layout: A RenderFlex overflowed by 490 pixels on the right."), or any other library. A block is kept by the ID of the test that printed it, so when suites run at the same time a block is never told of another test.
+- **The line is the test's line in its own file.** For a test another file's function declares, as `testWidgets` does, it is the line of the call in the test file (the event's `root_line`), not the line inside `flutter_test`.
+- **A test file whose path from the project has a space gets no line on Windows.** Flutter 3.47.5 gives none there (its own stack trace reader stops at the space), so the finding has the file only. A space in the project's own path does no harm.
+- **A file that can't load** is the test `flutter test` calls `loading <path>`: the finding is on the file, with the loader's message. The error starts with `Failed to load "<path>":`, and the path is the finding's file. For a compile error the message is on the lines after it. For an exception while loading (a `main()` that throws) it follows the colon on the same line, and is kept: `The test file could not be loaded: Bad state: main threw before declaring`.
+- **The fix hint** is the command that shows the whole failure: ``Run `flutter test test/widgets/failing_test.dart` to see the whole failure.``, with the path in quotes when it has a space.
+- A test that was skipped is not a finding. A finding with a file can be hidden by a suppression and changed by `verify.severity`, like any other. A finding about the project has no file, and a suppression matches only findings with a file, so no suppression hides it: `verify.severity` lowers it.
+
+**The time limit** is `verify.test_timeout_seconds` in `appstein.yaml`, 600 by default ([config](config.md)). A run still going then is stopped.
+
+**A run that does not finish keeps what it told.** A truncated run is never reported as a finished one. When the run is stopped at its limit, or its output ends without the `done` event after tests had started (the process was killed, or crashed), `runProjectTests` returns the failures it had read up to then (`TestRun.failures`) and the tests that were open when it stopped (`TestRun.running`): every `testStart` without a `testDone`. Several are open when suites run at the same time, and a file still being loaded is told by its file. `test.failed` reports each failure as usual, and one more error on the project saying the run did not finish. It names at most five of the running tests, and counts the rest ("and 2 more"). A last line cut in the middle is passed over. On a timeout, the runner keeps what the process had printed (`RunResult.timedOut.stdout`). The integration test (below) checks it with the real `flutter test`: a test that never ends is named in `running`.
+
+**A run that gives no result.** `flutter test` that started and ended with a failing exit code, or without the end of the run when no test had started, and named no failing test (a tool error before any test was loaded, for example) is `TestRun.unexplained`: one error on the project with Flutter's own last lines, five at most. Its fix hint is ``Run `flutter test` in the project to see the full output.``, not `appstein doctor`. That is a finding, with exit 1: the project's tests don't run, which is the project's to fix. `verify.severity` can lower it.
+
+**Tests not run because the errors are hidden.** The check runs before `verify.severity` and the suppressions are applied, so it can't judge by itself whether an analyzer error is still reported. A green run with the tests never run is the one thing it must not give, so `TestFailedCheck` is also a `FollowingCheck` ([source](../../packages/appstein_engine/lib/src/verify/verify_check.dart)): after the frame has applied `verify.severity` and the suppressions, it calls `following(context, kept)` with the findings that stay, and adds what is returned (with `verify.severity` applied to it, and the pack set, but no suppression, as they do not match a finding without a file). The check keeps its `notRun` entry as before.
+
+- When the reading has analyzer errors and at least one `dart.error` finding stays an error, nothing is added.
+- When none does (every one was suppressed or lowered to a warning or info with `verify.severity`), there is one error on the project: ``The tests were not run, because the code has 2 analyzer errors and none is reported as an error: a suppression or `verify.severity` hides them.`` Its fix hint is to remove the suppression or the `verify.severity` entry for `dart.error`, fix the errors, and run `appstein verify` again.
+- The finding has no file, so it can only be lowered with `verify.severity` (`test.failed`), never suppressed.
+- It counts the reading's error-level diagnostics, so the number is the analyzer's, not the number of findings. A run whose checks leave out `dart.error` has no such finding to see, so the finding is added there too; a real run always has `dart.error`.
+
+**Stopping means every process the run started.** On Windows `flutter` is a `.bat` file: the process Appstein started is a `cmd.exe`, and ending it alone would leave the Flutter tool (`dart.exe`), its compiler and the test process (`flutter_tester.exe`) running. The process runner ends the whole tree with `taskkill /PID <that cmd.exe> /T /F` (see [running-tools](running-tools.md)). It only ever ends the process it started and what is below it; it never looks for processes by name. On Linux and macOS it ends the one process it started. That is the Flutter tool's `dart`, since the `flutter` script replaces itself with it (`exec`), and the tool is left to end what it started.
+
+Measured on the Windows development machine with Flutter 3.47.5 (2026-10-14, one run): a test that never ends, with a limit of 75 s. The run returned after 75.4 s; its tree had 8 processes (`cmd.exe`, `dart.exe`, `dartvm.exe`, `dartaotruntime.exe`, `flutter_tester.exe` and three `conhost.exe`), and none was running when they were looked at 2.3 s later. The same run's `running` was exactly the test that never ended (`never ends`, in the one test file that test creates), read from what the process had printed when it was stopped. Not measured on Linux or macOS: the integration test makes the same check there when CI runs it.
+
+**Tests that can't be run at all are Appstein failing**, never a finding and never "no test failed". `runProjectTests` throws a `TestRunException`, `runVerify` passes it on, and `runAppstein` prints it with "Run `appstein doctor` to check your setup." and exits 3; the `verify` tool gives an error reply with the same words. A `flutter test` that did start and gave no result is not this: it is a finding (above).
+
+| Case | The reason says |
+|---|---|
+| The project has no usable Flutter SDK | so, with the SDK lookup's own problem |
+| `flutter` can't be started | the path it was started with, and the system's message |
+
+```text
+The project's tests could not be run: `flutter test` could not be started with C:\flutter\bin\flutter.bat (The system cannot find the file specified).
+Run `appstein doctor` to check your setup.
+```
+
+A project without a usable SDK usually fails earlier, at the analysis server, with the reason from [that table](#when-the-server-cant-answer).
+
 ## Findings
 
 A [`Finding`](../../packages/appstein_protocol/lib/src/verify/finding.dart) has an `id`, a `severity` and a `message`, and when they apply a `file`, a `line`, a `fixHint`, a `knowledgeRef`, the `pack` that reported it and a `docs` link (spec §9.3). An ID is stable once released.
@@ -250,7 +327,7 @@ Fields without a value are left out, never written as null. A result with notice
 |---|---|
 | 0 | No finding is an error. Warnings, info findings and checks that did not run never fail a run on their own |
 | 1 | A finding is an error |
-| 3 | Appstein itself failed: no project, an invalid `appstein.yaml`, bad flags, a check that threw, an analysis server that could not answer |
+| 3 | Appstein itself failed: no project, an invalid `appstein.yaml`, bad flags, a check that threw, an analysis server that could not answer, tests that could not be run |
 
 Exit code 2 (hook mode) arrives with `--hook` in slice 1d.7.
 
@@ -489,11 +566,14 @@ The 180 s limit comes from the starts measured for the decision record: 7 to 22 
 | `packages/appstein_engine/test/analysis/kept_analysis_server_test.dart` | `KeptAnalysisServer` with a stand-in server and timers the test fires, so no outcome depends on the machine's speed: nothing started until a use asks; stopped when the idle time ends and started again by the next use; no idle timer while the server starts or a use is answered; each use starting the idle time again; uses in turn sharing one server; a use arriving while the idle server is being stopped; a body that fails; `close` waiting for an idle stop that was under way; a use that loses to a close. One scripted server process closed while a use waits, and one real server stopped with its guard when the idle time ends |
 | `packages/appstein_engine/test/mcp/mcp_warm_analysis_test.dart` | The `verify` tool with a real kept server: none started until the first `verify` call; an error added between calls appears and an error removed is gone, five rounds on one server; the tool's findings equal a terminal run's in both scopes, before and after an edit; a server that died is replaced by the next call; a server that can't start is an error reply and the MCP server keeps running |
 | `packages/appstein_engine/test/verify/verify_dart_test.dart` | `runVerify` on the fixture app with a real server: the errors in a fast and a full run, suppressed and with another severity; the same app without the errors; and the app with its package configuration removed, where the knowledge is stale and the errors of the code that doesn't resolve appear beside `knowledge.stale` |
-| `packages/appstein_engine/test/verify/verify_run_test.dart` | The frame and the checks with `ScriptedCodeAnalysis`: asked once per run, before any check runs and while the lock is free; every check sees one reading; not asked when no check gathers; a check that reads without gathering; which levels are reported; plugin failures; a server that fails |
+| `packages/appstein_engine/test/verify/verify_run_test.dart` | The frame and the checks with `ScriptedCodeAnalysis`: asked once per run, before any check runs and while the lock is free; every check sees one reading; not asked when no check gathers; a check that reads without gathering; which levels are reported; plugin failures; a server that fails; a `FollowingCheck` sees the findings that stay and its finding takes `verify.severity` and the pack |
 | `packages/appstein_engine/test/verify/deprecation_ignores_test.dart` | The list of deprecated-use codes against the pinned analyzer package; which texts are an ignore comment naming one (the forms in the table under [`dart.deprecated`](#dartdeprecated), not whether each hides a use), line numbers with CRLF and a byte order mark, a file that isn't valid Dart; the `type=hint` comments; the `analysis_options.yaml` entries, value by value, and a file that isn't YAML; and the reading of a given list of files: a part file with another ending, every options file, other `.yaml` skipped, a file that is gone or locked. The `dart.deprecated` findings themselves are in the two files above. With a real server: an app that uses and hides deprecated APIs, the file list the server gives, the lint's longer names, a `type=hint` and a `type=lint` file, a folder whose options switch the diagnostic off and one whose options make it an error (reported once), and a locked file the server reports nothing for (Windows). Scripted: the levels, the messages, `verify.severity`, suppressions, and that the files are read once per run while the lock is free |
-| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The tool's error reply when the analysis can't answer, and that the server keeps running; the other tools answered while a `verify` call waits for its reading, and while it waits to get its code analysis at all; `verify` calls answered one after the other; a call that can't get its code analysis; a notice of the code analysis in the reply |
-| `packages/appstein_cli/test/verify_command_test.dart` | The whole command with a real server and the real guard command; that no child process is left, and that every guard and server the runs named is gone |
+| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The tool's error reply when the analysis can't answer, and that the server keeps running; the other tools answered while a `verify` call waits for its reading, and while it waits to get its code analysis at all; `verify` calls answered one after the other; a call that can't get its code analysis; a notice of the code analysis in the reply; tests that can't be run, an error reply that names `appstein doctor` while the server keeps running; a failing test as `test.failed` findings in a full run's reply |
 | `packages/appstein_cli/test/mcp_command_test.dart` | `appstein mcp` with real processes: no server started with the command; one started by the first `verify` call and used by the next; the guard and the server gone when the client closes, and, with the command in a process of its own ([`mcp_process.dart`](../../packages/appstein_cli/test/support/mcp_process.dart)), when its input closes and when it is killed |
+| `packages/appstein_engine/test/verify/test_run_test.dart` | `runProjectTests` with a scripted process runner: a passing run, a failing expectation, a thrown error, widget tests, a file that can't load (a compile error, and a `main()` that throws), a widget test that fails in the rendering library, blocks never told of another test when suites are mixed, a path with a space, a run that never ends or whose output is cut short (with the first 300 KB of a real run of 22 failures), a `flutter test` that names no failing test, a project with no test file, and the two ways the tests can't be run at all. The scripted output is what Flutter 3.47.5 really printed, kept in `packages/appstein_engine/test/fixtures/flutter_test/` with the project's path replaced by a placeholder ([`flutterTestOutput`](../../packages/appstein_engine/test/support/flutter_test_output.dart)) |
+| `packages/appstein_engine/test/verify/checks/test_failed_check_test.dart` | `test.failed` through `runVerify`: each whole finding, `verify.severity` and a suppression, not run while the reading has an analyzer error (hidden or not, and the extra finding when every one is hidden), run before the lock, never in a fast run, no test folder, the time limit with the failures told so far and the tests that were running (at most five named), a truncated run, a `flutter test` that names no failing test, and the failures that are Appstein's |
+| `packages/appstein_engine/test/integration/test_run_real_sdk_test.dart` | **The real `flutter test`** of the machine's SDK on the `tests_app` fixture: the same failures as the scripted output, a passing run, and a test that never ends, after which every process of the run's tree is gone (it lists the tree and waits for each ID). Tagged `integration`, so a plain run skips it ([testing](testing.md)) |
+| `packages/appstein_cli/test/verify_command_test.dart` | The whole command with a real server and the real guard command; that no child process is left, and that every guard and server the runs named is gone. For the tests: a fake SDK whose `flutter` is a real script, for a failing test in the output, `Not run:` with the check's own reason, exit 3 without an SDK, and exit 1 with a `test.failed` finding for a `flutter test` that names no failing test |
 
 A real server costs about 2 s to start in the engine's tests. So a group that only reads starts one server in `setUpAll` and shares it, and no test of such a group edits a file. The helpers are in [`analysis_support.dart`](../../packages/appstein_engine/test/analysis/support/analysis_support.dart): the guard command, `realAnalysisServer`, `deleteProjectFile` (on Windows a file can't be deleted in the moment the server reads it, so the delete is tried again), and `recordProcesses`, `processAlive` and `goneWithin`, which look at processes the test itself recorded. A test never ends a process it didn't start.
 

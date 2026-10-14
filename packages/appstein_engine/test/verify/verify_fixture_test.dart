@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 import '../knowledge/support/sync_harness.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
 import '../support/scripted_code_analysis.dart';
 import 'support/verify_support.dart';
 
@@ -68,6 +69,7 @@ void main() {
           ('dart.error', null),
           ('dart.plugin_failed', null),
           ('dart.deprecated', null),
+          ('test.failed', null),
           ('a.one', 'a'),
           ('b.one', 'b'),
         ],
@@ -128,12 +130,24 @@ void main() {
       app = copyFixtureApp();
     });
 
-    KnowledgeSync sync({String? flutterRoot}) => knowledgeSync(
-      flutterRoot: flutterRoot ?? sdk,
-      runner: FakeProcessRunner(),
-      packs: _packs,
-      packageSkills: false,
-    );
+    // The app's tests pass: what `test.failed` reports is in
+    // `test_failed_check_test.dart`.
+    KnowledgeSync sync({String? flutterRoot}) {
+      final runner = FakeProcessRunner();
+      scriptFlutterTest(runner, sdk);
+      return knowledgeSync(
+        flutterRoot: flutterRoot ?? sdk,
+        runner: runner,
+        packs: _packs,
+        packageSkills: false,
+      );
+    }
+
+    // Without a Flutter SDK the tests can't be run either, which is Appstein
+    // failing and not a finding (`test_failed_check_test.dart`). The tests
+    // here are about the map checks, so their app has no test to run.
+    void noTests() =>
+        Directory(p.join(app, 'test')).deleteSync(recursive: true);
 
     Future<VerifyResult> verify({
       VerifyMode mode = VerifyMode.full,
@@ -223,6 +237,7 @@ void main() {
       expect(ids(fresh), contains('decision.drift'));
 
       // The same map files are still on disk, but can't be refreshed.
+      noTests();
       final stale = await verify(flutterRoot: p.join(app, 'no such sdk'));
       expect(ids(stale), ['knowledge.stale']);
       expect(
@@ -240,6 +255,7 @@ void main() {
       File(p.join(app, '.appstein', 'memory', 'lessons.md'))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('- one lesson\n' * 201);
+      noTests();
 
       final result = await verify(flutterRoot: p.join(app, 'no such sdk'));
       expect(ids(result), [

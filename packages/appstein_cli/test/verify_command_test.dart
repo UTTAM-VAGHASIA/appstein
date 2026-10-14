@@ -684,6 +684,174 @@ void main() {
       });
     });
 
+    // The fake SDK's `flutter` is a real script here, which prints what a
+    // test puts in a file beside it: the command runs it as a process.
+    group('the tests of a project that has test files', () {
+      /// Makes the fake SDK's `flutter` print [events] and exit with
+      /// [exitCode], whatever it is asked.
+      void flutterPrints(String events, {required int exitCode}) {
+        File(p.join(sdk, 'bin', 'events.jsonl')).writeAsStringSync(events);
+        File(
+          p.join(sdk, 'bin', Platform.isWindows ? 'flutter.bat' : 'flutter'),
+        ).writeAsStringSync(
+          Platform.isWindows
+              ? '@echo off\r\ntype "%~dp0events.jsonl"\r\nexit /b $exitCode\r\n'
+              : '#!/bin/sh\ncat "\$(dirname "\$0")/events.jsonl"\n'
+                    'exit $exitCode\n',
+        );
+      }
+
+      setUp(() {
+        File(p.join(project, 'test', 'home_test.dart'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('void main() {}\n');
+      });
+
+      test('a failing test is a test.failed error in its file\'s group, '
+          'with exit 1', () async {
+        final root = project.replaceAll(r'\', '/');
+        flutterPrints(
+          [
+            '{"suite":{"id":0,"platform":"vm",'
+                '"path":"$root/test/home_test.dart"},"type":"suite","time":0}',
+            '{"test":{"id":1,"name":"home shows the title","suiteID":0,'
+                '"groupIDs":[],"line":7,"column":3,'
+                '"url":"${Uri.file(p.join(project, 'test', 'home_test.dart'))}"'
+                '},"type":"testStart","time":1}',
+            '{"testID":1,"error":"Expected: <3>\\n  Actual: <2>\\n",'
+                '"stackTrace":"","isFailure":true,"type":"error","time":2}',
+            '{"testID":1,"result":"failure","skipped":false,"hidden":false,'
+                '"type":"testDone","time":3}',
+            '{"success":false,"type":"done","time":4}',
+            '',
+          ].join('\n'),
+          exitCode: 1,
+        );
+        expect(await run(['verify']), ExitCodes.errorsFound);
+        expect(err.toString(), isEmpty);
+        expect(
+          out.toString(),
+          contains(
+            '\n'
+            'test/home_test.dart\n'
+            '  error test.failed (line 7): The test `home shows the title` '
+            'failed: Expected: <3> Actual: <2>\n'
+            '    fix: Run `flutter test test/home_test.dart` to see the whole '
+            'failure.\n',
+          ),
+        );
+        expect(out.toString(), isNot(contains('  test.failed: ')));
+      });
+
+      test('passing tests: no test.failed, and the check is not named as '
+          'not run', () async {
+        flutterPrints('{"success":true,"type":"done","time":4}\n', exitCode: 0);
+        await run(['verify']);
+        expect(err.toString(), isEmpty);
+        expect(out.toString(), isNot(contains('test.failed')));
+      });
+
+      test('with an analyzer error the tests are not run, and test.failed '
+          'is named as not run with that reason, in text and in '
+          'JSON', () async {
+        // A `flutter` that would fail the run if it were started.
+        File(
+          p.join(sdk, 'bin', Platform.isWindows ? 'flutter.bat' : 'flutter'),
+        ).deleteSync();
+        const error = CodeDiagnostic(
+          file: 'lib/main.dart',
+          line: 2,
+          code: 'undefined_identifier',
+          message: 'Undefined name.',
+          level: DiagnosticLevel.error,
+        );
+        expect(
+          await run([
+            'verify',
+          ], analysis: ScriptedCodeAnalysis(found: const [error])),
+          ExitCodes.errorsFound,
+        );
+        expect(
+          out.toString(),
+          contains(
+            '\n'
+            'Not run:\n'
+            '  docs.stale: the project map is not up to date\n'
+            '  test.failed: the code has analyzer errors\n'
+            '  verify.test_required: the project map is not up to date\n',
+          ),
+        );
+        out.clear();
+        await run([
+          'verify',
+          '--format',
+          'json',
+        ], analysis: ScriptedCodeAnalysis(found: const [error]));
+        final json = jsonDecode(out.toString()) as Map<String, Object?>;
+        expect(
+          json['notRun'],
+          contains(
+            equals({
+              'id': 'test.failed',
+              'reason': 'the code has analyzer errors',
+            }),
+          ),
+        );
+      });
+
+      test('fails, with exit 3, when there is no Flutter SDK to run the '
+          'tests with: the reason and `appstein doctor`, and no '
+          'finding', () async {
+        // Without its `flutter`, the folder is no Flutter SDK.
+        File(
+          p.join(sdk, 'bin', Platform.isWindows ? 'flutter.bat' : 'flutter'),
+        ).deleteSync();
+        expect(await run(['verify']), ExitCodes.appsteinFailed);
+        expect(out.toString(), isEmpty);
+        expect(
+          err.toString(),
+          allOf(
+            startsWith(
+              'The project\'s tests could not be run: the project has no '
+              'usable Flutter SDK (No Flutter SDK found. ',
+            ),
+            endsWith(').\nRun `appstein doctor` to check your setup.\n'),
+          ),
+        );
+        expect(err.toString(), isNot(contains('unexpectedly')));
+      });
+
+      test('finds one test.failed error, with exit 1 and not 3, when '
+          '`flutter test` fails without naming a failing test: never "no '
+          'test failed"', () async {
+        flutterPrints('The Flutter tool broke.\n', exitCode: 64);
+        expect(await run(['verify']), ExitCodes.errorsFound);
+        expect(err.toString(), isEmpty);
+        expect(
+          out.toString(),
+          allOf(
+            contains(
+              '  error test.failed: The tests gave no result: `flutter test` '
+              'ended with exit code 64 and named no failing test (The Flutter '
+              'tool broke).\n'
+              '    fix: Run `flutter test` in the project to see the full '
+              'output.\n',
+            ),
+            isNot(contains('appstein doctor')),
+          ),
+        );
+      });
+
+      test('--fast never starts the tests', () async {
+        File(
+          p.join(sdk, 'bin', Platform.isWindows ? 'flutter.bat' : 'flutter'),
+        ).deleteSync();
+        expect(await run(['verify', '--fast']), ExitCodes.errorsFound);
+        expect(err.toString(), isEmpty);
+        expect(out.toString(), isNot(contains('test.failed')));
+      });
+    });
+
     group('the guard mode', () {
       test('is not in the help', () async {
         expect(await run(['help']), ExitCodes.ok);
