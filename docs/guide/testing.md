@@ -1,4 +1,5 @@
 <!-- covers:
+tool/test_all.dart
 packages/appstein_engine/test/support/**
 packages/appstein_cli/test/support/**
 packages/appstein_engine/dart_test.yaml
@@ -20,6 +21,14 @@ Appstein's logic reads environment variables, looks for files and runs other too
 | `test/` (repo root) | The repo tools in `tool/`, one test file per `tool/src/` file |
 
 The commands are in the start page's [Run the tests](README.md#run-the-tests).
+
+### Run everything before a commit
+
+`fvm dart run tool/test_all.dart`, from the repo root, runs what a commit needs, in order: the format check, the analyzer with infos fatal, `gen_docs --check`, `check_guide --since main`, then the suites of the four packages (the engine's twice, `--engine-runs N` to change it) and the repo tools' tests. It prints one line per step and ends with `ALL GREEN` and exit 0, or `FAILED: <steps>` and exit 1 with the failing tests and what they expected. `--only NAME` runs just the steps with NAME in their name, to run one suite again.
+
+- **A step passes only when its exit code and its output agree** ([`judgeTestRun`](../../tool/src/suite_run.dart)): exit 0 and a last line that says `All tests passed!`. A script that only printed each suite's last line once exited 0 while an engine test failed, so neither alone is trusted. `test/suite_run_test.dart` holds both cases, and a run cut short.
+- **A skipped test proves nothing**, so it sets `APPSTEIN_REQUIRE_GRAPHIFY=1`, as CI does: the graph check's tests fail instead of skipping when there is no Python with graphify. In a fresh worktree, which has no `graphify-out/`, set `APPSTEIN_GRAPHIFY_PYTHON` to such a Python first.
+- It was checked both ways on 2026-10-14: a suite with a test failing on purpose gave `FAILED: repo tools` and exit 1, and a clean suite gave `ALL GREEN` and exit 0.
 
 ## Fakes for the machine
 

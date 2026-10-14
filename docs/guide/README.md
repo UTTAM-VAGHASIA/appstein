@@ -113,6 +113,8 @@ fvm dart run tool/check_guide.dart --since main
 
 The last two keep this guide in step with the code. [docs-tooling](docs-tooling.md) explains what they check.
 
+`fvm dart run tool/test_all.dart` runs all of these checks and every test suite, and exits 1 when any of them failed (see [testing](testing.md#run-everything-before-a-commit)).
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request, on pushes to `main` and on demand. [ci](ci.md) lists its jobs, generated from the workflow itself, and explains why each one exists.
