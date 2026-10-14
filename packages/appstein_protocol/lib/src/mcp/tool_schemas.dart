@@ -597,10 +597,14 @@ abstract final class ToolSchemas {
         required: ['errors', 'warnings', 'info'],
       ),
       'suppressed': jsonInteger(
-        description: 'How many findings a suppression in appstein.yaml hid.',
+        description:
+            'How many findings a suppression hid: an entry in appstein.yaml '
+            'or an `// appstein:ignore` comment in a Dart file.',
       ),
       'activeSuppressions': jsonInteger(
-        description: 'How many suppressions hid at least one finding.',
+        description:
+            'How many suppressions (entries and comments) hid at least one '
+            'finding.',
       ),
       'notRun': jsonList(
         jsonObject(

@@ -5,6 +5,7 @@ import '../decisions/decision_store.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
 import 'deprecation_ignores.dart';
+import 'suppression_comments.dart';
 import 'test_run.dart';
 
 /// When a check runs (spec §9.1, §9.2).
@@ -252,9 +253,49 @@ final class VerifyGathering {
     return reading;
   }
 
-  Future<List<DeprecationIgnore>>? _ignoresAsked;
+  Future<SourceComments>? _commentsAsked;
   List<DeprecationIgnore>? _deprecationIgnores;
   final _ignoreAskers = <VerifyCheck?>{};
+
+  // One reading of the analyzed files serves both the deprecated-use comments
+  // and the suppression comments: each file is read and parsed once.
+  Future<SourceComments> _sourceComments() {
+    final root =
+        projectRoot ??
+        (throw StateError('This gathering was created without a project.'));
+    return _commentsAsked ??= _reading()
+        .then((reading) => readSourceComments(root, reading.analyzedFiles))
+        .then((found) {
+          _deprecationIgnores = found.deprecation;
+          return found;
+        });
+  }
+
+  /// The `// appstein:ignore` and `// appstein:ignore-file` comments of the
+  /// Dart files the analysis server analyzed for this run's reading, in file
+  /// and line order (spec §9.7), read together with [deprecationIgnores]:
+  /// each file is read and parsed once.
+  ///
+  /// `runVerify` calls it after every check has gathered. When no check took
+  /// the reading, none is taken for this, so no analysis server is started
+  /// for the comments, and the list is empty: the comments are about the
+  /// findings of a run that looked at the code.
+  Future<List<SuppressionComment>> suppressionComments() async {
+    if (projectRoot == null || _asked == null) return const [];
+    return (await _sourceComments()).suppression;
+  }
+
+  /// The `// ignore_for_file:` comments that tell the analyzer not to report
+  /// deprecated use in their whole file (one naming a deprecated-use code, or
+  /// saying `type=hint`), as [suppressionComments] read them. A one-line
+  /// `// appstein:ignore` never hides the `dart.deprecated` finding about
+  /// such a comment; only `// appstein:ignore-file` or an `appstein.yaml`
+  /// entry can (spec §9.7). Empty until [suppressionComments] has read the
+  /// files.
+  List<DeprecationIgnore> get fileWideIgnores => [
+    for (final ignore in _deprecationIgnores ?? const <DeprecationIgnore>[])
+      if (ignore.forFile) ignore,
+  ];
 
   /// What tells the analyzer not to report deprecated use: the `// ignore:`
   /// and `// ignore_for_file:` comments that name a deprecated-use
@@ -269,12 +310,7 @@ final class VerifyGathering {
   /// [StateError] when the gathering was created without a project.
   Future<List<DeprecationIgnore>> deprecationIgnores() {
     _ignoreAskers.add(_gatheringFor);
-    final root =
-        projectRoot ??
-        (throw StateError('This gathering was created without a project.'));
-    return _ignoresAsked ??= _reading()
-        .then((reading) => readDeprecationIgnores(root, reading.analyzedFiles))
-        .then((found) => _deprecationIgnores = found);
+    return _sourceComments().then((found) => found.deprecation);
   }
 
   /// The comments [deprecationIgnores] found, for [check] when it runs.

@@ -639,6 +639,58 @@ void main() {
         );
       });
 
+      test('a // appstein:ignore comment hides a dart.error and is counted '
+          'with the appstein.yaml entries, in text and in JSON', () async {
+        config(
+          'appstein: 1\n'
+          'suppressions:\n'
+          '  - id: dart.error\n'
+          '    path: lib/legacy\n'
+          '    reason: rewritten next month\n',
+        );
+        File(p.join(project, 'lib', 'ui', 'home screen.dart'))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(
+            '${'// filler\n' * 11}'
+            'void f() => g(); // appstein:ignore dart.error — accepted\n',
+          );
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: const ['lib/ui/home screen.dart'],
+          found: const [
+            error,
+            CodeDiagnostic(
+              file: 'lib/legacy/old.dart',
+              line: 1,
+              code: 'undefined_method',
+              message: 'Old.',
+              level: DiagnosticLevel.error,
+            ),
+          ],
+        );
+        // The one error left is `knowledge.stale`: the project has no
+        // packages. The two `dart.error` findings are hidden.
+        await run(['verify', '--fast'], analysis: analysis);
+        expect(
+          out.toString(),
+          endsWith(
+            '1 error, 0 warnings, 0 info. 2 findings suppressed by 2 '
+            'suppressions.\n',
+          ),
+        );
+        expect(out.toString(), isNot(contains('dart.error')));
+        out.clear();
+        await run(['verify', '--fast', '--format', 'json'], analysis: analysis);
+        final result = VerifyResult.fromJson(
+          jsonDecode(out.toString()) as Map<String, Object?>,
+        );
+        expect(
+          [for (final finding in result.findings) finding.id],
+          ['knowledge.stale'],
+        );
+        expect(result.suppressed, 2);
+        expect(result.activeSuppressions, 2);
+      });
+
       test('fails, with exit 3, when the analysis server can\'t answer: the '
           'reason and `appstein doctor`, no finding and no check '
           'blamed', () async {

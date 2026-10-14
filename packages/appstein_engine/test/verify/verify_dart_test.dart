@@ -779,6 +779,152 @@ void uses() => oldWay();
     });
   });
 
+  // `// appstein:ignore` comments (slice 1d.2, ticket 09), against what a real
+  // analysis server reports.
+  group('an app with // appstein:ignore comments and analyzer errors', () {
+    late String app;
+    late AnalysisServer server;
+
+    setUpAll(() {
+      app = copyFixtureApp();
+      writeProjectFile(app, 'lib/hidden.dart', '''
+/// Wrong, and said so.
+int wrong() => 'text'; // appstein:ignore dart.error — accepted for now
+
+/// Wrong, hidden from the line above.
+// appstein:ignore dart.error — accepted for now
+int alsoWrong() => 'text';
+
+/// Wrong, with a comment that names no reason.
+int noReason() => 'text'; // appstein:ignore dart.error
+''');
+      writeProjectFile(app, 'lib/hidden_file.dart', '''
+// appstein:ignore-file dart.error — a sketch kept for reference
+/// Wrong.
+int wrong() => 'text';
+
+/// Wrong too.
+int wrongToo() => 'text';
+''');
+      writeProjectFile(app, 'lib/shown.dart', '''
+/// Wrong, and nothing hides it.
+int wrong() => 'text';
+''');
+      // In a string: not a comment.
+      writeProjectFile(app, 'lib/in_string.dart', r"""
+/// Wrong, with the comment in a string.
+int wrong() => '// appstein:ignore dart.error — in a string';
+""");
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('each comment hides the error on its line, the file comment those '
+        'of its file, and the rest stay', () async {
+      final result = await verify(app, server, mode: VerifyMode.fast);
+      expect(
+        [
+          for (final finding in result.findings)
+            if (finding.id.startsWith('dart.') ||
+                finding.id.startsWith('suppression.'))
+              (finding.id, finding.file, finding.line),
+        ],
+        [
+          ('dart.error', 'lib/hidden.dart', 9),
+          ('suppression.no_reason', 'lib/hidden.dart', 9),
+          ('dart.error', 'lib/in_string.dart', 2),
+          ('dart.error', 'lib/shown.dart', 2),
+        ],
+      );
+      // Two errors in `hidden.dart` and the two of `hidden_file.dart`, by
+      // three comments.
+      expect(result.suppressed, 4);
+      expect(result.activeSuppressions, 3);
+    });
+  });
+
+  group('an app with // appstein:ignore comments on deprecated use', () {
+    late String app;
+    late AnalysisServer server;
+
+    setUpAll(() {
+      app = copyFixtureApp();
+      File(
+        p.join(p.dirname(app), 'stubs', 'flutter', 'lib', 'old.dart'),
+      ).writeAsStringSync('''
+/// Old.
+@Deprecated('Use newWay instead.')
+void oldWay() {}
+
+/// New.
+void newWay() {}
+''');
+      writeProjectFile(app, 'lib/uses_old.dart', '''
+import 'package:flutter/old.dart';
+
+/// Hides the analyzer's diagnostic.
+void diagnostic() {
+  // appstein:ignore dart.deprecated — migrated in the next release
+  oldWay();
+}
+
+/// Hides an `// ignore:` comment that trails the use.
+void trailing() {
+  // appstein:ignore dart.deprecated — migrated in the next release
+  oldWay(); // ignore: deprecated_member_use
+}
+
+/// Hides an `// ignore:` comment alone above the use.
+void above() {
+  // appstein:ignore dart.deprecated — migrated in the next release
+  // ignore: deprecated_member_use
+  oldWay();
+}
+
+/// Nothing hides this one.
+void shown() => oldWay();
+
+/// Nothing to hide here.
+void clean() => newWay(); // appstein:ignore dart.deprecated — left behind
+''');
+      // A one-line comment does not hide the finding on a comment that
+      // silences deprecated use in the whole file.
+      writeProjectFile(app, 'lib/file_wide.dart', '''
+// appstein:ignore dart.deprecated — r
+// ignore_for_file: deprecated_member_use
+import 'package:flutter/old.dart';
+
+/// Uses the old one, which the file comment hides from the analyzer.
+void fileWide() => oldWay();
+''');
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('a full run: the comment hides the diagnostic and the // ignore: '
+        'comment, and an unused one is a warning', () async {
+      final result = await verify(app, server);
+      expect(
+        [
+          for (final finding in result.findings)
+            if (finding.id.startsWith('dart.') ||
+                finding.id.startsWith('suppression.'))
+              (finding.id, finding.severity, finding.file, finding.line),
+        ],
+        [
+          ('dart.deprecated', Severity.error, 'lib/file_wide.dart', 2),
+          ('suppression.unused', Severity.warning, 'lib/file_wide.dart', 1),
+          ('dart.deprecated', Severity.error, 'lib/uses_old.dart', 23),
+          ('suppression.unused', Severity.warning, 'lib/uses_old.dart', 26),
+        ],
+      );
+      expect(result.suppressed, 3);
+      expect(result.activeSuppressions, 3);
+    });
+  });
+
   // Why a file `verify` can't read may be left out of the source reading:
   // the analysis server can't read it either, and then reports the file as
   // analyzed, with no diagnostic. On Windows a lock another handle holds

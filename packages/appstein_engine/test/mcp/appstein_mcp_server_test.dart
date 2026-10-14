@@ -486,6 +486,60 @@ void main() {
       expect(ids(json), ['dart.error']);
     });
 
+    test('a // appstein:ignore comment hides a finding, and the reply counts '
+        'it with the appstein.yaml entries', () async {
+      File(p.join(app, 'lib', 'commented.dart')).writeAsStringSync(
+        'int a = 1; // appstein:ignore dart.error — accepted\n'
+        'int b = 1; // appstein:ignore dart.error\n',
+      );
+      File(p.join(app, 'appstein.yaml')).writeAsStringSync(
+        'appstein: 1\n'
+        'suppressions:\n'
+        '  - id: dart.error\n'
+        '    path: lib/legacy\n'
+        '    reason: rewritten next month\n',
+      );
+      analysis
+        ..analyzedFiles = const ['lib/commented.dart']
+        ..found = const [
+          CodeDiagnostic(
+            file: 'lib/commented.dart',
+            line: 1,
+            code: 'some_code',
+            message: 'Wrong.',
+            level: DiagnosticLevel.error,
+          ),
+          CodeDiagnostic(
+            file: 'lib/legacy/old.dart',
+            line: 3,
+            code: 'some_code',
+            message: 'Old.',
+            level: DiagnosticLevel.error,
+          ),
+          CodeDiagnostic(
+            file: 'lib/commented.dart',
+            line: 2,
+            code: 'some_code',
+            message: 'Still wrong.',
+            level: DiagnosticLevel.error,
+          ),
+        ];
+      final server = await serve();
+      final result = await call(server, 'verify', {'scope': 'fast'});
+      final json = structured(result);
+      expect(ids(json), ['dart.error', 'suppression.no_reason']);
+      expect(
+        [
+          for (final finding in json['findings']! as List)
+            (finding as Map)['line'],
+        ],
+        [2, 2],
+      );
+      expect(json['suppressed'], 2);
+      expect(json['activeSuppressions'], 2);
+      expect(textOf(result), contains('2 findings are suppressed.'));
+    });
+
     test('the other tools never wait for the analysis server: they are '
         'answered while a verify call waits for its reading', () async {
       final asked = Completer<void>();

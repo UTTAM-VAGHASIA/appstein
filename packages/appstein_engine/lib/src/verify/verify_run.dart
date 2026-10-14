@@ -9,6 +9,7 @@ import '../knowledge/knowledge_sync.dart';
 import '../knowledge/knowledge_write_exception.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
+import 'checks/dart_deprecated_check.dart';
 import 'suppressions.dart';
 import 'test_run.dart';
 import 'verify_check.dart';
@@ -44,7 +45,11 @@ String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 ///    of [checks] that [mode] selects. When the lock stays busy, it reports
 ///    `knowledge.stale` and runs the checks that don't need the map: files
 ///    are replaced whole, so reading without the lock is safe.
-/// 5. It applies `verify.severity` from [config], then the suppressions.
+/// 5. It applies `verify.severity` from [config], then the suppressions: the
+///    `suppressions:` entries of [config] and the `// appstein:ignore`
+///    comments of the Dart files the code analysis covered, which are read
+///    before the lock, with the deprecated-use comments, when a check took
+///    the analysis's reading (`VerifyGathering.suppressionComments`).
 /// 6. It asks each [FollowingCheck] that ran for what it adds now that it is
 ///    known which findings stay, and applies `verify.severity` to those.
 ///
@@ -112,6 +117,17 @@ Future<VerifyResult> runVerify({
       throw VerifyCheckError(check.ids.first, error, stackTrace);
     }
   }
+
+  // The `// appstein:ignore` comments of the files the analysis covered, read
+  // with the deprecated-use comments, before the lock too.
+  final comments = await gathering.suppressionComments();
+  // The findings `dart.deprecated` reports about the `// ignore_for_file:`
+  // comments, which a one-line comment does not hide: by file, line and
+  // message, so a diagnostic on the same line is not among them.
+  final fileWide = {
+    for (final ignore in gathering.fileWideIgnores)
+      (ignore.file, ignore.line, deprecatedIgnoreMessage(ignore)),
+  };
 
   Future<VerifyResult> body(KnowledgeRefresh refresh) async {
     final knowledge = KnowledgeSnapshot(projectRoot);
@@ -214,6 +230,8 @@ Future<VerifyResult> runVerify({
       },
       mode: mode,
       notRunIds: incomplete,
+      comments: comments,
+      fileWideIgnores: fileWide,
     );
     // What a check adds once it sees the findings that stay: judged after
     // the suppressions, since they decide what stays. `verify.severity`

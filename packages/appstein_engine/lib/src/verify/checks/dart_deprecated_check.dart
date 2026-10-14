@@ -84,7 +84,7 @@ final class DartDeprecatedCheck implements GatheringCheck {
         severity: Severity.error,
         file: hiding.file,
         line: hiding.line,
-        message: _message(hiding),
+        message: deprecatedIgnoreMessage(hiding),
         fixHint: _fixHint(hiding),
       ),
   ];
@@ -93,7 +93,11 @@ final class DartDeprecatedCheck implements GatheringCheck {
 /// What [hiding] is and what it tells the analyzer. Each sentence is true
 /// whether or not the analyzer drops a diagnostic because of it, and
 /// whether or not a deprecated API is used there: neither is known here.
-String _message(DeprecationIgnore hiding) {
+///
+/// It is also how `runVerify` recognises the finding about an
+/// `// ignore_for_file:` comment among the findings on its line: the
+/// diagnostics the analyzer reports there have messages of their own.
+String deprecatedIgnoreMessage(DeprecationIgnore hiding) {
   if (hiding.optionsValue case final value?) {
     final where = hiding.includedBy.isEmpty
         ? 'the files this options file covers'

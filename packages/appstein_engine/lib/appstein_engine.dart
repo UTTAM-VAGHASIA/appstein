@@ -108,7 +108,7 @@ export 'src/toolchain/gradle_utils_parser.dart';
 export 'src/toolchain/toolchain_files.dart';
 export 'src/toolchain/toolchain_reader.dart';
 export 'src/toolchain/xcode_template_parser.dart';
-export 'src/verify/checks/dart_deprecated_check.dart';
+export 'src/verify/checks/dart_deprecated_check.dart' show DartDeprecatedCheck;
 export 'src/verify/checks/dart_error_check.dart';
 export 'src/verify/checks/decisions_check.dart';
 export 'src/verify/checks/docs_stale_check.dart';
@@ -118,8 +118,16 @@ export 'src/verify/checks/plugin_failed_check.dart';
 export 'src/verify/checks/test_failed_check.dart';
 export 'src/verify/checks/test_required_check.dart';
 export 'src/verify/decision_check.dart';
-export 'src/verify/deprecation_ignores.dart';
+export 'src/verify/deprecation_ignores.dart'
+    show
+        DeprecationIgnore,
+        deprecatedUseCodes,
+        deprecationIgnoresIn,
+        deprecationSwitchesIn,
+        isDeprecatedUseCode,
+        readDeprecationIgnores;
 export 'src/verify/engine_checks.dart';
+export 'src/verify/suppression_comments.dart' show SuppressionComment;
 export 'src/verify/suppressions.dart';
 export 'src/verify/test_run.dart';
 export 'src/verify/verify_check.dart';

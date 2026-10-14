@@ -15,9 +15,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/src/ignore_comments/ignore_info.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
+
+import 'suppression_comments.dart';
 
 /// The two names the analyzer accepts under `analyzer: errors:` of an
 /// `analysis_options.yaml`, in lower case. It warns `unrecognized_error_code`
@@ -131,13 +134,25 @@ final _typeHint = RegExp(r'type\s*=\s*hint');
 List<DeprecationIgnore> deprecationIgnoresIn(
   String content, {
   required String file,
+}) => findDeprecationIgnoreComments(content, file: file);
+
+/// [deprecationIgnoresIn] for a caller that parses the source for another
+/// purpose too: [parse], when given, supplies the parsed source, so it is
+/// parsed once. It is not called when [content] has nothing to find. This is
+/// the engine's own seam and is not exported from the package.
+List<DeprecationIgnore> findDeprecationIgnoreComments(
+  String content, {
+  required String file,
+  CompilationUnit Function()? parse,
 }) {
   // Most files have neither: they are not parsed at all.
   final lower = content.toLowerCase();
   if (!lower.contains('deprecated_member_use') && !_typeHint.hasMatch(lower)) {
     return const [];
   }
-  final unit = parseString(content: content, throwIfDiagnostics: false).unit;
+  final unit =
+      parse?.call() ??
+      parseString(content: content, throwIfDiagnostics: false).unit;
   final found = <DeprecationIgnore>[];
   for (final comment in unit.ignoreComments) {
     final elements = comment.ignoredElements;
@@ -354,7 +369,35 @@ _Options _parseOptions(String content) {
 Future<List<DeprecationIgnore>> readDeprecationIgnores(
   String projectRoot,
   Iterable<String> files,
-) async {
+) async => (await readSourceComments(projectRoot, files)).deprecation;
+
+/// What [readSourceComments] found in the files it read.
+typedef SourceComments = ({
+  /// What tells the analyzer not to report deprecated use
+  /// ([readDeprecationIgnores]).
+  List<DeprecationIgnore> deprecation,
+
+  /// The `// appstein:ignore` and `// appstein:ignore-file` comments of the
+  /// Dart files, in file and line order ([suppressionCommentsIn]).
+  List<SuppressionComment> suppression,
+});
+
+/// Reads [files] of the project at [projectRoot] once, for everything the
+/// run needs from the source: what [readDeprecationIgnores] gives, and the
+/// `// appstein:ignore` comments (`suppressionCommentsIn`). A file that has
+/// both kinds is read and parsed once. The files are the same as for
+/// [readDeprecationIgnores], and every rule of its documentation holds.
+///
+/// [readSource] and [parseSource] stand in for reading a source file and
+/// parsing its text. They exist so a test can count the reads and parses; a
+/// caller leaves them out. This function, [SourceComments] and these
+/// arguments are the engine's own and are not exported from the package.
+Future<SourceComments> readSourceComments(
+  String projectRoot,
+  Iterable<String> files, {
+  Future<String?> Function(String path) readSource = _read,
+  CompilationUnit Function(String content) parseSource = _parseDart,
+}) async {
   bool isOptions(String file) => p.url.basename(file) == _optionsName;
   final sources = [
     for (final file in files.toSet())
@@ -363,6 +406,7 @@ Future<List<DeprecationIgnore>> readDeprecationIgnores(
         file,
   ]..sort();
   final found = <DeprecationIgnore>[];
+  final suppressions = <SuppressionComment>[];
   // The options files the analyzer applies, read: the walk through their
   // `include:` starts from each.
   final applied = <(String, String)>[];
@@ -380,7 +424,7 @@ Future<List<DeprecationIgnore>> readDeprecationIgnores(
     final batch = sources.skip(start).take(_readAtOnce).toList();
     final contents = await Future.wait([
       for (final file in batch)
-        _read(p.joinAll([projectRoot, ...file.split('/')])),
+        readSource(p.joinAll([projectRoot, ...file.split('/')])),
     ]);
     for (final (index, content) in contents.indexed) {
       if (content == null) continue;
@@ -389,22 +433,34 @@ Future<List<DeprecationIgnore>> readDeprecationIgnores(
         applied.add((p.joinAll([projectRoot, ...file.split('/')]), content));
         found.addAll(deprecationSwitchesIn(content, file: file));
       } else {
-        found.addAll(deprecationIgnoresIn(content, file: file));
+        // One parse for both readings of the file.
+        CompilationUnit? unit;
+        CompilationUnit parse() => unit ??= parseSource(content);
+        found.addAll(
+          findDeprecationIgnoreComments(content, file: file, parse: parse),
+        );
+        suppressions.addAll(
+          suppressionCommentsIn(content, file: file, parse: parse),
+        );
       }
     }
   }
   found.addAll(await _includedEntries(projectRoot, applied));
   // Stable: the entries of one file keep the order they were found in.
-  return [
-    for (final (_, entry)
-        in found.indexed.toList()..sort((a, b) {
-          final byFile = a.$2.file.compareTo(b.$2.file);
-          if (byFile != 0) return byFile;
-          final byLine = a.$2.line.compareTo(b.$2.line);
-          return byLine != 0 ? byLine : a.$1.compareTo(b.$1);
-        }))
-      entry,
-  ];
+  return (
+    deprecation: [
+      for (final (_, entry)
+          in found.indexed.toList()..sort((a, b) {
+            final byFile = a.$2.file.compareTo(b.$2.file);
+            if (byFile != 0) return byFile;
+            final byLine = a.$2.line.compareTo(b.$2.line);
+            return byLine != 0 ? byLine : a.$1.compareTo(b.$1);
+          }))
+        entry,
+    ],
+    // The files were read in order, and a file's comments are in line order.
+    suppression: suppressions,
+  );
 }
 
 /// [path], a file, from [projectRoot] with `/` on every system.
@@ -568,6 +624,10 @@ const _notDart = {'.yaml', '.yml', '.xml'};
 
 /// How many files are open at a time.
 const _readAtOnce = 32;
+
+/// [content] parsed as Dart, whatever it holds.
+CompilationUnit _parseDart(String content) =>
+    parseString(content: content, throwIfDiagnostics: false).unit;
 
 /// The text of the file at [path], with what isn't UTF-8 replaced; null
 /// when it can't be read.

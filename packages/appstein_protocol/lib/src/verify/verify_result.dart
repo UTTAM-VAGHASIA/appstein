@@ -65,11 +65,13 @@ final class VerifyResult {
   /// The findings that were not suppressed.
   final List<Finding> findings;
 
-  /// How many findings a suppression hid (spec §9.7).
+  /// How many findings a suppression hid (spec §9.7): an entry of
+  /// `appstein.yaml` or an `// appstein:ignore` comment in a Dart file.
   final int suppressed;
 
-  /// How many suppressions of `appstein.yaml` hid at least one of them. One
-  /// broad suppression can hide many findings, so both numbers are given.
+  /// How many suppressions, entries of `appstein.yaml` and comments in Dart
+  /// files together, hid at least one of them. One broad suppression can hide
+  /// many findings, so both numbers are given.
   final int activeSuppressions;
 
   /// The checks of the chosen mode that did not run.
