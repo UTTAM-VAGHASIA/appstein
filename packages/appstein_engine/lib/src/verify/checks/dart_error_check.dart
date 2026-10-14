@@ -1,11 +1,16 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../../analysis/code_analysis.dart';
+import '../deprecation_ignores.dart';
 import '../verify_check.dart';
 
 /// `dart.error`: every analyzer error of the project, wherever it is, in a
 /// fast run too (slice 1d.2). An error in a file nobody edited is reported
 /// like any other: a change to one file can break another.
+///
+/// One kind of error is left to another check: the use of a deprecated API
+/// that `analysis_options.yaml` raised to an error (`isDeprecatedUseCode`)
+/// is a `dart.deprecated` finding, and is not reported here as well.
 ///
 /// It reports what `dart analyze` shows as an error, so also an error in a
 /// file the analyzer reads that isn't Dart, such as `analysis_options.yaml`
@@ -32,7 +37,10 @@ final class DartErrorCheck implements GatheringCheck {
   @override
   Future<List<Finding>> run(VerifyContext context) async => [
     for (final diagnostic in context.code.diagnostics)
-      if (diagnostic.level == DiagnosticLevel.error)
+      // A deprecated use the project raised to an error is reported once,
+      // by `dart.deprecated`.
+      if (diagnostic.level == DiagnosticLevel.error &&
+          !isDeprecatedUseCode(diagnostic.code))
         Finding(
           id: 'dart.error',
           severity: Severity.error,

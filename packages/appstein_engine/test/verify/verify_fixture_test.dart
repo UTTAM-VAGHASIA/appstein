@@ -67,6 +67,7 @@ void main() {
           ('verify.test_required', null),
           ('dart.error', null),
           ('dart.plugin_failed', null),
+          ('dart.deprecated', null),
           ('a.one', 'a'),
           ('b.one', 'b'),
         ],

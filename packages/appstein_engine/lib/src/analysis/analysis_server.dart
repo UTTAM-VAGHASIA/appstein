@@ -508,9 +508,13 @@ final class _Session {
     }
     answered = true;
     final found = <CodeDiagnostic>[];
+    // The server sends `analysis.errors` for every file it analyzes, with
+    // an empty list for a file without a diagnostic.
+    final analyzed = <String>[];
     for (final MapEntry(key: file, value: errors) in _errors.entries) {
       if (!p.isWithin(_root, file)) continue;
       final relative = p.split(p.relative(file, from: _root)).join('/');
+      analyzed.add(relative);
       for (final error in errors) {
         if (error case {
           'severity': final String severity,
@@ -557,6 +561,7 @@ final class _Session {
       diagnostics: found,
       pluginFailures: List.unmodifiable(_pluginFailures),
       notices: _owner.leftProcesses(),
+      analyzedFiles: List.unmodifiable(analyzed..sort()),
     );
   }
 

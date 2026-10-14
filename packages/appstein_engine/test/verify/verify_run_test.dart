@@ -94,6 +94,77 @@ final class _ForgetfulCheck implements VerifyCheck {
   }
 }
 
+/// A check that gathers the project's ignore comments, and keeps the list
+/// it was given when it ran. It writes what it does to [log].
+final class _IgnoresCheck implements GatheringCheck {
+  _IgnoresCheck(
+    this.name, {
+    this.needsMap = false,
+    this.readsCode = false,
+    this.log,
+    this.beforeAsking,
+    this.afterAsking,
+  });
+
+  final String name;
+
+  @override
+  VerifyMode get mode => VerifyMode.full;
+
+  @override
+  final bool needsMap;
+
+  /// Whether [run] also reads the code reading, which it never gathered.
+  final bool readsCode;
+
+  final List<String>? log;
+
+  /// Called in [gather], before and after it asks for the comments.
+  final void Function()? beforeAsking;
+  final Future<void> Function()? afterAsking;
+
+  /// The comments [run] was given.
+  List<DeprecationIgnore>? seen;
+
+  @override
+  List<String> get ids => [name];
+
+  @override
+  Future<void> gather(VerifyGathering gathering) async {
+    log?.add('gather $name');
+    beforeAsking?.call();
+    await gathering.deprecationIgnores();
+    await afterAsking?.call();
+  }
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    log?.add('run $name');
+    seen = context.deprecationIgnores;
+    if (readsCode) context.code;
+    return const [];
+  }
+}
+
+/// A check that reads the project's ignore comments without gathering
+/// them: a bug.
+final class _ForgetfulIgnoresCheck implements VerifyCheck {
+  @override
+  List<String> get ids => const ['forgetful.ignores'];
+
+  @override
+  VerifyMode get mode => VerifyMode.full;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    context.deprecationIgnores;
+    return const [];
+  }
+}
+
 void main() {
   late String sdk;
   late String app;
@@ -686,6 +757,905 @@ void main() {
         codeAnalysis: analysis,
       );
       expect(analysis.asked, 0);
+    });
+
+    group('dart.deprecated', () {
+      void write(String relative, String content) =>
+          File(p.joinAll([app, ...relative.split('/')]))
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync(content);
+
+      const hint =
+          'Replace it with the API the message names. `dart fix --dry-run` '
+          'lists the uses it can migrate by itself.';
+
+      for (final mode in VerifyMode.values) {
+        test('${mode.name}: each deprecated_member_use diagnostic and each '
+            'variant is an error with its file, line, message and code, at '
+            'any level', () async {
+          final result = await run(
+            [const DartDeprecatedCheck()],
+            mode: mode,
+            codeAnalysis: ScriptedCodeAnalysis(
+              found: [
+                diagnostic(
+                  DiagnosticLevel.info,
+                  file: 'lib/ui/home screen.dart',
+                  line: 12,
+                  code: 'deprecated_member_use',
+                  message:
+                      "'withOpacity' is deprecated and shouldn't be used. "
+                      'Use withValues.',
+                  correction:
+                      'Try replacing the use of the deprecated member with '
+                      'the replacement.',
+                ),
+                diagnostic(
+                  DiagnosticLevel.info,
+                  file: 'lib/ui/home screen.dart',
+                  line: 20,
+                  code: 'deprecated_member_use_from_same_package',
+                  message: "'old' is deprecated and shouldn't be used.",
+                ),
+                diagnostic(
+                  DiagnosticLevel.warning,
+                  file: 'test/a_test.dart',
+                  line: 4,
+                  code: 'deprecated_member_use_with_message',
+                  message: 'Raised to a warning.',
+                ),
+                diagnostic(
+                  DiagnosticLevel.error,
+                  file: 'test/a_test.dart',
+                  line: 7,
+                  code: 'DEPRECATED_MEMBER_USE',
+                  message: 'Raised to an error.',
+                ),
+              ],
+            ),
+          );
+          expect(
+            [
+              for (final found in result.findings)
+                (found.id, found.severity, found.file, found.line),
+            ],
+            [
+              (
+                'dart.deprecated',
+                Severity.error,
+                'lib/ui/home screen.dart',
+                12,
+              ),
+              (
+                'dart.deprecated',
+                Severity.error,
+                'lib/ui/home screen.dart',
+                20,
+              ),
+              ('dart.deprecated', Severity.error, 'test/a_test.dart', 4),
+              ('dart.deprecated', Severity.error, 'test/a_test.dart', 7),
+            ],
+          );
+          expect(
+            [for (final found in result.findings) found.message],
+            [
+              "'withOpacity' is deprecated and shouldn't be used. Use "
+                  'withValues. (`deprecated_member_use`)',
+              "'old' is deprecated and shouldn't be used. "
+                  '(`deprecated_member_use_from_same_package`)',
+              'Raised to a warning. (`deprecated_member_use_with_message`)',
+              'Raised to an error. (`DEPRECATED_MEMBER_USE`)',
+            ],
+          );
+          // The general hint, with or without the analyzer's correction.
+          expect({for (final found in result.findings) found.fixHint}, {hint});
+          expect({for (final found in result.findings) found.pack}, {null});
+          expect(result.errors, 4);
+        });
+      }
+
+      test('a diagnostic with another code is not reported, whatever its '
+          'level', () async {
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [
+              diagnostic(DiagnosticLevel.error, code: 'undefined_method'),
+              diagnostic(DiagnosticLevel.warning, code: 'unused_import'),
+              diagnostic(DiagnosticLevel.info, code: 'deprecated_export_use'),
+              // It only starts like one: no analyzer has this code.
+              diagnostic(DiagnosticLevel.info, code: 'deprecated_member_use_x'),
+              diagnostic(DiagnosticLevel.info, code: 'prefer_const'),
+            ],
+          ),
+        );
+        expect(result.findings, isEmpty);
+      });
+
+      test('with dart.error: a deprecated use the project made an error is '
+          'reported once, as dart.deprecated', () async {
+        final analysis = ScriptedCodeAnalysis(
+          found: [
+            diagnostic(DiagnosticLevel.error, code: 'deprecated_member_use'),
+            diagnostic(
+              DiagnosticLevel.error,
+              line: 5,
+              code: 'DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE',
+            ),
+            diagnostic(DiagnosticLevel.info, code: 'deprecated_member_use'),
+            diagnostic(DiagnosticLevel.error, line: 9, code: 'other_error'),
+          ],
+        );
+        final result = await run(
+          [const DartErrorCheck(), const DartDeprecatedCheck()],
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(
+          [for (final found in result.findings) (found.id, found.line)],
+          [
+            ('dart.deprecated', 3),
+            ('dart.deprecated', 3),
+            ('dart.deprecated', 5),
+            ('dart.error', 9),
+          ],
+        );
+        // Also when `dart.error` runs alone.
+        final alone = await run(
+          [const DartErrorCheck()],
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(
+          [for (final found in alone.findings) (found.id, found.line)],
+          [('dart.error', 9)],
+        );
+      });
+
+      for (final mode in VerifyMode.values) {
+        test('${mode.name}: a comment that says type=hint is an error on '
+            'its line; one that says type=lint is not', () async {
+          write('lib/hints.dart', '''
+// ignore_for_file: type=lint
+void f() {
+  // ignore: type=hint
+  g();
+  g(); // ignore: type=lint
+}
+
+void g() {}
+// ignore_for_file: unused_element, TYPE = HINT
+''');
+          final result = await run(
+            [const DartDeprecatedCheck()],
+            mode: mode,
+            codeAnalysis: ScriptedCodeAnalysis(
+              analyzedFiles: ['lib/hints.dart'],
+            ),
+          );
+          expect(
+            [
+              for (final found in result.findings)
+                (found.id, found.severity, found.file, found.line),
+            ],
+            [
+              ('dart.deprecated', Severity.error, 'lib/hints.dart', 3),
+              ('dart.deprecated', Severity.error, 'lib/hints.dart', 9),
+            ],
+          );
+          final [forLine, forFile] = result.findings;
+          expect(
+            forLine.message,
+            'This `// ignore:` comment says `type=hint`: it tells the '
+            'analyzer to hide every hint on its line, and the use of a '
+            'deprecated API is a hint.',
+          );
+          expect(
+            forFile.message,
+            'This `// ignore_for_file:` comment says `type=hint`: it tells '
+            'the analyzer to hide every hint in this file, and the use of a '
+            'deprecated API is a hint.',
+          );
+          expect(
+            {for (final found in result.findings) found.fixHint},
+            {
+              'Name the hints to hide in place of `type=hint`, and replace '
+                  'any deprecated API. If it has to stay, accept the finding '
+                  'where it can be seen: a `suppressions:` entry for '
+                  '`dart.deprecated` with a `reason` in `appstein.yaml`.',
+            },
+          );
+        });
+
+        test('${mode.name}: an analysis_options.yaml entry that switches a '
+            'deprecated-use diagnostic off is an error on its line, in the '
+            'root\'s file and in a folder\'s', () async {
+          write('analysis_options.yaml', '''
+analyzer:
+  exclude:
+    - lib/generated/**
+  errors:
+    unused_import: ignore
+    deprecated_member_use: ignore
+    todo: info
+''');
+          write('packages/inner/analysis_options.yaml', '''
+analyzer:
+  errors:
+    deprecated_member_use_from_same_package: false
+    deprecated_member_use: warning
+''');
+          final result = await run(
+            [const DartDeprecatedCheck()],
+            mode: mode,
+            codeAnalysis: ScriptedCodeAnalysis(
+              analyzedFiles: [
+                'analysis_options.yaml',
+                'packages/inner/analysis_options.yaml',
+                'pubspec.yaml',
+              ],
+            ),
+          );
+          expect(
+            [
+              for (final found in result.findings)
+                (found.id, found.severity, found.file, found.line),
+            ],
+            [
+              ('dart.deprecated', Severity.error, 'analysis_options.yaml', 6),
+              (
+                'dart.deprecated',
+                Severity.error,
+                'packages/inner/analysis_options.yaml',
+                3,
+              ),
+            ],
+          );
+          final [root, inner] = result.findings;
+          expect(
+            root.message,
+            'This entry sets `deprecated_member_use` to `ignore`: it tells '
+            'the analyzer not to report the use of a deprecated API in the '
+            'files this options file covers.',
+          );
+          expect(
+            inner.message,
+            'This entry sets `deprecated_member_use_from_same_package` to '
+            '`false`: it tells the analyzer not to report the use of a '
+            'deprecated API in the files this options file covers.',
+          );
+          expect(
+            {for (final found in result.findings) found.fixHint},
+            {
+              'Remove the entry and replace the deprecated APIs. If it has to '
+                  'stay, accept the finding where it can be seen: a '
+                  '`suppressions:` entry for `dart.deprecated` with a `reason` '
+                  'in `appstein.yaml`.',
+            },
+          );
+        });
+      }
+
+      // The analyzer applies the nearest options file above a project that
+      // has none, so that file is read though the server doesn't list it. It
+      // is outside the project: its path starts with `../`, which no
+      // `suppressions:` path may (the config refuses it), so the fix hint
+      // doesn't offer that way out.
+      test('an analysis_options.yaml above a project without one is an error '
+          'on its line, with a fix hint that offers no suppression', () async {
+        File(p.join(p.dirname(app), 'analysis_options.yaml')).writeAsStringSync(
+          '# Shared.\nanalyzer:\n  errors:\n    deprecated_member_use: ignore\n',
+        );
+        final result = await run([
+          const DartDeprecatedCheck(),
+        ], codeAnalysis: ScriptedCodeAnalysis(analyzedFiles: ['pubspec.yaml']));
+        final finding = result.findings.single;
+        expect(
+          (finding.id, finding.severity, finding.file, finding.line),
+          ('dart.deprecated', Severity.error, '../analysis_options.yaml', 4),
+        );
+        expect(
+          finding.message,
+          'This entry sets `deprecated_member_use` to `ignore`: it tells the '
+          'analyzer not to report the use of a deprecated API in the files '
+          'this options file covers.',
+        );
+        expect(
+          finding.fixHint,
+          'Remove the entry and replace the deprecated APIs. When that file '
+          'is shared and has to stay as it is, give the project an '
+          '`analysis_options.yaml` of its own that names the file above '
+          'under `include:`, so its other rules still apply, and sets '
+          '`deprecated_member_use` back to `info` under `analyzer: errors:`. '
+          'An options file without that `include:` switches every rule of '
+          'the file above off. A `suppressions:` path must be inside the '
+          'project, so this finding can\'t be accepted there.',
+        );
+      });
+
+      // The analyzer follows an `include:` and applies the included file's
+      // settings, so a switch-off there hides the use as much as one in the
+      // project's own file. The finding is on the included file's line.
+      test('a switch-off in a file above the project that the project\'s own '
+          'options file includes is an error on that file, with the short '
+          'way out', () async {
+        File(p.join(p.dirname(app), 'base_options.yaml')).writeAsStringSync(
+          '# Shared.\nanalyzer:\n  errors:\n    deprecated_member_use: ignore\n',
+        );
+        write('analysis_options.yaml', 'include: ../base_options.yaml\n');
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['analysis_options.yaml'],
+          ),
+        );
+        final finding = result.findings.single;
+        expect(
+          (finding.id, finding.severity, finding.file, finding.line),
+          ('dart.deprecated', Severity.error, '../base_options.yaml', 4),
+        );
+        expect(
+          finding.message,
+          'This entry sets `deprecated_member_use` to `ignore`: it tells the '
+          'analyzer not to report the use of a deprecated API in the files '
+          'covered by the options files that include this file.',
+        );
+        expect(
+          finding.fixHint,
+          'Remove the entry and replace the deprecated APIs. When that shared '
+          'file has to stay as it is, set `deprecated_member_use` back to '
+          '`info` under `analyzer: errors:` in `analysis_options.yaml`, '
+          'which includes it: the setting of the including file wins. A '
+          '`suppressions:` path must be inside the project, so this finding '
+          'can\'t be accepted there.',
+        );
+      });
+
+      test('the project\'s own options file that sets the code back to info '
+          'leaves the included file\'s switch-off unreported', () async {
+        File(p.join(p.dirname(app), 'base_options.yaml')).writeAsStringSync(
+          'analyzer:\n  errors:\n    deprecated_member_use: ignore\n',
+        );
+        write(
+          'analysis_options.yaml',
+          'include: ../base_options.yaml\n'
+              'analyzer:\n  errors:\n    deprecated_member_use: info\n',
+        );
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['analysis_options.yaml'],
+          ),
+        );
+        expect(result.findings, isEmpty);
+      });
+
+      test('a switch-off in a file inside the project that two options files '
+          'include is one error, with the ordinary hint and way out', () async {
+        write(
+          'shared/base.yaml',
+          'analyzer:\n  errors:\n    deprecated_member_use: false\n',
+        );
+        write('analysis_options.yaml', 'include: shared/base.yaml\n');
+        write(
+          'packages/inner/analysis_options.yaml',
+          'include: ../../shared/base.yaml\n',
+        );
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: [
+              'analysis_options.yaml',
+              'packages/inner/analysis_options.yaml',
+            ],
+          ),
+        );
+        final finding = result.findings.single;
+        expect(
+          (finding.id, finding.severity, finding.file, finding.line),
+          ('dart.deprecated', Severity.error, 'shared/base.yaml', 3),
+        );
+        expect(
+          finding.message,
+          'This entry sets `deprecated_member_use` to `false`: it tells the '
+          'analyzer not to report the use of a deprecated API in the files '
+          'covered by the options files that include this file.',
+        );
+        expect(
+          finding.fixHint,
+          'Remove the entry and replace the deprecated APIs. If it has to '
+          'stay, accept the finding where it can be seen: a `suppressions:` '
+          'entry for `dart.deprecated` with a `reason` in `appstein.yaml`.',
+        );
+      });
+
+      // Neither of the two files is in the project: the project has no
+      // options file of its own to name, so the hint is the one for a file
+      // above the project.
+      test('a switch-off in a file that only the options file above the '
+          'project includes keeps the hint for a file above', () async {
+        File(
+          p.join(p.dirname(app), 'analysis_options.yaml'),
+        ).writeAsStringSync('include: base_options.yaml\n');
+        File(p.join(p.dirname(app), 'base_options.yaml')).writeAsStringSync(
+          'analyzer:\n  errors:\n    deprecated_member_use: ignore\n',
+        );
+        final result = await run([
+          const DartDeprecatedCheck(),
+        ], codeAnalysis: ScriptedCodeAnalysis(analyzedFiles: ['pubspec.yaml']));
+        final finding = result.findings.single;
+        expect((finding.file, finding.line), ('../base_options.yaml', 3));
+        expect(
+          finding.fixHint,
+          startsWith(
+            'Remove the entry and replace the deprecated APIs. When that file '
+            'is shared and has to stay as it is, give the project an '
+            '`analysis_options.yaml` of its own that names the file above '
+            'under `include:`',
+          ),
+        );
+      });
+
+      test('an analysis_options.yaml that can\'t be parsed, or that the '
+          'server did not analyze, does not fail the run and reports '
+          'nothing', () async {
+        write('analysis_options.yaml', 'analyzer: [\n  errors\n');
+        write(
+          'tool/analysis_options.yaml',
+          'analyzer:\n  errors:\n    deprecated_member_use: ignore\n',
+        );
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['analysis_options.yaml'],
+          ),
+        );
+        expect(result.findings, isEmpty);
+      });
+
+      test('a suppression with a reason hides the entry\'s finding, and '
+          'verify.severity changes it', () async {
+        const off = 'analyzer:\n  errors:\n    deprecated_member_use: ignore\n';
+        write('analysis_options.yaml', off);
+        write('packages/inner/analysis_options.yaml', off);
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: [
+              'analysis_options.yaml',
+              'packages/inner/analysis_options.yaml',
+            ],
+          ),
+          config: const AppsteinConfig(
+            verify: VerifyConfig(
+              severity: {'dart.deprecated': Severity.warning},
+            ),
+            suppressions: [
+              SuppressionEntry(
+                id: 'dart.deprecated',
+                path: 'analysis_options.yaml',
+                reason: 'Migrated in the next sprint.',
+                line: 4,
+              ),
+            ],
+          ),
+        );
+        expect(
+          [for (final found in result.findings) (found.file, found.severity)],
+          [('packages/inner/analysis_options.yaml', Severity.warning)],
+        );
+        expect(result.suppressed, 1);
+      });
+
+      for (final mode in VerifyMode.values) {
+        test('${mode.name}: a comment that names a deprecated-use code is an '
+            'error on the comment\'s line, with the way out', () async {
+          write('lib/my folder/hides.dart', '''
+/// Hides.
+void f() {
+  // ignore: deprecated_member_use
+  g();
+  g(); // ignore: unused_local_variable, deprecated_member_use_from_same_package
+}
+
+/// Old.
+void g() {}
+''');
+          write('test/whole_file_test.dart', '''
+void main() {}
+
+// ignore_for_file: deprecated_member_use, deprecated_member_use_from_same_package
+''');
+          final result = await run(
+            [const DartDeprecatedCheck()],
+            mode: mode,
+            // The comments work: the analyzer has nothing to say, but it
+            // names the files it analyzed.
+            codeAnalysis: ScriptedCodeAnalysis(
+              analyzedFiles: [
+                'lib/my folder/hides.dart',
+                'pubspec.yaml',
+                'test/whole_file_test.dart',
+              ],
+            ),
+          );
+          expect(
+            [
+              for (final found in result.findings)
+                (found.id, found.severity, found.file, found.line),
+            ],
+            [
+              (
+                'dart.deprecated',
+                Severity.error,
+                'lib/my folder/hides.dart',
+                3,
+              ),
+              (
+                'dart.deprecated',
+                Severity.error,
+                'lib/my folder/hides.dart',
+                5,
+              ),
+              (
+                'dart.deprecated',
+                Severity.error,
+                'test/whole_file_test.dart',
+                3,
+              ),
+            ],
+          );
+          final [above, atEnd, wholeFile] = result.findings;
+          expect(
+            above.message,
+            'This `// ignore:` comment names `deprecated_member_use`: it '
+            'tells the analyzer to hide the use of a deprecated API.',
+          );
+          expect(
+            atEnd.message,
+            'This `// ignore:` comment names '
+            '`deprecated_member_use_from_same_package`: it tells the '
+            'analyzer to hide the use of a deprecated API.',
+          );
+          expect(
+            wholeFile.message,
+            'This `// ignore_for_file:` comment names '
+            '`deprecated_member_use` and '
+            '`deprecated_member_use_from_same_package`: it tells the '
+            'analyzer to hide every use of a deprecated API in this file.',
+          );
+          const wayOut =
+              'Take the code out of the comment and replace the deprecated '
+              'API. If it has to stay, accept the finding where it can be '
+              'seen: a `suppressions:` entry for `dart.deprecated` with a '
+              '`reason` in `appstein.yaml`.';
+          expect(
+            {for (final found in result.findings) found.fixHint},
+            {wayOut},
+          );
+          expect(result.errors, 3);
+        });
+      }
+
+      test('an ignore comment for other codes, and text that looks like one '
+          'in a string or a doc comment\'s sample, is not reported', () async {
+        write('lib/not_hiding.dart', r"""
+// ignore_for_file: unused_import, avoid_print
+import 'dart:math';
+
+/// Says how to hide it, which hides nothing.
+///
+/// ```dart
+/// // ignore: deprecated_member_use
+/// g();
+/// ```
+const advice = '// ignore: deprecated_member_use';
+
+/// More of it.
+const more = '''
+// ignore_for_file: deprecated_member_use
+''';
+
+/// Prints.
+void f() {
+  // ignore: avoid_print
+  print('$advice $more');
+}
+""");
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/not_hiding.dart'],
+          ),
+        );
+        expect(result.findings, isEmpty);
+      });
+
+      test('only the files the analysis server analyzed are read: a comment '
+          'in a file it left out is not reported, and one in a part file '
+          'with another ending is', () async {
+        const hiding = '// ignore_for_file: deprecated_member_use\n';
+        // Excluded in `analysis_options.yaml`, say: the server didn't list
+        // it.
+        write('lib/generated/api.dart', hiding);
+        write('lib/whole.dart', "part 'odd.part';\n");
+        write('lib/odd.part', "${hiding}part of 'whole.dart';\n");
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/odd.part', 'lib/whole.dart', 'pubspec.yaml'],
+          ),
+        );
+        expect(
+          [for (final found in result.findings) (found.file, found.line)],
+          [('lib/odd.part', 1)],
+        );
+      });
+
+      test('a comment with a made-up name that starts like one is not '
+          'reported', () async {
+        write(
+          'lib/made_up.dart',
+          '// ignore_for_file: deprecated_member_use_x\n',
+        );
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/made_up.dart'],
+          ),
+        );
+        expect(result.findings, isEmpty);
+      });
+
+      test('a use and the comment that fails to hide it are both '
+          'reported', () async {
+        write(
+          'lib/both.dart',
+          '// ignore_for_file: deprecated_member_use_from_same_package\n'
+              'int a = 1;\n',
+        );
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/both.dart'],
+            found: [
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'lib/both.dart',
+                line: 2,
+                code: 'deprecated_member_use',
+              ),
+            ],
+          ),
+        );
+        expect(
+          [for (final found in result.findings) (found.file, found.line)],
+          [('lib/both.dart', 1), ('lib/both.dart', 2)],
+        );
+      });
+
+      test('verify.severity changes both kinds, and a suppression with a '
+          'reason hides both', () async {
+        write(
+          'lib/legacy/old.dart',
+          '// ignore_for_file: deprecated_member_use\n',
+        );
+        write('lib/new.dart', '// ignore_for_file: deprecated_member_use\n');
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          mode: VerifyMode.fast,
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/legacy/old.dart', 'lib/new.dart'],
+            found: [
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'lib/a.dart',
+                code: 'deprecated_member_use',
+              ),
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'lib/legacy/b.dart',
+                code: 'deprecated_member_use',
+              ),
+            ],
+          ),
+          config: const AppsteinConfig(
+            verify: VerifyConfig(
+              severity: {'dart.deprecated': Severity.warning},
+            ),
+            suppressions: [
+              SuppressionEntry(
+                id: 'dart.deprecated',
+                path: 'lib/legacy',
+                reason: 'Rewritten next month.',
+                line: 4,
+              ),
+            ],
+          ),
+        );
+        expect(
+          [for (final found in result.findings) (found.file, found.severity)],
+          [
+            ('lib/a.dart', Severity.warning),
+            ('lib/new.dart', Severity.warning),
+          ],
+        );
+        expect(result.suppressed, 2);
+        expect(result.activeSuppressions, 1);
+        expect(result.errors, 0);
+      });
+
+      test('it runs while the knowledge is stale', () async {
+        write('lib/hides.dart', '// ignore_for_file: deprecated_member_use\n');
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          refreshed: const KnowledgeRefresh.failed('the packages are missing'),
+          codeAnalysis: ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/hides.dart'],
+            found: [
+              diagnostic(DiagnosticLevel.info, code: 'deprecated_member_use'),
+            ],
+          ),
+        );
+        expect(ids(result), [
+          'knowledge.stale',
+          'dart.deprecated',
+          'dart.deprecated',
+        ]);
+        expect(result.notRun, isEmpty);
+      });
+
+      test('beside another check that gathers the reading, the server is '
+          'asked once', () async {
+        write('lib/hides.dart', '// ignore_for_file: deprecated_member_use\n');
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/hides.dart'],
+        );
+        final result = await run([
+          _ReadingCheck('one.check'),
+          const DartDeprecatedCheck(),
+        ], codeAnalysis: analysis);
+        expect(analysis.asked, 1);
+        expect(ids(result), ['dart.deprecated']);
+      });
+
+      test(
+        'a check that gathers only the comments has the server asked '
+        'once, for the files to read, and may not read the reading',
+        () async {
+          write(
+            'lib/hides.dart',
+            '// ignore_for_file: deprecated_member_use\n',
+          );
+          final analysis = ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/hides.dart'],
+          );
+          final check = _IgnoresCheck('one.check');
+          await run([check], codeAnalysis: analysis);
+          expect(analysis.asked, 1);
+          expect(
+            [for (final comment in check.seen!) comment.file],
+            ['lib/hides.dart'],
+          );
+          await expectLater(
+            run([_IgnoresCheck('two.check', readsCode: true)]),
+            throwsA(
+              isA<VerifyCheckError>().having(
+                (e) => '${e.error}',
+                'the error',
+                contains('read the code analysis without gathering it'),
+              ),
+            ),
+          );
+        },
+      );
+
+      test('the source files are read once per run, before any check runs, '
+          'and every check that asked judges that one list', () async {
+        const file = 'lib/hides.dart';
+        write(file, '// ignore_for_file: deprecated_member_use\n');
+        final log = <String>[];
+        final analysis = ScriptedCodeAnalysis(analyzedFiles: [file]);
+        final one = _IgnoresCheck('one.check', log: log);
+        // By the time the second check asks, the file names nothing: a
+        // second reading would find no comment.
+        final two = _IgnoresCheck(
+          'two.check',
+          log: log,
+          beforeAsking: () => write(file, 'int a = 1;\n'),
+        );
+        await run([one, two], codeAnalysis: analysis);
+        expect(analysis.asked, 1);
+        expect(log, [
+          'gather one.check',
+          'gather two.check',
+          'run one.check',
+          'run two.check',
+        ]);
+        expect(one.seen, hasLength(1));
+        expect(two.seen, same(one.seen));
+      });
+
+      test('the source files are read while the knowledge lock is '
+          'free', () async {
+        write('lib/hides.dart', '// ignore_for_file: deprecated_member_use\n');
+        // A lock taken from here would wait if the run held it: on Windows
+        // a second handle in one process can't share a file lock.
+        Object? lockProblem;
+        var tried = false;
+        final check = _IgnoresCheck(
+          'one.check',
+          afterAsking: () async {
+            tried = true;
+            try {
+              await KnowledgeStore(
+                app,
+              ).locked(() async {}, timeout: const Duration(milliseconds: 300));
+            } on Object catch (error) {
+              lockProblem = error;
+            }
+          },
+        );
+        await run(
+          [check],
+          codeAnalysis: ScriptedCodeAnalysis(analyzedFiles: ['lib/hides.dart']),
+        );
+        // The files had been read by then.
+        expect(check.seen, hasLength(1));
+        expect(tried, isTrue);
+        expect(lockProblem, isNull);
+      });
+
+      test('a full check gathers no comments in a fast run, and a map check '
+          'none while the knowledge is stale', () async {
+        write('lib/hides.dart', '// ignore_for_file: deprecated_member_use\n');
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/hides.dart'],
+        );
+        final full = _IgnoresCheck('full.check');
+        await run([full], mode: VerifyMode.fast, codeAnalysis: analysis);
+        final map = _IgnoresCheck('map.check', needsMap: true);
+        await run(
+          [map],
+          codeAnalysis: analysis,
+          refreshed: const KnowledgeRefresh.failed('x'),
+        );
+        expect(analysis.asked, 0);
+        expect((full.seen, map.seen), (null, null));
+      });
+
+      test('a server that can\'t answer fails the run when the comments are '
+          'asked for, and no check is blamed', () async {
+        const failure = CodeAnalysisException('it ended by itself');
+        await expectLater(
+          run([
+            _IgnoresCheck('one.check'),
+          ], codeAnalysis: ScriptedCodeAnalysis(failure: failure)),
+          throwsA(same(failure)),
+        );
+      });
+
+      test('a check that reads the ignore comments without gathering them '
+          'fails loudly, also beside one that did', () async {
+        await expectLater(
+          run([const DartDeprecatedCheck(), _ForgetfulIgnoresCheck()]),
+          throwsA(
+            isA<VerifyCheckError>()
+                .having((e) => e.checkId, 'checkId', 'forgetful.ignores')
+                .having(
+                  (e) => '${e.error}',
+                  'the error',
+                  allOf(
+                    contains(
+                      'The check `forgetful.ignores` read the project\'s '
+                      'ignore comments without gathering them.',
+                    ),
+                    contains('gathering.deprecationIgnores()'),
+                  ),
+                ),
+          ),
+        );
+      });
     });
   });
 

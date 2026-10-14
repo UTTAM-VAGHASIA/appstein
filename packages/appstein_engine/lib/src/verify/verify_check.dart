@@ -4,6 +4,7 @@ import '../analysis/code_analysis.dart';
 import '../decisions/decision_store.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
+import 'deprecation_ignores.dart';
 
 /// When a check runs (spec §9.1, §9.2).
 enum VerifyMode {
@@ -27,6 +28,7 @@ final class VerifyContext {
     required this.knowledge,
     required this.decisions,
     this.codeReader,
+    this.deprecationIgnoresReader,
     this.staleProblem,
     this.onSkipped,
   });
@@ -52,6 +54,26 @@ final class VerifyContext {
       (codeReader ??
       (throw StateError(
         'This context has no reading of the code analysis. $_howToGather',
+      )))();
+
+  /// Gives [deprecationIgnores]. `runVerify` passes one that throws when
+  /// the check that is running did not gather them. Null makes
+  /// [deprecationIgnores] throw.
+  final List<DeprecationIgnore> Function()? deprecationIgnoresReader;
+
+  /// What tells the analyzer not to report deprecated use (the `// ignore:`
+  /// comments and the `analysis_options.yaml` entries), in the files the
+  /// analysis server analyzed, as this run read them before the knowledge
+  /// lock.
+  ///
+  /// Only a check that asked for them in its own [GatheringCheck.gather]
+  /// may read them; for any other check it throws a [StateError], as [code]
+  /// does.
+  List<DeprecationIgnore> get deprecationIgnores =>
+      (deprecationIgnoresReader ??
+      (throw StateError(
+        'This context has no reading of the project\'s ignore comments. '
+        '$_howToGatherIgnores',
       )))();
 
   /// Why the knowledge could not be refreshed; null when it was, or when
@@ -104,8 +126,14 @@ final class VerifyContext {
 /// same way: a method the check calls from [GatheringCheck.gather], and a
 /// getter on [VerifyContext] for what it found.
 final class VerifyGathering {
-  /// Creates the gathering of one run, which asks [codeAnalysis].
-  VerifyGathering(CodeAnalysis codeAnalysis) : _codeAnalysis = codeAnalysis;
+  /// Creates the gathering of one run, which asks [codeAnalysis] and reads
+  /// the source files of the project at [projectRoot].
+  VerifyGathering(CodeAnalysis codeAnalysis, {this.projectRoot})
+    : _codeAnalysis = codeAnalysis;
+
+  /// The project whose source files it reads; null when it was created
+  /// without one, and then only [code] can be asked.
+  final String? projectRoot;
 
   final CodeAnalysis _codeAnalysis;
   Future<CodeReading>? _asked;
@@ -119,12 +147,15 @@ final class VerifyGathering {
   /// Throws a `CodeAnalysisException` when the analysis can't answer.
   Future<CodeReading> code() {
     _codeAskers.add(_gatheringFor);
-    return _asked ??= _codeAnalysis.read().then((reading) => _code = reading);
+    return _reading();
   }
 
   /// What the code analysis said beside its reading that the run's reader
   /// must be told (`CodeReading.notices`); empty when it was not asked.
   List<String> get notices => _code?.notices ?? const [];
+
+  Future<CodeReading> _reading() =>
+      _asked ??= _codeAnalysis.read().then((reading) => _code = reading);
 
   // The check whose `gather` is running, and the checks that asked for the
   // reading: `runVerify` sets the first, so the reading is given only to a
@@ -156,7 +187,51 @@ final class VerifyGathering {
     }
     return reading;
   }
+
+  Future<List<DeprecationIgnore>>? _ignoresAsked;
+  List<DeprecationIgnore>? _deprecationIgnores;
+  final _ignoreAskers = <VerifyCheck?>{};
+
+  /// What tells the analyzer not to report deprecated use: the `// ignore:`
+  /// and `// ignore_for_file:` comments that name a deprecated-use
+  /// diagnostic or say `type=hint`, and the `analysis_options.yaml` entries
+  /// that switch one off, in the files the analysis server analyzed for
+  /// this run's reading (`readDeprecationIgnores`). The first call
+  /// takes the reading, as [code] does, and reads those files; later calls
+  /// get the same list. The analysis server can't be asked for the
+  /// comments: one that works removes the diagnostic from its reading.
+  ///
+  /// Throws a `CodeAnalysisException` when the analysis can't answer, and a
+  /// [StateError] when the gathering was created without a project.
+  Future<List<DeprecationIgnore>> deprecationIgnores() {
+    _ignoreAskers.add(_gatheringFor);
+    final root =
+        projectRoot ??
+        (throw StateError('This gathering was created without a project.'));
+    return _ignoresAsked ??= _reading()
+        .then((reading) => readDeprecationIgnores(root, reading.analyzedFiles))
+        .then((found) => _deprecationIgnores = found);
+  }
+
+  /// The comments [deprecationIgnores] found, for [check] when it runs.
+  ///
+  /// Throws a [StateError] that names [check] when it did not ask for them
+  /// in its own `gather`.
+  List<DeprecationIgnore> deprecationIgnoresFor(VerifyCheck check) {
+    final found = _deprecationIgnores;
+    if (found == null || !_ignoreAskers.contains(check)) {
+      throw StateError(
+        'The check `${check.ids.first}` read the project\'s ignore comments '
+        'without gathering them. $_howToGatherIgnores',
+      );
+    }
+    return found;
+  }
 }
+
+const _howToGatherIgnores =
+    'A check that reads `context.deprecationIgnores` implements '
+    '`GatheringCheck` and calls `gathering.deprecationIgnores()` in `gather`.';
 
 const _howToGather =
     'A check that reads `context.code` implements `GatheringCheck` and '

@@ -3,13 +3,14 @@ import 'package:appstein_engine/appstein_engine.dart';
 /// A stand-in for the analysis server: it answers with what it was given,
 /// and starts no process. The CLI's tests have a copy.
 final class ScriptedCodeAnalysis implements CodeAnalysis {
-  /// Creates the stand-in. It answers with [found] and [pluginFailures], or
-  /// throws [failure] when that is set, as a server that can't answer does.
-  /// [onAsked] is called at the start of every [read].
+  /// Creates the stand-in. It answers with [found], [pluginFailures],
+  /// [notices] and [analyzedFiles], or throws [failure] when that is set, as a server that
+  /// can't answer does. [onAsked] is called at the start of every [read].
   ScriptedCodeAnalysis({
     this.found = const [],
     this.pluginFailures = const [],
     this.notices = const [],
+    this.analyzedFiles = const [],
     this.failure,
     this.onAsked,
   });
@@ -23,6 +24,9 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
 
   /// The plugin failures [read] answers with.
   List<String> pluginFailures;
+
+  /// The files [read] says the server analyzed, from the project root.
+  List<String> analyzedFiles;
 
   /// What [read] throws instead, when set.
   CodeAnalysisException? failure;
@@ -46,6 +50,7 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
       diagnostics: found,
       pluginFailures: pluginFailures,
       notices: notices,
+      analyzedFiles: analyzedFiles,
     );
   }
 }

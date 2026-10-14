@@ -76,7 +76,7 @@ Future<VerifyResult> runVerify({
   // gathered here: after the refresh, which may fetch the packages the
   // analysis reads, and before the knowledge lock, which other Appstein
   // processes wait for.
-  final gathering = VerifyGathering(codeAnalysis);
+  final gathering = VerifyGathering(codeAnalysis, projectRoot: projectRoot);
   for (final (:check, pack: _) in checks) {
     if (check is! GatheringCheck) continue;
     if (mode == VerifyMode.fast && check.mode != VerifyMode.fast) continue;
@@ -131,6 +131,8 @@ Future<VerifyResult> runVerify({
       decisions: readDecisions(projectRoot),
       // Only for the check that gathered it, and by name when it didn't.
       codeReader: () => gathering.codeFor(runningCheck),
+      deprecationIgnoresReader: () =>
+          gathering.deprecationIgnoresFor(runningCheck),
       staleProblem: stale,
       onSkipped: (part) {
         notRun[part] = CheckNotRun(id: part, reason: mapStale);

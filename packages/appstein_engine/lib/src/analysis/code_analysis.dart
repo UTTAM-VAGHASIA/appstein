@@ -51,6 +51,7 @@ final class CodeReading {
     this.diagnostics = const [],
     this.pluginFailures = const [],
     this.notices = const [],
+    this.analyzedFiles = const [],
   });
 
   /// What the person or agent who runs `verify` must be told that is no
@@ -73,6 +74,16 @@ final class CodeReading {
   /// [diagnostics] lacks that plugin's rules: "no diagnostics" then doesn't
   /// mean "no problems".
   final List<String> pluginFailures;
+
+  /// Every file of the project the analyzer analyzed for this reading, with
+  /// or without a diagnostic, from the project root, with `/` on every
+  /// system, sorted. It includes a part file whose name doesn't end in
+  /// `.dart` and the files that aren't Dart (`analysis_options.yaml`,
+  /// `pubspec.yaml`), and leaves out what `analysis_options.yaml` excludes.
+  ///
+  /// A check that reads source files itself reads these, so it covers
+  /// exactly what the analyzer covered.
+  final List<String> analyzedFiles;
 }
 
 /// What `appstein verify` asks about a project's Dart code (slice 1d.2). It

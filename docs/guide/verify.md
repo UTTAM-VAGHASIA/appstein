@@ -11,14 +11,14 @@ packages/appstein_cli/lib/src/analysis_guard_command.dart
 
 `appstein verify` checks a project against its knowledge and reports **findings** (spec §9). An agent runs it after a change and before it says a task is done. It is the part of Appstein that says "no".
 
-This page covers the frame and the checks of slice 1d.1, and what slice 1d.2 has built so far: the analysis server, the first code check, `dart.error`, and the server `appstein mcp` keeps running so the `verify` tool answers from warm analysis. The other code checks (deprecated use, warnings, lints, format, fixes, tests), the lint rules, the package gate and the Android and iOS checks arrive later in slice 1d.2 and in slices 1d.3 to 1d.6.
+This page covers the frame and the checks of slice 1d.1, and what slice 1d.2 has built so far: the analysis server, the first code checks, `dart.error` and `dart.deprecated`, and the server `appstein mcp` keeps running so the `verify` tool answers from warm analysis. The other code checks (warnings, lints, format, fixes, tests), the lint rules, the package gate and the Android and iOS checks arrive later in slice 1d.2 and in slices 1d.3 to 1d.6.
 
 ## What a run does
 
 [`runVerify`](../../packages/appstein_engine/lib/src/verify/verify_run.dart) does six things, in this order:
 
 1. **Refresh the knowledge**, as `appstein sync --detect` does ([`refreshKnowledge`](../../packages/appstein_engine/lib/src/knowledge/knowledge_refresh.dart), shared with `appstein docs`). The MCP server has already done this before every tool call, so it passes its result in and the knowledge is refreshed once.
-2. **Gather what is slow**, before the lock. Each selected check that implements `GatheringCheck` gets a `VerifyGathering` and asks it for what it will judge. Today that is one thing, the code analysis's reading, taken **once per run** however many checks ask: every check judges the same reading, as every check judges the same knowledge. It comes after the refresh, which may fetch the packages the analysis reads. See [gathering](#gathering-before-the-lock).
+2. **Gather what is slow**, before the lock. Each selected check that implements `GatheringCheck` gets a `VerifyGathering` and asks it for what it will judge. Today that is the code analysis's reading and, for `dart.deprecated`, the `// ignore:` comments in the project's source files. The reading is taken **once per run** however many checks ask: every check judges the same reading, as every check judges the same knowledge. It comes after the refresh, which may fetch the packages the analysis reads. See [gathering](#gathering-before-the-lock).
 3. **Take the knowledge lock** and read the knowledge once. Every check gets the same [`VerifyContext`](../../packages/appstein_engine/lib/src/verify/verify_check.dart): the project folder, its `appstein.yaml`, its packs, one `KnowledgeSnapshot`, the decision records and what was gathered. Under the lock a check only judges; nothing asks the analysis server there.
 4. **Run the checks** the mode selects. `fast` runs the fast checks; `full` (the default) runs every check.
 5. **Apply `verify.severity`** from `appstein.yaml`, which can raise or lower a finding's severity.
@@ -46,6 +46,7 @@ The knowledge lock is shared: while `verify` holds it, an `appstein sync` or ano
 - **A check with slow work implements `GatheringCheck`.** Its `gather` runs before the lock and asks the run's [`VerifyGathering`](../../packages/appstein_engine/lib/src/verify/verify_check.dart); its `run` runs under the lock and reads the answer from the context.
 - **`gathering.code()`** is the code analysis's reading. The first check that calls it asks the analysis server; the others get the same reading. A run in which no selected check calls it asks nothing, and starts no server.
 - **`context.code`** is that reading, for a check that asked for it in its own `gather`. Any other check that reads it gets a `StateError` that names it and fails the run, also when another check of the run gathered the reading: a check that only works beside another one would read nothing in a run that leaves the other out. A check can therefore never take "nobody asked" for "no diagnostics".
+- **`gathering.deprecationIgnores()`** is the list of what tells the analyzer not to report deprecated use (the `// ignore:` comments and the `analysis_options.yaml` entries), read from the files the analysis server analyzed (see [`dart.deprecated`](#dartdeprecated)). The first call takes the run's reading, which says which files those are, and reads them once; a check reads the list from **`context.deprecationIgnores`** under the same rule as `context.code`: only the check that gathered it may read it.
 - **A check is not asked to gather** when the mode doesn't select it, or when it needs the map and the refresh failed: it will not run.
 - **Later slow work goes in the same place.** A file's formatting, the pending fixes (17 s) and a test run (minutes) are each a method on `VerifyGathering` that a check calls from `gather`, and a getter on the context.
 
@@ -64,11 +65,12 @@ The knowledge lock is shared: while `verify` holds it, an `appstein sync` or ano
 | `verify.test_required` | warning | full | yes | A feature has no test |
 | `dart.error` | error | both | | An analyzer error, anywhere in the project |
 | `dart.plugin_failed` | error | both | | An analyzer plugin could not be loaded, so its rules were not checked. The ID is provisional until the owner confirms it |
+| `dart.deprecated` | error | both | | A use of a deprecated API, anywhere in the project; an `// ignore:` or `// ignore_for_file:` comment that names such a use or says `type=hint`; an `analysis_options.yaml` entry that switches the diagnostic off |
 | `suppression.no_reason` | error | both | | A suppression has no `reason` |
 | `suppression.unknown_check` | error | both | | A suppression names an ID no check reports |
 | `suppression.unused` | warning | full | | A suppression hides nothing |
 
-`dart.error` and `dart.plugin_failed` are the fast checks so far, so `verify --fast` on a project whose code compiles reports nothing.
+`dart.error`, `dart.plugin_failed` and `dart.deprecated` are the fast checks so far, so `verify --fast` on a project whose code compiles and uses no deprecated API reports nothing.
 
 **`dart.error`** ([source](../../packages/appstein_engine/lib/src/verify/checks/dart_error_check.dart)) reads the run's code reading and reports each diagnostic of error level. It reports them wherever they are, in a fast run too: breaking a class in one file gives an error in the file that uses it, and that is the one the agent must hear about.
 
@@ -78,6 +80,7 @@ The knowledge lock is shared: while `verify` holds it, an `appstein sync` or ano
 - The file is from the project root with `/` on every system, and the line is the analyzer's.
 - It needs no map, so it runs while the knowledge is stale. A project whose code doesn't resolve gets its `dart.error` findings beside `knowledge.stale`.
 - Warnings and info-level diagnostics are not reported yet; they get their own checks later in the slice.
+- One error is left to another check: the use of a deprecated API that the project raised to an error is a [`dart.deprecated`](#dartdeprecated) finding and is not reported here as well.
 - It is a known ID like any other: a `suppressions:` entry hides it and `verify.severity` changes it.
 
 **`dart.plugin_failed`** ([source](../../packages/appstein_engine/lib/src/verify/checks/plugin_failed_check.dart)) reports each analyzer plugin the analysis server could not load or run, for example one whose package can't be resolved. The server says so once and then reports its analysis done as usual, without that plugin's rules. Without this finding, a project whose lint plugin is broken would read as a project with no lint problems. `dart analyze` prints the same message and fails (its exit code depends on what else it found).
@@ -85,6 +88,86 @@ The knowledge lock is shared: while `verify` holds it, an `appstein sync` or ano
 - It is an error about the project as a whole (no file), so no suppression hides it.
 - The message is the server's own, on one line, without its stack trace. The fix hint names the plugin's entry under `plugins:` in `analysis_options.yaml` and `appstein doctor`.
 - The ID is written in one place, the constant `pluginFailedId`, because the owner has not confirmed it yet.
+
+### `dart.deprecated`
+
+**`dart.deprecated`** ([source](../../packages/appstein_engine/lib/src/verify/checks/dart_deprecated_check.dart)) makes every use of a deprecated API an error, wherever it is in the project, in a fast run too. It is how `verify` checks "zero deprecated-API findings in final code" (spec §18, "M1 is done when"). Under the one ID it reports the uses the analyzer shows, and the three things that tell the analyzer not to show them: a comment that names the diagnostic, a comment that says `type=hint`, and an `analysis_options.yaml` entry.
+
+**The deprecated-use codes** are a fixed list, `deprecatedUseCodes`, and `isDeprecatedUseCode` asks it, in any letter case. The same list serves the diagnostics and the comments. A name that only starts like one (`deprecated_member_use_foo`) is not on it.
+
+| Name | What it is |
+|---|---|
+| `deprecated_member_use` | The analyzer's diagnostic for an API of another package or of the SDK. The code the server sends |
+| `deprecated_member_use_with_message`, `deprecated_member_use_implicit`, `deprecated_member_use_implicit_with_message` | The longer names of that diagnostic's forms. The server never sends them; an `// ignore:` comment may use one, and it then hides only that form (`…_implicit` is the form for a type referenced implicitly, so above an ordinary call it hides nothing) |
+| `deprecated_member_use_from_same_package` | The lint for the project's own deprecated APIs, which a project switches on in `analysis_options.yaml`. The code the server sends |
+| `deprecated_member_use_from_same_package_with_message`, `…_without_message` | The longer names of the lint's two forms, for a comment |
+
+The first four are read from the `analyzer` package the engine pins, and a test fails when an upgrade adds or removes one. The lint lives in the Dart SDK and no package lists its names, so the last three were established by running the pinned SDK's analyzer; a test with a real server fails when one of them stops hiding the lint, but none would notice a fourth name.
+
+**A use the analyzer reports.** Each diagnostic whose code is on that list.
+
+- The analyzer calls these info-level; the finding is an error all the same. A project that makes one a warning or an error in `analysis_options.yaml` changes nothing here.
+- The message is the analyzer's own, followed by its code in backticks, as for `dart.error`. The fix hint is general: replace the API with what the message names, and `dart fix --dry-run` lists what it can migrate. A later ticket of the slice makes it say whether `dart fix` can migrate this use.
+- The analyzer's other `deprecated_*` codes (`deprecated_export_use`, `deprecated_extend`, `deprecated_implement` and the rest) are not this check's: the spec names `deprecated_member_use*` only.
+
+**A comment that names one of those codes.** An `// ignore:` or `// ignore_for_file:` comment that names a deprecated-use code can make the analyzer drop the diagnostic, and then the server's reading can't show it. The check therefore reads the source files itself, before the knowledge lock ([`deprecation_ignores.dart`](../../packages/appstein_engine/lib/src/verify/deprecation_ignores.dart)), and reports each such comment on its own line.
+
+- **Which files:** exactly the files the analysis server analyzed for this run's reading. The server sends its diagnostics for every file it analyzes, with an empty list for a file that has none, and the reading keeps their names (`CodeReading.analyzedFiles`). So a file `analysis_options.yaml` excludes is not read, and a part file whose name doesn't end in `.dart` is. An `analysis_options.yaml` on the list is read for its entries (below). The other `.yaml` files and the `.xml` files on it are skipped: the analyzer reads those as something other than Dart.
+- **How they are read:** a few at a time, without blocking, once per run. A file that names no such code is never parsed. Measured on the Windows development machine on 2026-10-14, on an idle machine, from source: a median of 43 ms for 200 files and 142 ms for 1,000, each of 120 lines, one in twenty with a comment. The first run of a process took 0.3 to 0.5 s, most of it compiling the parser.
+- **A file that can't be read is left out.** The analysis server can't read it either: it then lists the file as analyzed and reports no diagnostic for it, so the use and the comment go unreported together. Seen on Windows with a file another process holds locked; a test with a real server keeps that true. Whether the server should say so is not this check's question.
+- **What counts as an ignore comment**, and which names it cites, is the analyzer's own code (`ignoreComments` and `ignoredElements` of its `ignore_info.dart`). That is how a comment is told from the same text in a string. It is in the analyzer's `src/` folder, which is why `pubspec.yaml` pins the analyzer exactly, and it is the rule of **that package, not of the analyzer in the project's SDK** that answers the server. The two can differ after an SDK upgrade.
+
+**A comment is reported for naming the code, not for what it hides.** Whether the analyzer drops a diagnostic because of it depends on the use it stands at, which the check doesn't look at. The two differ in both directions:
+
+| In the source | Does the analyzer drop a diagnostic? | Reported |
+|---|---|---|
+| `// ignore: deprecated_member_use` alone on the line above the use, or at the end of its line | yes | yes |
+| `//ignore:deprecated_member_use`, `// ignore: DEPRECATED_MEMBER_USE`, `/// ignore: deprecated_member_use` | yes | yes |
+| `// ignore: unused_import, deprecated_member_use, and some words` | yes | yes |
+| `// ignore_for_file: deprecated_member_use`, anywhere in the file | yes | yes |
+| The name of another form or of the other diagnostic: `…_implicit` above an ordinary call, `…_from_same_package` above another package's API, or the reverse | no | yes |
+| The comment with a blank line or another comment line between it and the use, or at the end of a statement that began on an earlier line | no: it is read for the next line, or for its own (not run; it follows from the analyzer's code) | yes |
+| `// ignore: some_plugin/deprecated_member_use` | no: it names a plugin's code | yes |
+| `// ignore: deprecated_member_use_foo`, `// ignore: unused_import` and any other name | no | no |
+| The same text in a string, in a doc comment's code sample (`/// // ignore: …`), or in a block comment | no | no |
+| `/// ignore_for_file: deprecated_member_use`, `// ignore : …`, `// see ignore: …`, `// ignore: unused_import deprecated_member_use` (no comma) | no | no |
+| `// ignore: type=hint`, `// ignore_for_file: TYPE = HINT`, alone or among codes | yes: every hint, `deprecated_member_use` among them | yes, for saying `type=hint` |
+| `// ignore: type=lint` | yes, but only the same-package lint | **no** (the owner's decision: a project chooses to have that lint, and generated files carry `type=lint` widely) |
+| `// ignore: type=warning`, `type=hints`, `type=hint.` | no | no |
+
+Except where a row says otherwise, each was compared with `dart analyze` of the pinned SDK (3.13.4) on 2026-10-14.
+
+- The message says which codes the comment names, or that it says `type=hint`, and what that tells the analyzer to do. It doesn't claim that a use is hidden, or that a deprecated API is used there: a `type=hint` comment is reported for hiding every hint, deprecated use included. A comment that both names a code and says `type=hint` gives two findings.
+- The fix hint names the visible way out: take the code out of the comment (or name the hints to hide in place of `type=hint`) and replace the API, or accept the finding with a `suppressions:` entry for `dart.deprecated` with a `reason` in `appstein.yaml` (spec §9.7).
+
+**An `analysis_options.yaml` entry that switches the diagnostic off.** Under `analyzer: errors:`, an entry that names a deprecated-use code the analyzer accepts there, with a value it reads as "ignore", is a finding on that file, on the entry's line (`deprecationSwitchesIn`); so is such an entry in a file an options file includes (below). It says the entry tells the analyzer not to report deprecated use in the files that options file covers, and its fix hint names the same way out.
+
+```yaml
+analyzer:
+  errors:
+    deprecated_member_use: ignore   # dart.deprecated, line 3
+```
+
+- **Every options file the analysis covers is read:** the root's and any in a folder below it, and, when the project root has no `analysis_options.yaml` of its own, the nearest one in a folder above it. The first two kinds are on the server's list of analyzed files like the Dart files, so they are read in the same pass, before the lock. The one above is not on that list (all its entries are inside the root), so the check looks for it itself: the analyzer applies it to a project without its own file, and with the entry it reports nothing at all (measured on 2026-10-14 with a project at `parent/app`: `dart analyze` showed no diagnostic and the entry was in `parent/analysis_options.yaml`). Compared with `dart analyze` of the pinned SDK: the nearest file wins, a `pubspec.yaml` in a folder between does not stop the search, and a root with an options file of its own, however short, makes the analyzer ignore every file above it, so none is read then. Each of these files is also where the walk through its `include:` starts (next bullet).
+- **An `include:` of a local file is followed** (`_includedEntries`, `readDeprecationIgnores`), from each options file the analyzer applies, and a switch-off found in an included file is a finding on that file, on the entry's line. The analyzer merges the included settings under the including file's own, and so does the check; every rule was compared with `dart analyze` of the pinned SDK (3.13.4) on Windows on 2026-10-14:
+  - The text is a URI resolved against the folder of the file that includes it: `x.yaml`, `sub/x.yaml`, `../x.yaml`, `./a/../x.yaml`, `sub\x.yaml` (the URI parser reads it as `sub/x.yaml`), a space written plain or as `%20`, and a `file:///` URI all work, with any file name. A drive path such as `C:/dir/x.yaml` or `C:\dir\x.yaml` is read as a URI with the scheme `c`, which the analyzer cannot find (it warns `include_file_not_found`), so it names no file here either.
+  - **The nearest setting wins**, for each code on its own: the including file's entry over what it includes, and over a chain (A includes B includes C: A over B over C). `info`, `warning` and `error`, in any letter case, take a switch-off back, so the file is not reported; `ignore` and `false` in the including file make that entry the one reported in place of the included one; `true`, an unknown word or no value change nothing; the other code's entry changes nothing. Within one file the later entry wins, whatever the letter case of the name.
+  - **A list** (`include:` with `- a` and `- b`) is accepted, and a later entry wins over an earlier one: `[hide, info]` reports the use, `[info, hide]` does not.
+  - **A cycle** (A includes B includes A) is cut where it comes round, as the analyzer does with a warning, and the rest still applies. The walk also stops after 256 files.
+  - **Not followed, quietly:** `package:` includes (below), a file that is missing, a directory, or not YAML, and any other scheme. They add nothing and fail nothing; a missing file inside a chain does not stop the entries of the file that names it.
+  - An entry is reported **once** however many options files include its file; `includedBy` on the entry names them. An entry of an options file the analysis already covers is reported as its own entry and not a second time as an included one.
+- **The finding's file for an options file above the project, or an included file above it,** is its path from the project root with `/`, such as `../analysis_options.yaml` or `../../base_options.yaml` (an included file inside the project is `shared/base_options.yaml`, with the ordinary hint and way out). No `suppressions:` path can match a file above, because the config refuses a path that leaves the project, so that finding has no suppression and its fix hint says so. Two hints, by who includes the file:
+  - When an options file of the project **already includes** it, the hint is the short one: set the code back to `info` under `analyzer: errors:` in that file (it is named), whose setting wins, or remove the entry from the shared file.
+  - Otherwise (the entry is in the options file the analyzer applies from above, or in a file only that one includes) the hint says to give the project an `analysis_options.yaml` of its own that names the file above under `include:` and sets the code back to `info`. It asks for the `include:` because the analyzer reads the project's file in place of the one above: without it, every shared rule would go with the entry. With it, the shared rules still apply and the deprecated use is reported again (compared with `dart analyze` of the pinned SDK on 2026-10-14: a shared file that also made `unused_local_variable` an error gave that error and the `deprecated_member_use` info).
+  - The message of an included entry says it tells the analyzer not to report deprecated use in the files covered by the options files that include its file. Everything else about it is as for any other entry.
+- **Which values:** `ignore` and `false`, in any letter case, quoted or not. That is the analyzer's own list. With `info`, `warning` and `error` the diagnostic is still reported, so they are not findings; neither are `true`, `off`, `none` or an empty value, which the analyzer doesn't accept. Compared with the pinned SDK on 2026-10-14.
+- **Which names:** only the two codes the analyzer accepts here, `deprecated_member_use` and `deprecated_member_use_from_same_package`, in any letter case. The five longer names of the list above are for an `// ignore:` comment only: under `analyzer: errors:` the analyzer warns `unrecognized_error_code` and still reports the diagnostic, so such an entry hides nothing and is not reported (each of the seven names compared with `dart analyze` of the pinned SDK on 2026-10-14).
+- **A file that isn't valid YAML** gives no finding and never fails the run.
+- **Not reported, on purpose:** leaving a folder out with `analyzer: exclude:`, and not switching the same-package lint on (or switching it off under `linter: rules:`). Both are ordinary project choices.
+- **A known limit:** an `include:` into another package (`package:some_package/analysis_options.yaml`) is not followed, though the analyzer follows it (measured: a `package:` include of a file with the entry hid the use). A shared options package can switch the diagnostic off unseen. Only an include of a local file is followed.
+- A use and a comment in the same file are separate findings. A `suppressions:` entry for the file or folder hides both, and `verify.severity` changes both.
+- It needs no map, so it runs while the knowledge is stale.
+- A deprecated use that `analysis_options.yaml` raised to an error is reported once, as `dart.deprecated`: `dart.error` leaves out the diagnostics on the list. So `verify.severity` for `dart.deprecated` and a suppression of `dart.deprecated` apply to such a use too, and there is no `dart.error` finding left to change or hide for it.
 
 **`docs.stale`** ([source](../../packages/appstein_engine/lib/src/verify/checks/docs_stale_check.dart)) calls `prepareDocs`, the same function `appstein docs` and `appstein docs --check` use, so the three can never disagree about a page. It writes nothing. See [human-docs](human-docs.md).
 
@@ -226,6 +309,7 @@ No check starts a process, and no check asks the server: `runVerify` asks, once,
 - **`read()`** gives a `CodeReading`, everything in it from the same moment:
   - `diagnostics`: every diagnostic `dart analyze` would show for the project as its files are now, in file and line order. A `CodeDiagnostic` has the file (from the project root, with `/`), the 1-based line, the analyzer's code such as `unused_import`, its message, its level (`error`, `warning` or `info`, after the project's `analysis_options.yaml`) and the analyzer's suggested correction when it has one.
   - `pluginFailures`: what the server said about each plugin it could not load. While it isn't empty, the diagnostics lack that plugin's rules.
+  - `analyzedFiles`: every file of the project the server analyzed, with or without a diagnostic, from the project root with `/`. The server sends `analysis.errors` for each file it analyzes, with an empty list for a clean one, so these are the names it has sent and not taken back. `dart.deprecated` reads exactly these files.
 
 **The diagnostics are the set `dart analyze` shows**, compared on the pinned SDK on 2026-10-12:
 
@@ -406,6 +490,7 @@ The 180 s limit comes from the starts measured for the decision record: 7 to 22 
 | `packages/appstein_engine/test/mcp/mcp_warm_analysis_test.dart` | The `verify` tool with a real kept server: none started until the first `verify` call; an error added between calls appears and an error removed is gone, five rounds on one server; the tool's findings equal a terminal run's in both scopes, before and after an edit; a server that died is replaced by the next call; a server that can't start is an error reply and the MCP server keeps running |
 | `packages/appstein_engine/test/verify/verify_dart_test.dart` | `runVerify` on the fixture app with a real server: the errors in a fast and a full run, suppressed and with another severity; the same app without the errors; and the app with its package configuration removed, where the knowledge is stale and the errors of the code that doesn't resolve appear beside `knowledge.stale` |
 | `packages/appstein_engine/test/verify/verify_run_test.dart` | The frame and the checks with `ScriptedCodeAnalysis`: asked once per run, before any check runs and while the lock is free; every check sees one reading; not asked when no check gathers; a check that reads without gathering; which levels are reported; plugin failures; a server that fails |
+| `packages/appstein_engine/test/verify/deprecation_ignores_test.dart` | The list of deprecated-use codes against the pinned analyzer package; which texts are an ignore comment naming one (the forms in the table under [`dart.deprecated`](#dartdeprecated), not whether each hides a use), line numbers with CRLF and a byte order mark, a file that isn't valid Dart; the `type=hint` comments; the `analysis_options.yaml` entries, value by value, and a file that isn't YAML; and the reading of a given list of files: a part file with another ending, every options file, other `.yaml` skipped, a file that is gone or locked. The `dart.deprecated` findings themselves are in the two files above. With a real server: an app that uses and hides deprecated APIs, the file list the server gives, the lint's longer names, a `type=hint` and a `type=lint` file, a folder whose options switch the diagnostic off and one whose options make it an error (reported once), and a locked file the server reports nothing for (Windows). Scripted: the levels, the messages, `verify.severity`, suppressions, and that the files are read once per run while the lock is free |
 | `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The tool's error reply when the analysis can't answer, and that the server keeps running; the other tools answered while a `verify` call waits for its reading, and while it waits to get its code analysis at all; `verify` calls answered one after the other; a call that can't get its code analysis; a notice of the code analysis in the reply |
 | `packages/appstein_cli/test/verify_command_test.dart` | The whole command with a real server and the real guard command; that no child process is left, and that every guard and server the runs named is gone |
 | `packages/appstein_cli/test/mcp_command_test.dart` | `appstein mcp` with real processes: no server started with the command; one started by the first `verify` call and used by the next; the guard and the server gone when the client closes, and, with the command in a process of its own ([`mcp_process.dart`](../../packages/appstein_cli/test/support/mcp_process.dart)), when its input closes and when it is killed |
