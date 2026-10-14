@@ -19,3 +19,9 @@ Status: ready-for-agent
 - [ ] A diagnostic carries what the server's "can this be fixed" question needs (its position in the file), and that question is asked while gathering, never under the knowledge lock.
 - [ ] Both checks can be overridden with `verify.severity` and hidden by a suppression.
 - [ ] The guide pages for the checks and for the knowledge store's state are updated; the guide check passes.
+
+Added by the owner's decision of 2026-10-14, after the review of ticket 05:
+
+- [ ] A Dart file the analysis covers that can't be opened for reading (on Windows, one another program holds locked) is a `dart.unreadable` error on that file, in fast and full runs, saying it could not be read so nothing in it was checked. It is found by opening each file in the look that comes before every reading, so it costs no second walk of the project. Tested with a real lock on Windows: today that file reads as clean to every code check, `dart.error` included.
+- [ ] Such a file never leaves the unverified files, and it is never read as clean by any check.
+- [ ] `dart.unreadable` can be overridden with `verify.severity` and hidden by a suppression.
