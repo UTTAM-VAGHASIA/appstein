@@ -55,8 +55,13 @@ void main() {
     final b = identityOf(other.pid)!;
     expect(a, isNot(b));
     expect(a.image, b.image);
-    // The same ID with another start is another process.
-    expect(ProcessIdentity(id: a.id, start: b.start, image: a.image), isNot(a));
+    // The same ID with another start is another process. Not `b.start`: on
+    // Linux and macOS `ps` gives a start to the second, so two processes
+    // started in the same second have the same one.
+    expect(
+      ProcessIdentity(id: a.id, start: '${a.start} later', image: a.image),
+      isNot(a),
+    );
   });
 
   test('a process that has ended is gone, also while this process still '
