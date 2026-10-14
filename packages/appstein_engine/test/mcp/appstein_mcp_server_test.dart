@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:appstein_engine/android.dart';
@@ -25,7 +26,12 @@ void main() {
   late KnowledgeSync Function() syncFor;
   late ScriptedCodeAnalysis analysis;
 
+  /// Waited for before a `verify` call gets its code analysis, as a kept
+  /// analysis server makes a call wait while it is being stopped.
+  Future<void> Function()? entering;
+
   setUp(() {
+    entering = null;
     analysis = ScriptedCodeAnalysis();
     sdk = fakeFlutter();
     app = copyFixtureApp();
@@ -44,7 +50,10 @@ void main() {
       controller.local,
       projectRoot: app,
       syncFor: () => syncFor(),
-      codeAnalysis: analysis.scope,
+      codeAnalysis: <T>(body) async {
+        await entering?.call();
+        return analysis.scope(body);
+      },
       appsteinVersion: '0.1.0-dev',
       dartSdkPath: testDartSdk,
       clock: () => DateTime(2026, 10, 6, 23, 59),
@@ -472,6 +481,164 @@ void main() {
         ];
       final json = structured(await call(server, 'verify', {'scope': 'fast'}));
       expect(ids(json), ['dart.error']);
+    });
+
+    test('the other tools never wait for the analysis server: they are '
+        'answered while a verify call waits for its reading', () async {
+      final asked = Completer<void>();
+      final answer = Completer<void>();
+      analysis.onAsked = () {
+        if (!asked.isCompleted) asked.complete();
+        return answer.future;
+      };
+      final server = await serve();
+      await call(server, 'overview');
+      var verified = false;
+      final verify = call(server, 'verify', {
+        'scope': 'fast',
+      }).whenComplete(() => verified = true);
+      await asked.future;
+
+      // A read tool, a write tool and a read tool again, all answered.
+      final overview = structured(await call(server, 'overview'));
+      expect(overview['freshness'], {'state': 'current'});
+      final written = structured(
+        await call(server, 'memory_write', {
+          'kind': 'lesson',
+          'text': 'Other tools answer while verify waits.',
+        }),
+      );
+      expect(written['added'], isTrue);
+      structured(await call(server, 'where_is', {'query': 'login screen'}));
+      expect(verified, isFalse);
+      expect(analysis.asked, 1);
+
+      answer.complete();
+      expect(structured(await verify)['findings'], isEmpty);
+    });
+
+    test('the other tools never wait for a verify call that is waiting to '
+        'get its code analysis, as it does while an idle analysis server is '
+        'being stopped', () async {
+      final waiting = Completer<void>();
+      final enter = Completer<void>();
+      entering = () {
+        if (!waiting.isCompleted) waiting.complete();
+        return enter.future;
+      };
+      final server = await serve();
+      var verified = false;
+      final verify = call(server, 'verify', {
+        'scope': 'fast',
+      }).whenComplete(() => verified = true);
+      await waiting.future;
+
+      structured(await call(server, 'overview'));
+      structured(await call(server, 'where_is', {'query': 'login screen'}));
+      expect(verified, isFalse);
+      expect(analysis.asked, 0);
+
+      enter.complete();
+      expect(structured(await verify)['findings'], isEmpty);
+    });
+
+    test('a verify call that can\'t get its code analysis at all, as when '
+        'the kept server was closed, is an error reply that says so, without '
+        'asking for a bug report', () async {
+      entering = () => throw const CodeAnalysisException(
+        'it was closed, because Appstein is stopping',
+      );
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'fast'});
+      expect(failed.isError, isTrue);
+      expect(
+        textOf(failed),
+        'The Dart analysis server could not answer: it was closed, because '
+        'Appstein is stopping. Run `appstein doctor` to see what is wrong.',
+      );
+      entering = null;
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+    });
+
+    test('what the code analysis must tell beside its reading (a process '
+        'Appstein could not stop) is in the reply: in `notices` and in the '
+        'text, and gone from the next reply when it no longer holds', () async {
+      const notice =
+          'Process 4711 (dart.exe) may be an analysis server that Appstein '
+          'started and could not stop. Appstein could not confirm that the '
+          'process is its own, so it did not end it. To end it by hand: '
+          '`taskkill /PID 4711 /FI "IMAGENAME eq dart.exe" /F`';
+      analysis.notices = const [notice];
+      final server = await serve();
+      final tools = {
+        for (final tool in (await server.listTools()).tools) tool.name: tool,
+      };
+      final told = await call(server, 'verify', {'scope': 'fast'});
+      final json = structured(told);
+      expect(json['notices'], [notice]);
+      expect(json['summary'], {'errors': 0, 'warnings': 0, 'info': 0});
+      expect(textOf(told), contains(notice));
+      expectMatchesSchema(
+        tools['verify']!.outputSchema! as Map<String, Object?>,
+        json,
+      );
+
+      analysis.notices = const [];
+      final quiet = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(quiet.containsKey('notices'), isFalse);
+    });
+
+    test('a verify call that arrives while another is being answered waits: '
+        'the analysis is never asked by two calls at once, and each call '
+        'takes its own reading', () async {
+      var asking = 0;
+      var most = 0;
+      final gates = <Completer<void>>[];
+      analysis.onAsked = () async {
+        asking++;
+        if (asking > most) most = asking;
+        final gate = Completer<void>();
+        gates.add(gate);
+        await gate.future;
+        asking--;
+      };
+      final server = await serve();
+      final calls = [
+        for (var i = 0; i < 3; i++) call(server, 'verify', {'scope': 'fast'}),
+      ];
+      for (var answered = 0; answered < 3; answered++) {
+        // Until the next call asks; the others wait behind it.
+        while (gates.length <= answered) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(gates, hasLength(answered + 1));
+        expect(asking, 1);
+        gates[answered].complete();
+      }
+      for (final result in await Future.wait(calls)) {
+        expect(structured(result)['findings'], isEmpty);
+      }
+      expect(most, 1);
+      expect(analysis.asked, 3);
+    });
+
+    test('a verify call that fails while it waits for its reading gives the '
+        'turn back: the next calls are answered', () async {
+      analysis.onAsked = () async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        throw StateError('the analysis broke');
+      };
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'fast'});
+      expect(failed.isError, isTrue);
+      expect(textOf(failed), startsWith('Appstein failed to answer: '));
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+      analysis.onAsked = null;
+      expect(
+        structured(await call(server, 'verify', {'scope': 'fast'}))['findings'],
+        isEmpty,
+      );
     });
 
     test('fast: no full check runs', () async {

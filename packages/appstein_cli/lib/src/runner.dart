@@ -24,7 +24,8 @@ import 'version.dart';
 /// [mcpChannel] (also for tests) gives the connection `appstein mcp` serves;
 /// by default stdin and stdout. [verifyChecks] (also for tests) replaces the
 /// checks `appstein verify` runs, and [dartSdkPath] (also for tests) is the
-/// Dart SDK it reads `dart:` libraries from, where a fake Flutter SDK has
+/// Dart SDK `appstein verify` and `appstein mcp` read `dart:` libraries
+/// from and run the analysis server with, where a fake Flutter SDK has
 /// none. [codeAnalysis] (also for tests) replaces the analysis server that
 /// `appstein verify` and the `verify` tool of `appstein mcp` would start.
 Future<int> runAppstein(
@@ -76,6 +77,7 @@ Future<int> runAppstein(
           environment: machine,
           channel: mcpChannel ?? () => stdioMcpChannel(stdin, stdout),
           codeAnalysis: codeAnalysis,
+          dartSdkPath: dartSdkPath,
         ),
       )
       ..addCommand(AnalysisGuardCommand());

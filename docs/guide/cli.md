@@ -25,7 +25,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`runner.dart`](../../packages/appstein_cli/lib/src/runner.dart) | `runAppstein`, the command runner and `reportCrash` |
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
-| [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command and `mcpSyncFactory` |
+| [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command, `mcpSyncFactory` and `keptCodeAnalysis` |
 | [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) | The `docs` command and `formatDocs` |
 | [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `terminalCodeAnalysis`, `formatVerify` and `verifyExitCode` |
 | [`analysis_guard_command.dart`](../../packages/appstein_cli/lib/src/analysis_guard_command.dart) | The hidden `analysis-server-guard` command and `analysisGuardCommand`, which says how this process starts it (see [verify](verify.md#the-guard)) |
@@ -176,9 +176,9 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 
 1. **Finds the project** with `resolveProjectRoot`. There is no fallback: with no `pubspec.yaml` at or above the working folder, it prints two lines to stderr (what is missing, and to start it inside the project or pass `--project`) and exits **3**.
 2. **Builds the server.** `mcpSyncFactory` returns a function that builds a new `KnowledgeSync` for every call. Each time it reads `appstein.yaml` with `loadConfig` (so an edited config takes effect at once, and an invalid one makes the replies `stale` instead of stopping the server), turns it into packs with `packsFor`, and sets two things that differ from `appstein sync`: `packageSkills: false`, and one `HeldAnalyzerCache` shared by every call.
-3. **Waits** for the server to finish (`server.done`), then exits 0.
+3. **Waits** for the server to finish (`server.done`), closes the kept analysis server, then exits 0.
 
-The server also gets `terminalCodeAnalysis` as its code analysis: each `verify` call starts the project's analysis server and stops it again, as a terminal run does (see [verify](verify.md#the-analysis-server)).
+**The code analysis is kept.** `keptCodeAnalysis` builds a `KeptAnalysisServer` for the project, with the guard command and the project's own `dart`, and the server gets its `use` as its code analysis. Nothing is started by that: the first `verify` call starts the analysis server, later calls share it, and it is stopped after 10 minutes without one (see [verify](verify.md#a-kept-server-warm-analysis)). The command closes it in a `finally` when the MCP server is done, so the analysis server and its guard have ended before the command returns. When the command's process is killed instead, the guard ends the analysis server.
 
 **stdout belongs to the protocol.** The channel is made from the process's stdin and stdout (`stdioMcpChannel`). The command writes nothing else there, because the agent would try to read it as a message. `runAppstein` takes an `mcpChannel` for tests, so they run the command in-process with a fake connection.
 
@@ -213,7 +213,7 @@ A refusal is exit 1, not 3: the project has something to fix (fetch the packages
 
 Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3. An analysis server that can't answer isn't either: `runAppstein` prints the `CodeAnalysisException`'s reason and exits 3.
 
-`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`. It also takes `dartSdkPath` (for `verify` only), the Dart SDK the analysis reads `dart:` libraries from and whose `dart` runs the analysis server, and `codeAnalysis`, which replaces the analysis server for `verify` and for the `verify` tool of `mcp`.
+`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`. It also takes `dartSdkPath` (for `verify` and `mcp`), the Dart SDK the analysis reads `dart:` libraries from and whose `dart` runs the analysis server, and `codeAnalysis`, which replaces the analysis server for `verify` and for the `verify` tool of `mcp`.
 
 **The guard mode.** `appstein analysis-server-guard` followed by a `dart` executable is the guard of an analysis server: Appstein starts it, and the help doesn't list it. What it does and how it is started are in [verify](verify.md#the-guard).
 

@@ -192,6 +192,7 @@ Future<VerifyResult> runVerify({
       suppressed: suppressed.suppressed,
       activeSuppressions: suppressed.active,
       notRun: notRun.values.toList()..sort((a, b) => a.id.compareTo(b.id)),
+      notices: gathering.notices,
     );
   }
 

@@ -11,7 +11,7 @@ packages/appstein_cli/lib/src/analysis_guard_command.dart
 
 `appstein verify` checks a project against its knowledge and reports **findings** (spec §9). An agent runs it after a change and before it says a task is done. It is the part of Appstein that says "no".
 
-This page covers the frame and the checks of slice 1d.1, and what slice 1d.2 has built so far: the analysis server and the first code check, `dart.error`. The other code checks (deprecated use, warnings, lints, format, fixes, tests), the lint rules, the package gate and the Android and iOS checks arrive later in slice 1d.2 and in slices 1d.3 to 1d.6.
+This page covers the frame and the checks of slice 1d.1, and what slice 1d.2 has built so far: the analysis server, the first code check, `dart.error`, and the server `appstein mcp` keeps running so the `verify` tool answers from warm analysis. The other code checks (deprecated use, warnings, lints, format, fixes, tests), the lint rules, the package gate and the Android and iOS checks arrive later in slice 1d.2 and in slices 1d.3 to 1d.6.
 
 ## What a run does
 
@@ -114,7 +114,7 @@ A [`VerifyResult`](../../packages/appstein_protocol/lib/src/verify/verify_result
 
 ## Output
 
-**Text** (`formatVerify`): the findings in groups, one per file, with `(project)` for findings about no file. A group with an error comes before a group without one. Then the checks that did not run, then one summary line. This is from a real run on the fixture app with a decision and three suppressions added, with some groups left out:
+**Text** (`formatVerify`): the findings in groups, one per file, with `(project)` for findings about no file. A group with an error comes before a group without one. Then the checks that did not run, then under `Note:` the result's notices when it has any (see [stopping](#stopping)), then one summary line. This is from a real run on the fixture app with a decision and three suppressions added, with some groups left out:
 
 ```text
 appstein.yaml
@@ -159,7 +159,7 @@ With nothing found, the output is the summary line alone. The line gives both nu
 }
 ```
 
-Fields without a value are left out, never written as null.
+Fields without a value are left out, never written as null. A result with notices has one more field, `notices`, a list of plain lines; a result without any doesn't have the field, so a reader written before it existed reads every result as before.
 
 ## Exit codes
 
@@ -197,7 +197,7 @@ The code is [`applySuppressions`](../../packages/appstein_engine/lib/src/verify/
 
 - **Stale knowledge is a finding, not an error reply.** The reply still has `knowledge.stale`, `notRun` and a `freshness` marked `stale`.
 - **`summary` is the counts**, as in the JSON above. Every other tool's `summary` is a sentence; `verify`'s sentence is in the reply's text only.
-- **Each call starts and stops its own analysis server**, as a terminal run does, so the two give the same findings. Keeping one server running between calls is the next ticket of slice 1d.2.
+- **It answers from warm analysis.** `appstein mcp` keeps one analysis server for the project between calls, where a terminal run starts and stops its own. Both ask the same `AnalysisServer`, so the two give the same findings on the same files. See [a kept server](#a-kept-server-warm-analysis).
 
 ## The analysis server
 
@@ -207,6 +207,9 @@ The code checks ask a **Dart analysis server**: the program behind `dart analyze
 |---|---|
 | [`code_analysis.dart`](../../packages/appstein_engine/lib/src/analysis/code_analysis.dart) | `CodeAnalysis`, the one interface a run asks; `CodeReading`, `CodeDiagnostic` and `DiagnosticLevel`; `CodeAnalysisScope`; `CodeAnalysisException` |
 | [`analysis_server.dart`](../../packages/appstein_engine/lib/src/analysis/analysis_server.dart) | `AnalysisServer`, the real `CodeAnalysis`; `ownAnalysisServer`, the scope a terminal run uses; `projectDartExecutable`; `analysisReadyTimeout` |
+| [`kept_analysis_server.dart`](../../packages/appstein_engine/lib/src/analysis/kept_analysis_server.dart) | `KeptAnalysisServer`, one server kept between uses, which `appstein mcp` uses; `analysisIdleStop` |
+| [`disk_look.dart`](../../packages/appstein_engine/lib/src/analysis/disk_look.dart) | `DiskLook`, one look at the files the analysis depends on, which a kept server's readings compare |
+| [`process_identity.dart`](../../packages/appstein_engine/lib/src/analysis/process_identity.dart) | `ProcessIdentity` and `lookUpProcess`: how a process is shown to be one Appstein started before it is ended by its ID |
 | [`analysis_guard.dart`](../../packages/appstein_engine/lib/src/analysis/analysis_guard.dart) | `runAnalysisGuard`, the guard process's whole job |
 | [`analysis_guard_command.dart`](../../packages/appstein_cli/lib/src/analysis_guard_command.dart) | In the CLI: the hidden `analysis-server-guard` command, and `analysisGuardCommand`, which says how to start it |
 
@@ -238,10 +241,64 @@ The interface is small on purpose. The later checks of the slice add their quest
 **Who owns the server is decided outside the checks**, by a `CodeAnalysisScope`: a function that runs a body with a `CodeAnalysis` and releases it afterwards. `runVerify` takes the `CodeAnalysis`; the caller wraps the run in a scope.
 
 - **A terminal run** uses `terminalCodeAnalysis` in [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart), which is the engine's `ownAnalysisServer` with the CLI's guard command: a new `AnalysisServer` for the body, closed in a `finally` when the body ends, normally or with an error. A question asked after that throws a `StateError`: it would start a server nobody stops.
-- **`appstein mcp`** uses the same scope for each `verify` call today. A scope that keeps one server between calls replaces it in the next ticket; nothing in the checks or in `runVerify` changes for that.
+- **`appstein mcp`** uses `KeptAnalysisServer.use`, built by `keptCodeAnalysis` in [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart): one `AnalysisServer` for the project, kept between the `verify` calls. Nothing in the checks or in `runVerify` differs for that. See [a kept server](#a-kept-server-warm-analysis).
 - **Tests** pass `ScriptedCodeAnalysis().scope`. The stand-in lives in the tests' support folders, one copy per package ([engine](../../packages/appstein_engine/test/support/scripted_code_analysis.dart), [CLI](../../packages/appstein_cli/test/support/scripted_code_analysis.dart)), as `dart_sdk.dart` does.
 
-**Not solved yet, for the kept server.** A reading holds what the server had sent when it last said it was done. On a server kept between calls, a question asked within some 50 ms of an edit can be answered from before the edit, because the server hasn't noticed the file yet. A terminal run starts its server after the files are written, so it can't happen there. The next ticket needs a way to know the server has seen the latest edit, which is not a wait; its place is `AnalysisServer.read`, which every run passes through exactly once.
+### A kept server: warm analysis
+
+A cold start costs 7 to 20 s on a 200-file app, and a running server answers an edit in about 0.1 s. So `appstein mcp` keeps one server for the project ([`KeptAnalysisServer`](../../packages/appstein_engine/lib/src/analysis/kept_analysis_server.dart)):
+
+- **Starting `appstein mcp` starts no server.** The first `verify` call that asks starts it and waits for it. A session that never verifies holds none (decision record 0001, "Memory").
+- **Uses come one at a time.** A use that arrives while the server is starting, or while another is being answered, waits its turn, so two uses never start two servers.
+- **It is stopped, with its guard, after 10 minutes without a use.** The time is the constant `analysisIdleStop`. It is counted from the end of the last use and never runs during one, so a slow start or a long run is never cut off. The stop takes a turn like a use: a call that arrives meanwhile waits for it, then starts a new server. The timer is made by `newTimer`, which a test replaces with one it fires itself, and the kept object is any `StoppableCodeAnalysis`, so the tests of these rules use a stand-in and depend on no real time.
+- **`close` stops it for good**, and returns when the server and its guard have ended, also when an idle stop was under way. A use that loses to a close fails as an analysis that can't answer ("it was closed, because Appstein is stopping"), not as a bug. `appstein mcp` calls it when the MCP server is done (its input closed). When `appstein mcp` is killed instead, the [guard](#the-guard) ends the server.
+
+**A reading takes in what changed on disk before it is taken.** A running server learns of a changed file from its own file watcher, some time later, and of a file outside the project folder never. Measured on the Windows development machine (2026-10-14, a 42-file project, 120 readings each taken at once after a change): with nothing done about it, 61 of the 120 readings were from before the change. Waiting would only make that rarer. So before every reading, `AnalysisServer.read` makes the server take the changes in:
+
+1. **It looks at the files the analysis depends on** ([`DiskLook`](../../packages/appstein_engine/lib/src/analysis/disk_look.dart)) and compares them with its last look. The first look is taken before the server is started. It holds:
+   - **Dart files, by time and size:** every one under the project folder, and the source of every package the package configuration places outside pub's cache and the SDK: a path dependency, whether pub wrote its location as a relative one or an absolute one (it writes an absolute one for a `path:` given as one, and for a package on another drive), and a member of a pub workspace. Pub's cache is found as pub finds it (`PUB_CACHE`, else `%LOCALAPPDATA%\Pub\Cache` and the older `%APPDATA%\Pub\Cache` on Windows, `~/.pub-cache` elsewhere), and the SDK is the one whose `dart` runs the server, with the Flutter SDK around it (`unchangingFolders`). Their packages don't change while a session runs, and they are large;
+   - **settings, by their text:** every `analysis_options.yaml` and `pubspec.yaml` under the project folder; the nearest `analysis_options.yaml` above a project that has none of its own; every file one of those includes, by a path or with `package:`, and what that includes in turn (a file is followed once, so includes that go round end); and the package configuration, `.dart_tool/package_config.json`, of the project or else the nearest above it, and the one beside each `pubspec.yaml` below it.
+   
+   Folders whose name starts with a dot are left out, as the server leaves them out. The look reads folders and file times without blocking, so the other MCP tools are answered meanwhile.
+2. **It tells the server each Dart file that changed, appeared or is gone**, with `analysis.updateContent` and the change `remove`. Taking an overlay away, also where there is none, makes the server read that file from disk again at once, add it when it is new, and take back the diagnostics of a file that is gone. It works for a package's file outside the project folder too (12 of 12 on the real server; untold, such a change was not seen after 3 s).
+3. **It asks for the errors of one file of the project** (`analysis.getErrors`), a changed one when there is one, and waits for the answer. The answer is not used: diagnostics still come from the notifications. It is asked because the server can only answer it after it has taken the changes in and said that it is analyzing. A project without a Dart file is asked `server.getVersion`, which the server answers in order.
+4. **It waits until the server says its analysis is done**, as for a first reading.
+
+With that, 0 of 120 readings were old in the same measurement, and the engine's tests make such readings in every run: 100 in the project (an edit, a new file, a deleted file), 20 on the source of a path dependency at a relative location and 20 at an absolute one, and several on each kind of settings file outside the project. The review found 0 old readings across ten kinds of change outside the project, a real pub workspace among them (a member edited, 0 of 20; the root's options changed, 0 of 6; a new member after `pub get`, seen at once).
+
+**A file whose time is within 2 s of the last look is told again, changed or not** (`diskClockStep`): a file written twice to the same size within one step of a coarse file-system clock has the same time and size both times. A test of the look alone, with no server, shows the rule, and fails when the rule is taken out; a server test can't, because the server's own file watcher usually wins that race.
+
+**What it costs** (Windows development machine, 2026-10-14, the 200-file app with its packages, the reviewer's script):
+
+| Project | A reading with nothing changed, median | At once after one edit, median | The event loop stood still for at most |
+|---|---|---|---|
+| The app | 51 ms | 95 ms | 33 ms |
+| The app with a `build/` folder of 6,000 files | 79 ms | 107 ms | 37 ms |
+| The app with a `build/` folder of 26,000 files | 173 ms | 200 ms | 61 ms |
+
+Before the look stopped blocking, the event loop stood still for 100 to 146 ms on the app and about 0.5 s with the largest `build/`. None of the 60 readings after an edit was old. The look's time grows with the number of folders and files under the project, whatever they are. A folder that `analysis_options.yaml` excludes is still walked: an excluded file that another file imports is still read by the analyzer, so leaving it out could miss a change. Each package kept beside the project adds a walk of its source folder; the fixture app's three small packages added nothing that could be measured. With the `appstein_lints` plugin on a 33-file project, 50 readings after an edit took 37 ms at the median, and the plugin's diagnostic was right in all 50 (by hand, not a test).
+
+**A reading is never taken from a server that has died.** Every reading follows a request the server answered during that same reading (step 3, or `server.getVersion` when nothing changed), and a dead server answers nothing. So a server that died since the last call is found out by this reading, not by the next one. A server that had answered before and is found dead is replaced, and the new server answers this reading. Only when the new one fails too does the reading fail.
+
+**When a settings file changed, the server is started again.** The settings are the files step 1 lists. Seen on the real server:
+
+- the server takes such a change in by itself, about 0.2 s later, and rebuilds everything. Nothing it sends says that this has begun or that it covers the latest change;
+- `analysis.reanalyze` is answered at once, and the rebuild starts about 0.2 s after the answer, so it is no better;
+- telling the server the file, as for a Dart file, does nothing for `analysis_options.yaml` and the package configuration (the review: 0 of 12 and 6 of 12 fresh);
+- **`pubspec.yaml` is among them, on evidence.** The lint `depend_on_referenced_packages`, which the recommended lints switch on, reads the dependencies from its text. With the dependency taken out of `pubspec.yaml` and the server told both files, the reading taken at once was old in 4 of 4 tries, and right 3 s later. So a told `pubspec.yaml` is not safe, and it keeps the restart, also for a change that can't matter, such as a `version:` line;
+- a plugin that can't be loaded is told once per rebuild (`server.pluginError`), and nothing is sent when its cause is removed.
+
+A new server has read the files as they are, and tells the plugin failure again when it still holds. So a `dart.plugin_failed` finding is reported only while it holds, without restarting `appstein mcp`. The cost is one start for that call: 8.8 to 9.3 s on the 200-file app without a plugin (it was 13.6 to 23 s before the [stop](#stopping) was made quick). Several settings files changed before one call, as `flutter pub get` may change them, are one restart. A call made while `pub get` is still writing restarts for what it sees, and the next call restarts again if more has changed since.
+
+**Not covered.** These are the changes a kept server's reading can miss, where a terminal run, which starts a new server, would not:
+
+- A package inside pub's cache or the SDK that someone edits by hand while a session runs.
+- A Dart file outside the project folder that is in no package of the package configuration: for example one a file reaches with `import '../../shared/x.dart'`.
+- A file whose text changed while its size stayed the same and its time was put back to the old value more than 2 s after the last look. It is seen at its next change. It takes a tool that restores file times (accepted by the owner, 2026-10-14).
+- `AndroidManifest.xml` and `lib/fix_data.yaml`, which the analyzer can also read. A linked file or folder is not followed.
+- Over this protocol the server's "done" includes its plugins', but that was only seen, not promised: the measurement of decision record 0001 saw the plugin's diagnostic before "done" in 10 of 10 edits, and 50 of 50 by hand here.
+
+A real pub workspace is not among these: the review ran one (see above). The engine's test of it moves a hand-written configuration to the folder above, which is where a workspace keeps it.
 
 ### How the server is started
 
@@ -256,7 +313,7 @@ It speaks the **legacy analyzer protocol**: one JSON object per line. A request 
 ### When it is ready, and where the diagnostics come from
 
 - **Ready is the server's own word.** The server sends `server.status` with `isAnalyzing: true` when it starts work and `false` when it is done. A question waits for a `false` that follows a `true`. Over this protocol that includes the analyzer plugins, which is why this protocol was chosen: `verify` can't say "no errors" while a plugin is still running.
-- **Diagnostics are taken from notifications.** The server sends `analysis.errors` for each file, with all of that file's diagnostics, and sends it again when they change. `AnalysisServer` keeps the latest list per file, and drops a file when the server sends `analysis.flushResults` for it. It never asks `analysis.getErrors`, which leaves a plugin's diagnostics out.
+- **Diagnostics are taken from notifications only.** The server sends `analysis.errors` for each file, with all of that file's diagnostics, and sends it again when they change. `AnalysisServer` keeps the latest list per file, and drops a file when the server sends `analysis.flushResults` for it. The answer to `analysis.getErrors` leaves a plugin's diagnostics out, so it is never used as diagnostics: the one such request a kept server's reading sends (step 3 [above](#a-kept-server-warm-analysis)) is sent for when its answer comes, and the answer is thrown away.
 - **Only the project's own files are returned.** A file outside the project folder is left out, and each path is made relative with `/`.
 
 ### The guard
@@ -267,6 +324,7 @@ A server on this protocol does not end when its parent is killed: it keeps runni
 - it passes its stdin to the server and the server's stdout back, byte for byte, and the server's stderr to its own;
 - **when its stdin closes, it kills the server and exits.** A process's stdin closes when the process that started it ends in any way, including being killed. That is the whole trick;
 - when the server ends first (it was asked to stop, or it crashed), the guard exits with the server's exit code;
+- **it ends its own process with `exit`**, in both places that run it (the hidden command and the tests' `guard_main.dart`). Setting the exit code and returning was not enough: a guard that had passed a request on to a server that had just been killed said `guard ended`, returned, and its process stayed (seen on Windows in about 1 run in 5 of the test that kills the server and asks at once; what kept the Dart VM running was not found). The reading then waited the whole 180 s;
 - before it ends, it says `guard ended` on stderr, after a line end of its own, because the server's last words may have had none. A guard that ends without saying so was killed itself, and its server is still running. The reader accepts the words at the end of a line too, and takes what stands before them as the server's.
 
 **The guard is the `appstein` binary itself**, in a mode of its own: `appstein analysis-server-guard` followed by the `dart` executable. The command is hidden, so `appstein --help` doesn't list it; nobody types it. Nothing extra is installed.
@@ -284,15 +342,29 @@ The engine's own tests can't start the CLI, which depends on the engine. They st
 
 ### Stopping
 
-`AnalysisServer.stop` ends both processes and returns when they are gone. It tries three things in order, and stops at the first that works:
+`AnalysisServer.stop` ends both processes and returns when they are gone:
 
-1. it sends `server.shutdown`; the server exits, and the guard follows with the server's exit code;
-2. after 5 s, it closes the guard's stdin, which makes the guard kill the server;
-3. after 5 s more, it kills the guard and the server by the process IDs the guard named.
+1. it closes the guard's stdin, which makes the guard kill the server at once and end;
+2. when the guard is still there 5 s later, it kills the process it holds, and the guard and the server by the process IDs the guard named, each only when it is shown to be the process that was started (below).
 
-**A guard that was killed alone** leaves its server running, and closing a dead guard's stdin does nothing. So whenever the guard's process has ended without saying `guard ended`, `AnalysisServer` ends the server by the process ID the guard named, at once, without waiting to be asked or stopped. When the guard did say it, the server has ended, and nothing is killed: by then its ID could belong to another process.
+**What really ends the server is a kill, by its guard.** Appstein does not ask the server to stop first. It did in an earlier version: it sent `server.shutdown` and waited a quarter of a second for the answer. In 60 of 60 stops measured in the review, no answer came in that time, so every stop ended with the guard's kill anyway, a quarter of a second later; the request was taken out. The server of the 200-file app took more than 2 s to answer `server.shutdown` and about 4 s to end by itself, and nobody asks a stopped server anything again. `dart analyze` too ends its own server with a kill, after the request (`pkg/dartdev/lib/src/analysis_server.dart` in the Dart SDK). So this stop is no harder on the server's cache on disk than every `dart analyze`, or than Appstein being killed. Measured on the 200-file app: a stop that waited for the server to end took 4.1 to 4.2 s, one with the quarter-second wait 0.28 to 0.29 s; the starts that followed six such stops took as long as before (8.3 to 8.8 s), and a reading after a settings change went from 13.6 to 17 s down to 8.8 s. A terminal `appstein verify` ends with the same stop.
 
-Only processes this `AnalysisServer` started are ever ended. Stopping twice, or before anything was started, does nothing. A question asked after `stop` starts a new server; after `close` it throws.
+**A guard that was killed alone** leaves its server running, and closing a dead guard's stdin does nothing. So whenever the guard's process has ended without saying `guard ended`, `AnalysisServer` ends the server by the process ID the guard named, at once, without waiting to be asked or stopped. When the guard did say it, the server has ended, and nothing is looked at.
+
+**Appstein never ends a process it can't show to be its own.** A process ID alone shows nothing: Windows gives the ID of an ended process to a new one, often within seconds (the review counted 15 of 400 short processes). So the two places that end a process by its ID first ask who has the ID now ([`process_identity.dart`](../../packages/appstein_engine/lib/src/analysis/process_identity.dart)):
+
+- **A process is its ID, its start and its program** (`ProcessIdentity`). `lookUpProcess` asks the system: on Windows `kernel32` directly through `dart:ffi` (`OpenProcess` with the least access right, `GetExitCodeProcess`, `GetProcessTimes`, `QueryFullProcessImageNameW`; microseconds, no package, every handle closed), elsewhere `ps -o lstart=,comm=` (milliseconds). The library is opened only on Windows. It gives one of three answers (`ProcessSeen`): **running**, with the identity; **gone**, for no process, an ended one (also while someone still holds its handle) or another user's; and **unknown**, when who has the ID can't be told (a question that failed, or a `ps` without `lstart` such as BusyBox's, where `/proc` still shows the process exists).
+- **The guard and the server are recorded the moment the guard names them.** Before a kill by ID the process is looked up again. The same identity: it is killed. Gone, or another process with that ID: the one that was started has ended, and nothing is done. No identity was recorded and something has the ID, or who has it is unknown: nothing is killed, and the process is noted as left, once however many times a stop meets it.
+- **A process that was left is told, and looked at again.** Every reading first looks at each one (`AnalysisServer.leftProcesses`): one that is gone, or whose ID another process has now, is forgotten; one that was shown to be Appstein's own and is still there is killed again; one that still can't be shown, or can't be told about at all, is a line in the reading's `notices`, never dropped. `runVerify` puts the lines in the result (`VerifyResult.notices`, in the JSON only when there are any), `appstein verify` prints them under `Note:`, and the `verify` tool carries them in `notices` and in its text. They are no findings and change no count or exit code. A terminal run's stop comes after its result is made, so `ownAnalysisServer` tells its `onLeft` what the stop left, and the command adds it to what it prints. `appstein mcp` writes what its last stop left to stderr.
+
+  ```text
+  Note:
+    Process 4711 (C:\sdk\bin\dart.exe) may be an analysis server that Appstein started and could not stop. Appstein could not confirm that it is its own, so it did not end it. To end it by hand: `taskkill -PID 4711 -FI "IMAGENAME eq dart.exe" -F`
+  ```
+
+  The command is `kill <ID>` on Linux and macOS. On Windows it ends the process only while it still runs the recorded program, and it is written with `-` switches, so it works as it is in cmd, PowerShell and Git Bash (Git Bash turns a `/PID` into a path; the `-` form was tried in all three on the development machine). When who has the ID can't be told, the line says "could not tell what the process is", has no program, and the command is `taskkill -PID <ID> -F`.
+
+Stopping twice, or before anything was started, does nothing. A question asked after `stop` starts a new server; after `close` it throws.
 
 Measured on the Windows development machine with the compiled binary (2026-10-12): a normal `appstein verify` left no process, and when `appstein verify` was killed while its server was starting, the guard and the server were gone within 0.1 s (3 of 3).
 
@@ -311,7 +383,7 @@ A server that can't answer is **Appstein failing**, never a finding and never "n
 | The guard ends without its server (it was killed) | the guard's exit code |
 | Its analysis isn't done within `analysisReadyTimeout` (180 s) | the limit |
 
-Before the exception is thrown, the failed server's processes are ended, the server of a killed guard included, so a failure leaves nothing running. A plugin that fails to load is not in this table: the server still answers, so it is a finding, `dart.plugin_failed`. `runAppstein` prints the reason and "Run `appstein doctor` to check your setup." and exits 3:
+Before the exception is thrown, the failed server's processes are ended, the server of a killed guard included, so a failure leaves nothing running. One case in the table is not a failure: a kept server that had answered before and has ended since is replaced by a new one, which answers (see [a kept server](#a-kept-server-warm-analysis)). A plugin that fails to load is not in this table: the server still answers, so it is a finding, `dart.plugin_failed`. `runAppstein` prints the reason and "Run `appstein doctor` to check your setup." and exits 3:
 
 ```text
 The Dart analysis server could not answer: its analysis was not done within 180 s.
@@ -326,13 +398,25 @@ The 180 s limit comes from the starts measured for the decision record: 7 to 22 
 
 | Test | What it covers |
 |---|---|
-| `packages/appstein_engine/test/analysis/analysis_server_test.dart` | **Real servers:** an error with its file, line, code and message, an error in a file that uses a broken class, a warning's level, a `TODO` comment left out, paths with a space and a non-ASCII letter; a plugin that can't be resolved; both processes gone after a stop, after a failed body, after the guard alone is killed, and within seconds of a killed parent (a separate process, [`server_holder.dart`](../../packages/appstein_engine/test/analysis/support/server_holder.dart)); a question after the scope ended; no `dart`, no SDK, no guard, a server that is never ready ([`silent_guard.dart`](../../packages/appstein_engine/test/analysis/support/silent_guard.dart)) and a server that dies. **A scripted server** behind the guard ([`fake_server_guard.dart`](../../packages/appstein_engine/test/analysis/support/fake_server_guard.dart)), for what a real one can't be made to do: a file taken back with `analysis.flushResults`, a file outside the project, the levels of a `TODO`, a plugin failure told twice, a fatal error, a refused request, a malformed diagnostic, two questions at once, and a stop while the analysis is running |
+| `packages/appstein_engine/test/analysis/analysis_server_test.dart` | **Real servers:** an error with its file, line, code and message, an error in a file that uses a broken class, a warning's level, a `TODO` comment left out, paths with a space and a non-ASCII letter; a plugin that can't be resolved; both processes gone after a stop, after a failed body, after the guard alone is killed (and the next question answered by a new server), and within seconds of a killed parent (a separate process, [`server_holder.dart`](../../packages/appstein_engine/test/analysis/support/server_holder.dart)); a question after the scope ended; no `dart`, no SDK, no guard, a server that is never ready ([`silent_guard.dart`](../../packages/appstein_engine/test/analysis/support/silent_guard.dart)) and a server that dies before it has answered. **A scripted server** behind the guard ([`fake_server_guard.dart`](../../packages/appstein_engine/test/analysis/support/fake_server_guard.dart)), for what a real one can't be made to do: a file taken back with `analysis.flushResults`, a file outside the project, the levels of a `TODO`, a plugin failure told twice, a fatal error, a refused request, a malformed diagnostic, two questions at once, a stop while the analysis is running, a guard killed before its server has answered, and the exact requests a reading sends after an edit, a new file and a deleted file. **A kill by process ID**, with a scripted guard that names a process of the test's own as its server and is then killed: that process is ended when it is shown to be the one named; left alone when its ID belongs to another process by then, and when it has ended; left alone and told once in every reading's `notices` when who has the ID can't be told at all, until it has ended; told once when a guard that ignores its input closing makes a stop and the orphan rule both weigh it; left alone and told in every reading's `notices`, with the command to end it by hand, when it could not be told at the naming, and forgotten once it has ended; and a run with a server of its own is told what its stop left |
+| `packages/appstein_engine/test/analysis/disk_look_test.dart` | `DiskLook` alone, with no server: a file with the same size and time is told again while its time is within `diskClockStep` of the last look, and not when it is older (the test fails with the rule taken out); a changed, a new and a deleted file are told; a package at a relative or an absolute location is looked at, and one in pub's cache or the SDK is not; which folders those are (`unchangingFolders`) |
+| `packages/appstein_engine/test/analysis/process_identity_test.dart` | `lookUpProcess` on processes the test starts: the same identity each time; two processes of one program differ; an ended process has none, also while its handle is held; 20,000 asks leave nothing open (Windows); the command to end one by hand |
+| `packages/appstein_engine/test/analysis/analysis_freshness_test.dart` | **A real server kept between readings**, every reading asked for at once after the change: an edit, a new file and a deleted file, 25 times in a row from one server (100 readings, and it prints what a reading cost); a file changed to the same size with its time put back; a server killed and asked at once, five times, each answered by a new server; a plugin failure that is gone when its cause is removed from `analysis_options.yaml` and back when the cause is, and a changed severity there. **Outside the project folder:** a path dependency's source, 10 rounds on one server; an `analysis_options.yaml` above a project that has none; a file the options include by a path, through a second include and back to the first; a file they include from a package; a package configuration in the folder above; and the options and the package configuration changed together, which is one restart |
+| `packages/appstein_engine/test/analysis/kept_analysis_server_test.dart` | `KeptAnalysisServer` with a stand-in server and timers the test fires, so no outcome depends on the machine's speed: nothing started until a use asks; stopped when the idle time ends and started again by the next use; no idle timer while the server starts or a use is answered; each use starting the idle time again; uses in turn sharing one server; a use arriving while the idle server is being stopped; a body that fails; `close` waiting for an idle stop that was under way; a use that loses to a close. One scripted server process closed while a use waits, and one real server stopped with its guard when the idle time ends |
+| `packages/appstein_engine/test/mcp/mcp_warm_analysis_test.dart` | The `verify` tool with a real kept server: none started until the first `verify` call; an error added between calls appears and an error removed is gone, five rounds on one server; the tool's findings equal a terminal run's in both scopes, before and after an edit; a server that died is replaced by the next call; a server that can't start is an error reply and the MCP server keeps running |
 | `packages/appstein_engine/test/verify/verify_dart_test.dart` | `runVerify` on the fixture app with a real server: the errors in a fast and a full run, suppressed and with another severity; the same app without the errors; and the app with its package configuration removed, where the knowledge is stale and the errors of the code that doesn't resolve appear beside `knowledge.stale` |
 | `packages/appstein_engine/test/verify/verify_run_test.dart` | The frame and the checks with `ScriptedCodeAnalysis`: asked once per run, before any check runs and while the lock is free; every check sees one reading; not asked when no check gathers; a check that reads without gathering; which levels are reported; plugin failures; a server that fails |
-| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The tool's error reply when the analysis can't answer, and that the server keeps running |
+| `packages/appstein_engine/test/mcp/appstein_mcp_server_test.dart` | The tool's error reply when the analysis can't answer, and that the server keeps running; the other tools answered while a `verify` call waits for its reading, and while it waits to get its code analysis at all; `verify` calls answered one after the other; a call that can't get its code analysis; a notice of the code analysis in the reply |
 | `packages/appstein_cli/test/verify_command_test.dart` | The whole command with a real server and the real guard command; that no child process is left, and that every guard and server the runs named is gone |
+| `packages/appstein_cli/test/mcp_command_test.dart` | `appstein mcp` with real processes: no server started with the command; one started by the first `verify` call and used by the next; the guard and the server gone when the client closes, and, with the command in a process of its own ([`mcp_process.dart`](../../packages/appstein_cli/test/support/mcp_process.dart)), when its input closes and when it is killed |
 
-A real server costs about 2 s to start in the engine's tests. So a group that only reads starts one server in `setUpAll` and shares it, and no test of such a group edits a file. The helpers are in [`analysis_support.dart`](../../packages/appstein_engine/test/analysis/support/analysis_support.dart): the guard command, `realAnalysisServer`, and `processAlive` and `goneWithin`, which look at process IDs the test itself recorded. A test never ends a process it didn't start.
+A real server costs about 2 s to start in the engine's tests. So a group that only reads starts one server in `setUpAll` and shares it, and no test of such a group edits a file. The helpers are in [`analysis_support.dart`](../../packages/appstein_engine/test/analysis/support/analysis_support.dart): the guard command, `realAnalysisServer`, `deleteProjectFile` (on Windows a file can't be deleted in the moment the server reads it, so the delete is tried again), and `recordProcesses`, `processAlive` and `goneWithin`, which look at processes the test itself recorded. A test never ends a process it didn't start.
+
+**A process ID alone doesn't name a process.** Windows gives the ID of an ended process to a new one, often within seconds: a test once took an unrelated program for a server it had started, and a server started again can get the ID of the one that died. So these helpers know a process by its ID and the time it started. `processAlive` and `goneWithin` note the start the first time they see an ID, and a process with the same ID and another start is a different process. A test that learns IDs and then does something that starts processes calls `recordProcesses` first, while its processes run; a test that expects a new process calls it again for the new one, and never compares IDs. What was noted is forgotten when the test ends. The CLI's [`child_processes.dart`](../../packages/appstein_cli/test/support/child_processes.dart) does the same.
+
+**The CLI's helpers start no process to ask about one.** They ask for a process's start through the product's `lookUpProcess` on Windows and through `/proc` on Linux; only on macOS do they run `ps`, which `childProcesses` leaves out by name. So a test that waits for its turn adds no child that a counting test would see. `childProcesses` and `processesUnder` leave out the lister they run themselves. When processes outlive `appstein mcp`, `survivorsAfter` names each with its program, start, command line and parent.
+
+**The CLI's tests that start processes take turns** (`withChildProcessesToItself` there). The test files of a package run at the same time in one process, so a test that counts that process's children would count another file's analysis server. The turn is a file made with "must not exist yet", which two isolates can't both do. It names its holder by process ID and start: a turn left by a run that was killed, or by an earlier process that had the same ID, is taken away. The wait has a limit of 8 minutes, below the tests' own 10, so a test that hangs while it holds the turn makes the others fail with a message that says so. `child_processes_test.dart` tries all of this on a turn file of its own.
 
 ## Adding a check
 

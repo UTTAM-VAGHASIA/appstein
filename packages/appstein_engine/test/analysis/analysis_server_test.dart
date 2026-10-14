@@ -201,17 +201,14 @@ int one() => 1;
         isNotNull,
         reason: 'the server outlived its guard',
       );
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      await expectLater(
-        server.read(),
-        throwsA(
-          isA<CodeAnalysisException>().having(
-            (error) => error.reason,
-            'reason',
-            startsWith('its guard ended without it, with exit code '),
-          ),
-        ),
-      );
+      // It had answered, so the next question is answered by a new server
+      // (ticket 04), not failed.
+      await server.read();
+      // (Its processes may have been given the IDs of the ones that
+      // ended, so the IDs are not compared.)
+      final now = server.processes!;
+      await recordProcesses([now.guard, now.server]);
+      expect(await processAlive(now.server), isTrue);
     });
 
     test('when the process that started them is killed, the guard and the '
@@ -375,21 +372,14 @@ int one() => 1;
       expect(server.processes, isNull);
     });
 
-    test('a server that dies: the next question fails with its exit code, '
-        'the guard is gone, and the question after that starts a new '
-        'server', () async {
+    test('a server that dies before it has answered: the question fails '
+        'with its exit code, the guard is gone, and the next question '
+        'starts a new server', () async {
       final server = realAnalysisServer(app);
       addTearDown(server.stop);
-      await server.read();
-      final (:guard, server: serverId) = server.processes!;
-      // The server this test started.
-      Process.killPid(serverId, ProcessSignal.sigkill);
-      expect(
-        await goneWithin([guard, serverId], const Duration(seconds: 10)),
-        isNotNull,
-      );
-      await expectLater(
-        server.read(),
+      final asked = server.read();
+      final failed = expectLater(
+        asked,
         throwsA(
           isA<CodeAnalysisException>().having(
             (error) => error.reason,
@@ -398,9 +388,26 @@ int one() => 1;
           ),
         ),
       );
+      // Until the guard has named the server it has just started, which
+      // then has its whole first analysis before it.
+      ({int guard, int server})? processes;
+      for (var i = 0; i < 1500 && processes == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        processes = server.processes;
+      }
+      expect(processes, isNotNull, reason: 'the guard never named itself');
+      final (:guard, server: serverId) = processes!;
+      // The server this test started.
+      Process.killPid(serverId, ProcessSignal.sigkill);
+      await failed;
+      expect(
+        await goneWithin([guard, serverId], const Duration(seconds: 10)),
+        isNotNull,
+      );
       await server.read();
-      expect(server.processes, isNotNull);
-      expect(server.processes!.server, isNot(serverId));
+      final now = server.processes!;
+      await recordProcesses([now.guard, now.server]);
+      expect(await processAlive(now.server), isTrue);
     });
 
     test('a plugin that can\'t be loaded is told with the reading, which '
@@ -613,6 +620,327 @@ int one() => 1;
         await goneWithin([processes!.guard], const Duration(seconds: 5)),
         isNotNull,
       );
+    });
+
+    test('a guard that is killed before its server has answered: the '
+        'question fails and says the guard ended without it', () async {
+      final server = scripted('slow');
+      final asked = server.read();
+      final failed = expectLater(
+        asked,
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            startsWith('its guard ended without it, with exit code '),
+          ),
+        ),
+      );
+      // Until the guard has named itself; the analysis takes 1.5 s more.
+      ({int guard, int server})? processes;
+      for (var i = 0; i < 100 && processes == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        processes = server.processes;
+      }
+      expect(processes, isNotNull, reason: 'the guard never named itself');
+      // The scripted guard this test started.
+      Process.killPid(processes!.guard, ProcessSignal.sigkill);
+      await failed;
+      expect(server.processes, isNull);
+    });
+
+    test('a kept server tells the server each change and waits for the '
+        'answer: the requests of two readings with an edit, a new file and '
+        'a deleted file between them', () async {
+      File(p.join(app, 'lib', 'kept.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('int kept = 1;\n');
+      final gone = File(p.join(app, 'lib', 'gone.dart'))
+        ..writeAsStringSync('int gone = 1;\n');
+      // A folder the server leaves out, and so does the look at the disk.
+      File(p.join(app, '.dart_tool', 'hidden.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('int hidden = 1;\n');
+      final log = File(p.join(tempDir().path, 'requests.txt'));
+      final server = scripted('log:${log.path}');
+      await server.read();
+      // Files this old are told again only when their time or size differs.
+      final old = DateTime.now().subtract(const Duration(minutes: 1));
+      for (final name in ['kept.dart', 'gone.dart']) {
+        File(p.join(app, 'lib', name)).setLastModifiedSync(old);
+      }
+      await server.read();
+      log.writeAsStringSync('');
+
+      await server.read();
+      expect(log.readAsLinesSync(), ['server.getVersion']);
+      log.writeAsStringSync('');
+
+      File(
+        p.join(app, 'lib', 'kept.dart'),
+      ).writeAsStringSync('int kept = 22;\n');
+      File(
+        p.join(app, 'lib', 'new.dart'),
+      ).writeAsStringSync('int added = 1;\n');
+      File(
+        p.join(app, '.dart_tool', 'hidden.dart'),
+      ).writeAsStringSync('int hidden = 22;\n');
+      gone.deleteSync();
+      await server.read();
+      expect(log.readAsLinesSync(), [
+        'analysis.updateContent remove '
+            '${p.join(app, 'lib', 'gone.dart')}, '
+            '${p.join(app, 'lib', 'kept.dart')}, '
+            '${p.join(app, 'lib', 'new.dart')}',
+        'analysis.getErrors ${p.join(app, 'lib', 'kept.dart')}',
+      ]);
+    });
+
+    group('a process is ended by its ID only when it is shown to be the '
+        'one the guard named', () {
+      /// A process of this test's own, which a scripted guard names as its
+      /// server. It waits until its input closes.
+      Future<Process> bystander() async {
+        final process = await Process.start(Platform.resolvedExecutable, [
+          analysisSupportFile('silent_guard.dart'),
+        ]);
+        process.stdout.drain<void>().ignore();
+        process.stderr.drain<void>().ignore();
+        addTearDown(() async {
+          await process.stdin.close();
+          await process.exitCode.timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              process.kill(ProcessSignal.sigkill);
+              return -1;
+            },
+          );
+        });
+        return process;
+      }
+
+      /// A server whose scripted guard names [named] as its server, after
+      /// one reading, with its guard then killed: the guard ended without
+      /// saying so, which is when Appstein ends the server by its ID.
+      Future<AnalysisServer> afterItsGuardWasKilled(
+        int named,
+        ProcessLookup lookup,
+      ) async {
+        final server = AnalysisServer(
+          projectRoot: app,
+          guardCommand: [
+            Platform.resolvedExecutable,
+            analysisSupportFile('fake_server_guard.dart'),
+            'names:$named',
+          ],
+          dartExecutable: () => testDart,
+          processLookup: lookup,
+        );
+        addTearDown(server.stop);
+        await server.read();
+        final guard = server.processes!.guard;
+        await recordProcesses([guard]);
+        // The scripted guard this test started.
+        Process.killPid(guard, ProcessSignal.sigkill);
+        expect(
+          await goneWithin([guard], const Duration(seconds: 10)),
+          isNotNull,
+        );
+        // The next reading is asked after the guard's end was judged, and
+        // is answered by a new server.
+        await server.read();
+        return server;
+      }
+
+      test('the process that has the ID is the one that was named: it is '
+          'ended', () async {
+        final named = await bystander();
+        await recordProcesses([named.pid]);
+        final server = await afterItsGuardWasKilled(named.pid, lookUpProcess);
+        expect(
+          await goneWithin([named.pid], const Duration(seconds: 5)),
+          isNotNull,
+          reason: 'the orphan was not ended',
+        );
+        expect(server.leftProcesses(), isEmpty);
+      });
+
+      test('the ID belongs to another process by now: it is left alone, and '
+          'nothing is reported', () async {
+        final other = await bystander();
+        final real = identityOf(other.pid)!;
+        // When the guard names its server, the ID is that of a process
+        // that started earlier; afterwards it is the bystander's.
+        var asked = 0;
+        ProcessSeen lookup(int id) {
+          if (id != other.pid) return lookUpProcess(id);
+          return asked++ == 0
+              ? ProcessRunning(
+                  ProcessIdentity(id: id, start: 'earlier', image: real.image),
+                )
+              : lookUpProcess(id);
+        }
+
+        final server = await afterItsGuardWasKilled(other.pid, lookup);
+        expect(asked, greaterThan(1), reason: 'no kill by ID was weighed');
+        expect(identityOf(other.pid), real, reason: 'it was ended');
+        expect(server.leftProcesses(), isEmpty);
+        expect((await server.read()).notices, isEmpty);
+      });
+
+      test('who has the ID can\'t be told at all (as with a `ps` that gives '
+          'no start): nothing is ended, and every reading reports it, with '
+          'the command to end it by hand, until it is gone', () async {
+        final unknown = await bystander();
+        ProcessSeen lookup(int id) {
+          if (id != unknown.pid) return lookUpProcess(id);
+          // Can't tell, while it runs; gone, once it has ended.
+          return lookUpProcess(id) is ProcessGone
+              ? const ProcessGone()
+              : const ProcessUnknown();
+        }
+
+        final real = identityOf(unknown.pid)!;
+        final server = await afterItsGuardWasKilled(unknown.pid, lookup);
+        expect(identityOf(unknown.pid), real, reason: 'it was ended');
+        for (var i = 0; i < 2; i++) {
+          final notices = (await server.read()).notices;
+          expect(notices, [
+            'Process ${unknown.pid} may be an analysis server that Appstein '
+                'started and could not stop. Appstein could not tell what '
+                'the process is, so it did not end it. To end it by hand: '
+                '`${endByHandCommand(unknown.pid)}`',
+          ]);
+        }
+        expect(identityOf(unknown.pid), real, reason: 'it was ended');
+        await unknown.stdin.close();
+        await unknown.exitCode;
+        expect((await server.read()).notices, isEmpty);
+      });
+
+      test('a process both ends of a stop leave is reported once: the guard '
+          'does not end when its input closes, so the stop ends it, and the '
+          'server it named is weighed by the stop and again as the orphan '
+          'of a guard that did not end in order', () async {
+        final unknown = await bystander();
+        var asked = 0;
+        ProcessSeen lookup(int id) {
+          if (id != unknown.pid) return lookUpProcess(id);
+          // Not told when it was named; who it is afterwards.
+          return asked++ == 0 ? const ProcessUnknown() : lookUpProcess(id);
+        }
+
+        final server = AnalysisServer(
+          projectRoot: app,
+          guardCommand: [
+            Platform.resolvedExecutable,
+            analysisSupportFile('fake_server_guard.dart'),
+            'deaf:${unknown.pid}',
+          ],
+          dartExecutable: () => testDart,
+          processLookup: lookup,
+        );
+        addTearDown(server.stop);
+        await server.read();
+        final guard = server.processes!.guard;
+        await recordProcesses([guard]);
+        await server.stop();
+        expect(
+          await goneWithin([guard], const Duration(seconds: 10)),
+          isNotNull,
+          reason: 'the deaf guard was not ended',
+        );
+        expect(asked, greaterThan(2), reason: 'not weighed twice');
+        expect(server.leftProcesses(), hasLength(1));
+        expect(identityOf(unknown.pid), isNotNull, reason: 'it was ended');
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('the ID has ended: nothing is ended and nothing is '
+          'reported', () async {
+        final ended = await Process.start(Platform.resolvedExecutable, [
+          '--version',
+        ]);
+        await ended.stdout.drain<void>();
+        await ended.exitCode;
+        final server = await afterItsGuardWasKilled(ended.pid, lookUpProcess);
+        expect(server.leftProcesses(), isEmpty);
+        expect((await server.read()).notices, isEmpty);
+      });
+
+      test('the process could not be told when it was named: it is left '
+          'alone, every reading says so with the command to end it by '
+          'hand, and it is forgotten once it has ended', () async {
+        final unknown = await bystander();
+        final real = identityOf(unknown.pid)!;
+        var asked = 0;
+        ProcessSeen lookup(int id) {
+          if (id != unknown.pid) return lookUpProcess(id);
+          return asked++ == 0 ? const ProcessUnknown() : lookUpProcess(id);
+        }
+
+        final server = await afterItsGuardWasKilled(unknown.pid, lookup);
+        expect(identityOf(unknown.pid), real, reason: 'it was ended');
+        for (var i = 0; i < 2; i++) {
+          final notices = (await server.read()).notices;
+          expect(notices, hasLength(1));
+          expect(
+            notices.single,
+            'Process ${unknown.pid} (${real.image}) may be an analysis '
+            'server that Appstein started and could not stop. Appstein '
+            'could not confirm that it is its own, so it did not end it. To '
+            'end it by hand: '
+            '`${endByHandCommand(unknown.pid, image: real.image)}`',
+          );
+        }
+        expect(identityOf(unknown.pid), real, reason: 'it was ended');
+
+        // The bystander ends; Appstein forgets it.
+        await unknown.stdin.close();
+        await unknown.exitCode;
+        expect((await server.read()).notices, isEmpty);
+        expect(server.leftProcesses(), isEmpty);
+      });
+
+      test('a run with a server of its own (a terminal run) is told what '
+          'its stop left, after the server was closed', () async {
+        final unknown = await bystander();
+        final real = identityOf(unknown.pid)!;
+        var asked = 0;
+        final told = <String>[];
+        final scope = ownAnalysisServer(
+          projectRoot: app,
+          guardCommand: [
+            Platform.resolvedExecutable,
+            analysisSupportFile('fake_server_guard.dart'),
+            'names:${unknown.pid}',
+          ],
+          dartExecutable: () => testDart,
+          processLookup: (id) {
+            if (id != unknown.pid) return lookUpProcess(id);
+            return asked++ == 0 ? const ProcessUnknown() : lookUpProcess(id);
+          },
+          onLeft: told.addAll,
+        );
+        await scope((analysis) async {
+          await analysis.read();
+          final guard = (analysis as AnalysisServer).processes!.guard;
+          await recordProcesses([guard]);
+          // The scripted guard this test started.
+          Process.killPid(guard, ProcessSignal.sigkill);
+          expect(
+            await goneWithin([guard], const Duration(seconds: 10)),
+            isNotNull,
+          );
+          expect(told, isEmpty, reason: 'told before the run ended');
+        });
+        expect(told, hasLength(1));
+        expect(told.single, contains('Process ${unknown.pid} '));
+        expect(
+          told.single,
+          endsWith('`${endByHandCommand(unknown.pid, image: real.image)}`'),
+        );
+        expect(identityOf(unknown.pid), real, reason: 'it was ended');
+      });
     });
 
     test('stopped at once, before its process has started: the question '

@@ -9,5 +9,7 @@ import 'dart:io';
 import 'package:appstein_engine/src/analysis/analysis_guard.dart';
 
 Future<void> main(List<String> arguments) async {
-  exitCode = await runAnalysisGuard(arguments.single);
+  // `exit`, as `runAnalysisGuard` asks: a guard that has said it ended must
+  // not stay.
+  exit(await runAnalysisGuard(arguments.single));
 }

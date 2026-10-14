@@ -42,6 +42,58 @@ McpChannel stdioMcpChannel(
 
 const _doctor = 'Run `appstein doctor` to see what is wrong.';
 
+/// A turn that one caller holds at a time; the others wait in the order
+/// they asked.
+final class _Turn {
+  Future<void> _last = Future.value();
+  Completer<void>? _held;
+
+  /// Completes when the turn is this caller's, after everyone who asked
+  /// before. The caller must [give] it back.
+  Future<void> take() {
+    final before = _last;
+    final mine = Completer<void>();
+    _last = mine.future;
+    return before.then<void>((_) {
+      _held = mine;
+    });
+  }
+
+  /// Gives the turn to the next caller. Only its holder calls this.
+  void give() => _held!.complete();
+
+  /// Runs [action] holding the turn, and gives it back when [action] ends,
+  /// normally or with an error.
+  Future<T> hold<T>(Future<T> Function() action) async {
+    await take();
+    try {
+      return await action();
+    } finally {
+      give();
+    }
+  }
+}
+
+/// The code analysis of a `verify` call that holds [_turn]: it gives the
+/// turn back while the analysis is asked, and takes it again before the
+/// run goes on.
+final class _OutOfTurn implements CodeAnalysis {
+  _OutOfTurn(this._analysis, this._turn);
+
+  final CodeAnalysis _analysis;
+  final _Turn _turn;
+
+  @override
+  Future<CodeReading> read() async {
+    _turn.give();
+    try {
+      return await _analysis.read();
+    } finally {
+      await _turn.take();
+    }
+  }
+}
+
 /// Appstein's MCP server (spec §8): read tools over the project's
 /// knowledge, each answered from fresh knowledge, the two tools that write
 /// its decisions and memory, and `verify`. [clock] gives the date those
@@ -50,7 +102,9 @@ const _doctor = 'Run `appstein doctor` to see what is wrong.';
 /// Before each answer it syncs as `appstein sync --detect` does, with
 /// [syncFor]'s `KnowledgeSync` (the CLI builds one from `appstein.yaml` on
 /// every call, with package skills off and a held analyzer cache). Calls
-/// are answered one at a time. A sync that fails leaves the reply marked
+/// are answered one at a time, with one exception: while a `verify` call
+/// waits for the analysis server, calls of the other tools are answered,
+/// and a second `verify` call waits. A sync that fails leaves the reply marked
 /// `stale`, from the files on disk; with no file to answer from, the reply
 /// is an error. Nothing is ever written to stdout but protocol messages.
 final class AppsteinMcpServer extends MCPServer with ToolsSupport {
@@ -260,7 +314,25 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
           toolOutputSchema(ToolSchemas.verifyResult),
         ),
       ),
-      (request) => _oneAtATime(() => _verify(request.arguments ?? const {})),
+      (request) => _verifyCalls.hold(() async {
+        try {
+          // The code analysis is entered before the calls' turn is taken:
+          // entering may wait (an idle analysis server that is being
+          // stopped), and no other tool waits for that.
+          return await codeAnalysis(
+            (analysis) => _oneAtATime(
+              () => _verify(request.arguments ?? const {}, analysis),
+            ),
+          );
+        } on CodeAnalysisException catch (error) {
+          // The analysis could not be entered at all. No refresh ran, so
+          // the reply states no freshness.
+          return CallToolResult(
+            isError: true,
+            content: [TextContent(text: '$error $_doctor')],
+          );
+        }
+      }),
     );
   }
 
@@ -271,7 +343,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   final KnowledgeSync Function() syncFor;
 
   /// Gives each `verify` call the project's code analysis, and decides how
-  /// long its analysis server lives.
+  /// long its analysis server lives. `appstein mcp` passes
+  /// `KeptAnalysisServer.use`, which keeps one server between the calls;
+  /// whoever made that object closes it when this server is done.
   final CodeAnalysisScope codeAnalysis;
 
   /// Where `dart:` libraries are read from; null for the Flutter SDK's.
@@ -279,7 +353,14 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
 
   final DateTime Function() _clock;
 
-  Future<void> _last = Future.value();
+  /// The turn every call answers in: one call at a time.
+  final _calls = _Turn();
+
+  /// The turn of the `verify` calls. A `verify` call gives [_calls] back
+  /// while it waits for the analysis server, so that the other tools are
+  /// answered meanwhile; this one it keeps, so a second `verify` call waits
+  /// for the first.
+  final _verifyCalls = _Turn();
 
   /// Today's date on this machine, as decision records and lessons write
   /// it: `2026-10-06`.
@@ -348,11 +429,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   );
 
   /// Runs [action] after every call before it finished.
-  Future<T> _oneAtATime<T>(Future<T> Function() action) {
-    final result = _last.then((_) => action());
-    _last = result.then<void>((_) {}, onError: (Object _) {});
-    return result;
-  }
+  Future<T> _oneAtATime<T>(Future<T> Function() action) => _calls.hold(action);
 
   Future<CallToolResult> _call(
     CallToolRequest request,
@@ -384,7 +461,20 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// the refresh `verify` needs, so the knowledge is refreshed once: stale
   /// knowledge is the finding `knowledge.stale` in a normal reply, not an
   /// error reply. `appstein.yaml` is read for every call, as the sync's is.
-  Future<CallToolResult> _verify(Map<String, Object?> arguments) async {
+  ///
+  /// It runs in the calls' turn like every tool, and gives the turn back
+  /// for as long as the run waits for the code analysis: an analysis server
+  /// can take a minute to start, and no other tool waits for it. A call of
+  /// another tool that is answered meanwhile may refresh the knowledge;
+  /// this run then judges that newer knowledge, and its reply still states
+  /// the freshness its own refresh found.
+  ///
+  /// [analysis] is the call's code analysis, which the caller has entered
+  /// (`codeAnalysis`) before it took the calls' turn.
+  Future<CallToolResult> _verify(
+    Map<String, Object?> arguments,
+    CodeAnalysis analysis,
+  ) async {
     KnowledgeSync? sync;
     final freshness = await _freshen(built: (built) => sync = built);
     try {
@@ -405,18 +495,16 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       final mode = arguments['scope'] == 'fast'
           ? VerifyMode.fast
           : VerifyMode.full;
-      final result = await codeAnalysis(
-        (analysis) => runVerify(
-          projectRoot: projectRoot,
-          config: config,
-          packs: using.packs,
-          sync: using,
-          mode: mode,
-          checks: checksFor(using.packs),
-          codeAnalysis: analysis,
-          refreshed: KnowledgeRefresh.fromFreshness(freshness),
-          dartSdkPath: dartSdkPath,
-        ),
+      final result = await runVerify(
+        projectRoot: projectRoot,
+        config: config,
+        packs: using.packs,
+        sync: using,
+        mode: mode,
+        checks: checksFor(using.packs),
+        codeAnalysis: _OutOfTurn(analysis, _calls),
+        refreshed: KnowledgeRefresh.fromFreshness(freshness),
+        dartSdkPath: dartSdkPath,
       );
       return switch (verifyAnswer(result, mode: mode)) {
         ToolReply(result: final json, :final summary) => _reply(

@@ -27,6 +27,8 @@ ToolAnswer verifyAnswer(VerifyResult result, {required VerifyMode mode}) {
     if (result.errors > 0)
       'Fix the ${result.errors == 1 ? 'error' : 'errors'} before the task '
           'is done.',
+    // Not findings: what the reader must be told all the same.
+    ...result.notices,
   ];
   return ToolReply(result.toJson(), sentences.join(' '));
 }

@@ -122,6 +122,10 @@ final class VerifyGathering {
     return _asked ??= _codeAnalysis.read().then((reading) => _code = reading);
   }
 
+  /// What the code analysis said beside its reading that the run's reader
+  /// must be told (`CodeReading.notices`); empty when it was not asked.
+  List<String> get notices => _code?.notices ?? const [];
+
   // The check whose `gather` is running, and the checks that asked for the
   // reading: `runVerify` sets the first, so the reading is given only to a
   // check that gathered it.

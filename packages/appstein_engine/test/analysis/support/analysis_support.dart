@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 import '../../support/fixture_app.dart';
 
@@ -45,30 +46,128 @@ void writeProjectFile(String app, String relative, String content) =>
       ..parent.createSync(recursive: true)
       ..writeAsStringSync(content);
 
-/// Whether a process with this ID is running.
-Future<bool> processAlive(int id) async {
-  if (Platform.isWindows) {
-    final list = await Process.run('tasklist', [
-      '/FI',
-      'PID eq $id',
-      '/FO',
-      'CSV',
-      '/NH',
-    ]);
-    return '${list.stdout}'.contains('"$id"');
+/// Who runs under the process ID [id] now, as the product asks it
+/// (`lookUpProcess`); null when nothing does or it can't be told.
+ProcessIdentity? identityOf(int id) => switch (lookUpProcess(id)) {
+  ProcessRunning(:final identity) => identity,
+  _ => null,
+};
+
+/// Deletes the file [relative] (with `/`) of the project [app]. On Windows
+/// a file can't be deleted in the moment another process reads it, and an
+/// analysis server reads a file soon after it changed; the delete is tried
+/// again until it works.
+void deleteProjectFile(String app, String relative) {
+  final file = File(p.joinAll([app, ...relative.split('/')]));
+  for (var attempt = 0; ; attempt++) {
+    try {
+      file.deleteSync();
+      return;
+    } on FileSystemException {
+      if (attempt == 400) rethrow;
+      sleep(const Duration(milliseconds: 5));
+    }
   }
-  return (await Process.run('ps', ['-p', '$id'])).exitCode == 0;
 }
 
-/// How long until none of the processes [ids] is running, or null when one
-/// still is after [limit].
+/// When each of the running processes among [ids] started, as text that is
+/// the same each time it is asked for one process. A process that isn't
+/// running, or whose start can't be read (another user's), is left out.
+Future<Map<int, String>> _processStarts(Iterable<int> ids) async {
+  final wanted = ids.toSet();
+  if (wanted.isEmpty) return {};
+  final ProcessResult list;
+  if (Platform.isWindows) {
+    list = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      'Get-Process -Id ${wanted.join(',')} -ErrorAction SilentlyContinue | '
+          r'ForEach-Object { "$($_.Id) $($_.StartTime.Ticks)" }',
+    ]);
+  } else {
+    list = await Process.run('ps', [
+      '-o',
+      'pid=,lstart=',
+      '-p',
+      wanted.join(','),
+    ]);
+  }
+  final starts = <int, String>{};
+  for (final line in '${list.stdout}'.split('\n')) {
+    final parts = line.trim().split(RegExp(r'\s+'));
+    final id = int.tryParse(parts.first);
+    final start = parts.skip(1).join(' ');
+    if (id != null && wanted.contains(id) && start.isNotEmpty) {
+      starts[id] = start;
+    }
+  }
+  return starts;
+}
+
+/// The start of each process a test has seen running, by ID. An operating
+/// system gives the ID of an ended process to a new one, on Windows often
+/// within seconds, so "a process with this ID is running" does not mean
+/// "the process the test recorded is running": the start tells them apart.
+///
+/// It is emptied when the test that filled it ends: a later test's process
+/// may be given an ID an earlier test recorded. Within one test, a test
+/// that expects a new process under a recorded ID records it anew
+/// ([recordProcesses]).
+final _seenStarts = <int, String>{};
+var _emptiedAtTestEnd = false;
+
+void _note(Map<int, String> starts, {required bool anew}) {
+  if (starts.isEmpty) return;
+  if (!_emptiedAtTestEnd) {
+    _emptiedAtTestEnd = true;
+    addTearDown(() {
+      _seenStarts.clear();
+      _emptiedAtTestEnd = false;
+    });
+  }
+  for (final MapEntry(key: id, value: start) in starts.entries) {
+    if (anew) {
+      _seenStarts[id] = start;
+    } else {
+      _seenStarts.putIfAbsent(id, () => start);
+    }
+  }
+}
+
+/// Notes the processes [ids] as they run now, so a later [processAlive] or
+/// [goneWithin] means these and not a newer process with one of their IDs.
+/// A test calls it when it learns the IDs, while the processes run, if
+/// anything may start a process before it looks at them again.
+/// An ID recorded before is recorded anew: the test says its process is the
+/// one running now.
+Future<void> recordProcesses(Iterable<int> ids) async {
+  _note(await _processStarts(ids), anew: true);
+}
+
+/// Whether the process a test recorded under [id] is running. The first
+/// time an ID is asked about, the process that has it is taken for the
+/// recorded one, so a test asks while its process is known to run.
+Future<bool> processAlive(int id) async {
+  final start = (await _processStarts([id]))[id];
+  if (start == null) return false;
+  _note({id: start}, anew: false);
+  return _seenStarts[id] == start;
+}
+
+/// How long until none of the processes a test recorded under [ids] is
+/// running, or null when one still is after [limit]. A process that has
+/// one of the IDs but another start than the one seen before, or that
+/// started after this was called, is a new process with a used ID, and
+/// does not count.
 Future<Duration?> goneWithin(Iterable<int> ids, Duration limit) async {
   final watch = Stopwatch()..start();
+  // What runs under an ID never seen before, now: later it may be another.
+  _note(await _processStarts(ids), anew: false);
   while (true) {
-    var any = false;
-    for (final id in ids) {
-      if (await processAlive(id)) any = true;
-    }
+    final running = await _processStarts(ids);
+    final any = running.entries.any(
+      (process) => _seenStarts[process.key] == process.value,
+    );
     if (!any) return watch.elapsed;
     if (watch.elapsed > limit) return null;
     await Future<void>.delayed(const Duration(milliseconds: 100));

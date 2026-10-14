@@ -4,6 +4,8 @@ library;
 export 'src/analysis/analysis_guard.dart';
 export 'src/analysis/analysis_server.dart';
 export 'src/analysis/code_analysis.dart';
+export 'src/analysis/kept_analysis_server.dart';
+export 'src/analysis/process_identity.dart';
 export 'src/android/android_sdk_locator.dart';
 export 'src/android/flutter_settings.dart';
 export 'src/android/java_locator.dart';

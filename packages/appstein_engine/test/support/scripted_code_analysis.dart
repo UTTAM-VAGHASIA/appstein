@@ -9,9 +9,13 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
   ScriptedCodeAnalysis({
     this.found = const [],
     this.pluginFailures = const [],
+    this.notices = const [],
     this.failure,
     this.onAsked,
   });
+
+  /// The notices [read] answers with.
+  List<String> notices;
 
   /// The diagnostics [read] answers with. A test may replace them between
   /// asks.
@@ -38,6 +42,10 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
     asked++;
     await onAsked?.call();
     if (failure case final failure?) throw failure;
-    return CodeReading(diagnostics: found, pluginFailures: pluginFailures);
+    return CodeReading(
+      diagnostics: found,
+      pluginFailures: pluginFailures,
+      notices: notices,
+    );
   }
 }

@@ -93,4 +93,23 @@ void main() {
       'notRun': <Object?>[],
     });
   });
+
+  test('notices: in the JSON form only when there are any, read back, and '
+      'a result written without the field reads as having none', () {
+    const plain = VerifyResult(findings: []);
+    expect(plain.notices, isEmpty);
+    expect(plain.toJson().containsKey('notices'), isFalse);
+    expect(VerifyResult.fromJson(plain.toJson()).notices, isEmpty);
+    expect(plain.withNotices(const []), same(plain));
+
+    final told = plain.withNotices(const ['Process 7 was left running.']);
+    expect(told.toJson()['notices'], ['Process 7 was left running.']);
+    expect(VerifyResult.fromJson(told.toJson()).notices, told.notices);
+    // They are no findings: the counts stay.
+    expect(told.errors + told.warnings + told.info, 0);
+    expect(told.withNotices(const ['Another.']).notices, [
+      'Process 7 was left running.',
+      'Another.',
+    ]);
+  });
 }

@@ -1,6 +1,7 @@
 // A guard with a scripted server behind it, for what a real analysis server
 // can't be made to do on demand. Its first argument names the scenario (see
-// `main`); the `dart` executable `AnalysisServer` adds is ignored. It speaks
+// `main`; `log:<file>` and any other name analyze nothing and answer every
+// request); the `dart` executable `AnalysisServer` adds is ignored. It speaks
 // the legacy analyzer protocol as far as `AnalysisServer` uses it, names
 // itself as both processes, and ends in order on `server.shutdown` or when
 // its stdin closes.
@@ -45,15 +46,22 @@ void _errors(String file, List<Map<String, Object?>> errors) =>
 
 Future<void> main(List<String> arguments) async {
   final scenario = arguments.first;
-  final server = scenario.startsWith('crash:')
-      ? scenario.substring('crash:'.length)
-      : '$pid';
+  // `crash:<process ID>`, `names:<process ID>` and `deaf:<process ID>` name
+  // that process as the server. `names:` then answers every request and
+  // analyzes nothing; `deaf:` does the same, but ends neither when asked to
+  // stop nor when its input closes, so only a kill ends it. `never` says
+  // it is analyzing and never that it is done.
+  final named = RegExp(r'^(crash|names|deaf):(\d+)$').firstMatch(scenario);
+  final server = named?.group(2) ?? '$pid';
+  final deaf = scenario.startsWith('deaf:');
   stderr.writeln('$analysisGuardSign$pid $server');
   final lines = stdin.transform(utf8.decoder).transform(const LineSplitter());
   await for (final line in lines) {
     final request = jsonDecode(line) as Map<String, Object?>;
     final id = request['id'];
     switch (request['method']) {
+      case 'server.shutdown' when deaf:
+        continue;
       case 'server.shutdown':
         _send({'id': id});
         await stdout.flush();
@@ -160,6 +168,9 @@ Future<void> main(List<String> arguments) async {
               'stackTrace': '#0 main',
             });
             continue;
+          // An analysis that never ends.
+          case 'never':
+            continue;
           // An analysis that takes a while.
           case 'slow':
             await Future<void>.delayed(const Duration(milliseconds: 1500));
@@ -169,9 +180,30 @@ Future<void> main(List<String> arguments) async {
         }
         _status(false);
       default:
+        // `log:<file>`: each later request is noted in that file, one line
+        // each, with the files it names.
+        if (scenario.startsWith('log:') &&
+            request['method'] != 'server.setSubscriptions') {
+          final params = request['params'] as Map<String, Object?>?;
+          final named = switch (params) {
+            {'files': final Map<String, Object?> files} =>
+              ' ${files.values.map((change) => (change! as Map)['type']).toSet().join('/')} '
+                  '${files.keys.join(', ')}',
+            {'file': final String file} => ' $file',
+            _ => '',
+          };
+          File(scenario.substring('log:'.length)).writeAsStringSync(
+            '${request['method']}$named\n',
+            mode: FileMode.append,
+          );
+        }
         _send({'id': id});
     }
   }
   // Its stdin closed.
+  if (deaf) {
+    // Until it is killed.
+    await Future<void>.delayed(const Duration(hours: 1));
+  }
   stderr.writeln(analysisGuardEnded);
 }

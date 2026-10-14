@@ -26,6 +26,7 @@ final class VerifyResult {
     this.suppressed = 0,
     this.activeSuppressions = 0,
     this.notRun = const [],
+    this.notices = const [],
   });
 
   /// Reads a result from its JSON form.
@@ -44,8 +45,22 @@ final class VerifyResult {
         for (final entry in fields.objects('notRun'))
           CheckNotRun(id: entry.string('id'), reason: entry.string('reason')),
       ],
+      // Absent in a result with nothing to tell, and in every result
+      // written before the field existed.
+      notices: json.containsKey('notices') ? fields.strings('notices') : [],
     );
   }
+
+  /// This result with [more] added to its [notices].
+  VerifyResult withNotices(List<String> more) => more.isEmpty
+      ? this
+      : VerifyResult(
+          findings: findings,
+          suppressed: suppressed,
+          activeSuppressions: activeSuppressions,
+          notRun: notRun,
+          notices: [...notices, ...more],
+        );
 
   /// The findings that were not suppressed.
   final List<Finding> findings;
@@ -59,6 +74,15 @@ final class VerifyResult {
 
   /// The checks of the chosen mode that did not run.
   final List<CheckNotRun> notRun;
+
+  /// What the reader must be told that is no finding about the project,
+  /// one plain line each: today, a process that may be an analysis server
+  /// Appstein started and did not end, because it could not confirm the
+  /// process is its own, with the command to end it by hand. They never
+  /// change the counts or the exit code. The JSON form has `notices` only
+  /// when there are any, so a reader that doesn't know the field is not
+  /// affected.
+  final List<String> notices;
 
   /// The number of error findings. Any error blocks "done".
   int get errors => _count(Severity.error);
@@ -80,6 +104,7 @@ final class VerifyResult {
     'suppressed': suppressed,
     'activeSuppressions': activeSuppressions,
     'notRun': [for (final entry in notRun) entry.toJson()],
+    if (notices.isNotEmpty) 'notices': notices,
   };
 }
 

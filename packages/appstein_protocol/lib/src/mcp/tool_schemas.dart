@@ -609,6 +609,13 @@ abstract final class ToolSchemas {
         ),
         description: 'The checks that could not run, and why.',
       ),
+      'notices': jsonList(
+        jsonString(),
+        description:
+            'What you must be told that is no finding about the project, '
+            'such as a process Appstein could not stop, with the command '
+            'to end it by hand. Absent when there is nothing to tell.',
+      ),
     },
     required: [
       'findings',

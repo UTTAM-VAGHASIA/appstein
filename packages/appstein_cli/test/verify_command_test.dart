@@ -107,6 +107,29 @@ void main() {
       );
     });
 
+    test('notices are printed under `Note:`, before the summary, and '
+        'change no count', () {
+      expect(
+        formatVerify(
+          const VerifyResult(findings: []).withNotices(const [
+            'Process 7 (dart.exe) may be an analysis server that Appstein '
+                'started and could not stop.',
+          ]),
+        ),
+        'Note:\n'
+        '  Process 7 (dart.exe) may be an analysis server that Appstein '
+        'started and could not stop.\n'
+        '\n'
+        '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
+      );
+      expect(
+        verifyExitCode(
+          const VerifyResult(findings: []).withNotices(const ['x']),
+        ),
+        ExitCodes.ok,
+      );
+    });
+
     test('counts in the singular and the plural', () {
       const info = Finding(
         id: 'memory.lessons_long',
@@ -768,80 +791,95 @@ void main() {
       // The scope is the command's own, wrapped only to note the process IDs
       // the guard named, since a server left behind by a guard that has
       // ended is no longer a child of this process.
-      test('with a real analysis server: a compile error is a dart.error with '
-          'exit 1, in a fast and a full run; without it, exit 0; no process '
-          'is left', () async {
-        final before = await childProcesses();
-        final own = terminalCodeAnalysis(
-          projectRoot: project,
-          environment: HostEnvironment(
-            os: HostOs.current,
-            variables: {'FLUTTER_ROOT': sdk},
-            workingDirectory: project,
-          ),
-          dartSdkPath: testDartSdk,
-        );
-        final started = <({int guard, int server})>[];
-        Future<T> noting<T>(Future<T> Function(CodeAnalysis analysis) body) =>
-            own<T>((analysis) async {
-              try {
-                return await body(analysis);
-              } finally {
-                final processes = (analysis as AnalysisServer).processes;
-                if (processes != null) started.add(processes);
-              }
-            });
-        final broken = File(p.join(project, 'lib', 'my folder', 'b.dart'))
-          ..parent.createSync(recursive: true)
-          ..writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
-        for (final mode in ['--fast', '--full']) {
+      test(
+        'with a real analysis server: a compile error is a dart.error with '
+        'exit 1, in a fast and a full run; without it, exit 0; no process '
+        'is left',
+        () => withChildProcessesToItself(() async {
+          // Alone among the tests that start processes: the mcp command's
+          // tests, in another file, run at the same time in this process.
+          final before = await childProcesses();
+          final own = terminalCodeAnalysis(
+            projectRoot: project,
+            environment: HostEnvironment(
+              os: HostOs.current,
+              variables: {'FLUTTER_ROOT': sdk},
+              workingDirectory: project,
+            ),
+            dartSdkPath: testDartSdk,
+          );
+          final started = <({int guard, int server})>[];
+          Future<T> noting<T>(Future<T> Function(CodeAnalysis analysis) body) =>
+              own<T>((analysis) async {
+                try {
+                  return await body(analysis);
+                } finally {
+                  final processes = (analysis as AnalysisServer).processes;
+                  if (processes != null) {
+                    started.add(processes);
+                    // While they run: Windows gives an ended process's ID to
+                    // a new one, which must not be taken for one of these.
+                    await recordProcesses([processes.guard, processes.server]);
+                  }
+                }
+              });
+          final broken = File(p.join(project, 'lib', 'my folder', 'b.dart'))
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
+          for (final mode in ['--fast', '--full']) {
+            out.clear();
+            expect(
+              await run(
+                ['verify', mode],
+                dartSdkPath: testDartSdk,
+                scope: noting,
+              ),
+              ExitCodes.errorsFound,
+              reason: '$mode\n$err',
+            );
+            expect(err.toString(), isEmpty);
+            expect(
+              out.toString(),
+              allOf(
+                contains('lib/my folder/b.dart\n  error dart.error (line 2): '),
+                contains(' (`return_of_invalid_type`)\n'),
+                contains('1 error, '),
+              ),
+            );
+          }
+
+          broken.deleteSync();
           out.clear();
           expect(
             await run(
-              ['verify', mode],
+              ['verify', '--fast'],
               dartSdkPath: testDartSdk,
               scope: noting,
             ),
-            ExitCodes.errorsFound,
-            reason: '$mode\n$err',
+            ExitCodes.ok,
+            reason: '$err',
           );
-          expect(err.toString(), isEmpty);
           expect(
             out.toString(),
-            allOf(
-              contains('lib/my folder/b.dart\n  error dart.error (line 2): '),
-              contains(' (`return_of_invalid_type`)\n'),
-              contains('1 error, '),
-            ),
+            '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
           );
-        }
 
-        broken.deleteSync();
-        out.clear();
-        expect(
-          await run(
-            ['verify', '--fast'],
-            dartSdkPath: testDartSdk,
-            scope: noting,
-          ),
-          ExitCodes.ok,
-          reason: '$err',
-        );
-        expect(
-          out.toString(),
-          '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
-        );
-
-        final left = await childProcesses()
-          ..removeWhere((id, _) => before.containsKey(id));
-        expect(left, isEmpty);
-        // Three runs, each with a guard and a server of its own, all gone.
-        expect(started, hasLength(3));
-        for (final (:guard, :server) in started) {
-          expect(await processAlive(guard), isFalse, reason: 'guard $guard');
-          expect(await processAlive(server), isFalse, reason: 'server $server');
-        }
-      }, timeout: const Timeout(Duration(minutes: 5)));
+          final left = await childProcesses()
+            ..removeWhere((id, _) => before.containsKey(id));
+          expect(left, isEmpty);
+          // Three runs, each with a guard and a server of its own, all gone.
+          expect(started, hasLength(3));
+          for (final (:guard, :server) in started) {
+            expect(await processAlive(guard), isFalse, reason: 'guard $guard');
+            expect(
+              await processAlive(server),
+              isFalse,
+              reason: 'server $server',
+            );
+          }
+        }),
+        timeout: const Timeout(Duration(minutes: 10)),
+      );
 
       test(
         '--format json has no findings and nothing that did not run',

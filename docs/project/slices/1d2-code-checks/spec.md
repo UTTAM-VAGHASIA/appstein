@@ -107,13 +107,19 @@ The hook that runs a fast run by itself after each edit is not part of this slic
 - **Pending fixes** come from the running server, in passes: ask for the fixes, apply them to an overlay in the server's memory and never to disk, and ask again until a pass finds none. The totals equalled `dart fix --dry-run` in the measurement (17 to 19 s).
 - **The Dart tools' own usage reporting is left as the developer set it.** Appstein does not pass the server's flag that switches it off (owner's decision, 2026-10-12).
 - A server that doesn't start, dies or doesn't become ready within 180 s is Appstein failing: exit 3 in the terminal and an error reply from the tool, with the reason and "run `appstein doctor`" (§9.5, §15). The starts measured on the Windows development machine: 7 to 10 s without the plugin, 18 to 22 s with it, 54 to 66 s for a first start that builds the plugin, and 71 s once for a first start without the plugin, which was not explained. No other machine was measured.
+- **Warm analysis, decided after the review of ticket 04** (owner, 2026-10-14):
+  - **When the server is started again.** A change to an options file the analyzer applies, or to the package config, restarts the analysis server: telling the server did not work as a barrier (0 of 12 in the review). The first `verify` call after such a change waits one server start, and the design's 5 s target is stated for calls after a source edit (§9.1). `pubspec.yaml` restarts it too: the recommended lint `depend_on_referenced_packages` reads its text, and a server that was only told of the change answered from before it (4 of 4).
+  - **Outside the project folder.** What the analysis depends on outside the project counts too: the options file above the project, local `include:` targets, a workspace's package config, and the source of every package the package config places outside pub's cache and the SDK (path dependencies, workspace members), whether its location is relative or absolute.
+  - **A known limit.** An edit that keeps a file's size and whose file time is put back to the old value is not seen until the file changes again.
+  - **How a process is shown to be Appstein's.** On Windows by asking the system directly through `dart:ffi` (87 microseconds per ask in the review, against about 0.5 s through PowerShell); with `ps` on Linux and macOS. No package is added.
+- **A leftover analysis server** (owner, 2026-10-14): Appstein ends a process by its ID only when it can show the process is the one it started (its start time and program). When it can't, it ends nothing, says so in the `verify` output with the process ID and the command to end it, and checks again at the next `verify` call. A process Appstein can't tell anything about is reported the same way. `appstein doctor` listing leftovers is left to a later slice.
 
 **The checks**
 
 | ID | What it reports | Severity | Fast run | Full run |
 |---|---|---|---|---|
 | `dart.error` | An analyzer error | error | whole project | whole project |
-| `dart.deprecated` | A `deprecated_member_use*` diagnostic, and an `// ignore:` or `// ignore_for_file:` comment that names one | error | whole project | whole project |
+| `dart.deprecated` | A `deprecated_member_use*` diagnostic; an `// ignore:` or `// ignore_for_file:` comment that names one or says `type=hint`; an `analysis_options.yaml` entry that sets one to `ignore` | error | whole project | whole project |
 | `dart.warning` | An analyzer warning | warning | unverified files | whole project |
 | `dart.lint` | An info-level diagnostic | info | unverified files | whole project |
 | `dart.unformatted` | A file whose formatting would change | warning | unverified files | whole project |
@@ -125,9 +131,19 @@ The hook that runs a fast run by itself after each edit is not part of this slic
 - Diagnostics from the `appstein_lints` plugin arrive the same way and are reported under these IDs by their level until slice 1d.3 gives the rules their own IDs.
 - **Deprecated use and fixes in a fast run:** for each `dart.deprecated` finding on an unverified file, the fix hint says whether `dart fix` can migrate it. Findings elsewhere get a general hint.
 - **Hidden deprecated use:** the comments are found by reading the Dart files' comments, so text inside a string never counts. The finding is on the comment's line and says what it hides.
+- **Other ways to hide deprecated use** (owner, 2026-10-14, after the review of ticket 05):
+  - A comment with `type=hint` hides every hint, deprecated use included, without naming it, so it is reported too. `type=lint` is not: it hides only the optional lint about a package's own deprecated members, and generated files carry it widely.
+  - An `analyzer: errors:` entry that sets a deprecated-use diagnostic to `ignore`, in any `analysis_options.yaml` of the project, is a `dart.deprecated` error on that line. When the project has no options file of its own, the nearest one above it counts, as it does for the analyzer. An `include:` that names a local file is followed, and a switch-off found there is reported unless a nearer file sets the diagnostic back. A setting that comes in through `include:` from another package is not followed. A folder left out with `analyzer: exclude:` is not reported: that is a normal project choice.
+  - A deprecated use the project raised to error level is one finding, `dart.deprecated`, not also a `dart.error`.
 - **Formatting** is asked of the analysis server, which uses the project's SDK. Generated files are left out: those `analysis_options.yaml` excludes, and those that start with a `GENERATED CODE - DO NOT MODIFY` header.
 - **Tests:** one `flutter test` run on the whole project with machine-readable output, started with the project's Flutter. A failure is reported on the test's file and line. The check doesn't run when the same run has a `dart.error`, and is then named among the checks not run with that reason. It doesn't run when the project has no `test/` folder.
 - **Test time limit:** `verify.test_timeout_seconds` in `appstein.yaml`, default 600. On reaching it the run is stopped and one `test.failed` is reported on the project.
+- **Decided after the review of ticket 10** (owner, 2026-10-14):
+  - **What the test run leaves behind.** `verify` itself writes no project file without `--apply`, but `flutter test` leaves its usual outputs: `build/` on every run, and `test/failures/` after a failing golden test.
+  - **Hidden compile errors.** When the tests are not run because the code has analyzer errors, and every one of those errors is hidden by a suppression or lowered by `verify.severity`, one `test.failed` error is reported on the project. Otherwise such a run would pass with the tests never run.
+  - **Flutter ran but named no failing test** (a non-zero exit, or no `done` event, for example when the packages aren't fetched): one `test.failed` error on the project with Flutter's own last lines. Exit 3 is kept for a test run that can't be started at all.
+  - **A run that doesn't finish keeps what it saw.** On a timeout, or when the output ends early, the failures seen so far are reported, with one `test.failed` on the project that says the run didn't finish and names the tests that were running.
+  - **A `test/` folder with no `*_test.dart` file** is treated like no `test/` folder. Any error-level diagnostic stops the tests, even in a file no test imports.
 
 **The unverified files**
 

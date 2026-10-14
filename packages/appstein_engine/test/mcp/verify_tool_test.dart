@@ -33,6 +33,20 @@ void main() {
     });
   });
 
+  test('notices are in the result, which still matches the schema, and in '
+      'the sentence', () {
+    const notice = 'Process 7 (dart.exe) may be an analysis server.';
+    final reply = answer(
+      const VerifyResult(findings: []).withNotices(const [notice]),
+    );
+    expect(reply.result['notices'], [notice]);
+    expectMatchesSchema(toolOutputSchema(ToolSchemas.verifyResult), {
+      ...reply.result,
+      'freshness': const FreshnessReport.current().toJson(),
+    });
+    expect(reply.summary, 'Full verify: 0 errors, 0 warnings, 0 info. $notice');
+  });
+
   test('the output schema keeps the counts as `summary`', () {
     final schema = toolOutputSchema(ToolSchemas.verifyResult);
     final summary = (schema['properties']! as Map)['summary']! as Map;

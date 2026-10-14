@@ -50,7 +50,15 @@ final class CodeReading {
   const CodeReading({
     this.diagnostics = const [],
     this.pluginFailures = const [],
+    this.notices = const [],
   });
+
+  /// What the person or agent who runs `verify` must be told that is no
+  /// finding about the project, one plain line each. Today that is one
+  /// thing: a process that may be an analysis server Appstein started and
+  /// could not show to be its own, so it did not end it, with the command
+  /// to end it by hand. `runVerify` passes them on in the result.
+  final List<String> notices;
 
   /// Every diagnostic `dart analyze` would show for the project, in file
   /// and line order. That includes the files the analyzer reads that aren't
@@ -81,6 +89,19 @@ abstract interface class CodeAnalysis {
   ///
   /// Throws a [CodeAnalysisException] when the analysis can't answer.
   Future<CodeReading> read();
+}
+
+/// A code analysis that holds something its owner must stop: an analysis
+/// server (`AnalysisServer`), or a test's stand-in for one. It is what
+/// `KeptAnalysisServer` keeps.
+abstract interface class StoppableCodeAnalysis implements CodeAnalysis {
+  /// Stops what it holds, and returns when that has ended. A question
+  /// asked afterwards starts it again.
+  Future<void> stop();
+
+  /// Stops it as [stop] does, for good: a question asked afterwards is
+  /// refused.
+  Future<void> close();
 }
 
 /// Runs [body] with the code analysis of one project, and releases what

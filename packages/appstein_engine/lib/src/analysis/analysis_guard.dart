@@ -29,6 +29,15 @@ const analysisGuardEnded = 'guard ended';
 /// It returns the guard's exit code: 0 after its input closed, the server's
 /// own exit code when the server ended first (it was asked to stop, or it
 /// crashed), and 1 when the server could not be started.
+///
+/// **Whoever calls it must then end the process with `exit`**, not by
+/// setting `exitCode` and returning. A guard that had passed a request on
+/// to a server that had just been killed said [analysisGuardEnded] and
+/// returned, and its process then never ended by itself (Windows, about 1
+/// run in 5 of a test that kills the server and asks at once). What kept
+/// the Dart VM running was not found; the request written to the dead
+/// server is the suspect. A guard that says it ended and stays is the one
+/// thing a guard must not do, so its end doesn't depend on that.
 Future<int> runAnalysisGuard(String dartExecutable) async {
   final Process server;
   try {

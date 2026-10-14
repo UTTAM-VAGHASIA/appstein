@@ -115,18 +115,22 @@ final class VerifyCommand extends Command<int> {
       return ExitCodes.appsteinFailed;
     }
     final packs = packsFor(config);
+    // What the stop of the run's own analysis server could not end: known
+    // only after the run, and printed with its result.
+    final left = <String>[];
     final analysis =
         codeAnalysis ??
         terminalCodeAnalysis(
           projectRoot: projectRoot,
           environment: environment,
           dartSdkPath: dartSdkPath,
+          onLeft: left.addAll,
         );
     // A check that throws and an analysis server that can't answer are
     // Appstein's failure: the runner reports the `VerifyCheckError` or the
     // `CodeAnalysisException` and exits 3. The server is stopped either
     // way, by the scope.
-    final result = await analysis(
+    final found = await analysis(
       (codeAnalysis) => runVerify(
         projectRoot: projectRoot,
         config: config,
@@ -147,6 +151,7 @@ final class VerifyCommand extends Command<int> {
         dartSdkPath: dartSdkPath,
       ),
     );
+    final result = found.withNotices(left);
     out.write(
       results.option('format') == 'json'
           ? '${const JsonEncoder.withIndent('  ').convert(result.toJson())}\n'
@@ -160,19 +165,24 @@ final class VerifyCommand extends Command<int> {
 /// starts the server of the SDK the project at [projectRoot] uses, behind
 /// the guard ([analysisGuardCommand]), when a check first asks, and stops
 /// it when the run ends, normally or with an error. A terminal `appstein
-/// verify` uses it, and `appstein mcp` does for each `verify` call until it
-/// keeps one server running (slice 1d.2, ticket 04).
+/// verify` uses it. `appstein mcp` keeps one server between its `verify`
+/// calls instead (`keptCodeAnalysis`).
 ///
 /// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
+/// [onLeft] is told, after the server was stopped, each process the stop
+/// could not end because it could not be shown to be the run's own
+/// (`ownAnalysisServer`).
 CodeAnalysisScope terminalCodeAnalysis({
   required String projectRoot,
   required HostEnvironment environment,
   String? dartSdkPath,
+  void Function(List<String> notices)? onLeft,
 }) => ownAnalysisServer(
   projectRoot: projectRoot,
   guardCommand: analysisGuardCommand(),
   dartExecutable: () =>
       projectDartExecutable(environment, projectRoot, dartSdkPath: dartSdkPath),
+  onLeft: onLeft,
 );
 
 /// The exit code of `appstein verify` for [result] (spec §9.5): 1 when a
@@ -192,6 +202,8 @@ String _count(int count, String one, String many) =>
 ///   order. Each finding is a line with its severity, ID, line number when
 ///   it has one and message, and a `fix:` line when it has a fix hint;
 /// - `Not run:` with each check that could not run and why;
+/// - `Note:` with each notice of the result, which is no finding: a process
+///   Appstein could not stop, and the command to end it by hand;
 /// - one summary line, which is the whole output when nothing was found.
 String formatVerify(VerifyResult result) {
   final groups = <String?, List<Finding>>{};
@@ -230,6 +242,12 @@ String formatVerify(VerifyResult result) {
       ..addAll([
         for (final check in result.notRun) '  ${check.id}: ${check.reason}',
       ])
+      ..add('');
+  }
+  if (result.notices.isNotEmpty) {
+    lines
+      ..add('Note:')
+      ..addAll([for (final notice in result.notices) '  $notice'])
       ..add('');
   }
   lines

@@ -34,7 +34,11 @@ final class AnalysisGuardCommand extends Command<int> {
     if (rest.length != 1) {
       usageException('Pass the dart executable that runs the server.');
     }
-    return runAnalysisGuard(rest.single);
+    // `exit`, as `runAnalysisGuard` asks, and not the exit code every other
+    // command returns: a guard that has said it ended must not stay, and a
+    // write to a server that had just died was seen to keep the process
+    // running. The guard has flushed what it wrote.
+    exit(await runAnalysisGuard(rest.single));
   }
 }
 
