@@ -179,6 +179,7 @@ Future<VerifyResult> runVerify({
     codeAnalysis,
     projectRoot: projectRoot,
     unverified: unverified,
+    mode: mode,
     // With the sync's machine and process runner, so the tests run on the
     // Flutter SDK the knowledge was built for.
     runTests: () => runProjectTests(
@@ -272,6 +273,7 @@ Future<VerifyResult> runVerify({
         incomplete.addAll(running);
       },
       dartFixesReader: () => gathering.dartFixesFor(runningCheck),
+      formattingReader: () => gathering.formattingFor(runningCheck),
       unverified: unverified,
       mode: mode,
     );

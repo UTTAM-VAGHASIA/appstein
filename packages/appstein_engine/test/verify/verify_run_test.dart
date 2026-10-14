@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:appstein_engine/android.dart';
@@ -2370,6 +2371,422 @@ void f() {
         expect(result.notices, [contains('not kept among the unverified')]);
         lock.release();
         expect(unverifiedNow(), isNot(contains('lib/given.dart')));
+      });
+    });
+
+    // Slice 1d.2, ticket 07: `dart.unformatted`, through the scripted
+    // stand-in. The agreement with the real formatter is checked with a real
+    // server in `verify_dart_test.dart`.
+    group('dart.unformatted', () {
+      const check = DartUnformattedCheck();
+      const dartChecks = <VerifyCheck>[
+        DartErrorCheck(),
+        DartUnreadableCheck(),
+        check,
+      ];
+      KnowledgeStore store() => KnowledgeStore(app);
+
+      List<String> unverifiedNow() => store().readState().state!.unverified;
+
+      Future<void> markUnverified(List<String> files) async {
+        final now = store().readState().state!;
+        await store().locked(
+          () => store().writeState(now.copyWith(unverified: files)),
+        );
+      }
+
+      void write(String relative, String text) => File(
+        p.joinAll([app, ...relative.split('/')]),
+      ).writeAsStringSync(text);
+
+      // A first run syncs, so `state.json` exists. The files the stand-in
+      // lists are on disk: a listed file that is not is a deleted one.
+      setUp(() async {
+        for (final name in [
+          'a',
+          'b',
+          'c',
+          'changed',
+          'given',
+          'locked',
+          'untouched',
+        ]) {
+          write('lib/$name.dart', 'int $name = 1;\n');
+        }
+        await run([]);
+      });
+
+      test('a file the analysis lists that is no longer on disk is not asked '
+          'about: the server has not noticed the deletion yet', () async {
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/a.dart', 'lib/deleted.dart'],
+        )..unformatted = {'lib/a.dart', 'lib/deleted.dart'};
+        final result = await run(dartChecks, codeAnalysis: analysis);
+        expect(analysis.askedFormats.single, ['lib/a.dart']);
+        expect(
+          [for (final finding in result.findings) finding.file],
+          ['lib/a.dart'],
+        );
+      });
+
+      test('a file the formatter would change is a dart.unformatted warning '
+          'on the file, with no line and a hint that names --apply; only '
+          'Dart files are asked about', () async {
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: [
+            'analysis_options.yaml',
+            'lib/a.dart',
+            'lib/b.dart',
+            'pubspec.yaml',
+          ],
+        )..unformatted = {'lib/a.dart'};
+        final result = await run(dartChecks, codeAnalysis: analysis);
+        final finding = result.findings.single;
+        expect(finding.id, 'dart.unformatted');
+        expect(finding.severity, Severity.warning);
+        expect(finding.file, 'lib/a.dart');
+        expect(finding.line, isNull);
+        expect(finding.message, contains('formatting'));
+        expect(finding.message, contains('`dart format`'));
+        expect(finding.fixHint, contains('`appstein verify --apply`'));
+        expect(analysis.askedFormats, [
+          ['lib/a.dart', 'lib/b.dart'],
+        ]);
+        expect(result.notRun, isEmpty);
+      });
+
+      test('a fast run reports it only for the unverified files and the '
+          'files it was given; a full run for every file', () async {
+        await markUnverified(['lib/changed.dart']);
+        final analysis =
+            ScriptedCodeAnalysis(
+                analyzedFiles: [
+                  'lib/changed.dart',
+                  'lib/given.dart',
+                  'lib/untouched.dart',
+                ],
+              )
+              ..unformatted = {
+                'lib/changed.dart',
+                'lib/given.dart',
+                'lib/untouched.dart',
+              };
+        final fast = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+          files: ['lib/given.dart'],
+        );
+        expect(
+          [for (final finding in fast.findings) finding.file],
+          ['lib/changed.dart', 'lib/given.dart'],
+        );
+        // The files the run is not about are not even asked about.
+        expect(analysis.askedFormats, [
+          ['lib/changed.dart', 'lib/given.dart'],
+        ]);
+        expect(analysis.formatWithin, [formatBudgetFast]);
+        final full = await run(dartChecks, codeAnalysis: analysis);
+        expect(full.findings, hasLength(3));
+        expect(analysis.askedFormats.last, hasLength(3));
+        expect(analysis.formatWithin, [formatBudgetFast, formatBudgetFull]);
+      });
+
+      test('a file that starts with a GENERATED CODE - DO NOT MODIFY header '
+          'is never asked about or reported; the words elsewhere do not '
+          'make a file generated', () async {
+        write(
+          'lib/gen.dart',
+          '// GENERATED CODE - DO NOT MODIFY BY HAND\n\nint a( int x )=>x;\n',
+        );
+        write(
+          'lib/gen_after_license.dart',
+          '// Copyright.\n\n// GENERATED CODE - DO NOT MODIFY BY HAND\nint a( int x )=>x;\n',
+        );
+        write(
+          'lib/gen_crlf.dart',
+          '// GENERATED CODE - DO NOT MODIFY BY HAND\r\nint a( int x )=>x;\r\n',
+        );
+        write(
+          'lib/gen_bom.dart',
+          '\u{FEFF}// GENERATED CODE - DO NOT MODIFY BY HAND\nint a( int x )=>x;\n',
+        );
+        write(
+          'lib/not_gen.dart',
+          'int a( int x )=>x; // GENERATED CODE - DO NOT MODIFY BY HAND\n',
+        );
+        write(
+          'lib/not_gen_later.dart',
+          'int a( int x )=>x;\n// GENERATED CODE - DO NOT MODIFY BY HAND\n',
+        );
+        final files = [
+          'lib/gen.dart',
+          'lib/gen_after_license.dart',
+          'lib/gen_bom.dart',
+          'lib/gen_crlf.dart',
+          'lib/not_gen.dart',
+          'lib/not_gen_later.dart',
+        ];
+        final analysis = ScriptedCodeAnalysis(analyzedFiles: files)
+          ..unformatted = {...files};
+        final result = await run(dartChecks, codeAnalysis: analysis);
+        expect(
+          [for (final finding in result.findings) finding.file],
+          ['lib/not_gen.dart', 'lib/not_gen_later.dart'],
+        );
+        expect(analysis.askedFormats.single, [
+          'lib/not_gen.dart',
+          'lib/not_gen_later.dart',
+        ]);
+      });
+
+      test('a file that could not be read is not asked about: the server '
+          'read it as empty, and an empty text is not a format to ask '
+          'for', () async {
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/a.dart', 'lib/locked.dart'],
+          unreadableFiles: {'lib/locked.dart': 'locked'},
+        )..unformatted = {'lib/a.dart', 'lib/locked.dart'};
+        final result = await run(dartChecks, codeAnalysis: analysis);
+        expect(analysis.askedFormats.single, ['lib/a.dart']);
+        expect(
+          [for (final finding in result.findings) finding.id],
+          ['dart.unformatted', 'dart.unreadable'],
+        );
+      });
+
+      test('no Dart file to ask about is no question', () async {
+        final analysis = ScriptedCodeAnalysis(analyzedFiles: ['pubspec.yaml']);
+        await run(dartChecks, codeAnalysis: analysis);
+        expect(analysis.askedFormats, isEmpty);
+      });
+
+      test('verify.severity changes it and a suppression hides it, in the '
+          'config and in the file', () async {
+        write(
+          'lib/b.dart',
+          '// appstein:ignore-file dart.unformatted — a sketch\nint b( ) => 1;\n',
+        );
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/a.dart', 'lib/b.dart', 'lib/c.dart'],
+        )..unformatted = {'lib/a.dart', 'lib/b.dart', 'lib/c.dart'};
+        final result = await run(
+          dartChecks,
+          codeAnalysis: analysis,
+          config: const AppsteinConfig(
+            verify: VerifyConfig(
+              severity: {'dart.unformatted': Severity.error},
+            ),
+            suppressions: [
+              SuppressionEntry(
+                id: 'dart.unformatted',
+                path: 'lib/c.dart',
+                reason: 'Hand-aligned table.',
+                line: 3,
+              ),
+            ],
+          ),
+        );
+        expect(
+          [
+            for (final finding in result.findings)
+              (finding.file, finding.severity),
+          ],
+          [('lib/a.dart', Severity.error)],
+        );
+        expect(result.suppressed, 2);
+      });
+
+      test('a warning keeps no file unverified', () async {
+        await markUnverified(['lib/a.dart']);
+        await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+            ..unformatted = {'lib/a.dart'},
+        );
+        expect(unverifiedNow(), isEmpty);
+      });
+
+      test('the formatting is asked while gathering, before the knowledge '
+          'lock, and once however the check runs', () async {
+        var lockFree = false;
+        final analysis = ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+          ..onFormatAsked = () async {
+            final lock = await KnowledgeLock.acquire(
+              p.join(app, '.appstein'),
+              timeout: const Duration(milliseconds: 100),
+            );
+            lock.release();
+            lockFree = true;
+          };
+        await run(dartChecks, codeAnalysis: analysis);
+        expect(lockFree, isTrue);
+        expect(analysis.asked, 1);
+        expect(analysis.askedFormats, hasLength(1));
+      });
+
+      test('files not answered in time are named among the checks not run, '
+          'what was answered is reported, and no file leaves the unverified '
+          'files', () async {
+        await markUnverified(['lib/a.dart', 'lib/b.dart', 'lib/c.dart']);
+        final analysis =
+            ScriptedCodeAnalysis(
+                analyzedFiles: ['lib/a.dart', 'lib/b.dart', 'lib/c.dart'],
+              )
+              ..unformatted = {'lib/a.dart', 'lib/b.dart'}
+              ..formatSilent = {'lib/b.dart', 'lib/c.dart'};
+        final result = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(
+          [for (final finding in result.findings) finding.file],
+          ['lib/a.dart'],
+        );
+        final [notRun] = result.notRun;
+        expect(notRun.id, 'dart.unformatted');
+        expect(notRun.reason, contains('2 of 3 files'));
+        expect(notRun.reason, contains('was not checked'));
+        expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart', 'lib/c.dart']);
+      });
+
+      test('a suppression of a check that was not run in full is not called '
+          'unused', () async {
+        final result = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          files: ['lib/a.dart'],
+          codeAnalysis: ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+            ..formatSilent = {'lib/a.dart'},
+          config: const AppsteinConfig(
+            suppressions: [
+              SuppressionEntry(
+                id: 'dart.unformatted',
+                path: 'lib/a.dart',
+                reason: 'Hand-aligned table.',
+                line: 3,
+              ),
+            ],
+          ),
+        );
+        expect([for (final finding in result.findings) finding.id], isEmpty);
+      });
+
+      test('a file the server refuses is named as not checked, with why, '
+          'and the answers for the other files are kept; no file leaves the '
+          'unverified files', () async {
+        await markUnverified(['lib/a.dart', 'lib/b.dart', 'lib/c.dart']);
+        final analysis =
+            ScriptedCodeAnalysis(
+                analyzedFiles: ['lib/a.dart', 'lib/b.dart', 'lib/c.dart'],
+              )
+              ..unformatted = {'lib/a.dart', 'lib/c.dart'}
+              ..formatRefused = {
+                'lib/b.dart': 'it refused a request (the formatter threw)',
+              };
+        final result = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(
+          [for (final finding in result.findings) finding.file],
+          ['lib/a.dart', 'lib/c.dart'],
+        );
+        final [notRun] = result.notRun;
+        expect(notRun.id, 'dart.unformatted');
+        expect(notRun.reason, contains('1 of 3 files was not checked'));
+        expect(
+          notRun.reason,
+          contains('lib/b.dart (it refused a request (the formatter threw))'),
+        );
+        expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart', 'lib/c.dart']);
+      });
+
+      test('a server that fails while it is asked about the formatting '
+          'fails the run as it does for the reading (exit 3 in the '
+          'terminal): the exception is passed on as it is and no check is '
+          'blamed; any other error is a bug', () async {
+        const failure = CodeAnalysisException('it ended by itself');
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/a.dart', 'lib/b.dart'],
+        )..formatFailure = failure;
+        await expectLater(
+          run(dartChecks, codeAnalysis: analysis),
+          throwsA(same(failure)),
+        );
+        await expectLater(
+          run(
+            dartChecks,
+            codeAnalysis: ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+              ..formatFailure = StateError('a bug'),
+          ),
+          throwsA(
+            isA<VerifyCheckError>().having(
+              (e) => e.checkId,
+              'checkId',
+              'dart.unformatted',
+            ),
+          ),
+        );
+      });
+
+      test('a reading that cannot be taken fails the run as it does for '
+          'every code check', () async {
+        const failure = CodeAnalysisException('it never started');
+        await expectLater(
+          run(dartChecks, codeAnalysis: ScriptedCodeAnalysis(failure: failure)),
+          throwsA(same(failure)),
+        );
+      });
+
+      test('a server that is alive but slow is a partial run, not a failure: '
+          'it is given the budget, and its files are named as not '
+          'checked', () async {
+        final analysis = ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+          ..onFormatAsked = (() => Completer<void>().future);
+        final gathering = VerifyGathering(
+          analysis,
+          projectRoot: app,
+          mode: VerifyMode.fast,
+          unverified: UnverifiedFiles(['lib/a.dart']),
+        );
+        final spent = Stopwatch()..start();
+        await gathering.code();
+        final reading = await gathering.formatting();
+        expect(reading.unformatted, isEmpty);
+        expect(reading.unchecked, ['lib/a.dart']);
+        expect(
+          reading.why,
+          'the analysis server did not answer within 1 s for 1 file',
+        );
+        expect(analysis.formatWithin, [formatBudgetFast]);
+        expect(spent.elapsed, lessThan(formatBudgetFast * 2));
+      });
+
+      test('the dart fix questions are given the time that is left, not a '
+          'limit around the call', () async {
+        final use = diagnostic(
+          DiagnosticLevel.info,
+          file: 'lib/a.dart',
+          code: 'deprecated_member_use',
+        );
+        final analysis = ScriptedCodeAnalysis(
+          analyzedFiles: ['lib/a.dart'],
+          found: [use],
+          fixable: {use},
+        );
+        final gathering = VerifyGathering(
+          analysis,
+          projectRoot: app,
+          unverified: UnverifiedFiles(['lib/a.dart']),
+        );
+        await gathering.code();
+        expect(await gathering.dartFixes(), {use: true});
+        expect(analysis.fixWithin.single, lessThanOrEqualTo(dartFixBudget));
+        expect(analysis.fixWithin.single, greaterThan(Duration.zero));
       });
     });
   });

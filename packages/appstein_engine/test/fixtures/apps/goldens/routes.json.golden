@@ -66,7 +66,7 @@
     },
     {
       "file": "lib/routing/router.dart",
-      "line": 58,
+      "line": 55,
       "name": null,
       "parent": "/",
       "path": null,
@@ -81,7 +81,7 @@
     },
     {
       "file": "lib/routing/router.dart",
-      "line": 67,
+      "line": 64,
       "name": null,
       "parent": null,
       "path": "/settings",
@@ -93,7 +93,7 @@
     },
     {
       "file": "lib/routing/router.dart",
-      "line": 83,
+      "line": 80,
       "name": null,
       "parent": null,
       "path": "/profile",
@@ -108,7 +108,7 @@
     },
     {
       "file": "lib/routing/router.dart",
-      "line": 91,
+      "line": 88,
       "name": null,
       "parent": null,
       "path": "/about",

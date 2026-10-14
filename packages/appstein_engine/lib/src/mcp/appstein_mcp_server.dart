@@ -88,9 +88,31 @@ final class _OutOfTurn implements CodeAnalysis {
   @override
   Future<CodeReading> read() => _outOfTurn(_analysis.read);
 
+  // The time limit of a question is held on the question itself, inside the
+  // out-of-turn part: the wait to take the turn back is another call's, may
+  // be long, and is no part of what the analysis took. A limit around both
+  // would give up on an answer the analysis had given, and let the run on
+  // while another call still holds the turn.
   @override
-  Future<bool> canDartFix(CodeDiagnostic diagnostic) =>
-      _outOfTurn(() => _analysis.canDartFix(diagnostic));
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) => _outOfTurn(
+    () => _analysis.canDartFix(diagnostic, within: within).timeout(within),
+  );
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) => _outOfTurn(
+    () => _analysis
+        .formatChanges(files, within: within)
+        .timeout(
+          within + questionGrace,
+          onTimeout: () => const FormatAnswers(),
+        ),
+  );
 
   Future<T> _outOfTurn<T>(Future<T> Function() ask) async {
     _turn.give();

@@ -2,6 +2,7 @@ import '../packs/pack.dart';
 import 'checks/dart_deprecated_check.dart';
 import 'checks/dart_error_check.dart';
 import 'checks/dart_level_checks.dart';
+import 'checks/dart_unformatted_check.dart';
 import 'checks/dart_unreadable_check.dart';
 import 'checks/decisions_check.dart';
 import 'checks/docs_stale_check.dart';
@@ -55,6 +56,7 @@ List<({VerifyCheck check, String? pack})> checksFor(List<Pack> packs) {
     (check: const DartUnreadableCheck(), pack: null),
     (check: const DartWarningCheck(), pack: null),
     (check: const DartLintCheck(), pack: null),
+    (check: const DartUnformattedCheck(), pack: null),
     (check: const TestFailedCheck(), pack: null),
     for (final pack in packs)
       for (final check in pack.checks) (check: check, pack: pack.id),

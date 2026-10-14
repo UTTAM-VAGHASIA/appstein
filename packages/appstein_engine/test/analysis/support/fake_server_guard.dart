@@ -168,6 +168,11 @@ Future<void> main(List<String> arguments) async {
               'stackTrace': '#0 main',
             });
             continue;
+          // Four files with no diagnostic, for `edit.format` (see below).
+          case 'format':
+            for (final name in ['a', 'b', 'c', 'd', 'e']) {
+              _errors(inProject('lib/$name.dart'), []);
+            }
           // An analysis that never ends.
           case 'never':
             continue;
@@ -179,6 +184,45 @@ Future<void> main(List<String> arguments) async {
             ]);
         }
         _status(false);
+      // `format`: `a.dart` would change, `d.dart` would not, the formatter
+      // throws on `b.dart` (the server refuses with `SERVER_ERROR`), `e.dart`
+      // does not parse (`FORMAT_WITH_ERRORS`), and `c.dart` is never
+      // answered.
+      case 'edit.format' when scenario == 'format':
+        final file = (request['params']! as Map)['file']! as String;
+        if (file.endsWith('b.dart')) {
+          _send({
+            'id': id,
+            'error': {
+              'code': 'SERVER_ERROR',
+              'message': 'Error during `edit.format`: the formatter threw.',
+            },
+          });
+        } else if (file.endsWith('e.dart')) {
+          // A file that does not parse.
+          _send({
+            'id': id,
+            'error': {
+              'code': 'FORMAT_WITH_ERRORS',
+              'message':
+                  'Error during `edit.format`: source contains syntax '
+                  'errors.',
+            },
+          });
+        } else if (!file.endsWith('c.dart')) {
+          _send({
+            'id': id,
+            'result': {
+              'edits': file.endsWith('a.dart')
+                  ? [
+                      {'offset': 0, 'length': 1, 'replacement': 'x'},
+                    ]
+                  : <Object?>[],
+              'selectionOffset': 0,
+              'selectionLength': 0,
+            },
+          });
+        }
       default:
         // `log:<file>`: each later request is noted in that file, one line
         // each, with the files it names.

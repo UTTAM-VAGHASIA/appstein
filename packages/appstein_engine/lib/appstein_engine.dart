@@ -112,6 +112,7 @@ export 'src/toolchain/xcode_template_parser.dart';
 export 'src/verify/checks/dart_deprecated_check.dart' show DartDeprecatedCheck;
 export 'src/verify/checks/dart_error_check.dart';
 export 'src/verify/checks/dart_level_checks.dart';
+export 'src/verify/checks/dart_unformatted_check.dart';
 export 'src/verify/checks/dart_unreadable_check.dart';
 export 'src/verify/checks/decisions_check.dart';
 export 'src/verify/checks/docs_stale_check.dart';
@@ -130,6 +131,8 @@ export 'src/verify/deprecation_ignores.dart'
         isDeprecatedUseCode,
         readDeprecationIgnores;
 export 'src/verify/engine_checks.dart';
+export 'src/verify/formatting.dart'
+    show FormatReading, formatBudgetFast, formatBudgetFull;
 export 'src/verify/suppression_comments.dart' show SuppressionComment;
 export 'src/verify/suppressions.dart';
 export 'src/verify/test_run.dart';

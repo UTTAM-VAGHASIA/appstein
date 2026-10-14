@@ -126,9 +126,67 @@ abstract interface class CodeAnalysis {
   /// which must have been taken first; a diagnostic without an `offset`
   /// can't be asked about and is not fixable.
   ///
+  /// The question takes at most [within], counted from when it is asked of
+  /// the server: the time a caller spends waiting for something else of its
+  /// own (the MCP server's turn) is not part of it. When [within] runs out
+  /// it throws a `TimeoutException`, and a caller says nothing about `dart
+  /// fix`.
+  ///
   /// Throws a [CodeAnalysisException] when the analysis can't answer; a
   /// caller then says nothing about `dart fix`.
-  Future<bool> canDartFix(CodeDiagnostic diagnostic);
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  });
+
+  /// Which of [files] the formatter of the project's SDK would change, as
+  /// `dart format` would: the layout the project's own tools decide on,
+  /// including the page width in the `formatter:` section of its
+  /// `analysis_options.yaml`. Each of [files] is a Dart file from the
+  /// project root, with `/` on every system, that the last [read] listed
+  /// among its `CodeReading.analyzedFiles` (which must have been taken
+  /// first). Nothing is written, on disk or in the server.
+  ///
+  /// The result says, for each file, one of three things
+  /// ([FormatAnswers]): the formatter would change it or would not (a file
+  /// whose source can't be parsed is answered "would not": it has no format,
+  /// and its `dart.error` says why); the server refused to answer for that
+  /// file, with why, or the file was not the text the last [read] saw by the
+  /// time it was answered; or nothing, because [within] ran out. [within] is
+  /// the time the whole question may take, counted from when it is asked of
+  /// the server (as for [canDartFix]); a caller says a file that was
+  /// refused or not answered was not checked, never that it is formatted.
+  ///
+  /// Throws a [CodeAnalysisException] when the analysis can't answer as a
+  /// whole: no reading was taken from the running server, or the server
+  /// failed meanwhile. That is Appstein failing (exit `3`), not a finding.
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  });
+}
+
+/// How long past its `within` a question to the analysis may keep a caller
+/// waiting before the caller stops waiting for it: the time a server that
+/// is stuck on an earlier question is given before it is given up on.
+const questionGrace = Duration(seconds: 1);
+
+/// What `CodeAnalysis.formatChanges` found out about the files it was asked
+/// about. A file is in at most one of the two maps; one in neither was not
+/// answered in time.
+final class FormatAnswers {
+  /// Creates the answers.
+  const FormatAnswers({this.changed = const {}, this.refused = const {}});
+
+  /// The files that were answered: true when the formatter would change
+  /// the file, false when it would not.
+  final Map<String, bool> changed;
+
+  /// The files the server could not answer for, with why in one line: it
+  /// refused the question for that file, or the file changed (or could not be
+  /// read again) while it was being answered, so the answer is not about the
+  /// text the reading saw.
+  final Map<String, String> refused;
 }
 
 /// A code analysis that holds something its owner must stop: an analysis
@@ -158,10 +216,14 @@ typedef CodeAnalysisScope =
 final class CodeAnalysisException implements Exception {
   /// Creates the error. [reason] completes "The Dart analysis server could
   /// not answer: " and ends without a full stop.
-  const CodeAnalysisException(this.reason);
+  const CodeAnalysisException(this.reason, {this.refusalCode});
 
   /// Why it could not answer.
   final String reason;
+
+  /// The server's own code for the error, when it refused one request and
+  /// gave one (`FORMAT_WITH_ERRORS`); null for any other failure.
+  final String? refusalCode;
 
   @override
   String toString() => 'The Dart analysis server could not answer: $reason.';

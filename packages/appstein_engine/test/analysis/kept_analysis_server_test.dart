@@ -81,7 +81,16 @@ final class _Server implements StoppableCodeAnalysis {
   }
 
   @override
-  Future<bool> canDartFix(CodeDiagnostic diagnostic) async => false;
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) async => false;
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) async => const FormatAnswers();
 
   @override
   Future<void> stop() async {

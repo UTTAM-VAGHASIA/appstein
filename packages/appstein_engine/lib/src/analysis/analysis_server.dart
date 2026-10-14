@@ -318,14 +318,77 @@ final class AnalysisServer implements StoppableCodeAnalysis {
   /// belongs to that reading), and when the server fails meanwhile. A
   /// caller falls back to saying nothing.
   @override
-  Future<bool> canDartFix(CodeDiagnostic diagnostic) async {
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) async {
     final session = _session;
     if (session == null || !session.answered) {
       throw const CodeAnalysisException(
         'it was asked about a fix with no reading taken from it',
       );
     }
-    return session.canDartFix(diagnostic);
+    // The time is the server's own: an earlier question of the same run
+    // that it is still busy with counts, nothing of the caller's does.
+    return session.canDartFix(diagnostic).timeout(within);
+  }
+
+  /// Asks the running server, which answered the last [read], which of
+  /// [files] its formatter would change (`edit.format`, which the server
+  /// answers with the edits `dart format` of its SDK would make, the project's
+  /// `formatter:` settings in `analysis_options.yaml` included). Nothing is
+  /// changed, on disk or in the server.
+  ///
+  /// - **The questions are sent together**, at most 32 at a time (the most
+  ///   files the look keeps open): a question costs the server about 15 ms
+  ///   when it is the only one in flight, and next to nothing when many are,
+  ///   so 100 files cost 30 to 125 ms, not 1.5 s.
+  /// - **At most [within] is spent**, counted from when the server is asked
+  ///   (and, past that, [questionGrace] for a server stuck on an earlier
+  ///   question). A question still unanswered then is given up and its file
+  ///   is in neither map of the result; its answer, when it comes, is kept
+  ///   for the next question.
+  /// - **The answer is kept** by the file's path and the hash of the text
+  ///   the server analyzed (the text a reading gave it), for as long as the
+  ///   server runs, so a file that did not change is asked about once. A new
+  ///   server (a change to a file that sets how the project is analyzed, such
+  ///   as `analysis_options.yaml`, which can change the format) starts with
+  ///   none. Where that text isn't known the answer is not kept.
+  /// - **The server answers from its own copy of the file**, which its file
+  ///   watcher may have updated after the reading. So when an answer arrives,
+  ///   the file is read again; if it is no longer the text of the reading
+  ///   (changed, deleted, locked), the answer is neither kept nor used: the
+  ///   file is in `refused`, as one not checked. The re-read compares the
+  ///   text, so it also finds an edit that keeps the file's size and puts its
+  ///   time back, which the reading's look (sizes and times) never sees; such
+  ///   a file is "not checked" for that question, and the next reading tells
+  ///   the server about it again, so the question after it is answered. The
+  ///   same re-read comes before a syntax-error answer is used or kept.
+  /// - **A file with a syntax error** is answered false: the server refuses
+  ///   to format it (`FORMAT_WITH_ERRORS`). Any other refusal is that file's
+  ///   alone: it is in `refused` with the server's words, and the other
+  ///   answers are kept.
+  ///
+  /// Throws a [CodeAnalysisException] when no reading was taken from the
+  /// running server (another caller replaced it, or it died: the kept answers
+  /// belong to that reading), and when the server fails meanwhile.
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) async {
+    final session = _session;
+    if (session == null || !session.answered) {
+      throw const CodeAnalysisException(
+        'it was asked about formatting with no reading taken from it',
+      );
+    }
+    return session
+        .formatChanges(files, within)
+        .timeout(
+          within + questionGrace,
+          onTimeout: () => const FormatAnswers(),
+        );
   }
 
   /// How often one question starts a server again before it gives up.
@@ -526,7 +589,17 @@ final class _Session {
     final now = await DiskLook.of(_root, unchanging: _unchanging);
     if (_failure case final failure?) throw failure;
     if (!now.sameSettingsAs(_seen)) throw const _SettingsChanged();
-    final changed = now.dartChangedSince(_seen);
+    // Besides what the look sees change: the files a formatting question
+    // found different from the text of the last reading, which the look may
+    // never see (a same-size edit whose time was put back). Without them such
+    // a file would be named "not checked" by every run until the look saw it
+    // change, and a partial run lets no file leave the unverified files.
+    final changed = <String>{
+      ...now.dartChangedSince(_seen),
+      for (final path in _renew)
+        if (now.dart.containsKey(path)) path,
+    }.toList()..sort();
+    _renew.clear();
     _seen = now;
     // The files of the project the server reads for this reading: those
     // told below, and at a session's first reading every file, which it
@@ -734,6 +807,158 @@ final class _Session {
     return false;
   }
 
+  /// What [formatChanges] answered, by file and the hash of its text: an
+  /// unchanged file is never asked about again while this session runs.
+  final _formatAnswers = <String, bool>{};
+
+  /// How many formatting questions are in flight at once: each re-reads its
+  /// file when it is answered, and the look keeps at most this many files
+  /// open at once ([openFilesAtOnce]).
+  static const _formatInFlight = openFilesAtOnce;
+
+  /// Which of [files] the server's formatter would change, within [within].
+  /// Asked after a reading, in turn with the readings, of the files as that
+  /// reading saw them.
+  Future<FormatAnswers> formatChanges(List<String> files, Duration within) {
+    final asked = _turn.then((_) => _formatChanges(files, within));
+    _turn = asked.then<void>((_) {}, onError: (Object _) {});
+    return asked;
+  }
+
+  Future<FormatAnswers> _formatChanges(
+    List<String> files,
+    Duration within,
+  ) async {
+    await _opened;
+    if (_failure case final failure?) throw failure;
+    final spent = Stopwatch()..start();
+    final answers = <String, bool>{};
+    final refused = <String, String>{};
+    final toAsk = <({String file, String path, String? text})>[];
+    for (final file in files) {
+      final path = p.joinAll([_root, ...file.split('/')]);
+      // The text the reading was taken from, not the file as it is now: an
+      // edit since then must not file an answer under the wrong text.
+      final text = _textHashes[path];
+      final known = text == null ? null : _formatAnswers['$file|$text'];
+      if (known != null) {
+        answers[file] = known;
+      } else {
+        toAsk.add((file: file, path: path, text: text));
+      }
+    }
+    // A question still unanswered when the time is up is dropped from the
+    // result, but its answer is still kept when it comes.
+    var open = true;
+    try {
+      for (var from = 0; from < toAsk.length; from += _formatInFlight) {
+        final left = within - spent.elapsed;
+        if (left <= Duration.zero) break;
+        final window = toAsk.skip(from).take(_formatInFlight);
+        final asking = [
+          for (final question in window)
+            _askFormat(question.path, question.text).then((answer) {
+              switch (answer) {
+                case (changed: final changed?, why: _):
+                  if (question.text case final text?) {
+                    _formatAnswers['${question.file}|$text'] = changed;
+                  }
+                  if (open) answers[question.file] = changed;
+                case (changed: _, why: final why?):
+                  if (open) refused[question.file] = why;
+                case _:
+                  break;
+              }
+            }),
+        ];
+        try {
+          await Future.wait(asking).timeout(left);
+        } on TimeoutException {
+          break;
+        }
+      }
+    } finally {
+      open = false;
+    }
+    return FormatAnswers(
+      changed: Map.unmodifiable(answers),
+      refused: Map.unmodifiable(refused),
+    );
+  }
+
+  /// Whether the server's formatter would change the file at [path]
+  /// (`changed`), or why that can't be said for this file (`why`): the
+  /// server refused the question, or the file is not [text] (the hash of the
+  /// text the reading saw) by the time it was answered. A server that failed
+  /// fails the question.
+  Future<({bool? changed, String? why})> _askFormat(
+    String path,
+    String? text,
+  ) async {
+    Object? answer;
+    var syntaxError = false;
+    try {
+      answer = await _request('edit.format', {
+        'file': path,
+        'selectionOffset': 0,
+        'selectionLength': 0,
+      });
+    } on CodeAnalysisException catch (error) {
+      if (_failure case final failure?) throw failure;
+      // Any other refusal is about this file; the others are still asked.
+      if (error.refusalCode != 'FORMAT_WITH_ERRORS') {
+        return (changed: null, why: error.reason);
+      }
+      // A file with a syntax error has no format to ask for: "would not
+      // change", once the check below has shown it is the reading's text.
+      syntaxError = true;
+      answer = null;
+    }
+    // The server answered from its own copy of the file, which its watcher
+    // may have updated since the reading: the answer is about the reading's
+    // text only if the file still is that text. That holds for a refusal for
+    // a syntax error too: it is no more true of the reading's text than any
+    // other answer, and a later reading of that text must not be served it.
+    if (text != null && await _textHashOnDisk(path) != text) {
+      // Not what the look saw, and the look may never see it (a same-size
+      // edit whose time was put back): the next reading tells the server
+      // about the file again, and takes its text anew.
+      _renew.add(path);
+      return (
+        changed: null,
+        why:
+            'the file changed, or could not be read again, while its '
+            'formatting was being checked',
+      );
+    }
+    if (syntaxError) return (changed: false, why: null);
+    if (answer case {'edits': final List<Object?> edits}) {
+      return (changed: edits.isNotEmpty, why: null);
+    }
+    return (
+      changed: null,
+      why: 'it answered a formatting question in a form Appstein does not know',
+    );
+  }
+
+  /// The files [formatChanges] found different from the text of the reading,
+  /// by absolute path: the next reading tells the server about them again
+  /// (`_takeIn`), whether or not the look sees them change.
+  final _renew = <String>{};
+
+  /// The hash of the text of the file at [path] as the look reads it (UTF-8,
+  /// malformed bytes replaced); null when it can't be read.
+  static Future<String?> _textHashOnDisk(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      return sha256Hex(
+        utf8.encode(const Utf8Decoder(allowMalformed: true).convert(bytes)),
+      );
+    } on FileSystemException {
+      return null;
+    }
+  }
+
   /// Sends a request, and completes with the server's `result` when it
   /// answers.
   Future<Object?> _request(String method, [Map<String, Object?>? params]) {
@@ -770,6 +995,10 @@ final class _Session {
           answered.completeError(
             CodeAnalysisException(
               'it refused a request (${_plain('${error['message']}')})',
+              refusalCode: switch (error['code']) {
+                final String code => code,
+                _ => null,
+              },
             ),
           );
         } else {

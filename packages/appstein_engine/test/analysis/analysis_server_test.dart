@@ -551,6 +551,127 @@ int one() => 1;
       expect(await processAlive(bystander.pid), isTrue);
     });
 
+    // The files the `format` scenario answers about (see the scenario).
+    List<String> formatFiles() {
+      for (final name in ['a', 'b', 'c', 'd']) {
+        writeProjectFile(app, 'lib/$name.dart', 'int $name = 1;\n');
+      }
+      return [
+        for (final name in ['a', 'b', 'c', 'd']) 'lib/$name.dart',
+      ];
+    }
+
+    test('a file the formatter throws on is refused alone, with what the '
+        'server said: the other answers are kept, and a question never '
+        'answered is in neither list', () async {
+      final files = formatFiles();
+      final server = scripted('format');
+      await server.read();
+      final answers = await server.formatChanges(
+        files,
+        within: const Duration(milliseconds: 600),
+      );
+      expect(answers.changed, {'lib/a.dart': true, 'lib/d.dart': false});
+      expect(answers.refused, {
+        'lib/b.dart':
+            'it refused a request (Error during `edit.format`: the '
+            'formatter threw)',
+      });
+      expect(
+        files.where(
+          (file) =>
+              !answers.changed.containsKey(file) &&
+              !answers.refused.containsKey(file),
+        ),
+        ['lib/c.dart'],
+      );
+      // Kept answers cost nothing, even with no time at all; a refusal is
+      // not kept.
+      final kept = await server.formatChanges(files, within: Duration.zero);
+      expect(kept.changed, {'lib/a.dart': true, 'lib/d.dart': false});
+      expect(kept.refused, isEmpty);
+    });
+
+    test('an answer for a file that is not the text of the reading by the '
+        'time it comes is neither used nor kept', () async {
+      final files = formatFiles();
+      final server = scripted('format');
+      await server.read();
+      // Edited after the reading: the server answers from its own copy.
+      writeProjectFile(app, 'lib/a.dart', 'int a = 2;\n');
+      final stale = await server.formatChanges([
+        'lib/a.dart',
+        'lib/d.dart',
+      ], within: const Duration(milliseconds: 600));
+      expect(stale.changed, {'lib/d.dart': false});
+      expect(stale.refused.keys, ['lib/a.dart']);
+      expect(stale.refused['lib/a.dart'], contains('changed'));
+      // Nothing was kept for the edited file; once a reading has seen the
+      // edit it is asked about again and answered.
+      await server.read();
+      final fresh = await server.formatChanges([
+        'lib/a.dart',
+      ], within: const Duration(milliseconds: 600));
+      expect(fresh.changed, {'lib/a.dart': true});
+      expect(files, hasLength(4));
+    });
+
+    test('a file that does not parse is answered "would not change" only '
+        'for the text of the reading: edited since, it is refused, and '
+        'nothing is kept for a later reading of the old text', () async {
+      formatFiles();
+      writeProjectFile(app, 'lib/e.dart', 'int e = 1;\n');
+      final server = scripted('format');
+      await server.read();
+      // A broken text of another size, and the server refuses it.
+      writeProjectFile(app, 'lib/e.dart', 'int e = 22 +;\n');
+      final stale = await server.formatChanges([
+        'lib/e.dart',
+      ], within: const Duration(milliseconds: 600));
+      expect(stale.changed, isEmpty);
+      expect(stale.refused.keys, ['lib/e.dart']);
+      // Undone: a reading of the old text again.
+      writeProjectFile(app, 'lib/e.dart', 'int e = 1;\n');
+      await server.read();
+      final nothing = await server.formatChanges([
+        'lib/e.dart',
+      ], within: Duration.zero);
+      expect(nothing.changed, isEmpty, reason: 'an answer was kept');
+      final again = await server.formatChanges([
+        'lib/e.dart',
+      ], within: const Duration(milliseconds: 600));
+      expect(again.changed, {'lib/e.dart': false});
+    });
+
+    test('a file found different from the reading, that the look cannot '
+        'see change (same size, time put back), is told to the server '
+        'again by the next reading, which then answers', () async {
+      final files = formatFiles();
+      final hourAgo = DateTime.now().subtract(const Duration(hours: 1));
+      for (final file in files) {
+        File(p.join(app, file)).setLastModifiedSync(hourAgo);
+      }
+      final server = scripted('format');
+      await server.read();
+      final edited = File(p.join(app, 'lib/a.dart'));
+      edited.writeAsStringSync('int a = 2;\n');
+      edited.setLastModifiedSync(hourAgo);
+      final stale = await server.formatChanges([
+        'lib/a.dart',
+        'lib/d.dart',
+      ], within: const Duration(milliseconds: 600));
+      expect(stale.changed, {'lib/d.dart': false});
+      expect(stale.refused.keys, ['lib/a.dart']);
+      // The look sees no change; the file is told all the same, so the next
+      // question is about the text the reading took.
+      await server.read();
+      final fresh = await server.formatChanges([
+        'lib/a.dart',
+      ], within: const Duration(milliseconds: 600));
+      expect(fresh.changed, {'lib/a.dart': true});
+      expect(fresh.refused, isEmpty);
+    });
+
     test('a refused request fails the question with what the server '
         'said', () async {
       await expectLater(

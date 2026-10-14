@@ -743,6 +743,116 @@ void main() {
       );
     });
 
+    test('the time limit of a formatting question is on the analysis, not on '
+        'the wait for the calls\' turn: a call that holds the turn longer '
+        'than the budget changes no answer, and the run never goes on while '
+        'it holds the turn', () async {
+      File(p.join(app, 'lib', 'a.dart')).writeAsStringSync('int a( )=>1;\n');
+      analysis = ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+        ..unformatted = {'lib/a.dart'};
+      final server = await serve();
+      await call(server, 'overview');
+      final log = <String>[];
+
+      // The question is answered at the moment another call holds the turn
+      // the verify call gave up: the question starts another call, and is
+      // answered when that call's turn starts (its sync is the first thing
+      // it does with the turn), so the answer comes within the question's
+      // time whatever the machine's load. The other call then holds the turn
+      // for more than the question's time and its grace together: its sync
+      // waits for a command that takes 3 s.
+      var armed = false;
+      var holds = false;
+      final holding = Completer<void>();
+      final originalSync = syncFor;
+      syncFor = () {
+        if (armed && !holds) {
+          holds = true;
+          log.add('other holds the turn');
+          holding.complete();
+        }
+        return originalSync();
+      };
+      var delayed = false;
+      runner.onRun = (_) async {
+        if (!armed || delayed) return;
+        delayed = true;
+        await Future<void>.delayed(
+          formatBudgetFast + questionGrace + const Duration(seconds: 1),
+        );
+        log.add('other lets go');
+      };
+      late Future<CallToolResult> other;
+      analysis.onFormatAsked = () {
+        armed = true;
+        File(
+          p.join(app, 'pubspec.yaml'),
+        ).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 5)));
+        other = call(
+          server,
+          'overview',
+        ).whenComplete(() => log.add('other done'));
+        return holding.future;
+      };
+      final verify = call(server, 'verify', {
+        'scope': 'fast',
+        'files': ['lib/a.dart'],
+      }).whenComplete(() => log.add('verify done'));
+      final json = structured(await verify);
+      await other;
+
+      // The run took the turn back only when the other call had finished.
+      expect(log, [
+        'other holds the turn',
+        'other lets go',
+        'other done',
+        'verify done',
+      ]);
+      expect(
+        [
+          for (final finding in json['findings']! as List)
+            (finding as Map)['id'],
+        ],
+        ['dart.unformatted'],
+      );
+      expect(json['notRun'], anyOf(isNull, isEmpty));
+    });
+
+    test('a server that fails while it answers the formatting question is '
+        'an error reply with the reason and `appstein doctor`, like one that '
+        'fails while it reads, and the server keeps running', () async {
+      File(p.join(app, 'lib', 'a.dart')).writeAsStringSync('int a( )=>1;\n');
+      analysis = ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+        ..formatFailure = const CodeAnalysisException('it ended by itself');
+      final server = await serve();
+      final failed = await call(server, 'verify', {
+        'scope': 'fast',
+        'files': ['lib/a.dart'],
+      });
+      expect(failed.isError, isTrue);
+      expect(failed.structuredContent, isNull);
+      expect(
+        textOf(failed),
+        startsWith(
+          'The Dart analysis server could not answer: it ended by itself. '
+          'Run `appstein doctor` to see what is wrong.',
+        ),
+      );
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+      analysis.formatFailure = null;
+      expect([
+        for (final finding
+            in structured(
+                  await call(server, 'verify', {
+                    'scope': 'fast',
+                    'files': ['lib/a.dart'],
+                  }),
+                )['findings']!
+                as List)
+          (finding as Map)['id'],
+      ], isEmpty);
+    });
+
     test('tests that can\'t be run are an error reply with the reason and '
         '`appstein doctor`, not a bug to report, and the server keeps '
         'running', () async {

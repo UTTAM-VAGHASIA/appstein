@@ -49,6 +49,8 @@ void main() {
     final app = copyFixtureApp();
     // Each GoRoute( line comes just before its path: line.
     int at(String pathLine) => lineOf(app, router, pathLine) - 1;
+    // A route the formatter keeps on one line starts on its path's line.
+    int onOneLine(String pathLine) => lineOf(app, router, pathLine);
     final routes = await routesOf(app);
     expect(
       [for (final r in routes.routes) r.toJson()],
@@ -77,7 +79,7 @@ void main() {
           ),
         ),
         route(
-          line: at("path: ':id'"),
+          line: onOneLine("path: ':id'"),
           path: '/booking/:id',
           parent: '/booking',
           redirect: true,
@@ -107,7 +109,7 @@ void main() {
           ),
         ),
         route(
-          line: at("path: '/about'"),
+          line: onOneLine("path: '/about'"),
           path: '/about',
           reason:
               'the builder returns Text, which is not declared in this '

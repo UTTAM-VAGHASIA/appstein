@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:appstein_engine/android.dart';
@@ -16,6 +17,11 @@ import '../support/fixture_app.dart';
 import '../support/flutter_test_output.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
+
+/// Asks [server] whether `dart fix` can fix [diagnostic], with all the time a
+/// test needs.
+Future<bool> canFix(AnalysisServer server, CodeDiagnostic diagnostic) =>
+    server.canDartFix(diagnostic, within: const Duration(seconds: 30));
 
 // `runVerify` on the fixture app with a real analysis server (slice 1d.2,
 // seam 1). A start costs seconds, so each group starts one server for its
@@ -1491,13 +1497,13 @@ void swap() {
       // usually still answers for the old text (true); its own file watcher
       // may have taken the edit in already (false). Either way the answer
       // must not be kept for the new text.
-      final first = await server.canDartFix(migratable);
+      final first = await canFix(server, migratable);
       reading = await server.read();
       final other = reading.diagnostics.singleWhere(
         (diagnostic) => diagnostic.file == swap,
       );
       expect((other.offset, other.code), (migratable.offset, migratable.code));
-      expect(await server.canDartFix(other), isFalse, reason: 'first: $first');
+      expect(await canFix(server, other), isFalse, reason: 'first: $first');
     });
 
     test('on an unverified file the hint says whether dart fix can migrate '
@@ -1509,17 +1515,17 @@ void swap() {
       ];
       expect(migrated.offset, isNotNull);
       final asked = Stopwatch()..start();
-      expect(await server.canDartFix(migrated), isTrue);
+      expect(await canFix(server, migrated), isTrue);
       final first = asked.elapsedMicroseconds;
       // A migration the package marks for the IDE only is offered the same
       // way: the server's answer doesn't tell the two apart, so the hint
       // says only what holds.
-      expect(await server.canDartFix(ideOnly), isTrue);
-      expect(await server.canDartFix(rewritten), isFalse);
+      expect(await canFix(server, ideOnly), isTrue);
+      expect(await canFix(server, rewritten), isFalse);
       final three = asked.elapsedMicroseconds;
       asked.reset();
       for (var i = 0; i < 10; i++) {
-        expect(await server.canDartFix(migrated), isTrue);
+        expect(await canFix(server, migrated), isTrue);
       }
       final kept = asked.elapsedMicroseconds / 10;
       // ignore: avoid_print
@@ -1557,5 +1563,497 @@ void swap() {
         expect(KnowledgeStore(app).readState().state!.unverified, [uses]);
       }
     });
+  });
+
+  // Ticket 07 with a real server: `dart.unformatted` agrees with the real
+  // `dart format` of the SDK that runs the tests, file by file.
+  group('formatting', () {
+    late String app;
+    late AnalysisServer server;
+
+    const unformatted = 'lib/format/unformatted.dart';
+    const formatted = 'lib/format/formatted.dart';
+
+    // A file `dart format` would change when the page is 80 wide and would
+    // not when it is 120 wide, and one for the other way round.
+    const wide = '''
+/// Fits 120 columns, not 80.
+String wide(int aaaaaaaaaaaa, int bbbbbbbbbbbbb, int cccccccccccccc, int dddddddddddddd) => '';
+''';
+    const wrapped = '''
+/// Wrapped for 80 columns, one line of 120.
+String wrapped(
+  int aaaaaaaaaaaa,
+  int bbbbbbbbbbbbb,
+  int cccccccccccccc,
+  int dddddddddddddd,
+) => '';
+''';
+
+    Future<VerifyResult> run(VerifyMode mode) =>
+        verify(app, server, mode: mode);
+
+    List<String> unformattedIn(VerifyResult result) => [
+      for (final finding in result.findings)
+        if (finding.id == 'dart.unformatted') finding.file!,
+    ];
+
+    /// The Dart files of the project, from its root with `/`, that `dart
+    /// format` of the SDK that runs the tests would change. It is run as the
+    /// ticket says, with `--output=none --set-exit-if-changed`: its exit
+    /// code is 1 when it would change a file (65 when a file can't be
+    /// parsed), and it names each file it would change.
+    Future<Set<String>> realFormatterChanges(List<String> files) async {
+      // Run in the project, with paths from its root: it names the files it
+      // would change relative to where it runs.
+      final result = await Process.run(
+        testDart,
+        ['format', '--output=none', '--set-exit-if-changed', ...files],
+        workingDirectory: app,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      final changed = <String>{};
+      for (final line in '${result.stdout}'.split('\n')) {
+        if (line.startsWith('Changed ')) {
+          changed.add(
+            p.split(line.substring('Changed '.length).trim()).join('/'),
+          );
+        }
+      }
+      expect(
+        result.exitCode,
+        changed.isEmpty ? anyOf(0, 65) : anyOf(1, 65),
+        reason: '${result.stdout}${result.stderr}',
+      );
+      return changed;
+    }
+
+    /// Every Dart file under [app] that a formatter question is about: those
+    /// the analysis covers and that are not generated.
+    List<String> askedFiles({String exclude = 'lib/excluded/'}) =>
+        [
+          for (final entity in Directory(app).listSync(recursive: true))
+            if (entity is File &&
+                entity.path.endsWith('.dart') &&
+                !p
+                    .split(p.relative(entity.path, from: app))
+                    .contains('.dart_tool'))
+              p.split(p.relative(entity.path, from: app)).join('/'),
+        ]..removeWhere(
+          (file) =>
+              file.startsWith(exclude) ||
+              File(
+                p.join(app, file),
+              ).readAsStringSync().startsWith('// GENERATED CODE'),
+        );
+
+    setUpAll(() async {
+      app = copyFixtureApp();
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        'analyzer:\n  exclude:\n    - lib/excluded/**\n'
+            'formatter:\n  page_width: 120\n',
+      );
+      writeProjectFile(
+        app,
+        formatted,
+        '/// Formatted.\nint formatted(int x) => x + 1;\n',
+      );
+      writeProjectFile(
+        app,
+        unformatted,
+        '/// Unformatted.\nint unformatted( int x )=>x+1;\n',
+      );
+      writeProjectFile(app, 'lib/format/wide.dart', wide);
+      writeProjectFile(app, 'lib/format/wrapped.dart', wrapped);
+      writeProjectFile(
+        app,
+        'lib/format/crlf_formatted.dart',
+        '/// Formatted.\r\nint crlfFormatted(int x) => x + 1;\r\n',
+      );
+      writeProjectFile(
+        app,
+        'lib/format/crlf_unformatted.dart',
+        '/// Unformatted.\r\nint crlfUnformatted( int x )=>x+1;\r\n',
+      );
+      writeProjectFile(
+        app,
+        'lib/format/bom.dart',
+        '\u{FEFF}/// Formatted, with a byte order mark.\nint bom(int x) => x;\n',
+      );
+      writeProjectFile(app, 'lib/format/empty.dart', '');
+      // The formatter joins these lines (`automate`, the default) and keeps
+      // them apart when the project asks to preserve trailing commas.
+      writeProjectFile(app, 'lib/format/trailing_commas.dart', '''
+/// Takes two.
+void callee(int a, int b) {}
+
+/// Calls it with a trailing comma.
+void caller() {
+  callee(
+    1,
+    2,
+  );
+}
+''');
+      writeProjectFile(app, 'lib/format/comment_only.dart', '// Nothing.\n');
+      writeProjectFile(
+        app,
+        'lib/format/no_final_newline.dart',
+        '/// Formatted but for the end.\nint noEnd(int x) => x;',
+      );
+      // Parses, with an analyzer error and a format of its own.
+      writeProjectFile(
+        app,
+        'lib/format/has_error.dart',
+        "/// Wrong, and unformatted.\nint hasError( ) => 'text' ;\n",
+      );
+      writeProjectFile(
+        app,
+        'lib/format/broken.dart',
+        '/// Does not parse.\nint broken( {\n',
+      );
+      writeProjectFile(
+        app,
+        'lib/format/generated.dart',
+        '// GENERATED CODE - DO NOT MODIFY BY HAND\n\n'
+            '/// Generated.\nint generated( int x )=>x;\n',
+      );
+      writeProjectFile(
+        app,
+        'lib/excluded/unformatted.dart',
+        '/// Excluded.\nint excluded( int x )=>x;\n',
+      );
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('a full run reports exactly the files the real dart format would '
+        'change, with the page width of analysis_options.yaml', () async {
+      final result = await run(VerifyMode.full);
+      final ours = unformattedIn(result);
+      final real = await realFormatterChanges(askedFiles());
+      expect(ours, unorderedEquals(real));
+      expect(
+        ours,
+        containsAll([
+          unformatted,
+          'lib/format/wrapped.dart',
+          'lib/format/crlf_unformatted.dart',
+          'lib/format/has_error.dart',
+          'lib/format/no_final_newline.dart',
+          'lib/format/trailing_commas.dart',
+          // The real formatter gives an empty file its line end.
+          'lib/format/empty.dart',
+        ]),
+      );
+      // At 120 columns the wide file is formatted: at 80 it would not be.
+      expect(
+        ours.toSet().intersection({
+          formatted,
+          'lib/format/wide.dart',
+          'lib/format/crlf_formatted.dart',
+          'lib/format/bom.dart',
+          'lib/format/comment_only.dart',
+        }),
+        isEmpty,
+      );
+      // The excluded and the generated file are never reported.
+      expect(
+        ours.toSet().intersection({
+          'lib/excluded/unformatted.dart',
+          'lib/format/generated.dart',
+        }),
+        isEmpty,
+      );
+      // The file that does not parse has its error and no format.
+      final broken = [
+        for (final finding in result.findings)
+          if (finding.file == 'lib/format/broken.dart') finding.id,
+      ];
+      expect(broken, isNotEmpty);
+      expect(broken, everyElement('dart.error'));
+      final finding = result.findings.firstWhere(
+        (finding) => finding.file == unformatted,
+      );
+      expect(finding.severity, Severity.warning);
+      expect(finding.line, isNull);
+      expect(finding.fixHint, contains('`appstein verify --apply`'));
+      expect([
+        for (final check in result.notRun) check.id,
+      ], isNot(contains('dart.unformatted')));
+    });
+
+    test('the check never writes a file', () async {
+      final before = {
+        for (final file in askedFiles())
+          file: File(p.join(app, file)).readAsBytesSync(),
+      };
+      await run(VerifyMode.full);
+      await run(VerifyMode.fast);
+      for (final MapEntry(key: file, value: bytes) in before.entries) {
+        expect(File(p.join(app, file)).readAsBytesSync(), bytes, reason: file);
+      }
+    });
+
+    test('a fast run reports it only for the unverified files', () async {
+      // The earlier runs verified every file but the two with an error; the
+      // one that parses is unverified still, and unformatted.
+      const stays = 'lib/format/has_error.dart';
+      expect(unformattedIn(await run(VerifyMode.fast)), [stays]);
+      // `formatted` is edited, and `unformatted`, never touched, is not.
+      writeProjectFile(
+        app,
+        formatted,
+        '/// Formatted no more.\nint formatted( int x )=>x+1;\n',
+      );
+      expect(unformattedIn(await run(VerifyMode.fast)), [formatted, stays]);
+      // It is fixed, and the next run says nothing of it.
+      writeProjectFile(
+        app,
+        formatted,
+        '/// Formatted again.\nint formatted(int x) => x + 1;\n',
+      );
+      expect(unformattedIn(await run(VerifyMode.fast)), [stays]);
+      // A file that is deleted is not unformatted, though the server may
+      // list it for a moment more.
+      const gone = 'lib/format/gone.dart';
+      writeProjectFile(app, gone, 'int gone( )=>1;\n');
+      expect(unformattedIn(await run(VerifyMode.fast)), contains(gone));
+      deleteProjectFile(app, gone);
+      expect(unformattedIn(await run(VerifyMode.fast)), [stays]);
+      // The full run still knows the old file.
+      expect(unformattedIn(await run(VerifyMode.full)), contains(unformatted));
+    });
+
+    test('a file edited into a format is seen as soon as it is on disk, and '
+        'a change of the page width is seen too', () async {
+      writeProjectFile(
+        app,
+        unformatted,
+        '/// Fixed.\nint unformatted(int x) => x;\n',
+      );
+      expect(
+        unformattedIn(await run(VerifyMode.full)),
+        isNot(contains(unformatted)),
+      );
+      // The page is 80 columns wide now: `wide` would change, and
+      // `wrapped`, which no longer fits on one line at that width, would not.
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        'analyzer:\n  exclude:\n    - lib/excluded/**\n'
+            'formatter:\n  page_width: 80\n',
+      );
+      final ours = unformattedIn(await run(VerifyMode.full));
+      final real = await realFormatterChanges(askedFiles());
+      expect(ours, unorderedEquals(real));
+      expect(ours, contains('lib/format/wide.dart'));
+    });
+
+    test('the other settings of the formatter reach the question: '
+        'trailing_commas: preserve, and a file of an older language '
+        'version', () async {
+      const options =
+          'analyzer:\n  exclude:\n    - lib/excluded/**\n'
+          'formatter:\n  page_width: 80\n';
+      // `automate`, the default: the trailing commas do not keep the lines
+      // apart.
+      expect(
+        await realFormatterChanges(askedFiles()),
+        contains('lib/format/trailing_commas.dart'),
+      );
+      expect(
+        unformattedIn(await run(VerifyMode.full)),
+        contains('lib/format/trailing_commas.dart'),
+      );
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        '$options  trailing_commas: preserve\n',
+      );
+
+      // A file the formatter lays out in the style before Dart 3.7 when it
+      // starts with `// @dart=3.6`, and in the current style when it does
+      // not. The short-style text is made by the real formatter, so no
+      // knowledge of the two styles is in this test; that they differ is
+      // checked below.
+      const raw = '''
+class Remote {
+  Remote({required Object aaaaaaaaaaaaaaaaaaaaaaaaa, required Object bbbbbbbbbbbbbbbbbbbbbbbbbbb})
+      : _a = aaaaaaaaaaaaaaaaaaaaaaaaa, _b = bbbbbbbbbbbbbbbbbbbbbbbbbbb;
+
+  final Object _a;
+  final Object _b;
+}
+''';
+      const header = '// @dart=3.6\n';
+      const short = 'lib/format/short_style.dart';
+      const twin = 'lib/format/tall_twin.dart';
+      writeProjectFile(app, short, '$header$raw');
+      final made = await Process.run(testDart, [
+        'format',
+        short,
+      ], workingDirectory: app);
+      expect(made.exitCode, 0, reason: '${made.stdout}${made.stderr}');
+      final shortText = File(p.join(app, short)).readAsStringSync();
+      expect(shortText, startsWith(header));
+      // The same text without the header, for the current style.
+      writeProjectFile(app, twin, shortText.substring(header.length));
+
+      final real = await realFormatterChanges(askedFiles());
+      final ours = unformattedIn(await run(VerifyMode.full));
+      expect(ours, unorderedEquals(real));
+      // The styles differ: the short-style text is formatted for a file that
+      // says 3.6 and is not for its twin.
+      expect(real, isNot(contains(short)));
+      expect(real, contains(twin));
+      // Preserved trailing commas keep the lines apart.
+      expect(real, isNot(contains('lib/format/trailing_commas.dart')));
+    });
+
+    test('an answer is not used for a file that was edited after the '
+        'reading, and a reading that has seen the edit gets the right '
+        'one', () async {
+      const file = 'lib/format/edited.dart';
+      writeProjectFile(app, file, '/// Edited.\nint edited( )=>1;\n');
+      final own = realAnalysisServer(app);
+      addTearDown(own.stop);
+      await own.read();
+      writeProjectFile(app, file, '/// Edited.\nint edited() => 1;\n');
+      final stale = await own.formatChanges([file], within: formatBudgetFull);
+      expect(stale.changed, isEmpty);
+      expect(stale.refused.keys, [file]);
+      await own.read();
+      final fresh = await own.formatChanges([file], within: formatBudgetFull);
+      expect(fresh.changed, {file: false});
+      expect(fresh.refused, isEmpty);
+    });
+
+    test('a server that dies while the formatting is asked fails the '
+        'question, with the reason', () async {
+      final dying = realAnalysisServer(app);
+      addTearDown(dying.stop);
+      final reading = await dying.read();
+      final files = [
+        for (final file in reading.analyzedFiles)
+          if (file.endsWith('.dart')) file,
+      ];
+      final (:guard, server: serverId) = dying.processes!;
+      // The server this test started.
+      await recordProcesses([guard, serverId]);
+      expect(Process.killPid(serverId, ProcessSignal.sigkill), isTrue);
+      await expectLater(
+        dying.formatChanges(files, within: formatBudgetFull),
+        throwsA(isA<CodeAnalysisException>()),
+      );
+    });
+
+    test(
+      'the cost of the questions on 200 files, and the kept answers',
+      () async {
+        final big = copyFixtureApp();
+        writeProjectFile(
+          big,
+          'analysis_options.yaml',
+          'formatter:\n  page_width: 100\n',
+        );
+        const files = 200;
+        for (var i = 0; i < files; i++) {
+          // Half of them are unformatted: each has some 60 lines.
+          final tight = i.isEven;
+          final body = StringBuffer('/// A class $i.\nclass Thing$i {\n');
+          for (var m = 0; m < 12; m++) {
+            // The formatter puts a blank line between members.
+            if (!tight && m > 0) body.write('\n');
+            body.write(
+              tight
+                  ? '  int method$m( int a,int b )  { return a+b*$m; }\n'
+                  : '  int method$m(int a, int b) {\n    return a + b * $m;\n  }\n',
+            );
+          }
+          body.write('}\n');
+          writeProjectFile(big, 'lib/many/thing_$i.dart', '$body');
+        }
+        final many = realAnalysisServer(big);
+        addTearDown(many.stop);
+        final reading = await many.read();
+        final dartFiles = [
+          for (final file in reading.analyzedFiles)
+            if (file.startsWith('lib/many/')) file,
+        ];
+        expect(dartFiles, hasLength(files));
+        // No time at all: nothing is asked, and nothing is answered.
+        final none = await many.formatChanges(dartFiles, within: Duration.zero);
+        expect(none.changed, isEmpty);
+        expect(none.refused, isEmpty);
+        final cold = Stopwatch()..start();
+        final found = await many.formatChanges(
+          dartFiles,
+          within: formatBudgetFull,
+        );
+        cold.stop();
+        final answers = found.changed;
+        expect(answers, hasLength(files));
+        expect(found.refused, isEmpty);
+        expect(
+          answers.values.where((changed) => changed),
+          hasLength(files ~/ 2),
+        );
+        final warm = Stopwatch()..start();
+        final again = await many.formatChanges(
+          dartFiles,
+          within: formatBudgetFull,
+        );
+        warm.stop();
+        expect(again.changed, answers);
+        // ignore: avoid_print
+        print(
+          'formatChanges on $files files of the fixture app: first question '
+          '${cold.elapsedMilliseconds} ms, kept answers '
+          '${warm.elapsedMicroseconds / 1000} ms (budget for a fast run: '
+          '${formatBudgetFast.inMilliseconds} ms)',
+        );
+        // The same through the gathering of a full run, which also looks at
+        // the start of each file for a generated header.
+        final gathering = VerifyGathering(
+          many,
+          projectRoot: big,
+          mode: VerifyMode.full,
+        );
+        await gathering.code();
+        final gathered = Stopwatch()..start();
+        final formatting = await gathering.formatting();
+        gathered.stop();
+        expect(formatting.unchecked, isEmpty);
+        expect(
+          formatting.unformatted.where((file) => file.startsWith('lib/many/')),
+          hasLength(files ~/ 2),
+        );
+        // ignore: avoid_print
+        print(
+          'VerifyGathering.formatting on the same app, every file asked '
+          'about (${formatting.checked}), answers kept: '
+          '${gathered.elapsedMilliseconds} ms',
+        );
+        // Three times the budget of a fast run: a loaded machine runs the
+        // whole suite at once.
+        expect(cold.elapsed, lessThan(formatBudgetFast * 3));
+        expect(warm.elapsed, lessThan(const Duration(milliseconds: 100)));
+        // The same files agree with the real formatter, at its width of 100.
+        final real = await Process.run(testDart, [
+          'format',
+          '--output=none',
+          p.join(big, 'lib', 'many'),
+        ]);
+        expect(
+          RegExp(r'^Changed ', multiLine: true).allMatches('${real.stdout}'),
+          hasLength(files ~/ 2),
+        );
+      },
+    );
   });
 }

@@ -7,6 +7,7 @@ import '../decisions/decision_store.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
 import 'deprecation_ignores.dart';
+import 'formatting.dart';
 import 'suppression_comments.dart';
 import 'test_run.dart';
 import 'unverified_files.dart';
@@ -39,6 +40,7 @@ final class VerifyContext {
     this.testsReader,
     this.onNotRun,
     this.dartFixesReader,
+    this.formattingReader,
     this._unverified,
     this.mode = VerifyMode.full,
   });
@@ -71,6 +73,24 @@ final class VerifyContext {
       (dartFixesReader ??
       (throw StateError(
         'This context has no answers about dart fix. $_howToGatherFixes',
+      )))();
+
+  /// Gives [formatting]. `runVerify` passes one that throws when the check
+  /// that is running did not gather it. Null makes [formatting] throw.
+  final FormatReading Function()? formattingReader;
+
+  /// Which Dart files the formatter of the project's SDK would change: the
+  /// run's one question to the analysis server, asked before the knowledge
+  /// lock ([VerifyGathering.formatting]). A fast run asked about the
+  /// [unverified] files only, a full run about every file.
+  ///
+  /// Only a check that asked for it in its own [GatheringCheck.gather] may
+  /// read it; for any other check it throws a [StateError], as [code] does.
+  FormatReading get formatting =>
+      (formattingReader ??
+      (throw StateError(
+        'This context has no answers about formatting. '
+        '$_howToGatherFormatting',
       )))();
 
   /// Gives [tests]: the run's one run of the project's tests. `runVerify`
@@ -184,26 +204,147 @@ final class VerifyContext {
 /// for an analysis server.
 ///
 /// Each kind of answer is gathered once per run, however many checks ask
-/// for it, so every check judges the same one. Today there are four: the
+/// for it, so every check judges the same one. Today there are five: the
 /// code analysis's reading, the comments and settings that hide deprecated
 /// use, whether `dart fix` can migrate each deprecated use on the
-/// [unverified] files, and the project's test run. A later check with slow
-/// work of its own (a file's formatting, the pending fixes) adds it here in
-/// the same way: a
-/// method the check calls from [GatheringCheck.gather], and a getter on
-/// [VerifyContext] for what it found.
+/// [unverified] files, which Dart files the formatter would change, and the
+/// project's test run. A later check with slow work of its own (the pending
+/// fixes) adds it here in the same way: a method the check calls from
+/// [GatheringCheck.gather], and a getter on [VerifyContext] for what it
+/// found.
 final class VerifyGathering {
   /// Creates the gathering of one run, which asks [codeAnalysis], reads the
   /// source files of the project at [projectRoot], and runs the project's
   /// tests with `runTests` when a check asks for them. [unverified] are the
-  /// run's unverified files.
+  /// run's unverified files, and [mode] the run's mode: a fast run asks about
+  /// the formatting of the unverified files only.
   VerifyGathering(
     CodeAnalysis codeAnalysis, {
     this.projectRoot,
     this._runTests,
     UnverifiedFiles? unverified,
+    this.mode = VerifyMode.full,
   }) : _codeAnalysis = codeAnalysis,
        unverified = unverified ?? UnverifiedFiles.none;
+
+  /// The run's mode.
+  final VerifyMode mode;
+
+  Future<FormatReading>? _formatAsked;
+  FormatReading? _formatting;
+  final _formatAskers = <VerifyCheck?>{};
+
+  /// Which Dart files the formatter of the project's SDK would change
+  /// (`CodeAnalysis.formatChanges`), after the reading [code] takes: in a
+  /// fast run those of the [unverified] files, in a full run every Dart file
+  /// the analysis covers. The first call asks; later calls get the same
+  /// answers.
+  ///
+  /// - **Left out, never asked about:** a file the reading could not read (the
+  ///   server read it as empty), a file that is no longer on disk (the server
+  ///   lists a deleted file until it notices), a file that starts with a
+  ///   `GENERATED CODE - DO NOT MODIFY` header ([lookAtDartFile]), and, since
+  ///   the reading lists only what the analysis covers, a file
+  ///   `analysis_options.yaml` excludes.
+  /// - **The cost is capped** by [formatBudgetFast] or [formatBudgetFull],
+  ///   which the analysis holds on the question itself. A file not answered
+  ///   by then, and a file the server refused or that changed while it was
+  ///   answered, is in [FormatReading.unchecked] with why, and the check
+  ///   names itself as not run for it. A server that is alive but slow, or
+  ///   that refuses one file, does not fail the run.
+  /// - **A server that fails does** (the owner's decision of 2026-10-15, spec
+  ///   §9.5): the `CodeAnalysisException` is passed on as it is, as it is for
+  ///   the reading, so the terminal exits 3 and the tool replies with an
+  ///   error. Any other error is a bug, and fails the run too.
+  ///
+  /// Throws a `CodeAnalysisException` when the reading can't be taken or the
+  /// analysis can't answer the formatting question, and a [StateError] when
+  /// the gathering was created without a project.
+  Future<FormatReading> formatting() {
+    _formatAskers.add(_gatheringFor);
+    return _formatAsked ??= _reading().then(_askFormatting);
+  }
+
+  Future<FormatReading> _askFormatting(CodeReading reading) async {
+    final root =
+        projectRoot ??
+        (throw StateError('This gathering was created without a project.'));
+    final everywhere = mode == VerifyMode.full;
+    final files = <String>[];
+    for (final file in reading.analyzedFiles) {
+      if (!file.endsWith('.dart') ||
+          reading.unreadableFiles.containsKey(file) ||
+          !(everywhere || unverified.contains(file))) {
+        continue;
+      }
+      final looked = await lookAtDartFile(root, file);
+      if (!looked.exists || looked.generated) continue;
+      files.add(file);
+    }
+    if (files.isEmpty) return _formatting = const FormatReading();
+    final budget = everywhere ? formatBudgetFull : formatBudgetFast;
+    // The budget is held by the analysis (`within`), on the question itself,
+    // not here around the call (see `dartFixes`). A server that fails fails
+    // the run: the `CodeAnalysisException` is passed on as it is.
+    final answers = await _codeAnalysis.formatChanges(files, within: budget);
+    final unanswered = [
+      for (final file in files)
+        if (!answers.changed.containsKey(file) &&
+            !answers.refused.containsKey(file))
+          file,
+    ];
+    final refused = [
+      for (final file in files)
+        if (answers.refused.containsKey(file)) file,
+    ];
+    final why = [
+      if (refused.isNotEmpty)
+        'the analysis server could not answer for ${_named(refused, answers)}',
+      if (unanswered.isNotEmpty)
+        'the analysis server did not answer within ${_seconds(budget)} for '
+            '${unanswered.length} '
+            '${unanswered.length == 1 ? 'file' : 'files'}',
+    ];
+    return _formatting = FormatReading(
+      unformatted: [
+        for (final file in files)
+          if (answers.changed[file] ?? false) file,
+      ],
+      unchecked: [
+        for (final file in files)
+          if (!answers.changed.containsKey(file)) file,
+      ],
+      checked: files.length,
+      why: why.isEmpty ? null : why.join('; '),
+    );
+  }
+
+  /// [files] with the reason for each, the first three in full.
+  static String _named(List<String> files, FormatAnswers answers) {
+    final parts = [
+      for (final file in files.take(3)) '$file (${answers.refused[file]})',
+    ];
+    final more = files.length - parts.length;
+    return parts.join(', ') + (more > 0 ? ' and $more more' : '');
+  }
+
+  static String _seconds(Duration time) =>
+      '${time.inMilliseconds / 1000} s'.replaceFirst('.0 s', ' s');
+
+  /// What [formatting] found, for [check] when it runs.
+  ///
+  /// Throws a [StateError] that names [check] when it did not ask for it in
+  /// its own `gather`.
+  FormatReading formattingFor(VerifyCheck check) {
+    final found = _formatting;
+    if (found == null || !_formatAskers.contains(check)) {
+      throw StateError(
+        'The check `${check.ids.first}` read the formatting without '
+        'gathering it. $_howToGatherFormatting',
+      );
+    }
+    return found;
+  }
 
   /// The run's unverified files, the same set every check judges
   /// ([VerifyContext.unverified]).
@@ -247,11 +388,19 @@ final class VerifyGathering {
         final left = dartFixBudget - spent.elapsed;
         if (left <= Duration.zero) break;
         try {
-          // The budget is a cap: a question still unanswered when it runs
-          // out is given up (its answer, when it comes, is dropped).
-          answers[diagnostic] = await _codeAnalysis
-              .canDartFix(diagnostic)
-              .timeout(left);
+          // Each question is given the time that is left (`within`), and the
+          // analysis holds it on the question itself: one still unanswered
+          // when it runs out is given up. It is not held here, around the
+          // call: in `appstein mcp` the call also waits for the calls' turn,
+          // which is another call's time and no part of the analysis's. But
+          // `spent` is wall time since the first question, so a wait for the
+          // turn does shorten what is left for the questions after it. That
+          // costs only hints (a use not asked about gets the general one),
+          // never a partial run and never a wrong answer.
+          answers[diagnostic] = await _codeAnalysis.canDartFix(
+            diagnostic,
+            within: left,
+          );
         } on CodeAnalysisException {
           // The general hint for this use and the rest; see above.
           break;
@@ -456,6 +605,10 @@ const dartFixBudget = Duration(seconds: 1);
 const _howToGatherFixes =
     'A check that reads `context.dartFixes` implements `GatheringCheck` and '
     'calls `gathering.dartFixes()` in `gather`.';
+
+const _howToGatherFormatting =
+    'A check that reads `context.formatting` implements `GatheringCheck` and '
+    'calls `gathering.formatting()` in `gather`.';
 
 const _howToGatherIgnores =
     'A check that reads `context.deprecationIgnores` implements '

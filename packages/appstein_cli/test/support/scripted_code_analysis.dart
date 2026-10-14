@@ -59,8 +59,29 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
   }
 
   @override
-  Future<bool> canDartFix(CodeDiagnostic diagnostic) async {
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) async {
     if (failure case final failure?) throw failure;
     return fixable.contains(diagnostic);
+  }
+
+  /// The files [formatChanges] says the formatter would change.
+  Set<String> unformatted = {};
+
+  /// What [formatChanges] throws, when set; [read] still answers.
+  CodeAnalysisException? formatFailure;
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) async {
+    if (failure case final failure?) throw failure;
+    if (formatFailure case final failure?) throw failure;
+    return FormatAnswers(
+      changed: {for (final file in files) file: unformatted.contains(file)},
+    );
   }
 }

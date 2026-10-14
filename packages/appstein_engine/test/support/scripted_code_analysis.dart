@@ -74,12 +74,69 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
   /// What [canDartFix] throws, when set; [read] still answers.
   Object? fixFailure;
 
+  /// The time each [canDartFix] was given, in order.
+  final fixWithin = <Duration>[];
+
   @override
-  Future<bool> canDartFix(CodeDiagnostic diagnostic) async {
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) async {
     askedFixes.add(diagnostic);
-    await onFixAsked?.call();
+    fixWithin.add(within);
+    // Like the analysis server: gives up with a `TimeoutException` when the
+    // time it was given runs out.
+    await Future.sync(() => onFixAsked?.call()).timeout(within);
     if (failure case final failure?) throw failure;
     if (fixFailure case final failure?) throw failure;
     return fixable.contains(diagnostic);
+  }
+
+  /// The files [formatChanges] says the formatter would change.
+  Set<String> unformatted = {};
+
+  /// The files [formatChanges] never answers about, as a server that is too
+  /// slow within the time it was given.
+  Set<String> formatSilent = {};
+
+  /// Called each time [formatChanges] is asked, before it answers.
+  Future<void> Function()? onFormatAsked;
+
+  /// What [formatChanges] throws, when set; [read] still answers.
+  Object? formatFailure;
+
+  /// The files each [formatChanges] was asked about, in order.
+  final askedFormats = <List<String>>[];
+
+  /// The time each [formatChanges] was given, in order.
+  final formatWithin = <Duration>[];
+
+  /// The files [formatChanges] says the server refused to format, with why.
+  Map<String, String> formatRefused = {};
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) async {
+    askedFormats.add(files);
+    formatWithin.add(within);
+    // Like the analysis server: when the time it was given runs out it
+    // answers with nothing.
+    var inTime = true;
+    await Future.sync(
+      () => onFormatAsked?.call(),
+    ).timeout(within, onTimeout: () => inTime = false);
+    if (!inTime) return const FormatAnswers();
+    if (failure case final failure?) throw failure;
+    if (formatFailure case final failure?) throw failure;
+    return FormatAnswers(
+      changed: {
+        for (final file in files)
+          if (!formatSilent.contains(file) && !formatRefused.containsKey(file))
+            file: unformatted.contains(file),
+      },
+      refused: {for (final file in files) file: ?formatRefused[file]},
+    );
   }
 }

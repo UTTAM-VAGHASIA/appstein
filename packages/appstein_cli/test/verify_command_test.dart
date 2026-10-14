@@ -813,6 +813,31 @@ void main() {
         );
       });
 
+      test('fails, with exit 3, when the analysis server fails while it '
+          'answers the formatting question: the reason and `appstein '
+          'doctor`, no finding', () async {
+        File(p.join(project, 'lib', 'a.dart'))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('int a( )=>1;\n');
+        expect(
+          await run(
+            ['verify', '--fast', '--files', 'lib/a.dart'],
+            analysis: ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+              ..formatFailure = const CodeAnalysisException(
+                'it ended by itself with exit code 1',
+              ),
+          ),
+          ExitCodes.appsteinFailed,
+        );
+        expect(out.toString(), isEmpty);
+        expect(
+          err.toString(),
+          'The Dart analysis server could not answer: it ended by itself '
+          'with exit code 1.\n'
+          'Run `appstein doctor` to check your setup.\n',
+        );
+      });
+
       test('fails, with exit 3, when the project\'s SDK has no Dart to run '
           'the server with', () async {
         // The real route, on the fake Flutter SDK: nothing is started.
