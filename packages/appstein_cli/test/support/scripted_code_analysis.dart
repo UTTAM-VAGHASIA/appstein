@@ -4,13 +4,16 @@ import 'package:appstein_engine/appstein_engine.dart';
 /// and starts no process. The same definition as the engine's tests have.
 final class ScriptedCodeAnalysis implements CodeAnalysis {
   /// Creates the stand-in. It answers with [found], [pluginFailures],
-  /// [notices] and [analyzedFiles], or throws [failure] when that is set, as
-  /// a server that can't answer does.
+  /// [notices], [analyzedFiles] and [unreadableFiles], or throws [failure]
+  /// when that is set, as a server that can't answer does. [canDartFix]
+  /// answers true for the diagnostics in [fixable].
   ScriptedCodeAnalysis({
     this.found = const [],
     this.pluginFailures = const [],
     this.notices = const [],
     this.analyzedFiles = const [],
+    this.unreadableFiles = const {},
+    this.fixable = const {},
     this.failure,
   });
 
@@ -25,6 +28,12 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
 
   /// The files [read] says the server analyzed, from the project root.
   List<String> analyzedFiles;
+
+  /// The files [read] says could not be read, with why.
+  Map<String, String> unreadableFiles;
+
+  /// The diagnostics [canDartFix] says `dart fix` can fix.
+  Set<CodeDiagnostic> fixable;
 
   /// What [read] throws instead, when set.
   CodeAnalysisException? failure;
@@ -45,6 +54,13 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
       pluginFailures: pluginFailures,
       notices: notices,
       analyzedFiles: analyzedFiles,
+      unreadableFiles: unreadableFiles,
     );
+  }
+
+  @override
+  Future<bool> canDartFix(CodeDiagnostic diagnostic) async {
+    if (failure case final failure?) throw failure;
+    return fixable.contains(diagnostic);
   }
 }

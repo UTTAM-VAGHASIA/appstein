@@ -20,7 +20,13 @@ final class CodeDiagnostic {
     required this.message,
     required this.level,
     this.correction,
+    this.offset,
   });
+
+  /// Where it starts in the file, in UTF-16 code units from the file's
+  /// start: what [CodeAnalysis.canDartFix] asks the server about. The
+  /// analysis server always gives it; null only from a test's stand-in.
+  final int? offset;
 
   /// The file it is in, from the project root, with `/` on every system.
   final String file;
@@ -52,7 +58,16 @@ final class CodeReading {
     this.pluginFailures = const [],
     this.notices = const [],
     this.analyzedFiles = const [],
+    this.unreadableFiles = const {},
   });
+
+  /// Each Dart file of the project the analysis covers that could not be
+  /// opened and read when this reading was taken (on Windows, one another
+  /// program holds locked), by its path from the project root with `/`,
+  /// with why. The analysis server reads such a file as empty and reports no
+  /// diagnostic for it, so nothing in it was checked: a check must never
+  /// take it for clean (`dart.unreadable`).
+  final Map<String, String> unreadableFiles;
 
   /// What the person or agent who runs `verify` must be told that is no
   /// finding about the project, one plain line each. Today that is one
@@ -100,6 +115,20 @@ abstract interface class CodeAnalysis {
   ///
   /// Throws a [CodeAnalysisException] when the analysis can't answer.
   Future<CodeReading> read();
+
+  /// Whether the analysis server offers a data-driven fix for [diagnostic]
+  /// (`dart.fix.dataDriven`): a migration that the package which deprecated
+  /// the API describes in its `fix_data.yaml`, the kind `dart fix` applies
+  /// to a deprecated API's use. `dart fix --apply` applies it unless the
+  /// package marks it for the IDE only (`bulkApply: false`), which the
+  /// server's answer doesn't tell (checked with a real server). False means
+  /// `dart fix` can't migrate it. [diagnostic] is one of the last [read]'s,
+  /// which must have been taken first; a diagnostic without an `offset`
+  /// can't be asked about and is not fixable.
+  ///
+  /// Throws a [CodeAnalysisException] when the analysis can't answer; a
+  /// caller then says nothing about `dart fix`.
+  Future<bool> canDartFix(CodeDiagnostic diagnostic);
 }
 
 /// A code analysis that holds something its owner must stop: an analysis

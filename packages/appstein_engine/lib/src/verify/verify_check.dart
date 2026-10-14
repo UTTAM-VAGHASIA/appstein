@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../analysis/code_analysis.dart';
@@ -7,6 +9,7 @@ import '../packs/pack.dart';
 import 'deprecation_ignores.dart';
 import 'suppression_comments.dart';
 import 'test_run.dart';
+import 'unverified_files.dart';
 
 /// When a check runs (spec §9.1, §9.2).
 enum VerifyMode {
@@ -35,7 +38,40 @@ final class VerifyContext {
     this.onSkipped,
     this.testsReader,
     this.onNotRun,
+    this.dartFixesReader,
+    this._unverified,
+    this.mode = VerifyMode.full,
   });
+
+  /// The run's mode: a check that runs in both reports less in a fast run,
+  /// such as `dart.warning`, which reports only on the [unverified] files.
+  final VerifyMode mode;
+
+  final UnverifiedFiles? _unverified;
+
+  /// The run's unverified files (slice 1d.2, spec §9.1), read once before
+  /// the knowledge lock, with the files the run was given: a fast run
+  /// reports warnings, lints and formatting only on these. Every check of
+  /// the run sees the same set, which `verify` gathered with it. It doesn't
+  /// need the project map. None when the context was built without them.
+  UnverifiedFiles get unverified => _unverified ?? UnverifiedFiles.none;
+
+  /// Gives [dartFixes]. `runVerify` passes one that throws when the check
+  /// that is running did not gather them. Null makes [dartFixes] throw.
+  final Map<CodeDiagnostic, bool> Function()? dartFixesReader;
+
+  /// Whether `dart fix` can fix each use of a deprecated API on the
+  /// [unverified] files (`CodeAnalysis.canDartFix`), as the run asked the
+  /// analysis server before the knowledge lock. A diagnostic of [code] that
+  /// is not a key was not asked about.
+  ///
+  /// Only a check that asked for it in its own [GatheringCheck.gather] may
+  /// read it; for any other check it throws a [StateError], as [code] does.
+  Map<CodeDiagnostic, bool> get dartFixes =>
+      (dartFixesReader ??
+      (throw StateError(
+        'This context has no answers about dart fix. $_howToGatherFixes',
+      )))();
 
   /// Gives [tests]: the run's one run of the project's tests. `runVerify`
   /// passes one that throws when the check that is running did not gather
@@ -148,18 +184,99 @@ final class VerifyContext {
 /// for an analysis server.
 ///
 /// Each kind of answer is gathered once per run, however many checks ask
-/// for it, so every check judges the same one. Today there are three: the
+/// for it, so every check judges the same one. Today there are four: the
 /// code analysis's reading, the comments and settings that hide deprecated
-/// use, and the project's test run. A later check with slow work of its own
-/// (a file's formatting, the pending fixes) adds it here in the same way: a
+/// use, whether `dart fix` can migrate each deprecated use on the
+/// [unverified] files, and the project's test run. A later check with slow
+/// work of its own (a file's formatting, the pending fixes) adds it here in
+/// the same way: a
 /// method the check calls from [GatheringCheck.gather], and a getter on
 /// [VerifyContext] for what it found.
 final class VerifyGathering {
   /// Creates the gathering of one run, which asks [codeAnalysis], reads the
   /// source files of the project at [projectRoot], and runs the project's
-  /// tests with `runTests` when a check asks for them.
-  VerifyGathering(CodeAnalysis codeAnalysis, {this.projectRoot, this._runTests})
-    : _codeAnalysis = codeAnalysis;
+  /// tests with `runTests` when a check asks for them. [unverified] are the
+  /// run's unverified files.
+  VerifyGathering(
+    CodeAnalysis codeAnalysis, {
+    this.projectRoot,
+    this._runTests,
+    UnverifiedFiles? unverified,
+  }) : _codeAnalysis = codeAnalysis,
+       unverified = unverified ?? UnverifiedFiles.none;
+
+  /// The run's unverified files, the same set every check judges
+  /// ([VerifyContext.unverified]).
+  final UnverifiedFiles unverified;
+
+  /// The reading [code] took; null when no check asked for one. What the
+  /// run itself reads afterwards: which files the reading covered, and
+  /// which it could not read.
+  CodeReading? get reading => _code;
+
+  Future<Map<CodeDiagnostic, bool>>? _fixesAsked;
+  Map<CodeDiagnostic, bool>? _dartFixes;
+  final _fixAskers = <VerifyCheck?>{};
+
+  /// Whether `dart fix` can fix each use of a deprecated API
+  /// (`isDeprecatedUseCode`) on the [unverified] files: the analysis
+  /// server is asked about each (`CodeAnalysis.canDartFix`), after the
+  /// reading [code] takes. Uses elsewhere are not asked about. The first
+  /// call asks; later calls get the same answers.
+  ///
+  /// The cost is capped: once [dartFixBudget] has passed no new question is
+  /// asked, and a question still unanswered then is given up. A question the
+  /// analysis can't answer (a `CodeAnalysisException`: the server died
+  /// after its reading, another caller replaced it, the file can't be read)
+  /// stops the asking too. A use that was not answered is not a key of the
+  /// result, and its finding gets the general hint, which is still true.
+  /// Neither ever fails the run; any other error is a bug, and fails it.
+  ///
+  /// Throws a `CodeAnalysisException` when the reading itself can't be
+  /// taken.
+  Future<Map<CodeDiagnostic, bool>> dartFixes() {
+    _fixAskers.add(_gatheringFor);
+    return _fixesAsked ??= _reading().then((reading) async {
+      final answers = <CodeDiagnostic, bool>{};
+      final spent = Stopwatch()..start();
+      for (final diagnostic in reading.diagnostics) {
+        if (!isDeprecatedUseCode(diagnostic.code) ||
+            !unverified.contains(diagnostic.file)) {
+          continue;
+        }
+        final left = dartFixBudget - spent.elapsed;
+        if (left <= Duration.zero) break;
+        try {
+          // The budget is a cap: a question still unanswered when it runs
+          // out is given up (its answer, when it comes, is dropped).
+          answers[diagnostic] = await _codeAnalysis
+              .canDartFix(diagnostic)
+              .timeout(left);
+        } on CodeAnalysisException {
+          // The general hint for this use and the rest; see above.
+          break;
+        } on TimeoutException {
+          break;
+        }
+      }
+      return _dartFixes = answers;
+    });
+  }
+
+  /// The answers [dartFixes] gathered, for [check] when it runs.
+  ///
+  /// Throws a [StateError] that names [check] when it did not ask for them
+  /// in its own `gather`.
+  Map<CodeDiagnostic, bool> dartFixesFor(VerifyCheck check) {
+    final found = _dartFixes;
+    if (found == null || !_fixAskers.contains(check)) {
+      throw StateError(
+        'The check `${check.ids.first}` read the answers about dart fix '
+        'without gathering them. $_howToGatherFixes',
+      );
+    }
+    return found;
+  }
 
   /// The project whose source files it reads; null when it was created
   /// without one, and then [deprecationIgnores] can't be asked.
@@ -328,6 +445,17 @@ final class VerifyGathering {
     return found;
   }
 }
+
+/// How long one run may spend asking the analysis server whether `dart fix`
+/// can migrate the deprecated uses on the unverified files
+/// ([VerifyGathering.dartFixes]), so the questions can't push a fast run
+/// past its 5 s target (spec §9.1, §15). The answers are kept while the
+/// server runs, so a later run asks only about what changed.
+const dartFixBudget = Duration(seconds: 1);
+
+const _howToGatherFixes =
+    'A check that reads `context.dartFixes` implements `GatheringCheck` and '
+    'calls `gathering.dartFixes()` in `gather`.';
 
 const _howToGatherIgnores =
     'A check that reads `context.deprecationIgnores` implements '

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../host/file_errors.dart';
 import 'canonical_json.dart';
+import 'dart_files.dart';
 import 'freshness.dart';
 import 'generated_file.dart';
 import 'input_hash.dart';
@@ -174,13 +175,17 @@ final class KnowledgeStore {
   /// exactly these files' input hashes. Returns whether each file was
   /// written, in the order given. `state.json` also records the hash of each
   /// file's bytes, the map's [sources] and the [changed] input names (spec
-  /// §6.2). Call it inside [locked].
+  /// §6.2), and the scan of the project's Dart files ([dartFiles]: their
+  /// hashes, times and sizes) with the [unverified] files (slice 1d.2). Call
+  /// it inside [locked].
   Future<Map<String, bool>> writeAll(
     List<GeneratedFile> files, {
     required String appsteinVersion,
     required String sdkVersion,
     Map<String, String?> sources = const {},
     List<String> changed = const [],
+    DartFileScan? dartFiles,
+    List<String> unverified = const [],
   }) async {
     final written = <String, bool>{};
     final hashes = <String, String>{};
@@ -215,6 +220,10 @@ final class KnowledgeStore {
         sources: stateSources(sources),
         written: hashes,
         changed: changed,
+        dartFiles: dartFiles?.hashes,
+        unverified: unverified,
+        dartStamps: dartFiles?.stamps,
+        dartScannedAt: dartFiles?.at.toIso8601String(),
       ),
     );
     return written;

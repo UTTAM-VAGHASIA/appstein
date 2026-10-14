@@ -149,6 +149,27 @@ final class _IgnoresCheck implements GatheringCheck {
 
 /// A check that reads the project's ignore comments without gathering
 /// them: a bug.
+/// A code check that names itself as not run, as a `dart.*` check that
+/// couldn't do its work would.
+final class _DartNotRunCheck implements VerifyCheck {
+  const _DartNotRunCheck();
+
+  @override
+  List<String> get ids => const ['dart.partly'];
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    context.notRun('dart.partly', 'it could not run');
+    return const [];
+  }
+}
+
 final class _ForgetfulIgnoresCheck implements VerifyCheck {
   @override
   List<String> get ids => const ['forgetful.ignores'];
@@ -216,7 +237,9 @@ void main() {
     Duration lockTimeout = const Duration(seconds: 10),
     Map<VerifyCheck, String> from = const {},
     CodeAnalysis? codeAnalysis,
+    List<String> files = const [],
   }) => runVerify(
+    files: files,
     codeAnalysis: codeAnalysis ?? ScriptedCodeAnalysis(),
     projectRoot: app,
     config: config,
@@ -1789,6 +1812,564 @@ void f() {
                 ),
           ),
         );
+      });
+    });
+
+    // Slice 1d.2, ticket 06: the unverified files, `dart.warning`,
+    // `dart.lint` and `dart.unreadable`, through the scripted stand-in.
+    group('the unverified files', () {
+      const dartChecks = <VerifyCheck>[
+        DartErrorCheck(),
+        DartDeprecatedCheck(),
+        DartUnreadableCheck(),
+        DartWarningCheck(),
+        DartLintCheck(),
+      ];
+      KnowledgeStore store() => KnowledgeStore(app);
+
+      List<String> unverifiedNow() => store().readState().state!.unverified;
+
+      Future<void> markUnverified(List<String> files) async {
+        final now = store().readState().state!;
+        await store().locked(
+          () => store().writeState(now.copyWith(unverified: files)),
+        );
+      }
+
+      // A first run syncs, so `state.json` exists.
+      setUp(() => run([]));
+
+      List<(String, String?, int?)> found(VerifyResult result) => [
+        for (final finding in result.findings)
+          (finding.id, finding.file, finding.line),
+      ];
+
+      test('a warning is a dart.warning warning and an info-level diagnostic '
+          'a dart.lint info finding, with the file, line, message, code and '
+          'correction; deprecated use is left to dart.deprecated', () async {
+        final result = await run(
+          dartChecks,
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [
+              diagnostic(
+                DiagnosticLevel.warning,
+                file: 'lib/a.dart',
+                line: 2,
+                code: 'unused_import',
+                message: "Unused import: 'dart:math'.",
+                correction: 'Try removing the import directive.',
+              ),
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'test/b_test.dart',
+                line: 7,
+                code: 'prefer_const_constructors',
+                message: "Use 'const' with the constructor.",
+              ),
+              diagnostic(
+                DiagnosticLevel.warning,
+                file: 'lib/a.dart',
+                line: 9,
+                code: 'deprecated_member_use',
+              ),
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'lib/a.dart',
+                line: 10,
+                code: 'deprecated_member_use_from_same_package',
+              ),
+            ],
+          ),
+        );
+        expect(found(result), [
+          ('dart.deprecated', 'lib/a.dart', 9),
+          ('dart.deprecated', 'lib/a.dart', 10),
+          ('dart.warning', 'lib/a.dart', 2),
+          ('dart.lint', 'test/b_test.dart', 7),
+        ]);
+        final [_, _, warning, lint] = result.findings;
+        expect(warning.severity, Severity.warning);
+        expect(
+          warning.message,
+          "Unused import: 'dart:math'. (`unused_import`)",
+        );
+        expect(warning.fixHint, 'Try removing the import directive.');
+        expect(lint.severity, Severity.info);
+        expect(
+          lint.message,
+          "Use 'const' with the constructor. (`prefer_const_constructors`)",
+        );
+        expect(lint.fixHint, isNull);
+        expect((result.warnings, result.info), (1, 1));
+      });
+
+      test('a fast run reports them only on the unverified files and the '
+          'files it was given; a full run everywhere', () async {
+        await markUnverified(['lib/changed.dart']);
+        final analysis = ScriptedCodeAnalysis(
+          found: [
+            for (final file in [
+              'lib/changed.dart',
+              'lib/given.dart',
+              'lib/untouched.dart',
+            ]) ...[
+              diagnostic(DiagnosticLevel.warning, file: file),
+              diagnostic(DiagnosticLevel.info, file: file),
+            ],
+          ],
+        );
+        final fast = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+          files: ['lib/given.dart'],
+        );
+        expect(
+          {for (final finding in fast.findings) finding.file},
+          {'lib/changed.dart', 'lib/given.dart'},
+        );
+        expect(ids(fast), [
+          'dart.warning',
+          'dart.lint',
+          'dart.warning',
+          'dart.lint',
+        ]);
+        final full = await run(dartChecks, codeAnalysis: analysis);
+        expect(full.findings, hasLength(6));
+      });
+
+      test('the scenario from the interview: break A and run; fix nothing, '
+          'edit B correctly and run again; A is still unverified and its '
+          'warnings are still reported', () async {
+        await markUnverified(['lib/a.dart']);
+        final analysis = ScriptedCodeAnalysis(
+          found: [
+            diagnostic(DiagnosticLevel.error, file: 'lib/a.dart'),
+            diagnostic(DiagnosticLevel.warning, file: 'lib/a.dart', line: 5),
+          ],
+        );
+        await run(dartChecks, mode: VerifyMode.fast, codeAnalysis: analysis);
+        expect(unverifiedNow(), ['lib/a.dart']);
+        // B is edited correctly: it joins, and leaves after this run.
+        await markUnverified(['lib/a.dart', 'lib/b.dart']);
+        final second = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(found(second), [
+          ('dart.error', 'lib/a.dart', 3),
+          ('dart.warning', 'lib/a.dart', 5),
+        ]);
+        expect(unverifiedNow(), ['lib/a.dart']);
+      });
+
+      test('a file leaves when a run, fast or full, reports no error on it: '
+          'a warning keeps no file, nor does an error hidden by a '
+          'suppression or lowered by verify.severity; a deleted file '
+          'leaves too', () async {
+        for (final mode in VerifyMode.values) {
+          await markUnverified([
+            'lib/broken.dart',
+            'lib/deleted.dart',
+            'lib/hidden.dart',
+            'lib/lowered.dart',
+            'lib/warned.dart',
+          ]);
+          await run(
+            dartChecks,
+            mode: mode,
+            config: const AppsteinConfig(
+              suppressions: [
+                SuppressionEntry(
+                  id: 'dart.error',
+                  path: 'lib/hidden.dart',
+                  reason: 'Known.',
+                  line: 3,
+                ),
+              ],
+            ),
+            codeAnalysis: ScriptedCodeAnalysis(
+              found: [
+                diagnostic(DiagnosticLevel.error, file: 'lib/broken.dart'),
+                diagnostic(DiagnosticLevel.error, file: 'lib/hidden.dart'),
+                diagnostic(DiagnosticLevel.warning, file: 'lib/warned.dart'),
+              ],
+            ),
+          );
+          expect(unverifiedNow(), ['lib/broken.dart'], reason: mode.name);
+        }
+        // An error that `verify.severity` lowers to a warning is no error.
+        await markUnverified(['lib/lowered.dart']);
+        await run(
+          dartChecks,
+          config: const AppsteinConfig(
+            verify: VerifyConfig(severity: {'dart.error': Severity.warning}),
+          ),
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [
+              diagnostic(DiagnosticLevel.error, file: 'lib/lowered.dart'),
+            ],
+          ),
+        );
+        expect(unverifiedNow(), isEmpty);
+      });
+
+      test('the files survive between runs, and a run whose Dart checks '
+          'did not run verifies none', () async {
+        await markUnverified(['lib/a.dart']);
+        await run([
+          FakeCheck(['a.a']),
+        ]);
+        await run([
+          FakeCheck(['a.a']),
+        ], mode: VerifyMode.fast);
+        expect(unverifiedNow(), ['lib/a.dart']);
+      });
+
+      test('files given to the run join the unverified files after it '
+          'while they have an error; a file with none leaves', () async {
+        await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          files: ['lib/given.dart', 'lib/clean.dart', 'README.md'],
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [diagnostic(DiagnosticLevel.error, file: 'lib/given.dart')],
+          ),
+        );
+        expect(unverifiedNow(), ['lib/given.dart']);
+      });
+
+      test('what is gathered and what is judged see one set: a change to '
+          'state.json while the run gathers is not seen by its checks, and '
+          'dart fix is asked about before the knowledge lock', () async {
+        await markUnverified(['lib/a.dart']);
+        final use = CodeDiagnostic(
+          file: 'lib/a.dart',
+          line: 4,
+          offset: 40,
+          code: 'deprecated_member_use',
+          message: "'old' is deprecated and shouldn't be used.",
+          level: DiagnosticLevel.info,
+        );
+        final elsewhere = diagnostic(
+          DiagnosticLevel.info,
+          file: 'lib/b.dart',
+          code: 'deprecated_member_use',
+        );
+        var lockFree = false;
+        final analysis = ScriptedCodeAnalysis(
+          found: [
+            use,
+            elsewhere,
+            diagnostic(DiagnosticLevel.warning, file: 'lib/a.dart'),
+            diagnostic(DiagnosticLevel.warning, file: 'lib/b.dart'),
+          ],
+          fixable: {use},
+        );
+        analysis
+          ..onAsked = (() => markUnverified(['lib/b.dart']))
+          ..onFixAsked = () async {
+            final lock = await KnowledgeLock.acquire(
+              p.join(app, '.appstein'),
+              timeout: const Duration(milliseconds: 100),
+            );
+            lock.release();
+            lockFree = true;
+          };
+        final result = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(analysis.askedFixes, [same(use)]);
+        expect(lockFree, isTrue);
+        expect(
+          [
+            for (final finding in result.findings)
+              if (finding.id == 'dart.warning') finding.file,
+          ],
+          ['lib/a.dart'],
+        );
+        final [onA, onB] = [
+          for (final finding in result.findings)
+            if (finding.id == 'dart.deprecated') finding,
+        ];
+        expect(
+          onA.fixHint,
+          'The package that deprecated this API describes a migration for it '
+          '(`fix_data.yaml`): `dart fix --apply` applies it, unless the '
+          'package marks it for the IDE only. Or replace it with the API the '
+          'message names.',
+        );
+        expect(onB.fixHint, contains('`dart fix --dry-run` lists the uses'));
+      });
+
+      test('on an unverified file, a use dart fix can\'t migrate says '
+          'so', () async {
+        await markUnverified(['lib/a.dart']);
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          mode: VerifyMode.fast,
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'lib/a.dart',
+                code: 'deprecated_member_use',
+              ),
+            ],
+          ),
+        );
+        expect(
+          result.findings.single.fixHint,
+          "`dart fix` can't migrate this use: replace it with the API the "
+          'message names.',
+        );
+      });
+
+      test('dart.unreadable: a file that can\'t be read is an error, in fast '
+          'and full runs, and never leaves the unverified files, even '
+          'hidden or lowered', () async {
+        for (final mode in VerifyMode.values) {
+          final result = await run(
+            dartChecks,
+            mode: mode,
+            codeAnalysis: ScriptedCodeAnalysis(
+              unreadableFiles: {
+                'lib/locked.dart':
+                    'The process cannot access the file because another '
+                    'process has locked a portion of the file.\r\n',
+              },
+            ),
+          );
+          final unreadable = result.findings.single;
+          expect(unreadable.id, 'dart.unreadable');
+          expect(unreadable.severity, Severity.error);
+          expect(unreadable.file, 'lib/locked.dart');
+          expect(unreadable.line, isNull);
+          expect(
+            unreadable.message,
+            'This file could not be read (The process cannot access the '
+            'file because another process has locked a portion of the '
+            'file), so nothing in it was checked.',
+          );
+          expect(unreadable.fixHint, contains('`appstein verify` again'));
+          expect(unverifiedNow(), ['lib/locked.dart']);
+        }
+        final hidden = await run(
+          dartChecks,
+          config: const AppsteinConfig(
+            verify: VerifyConfig(severity: {'dart.unreadable': Severity.info}),
+            suppressions: [
+              SuppressionEntry(
+                id: 'dart.unreadable',
+                path: 'lib/hidden.dart',
+                reason: 'Locked by the IDE.',
+                line: 3,
+              ),
+            ],
+          ),
+          codeAnalysis: ScriptedCodeAnalysis(
+            unreadableFiles: {
+              'lib/locked.dart': 'locked',
+              'lib/hidden.dart': 'locked',
+            },
+          ),
+        );
+        expect(
+          [
+            for (final finding in hidden.findings)
+              (finding.file, finding.severity),
+          ],
+          [('lib/locked.dart', Severity.info)],
+        );
+        expect(hidden.suppressed, 1);
+        expect(unverifiedNow(), ['lib/hidden.dart', 'lib/locked.dart']);
+      });
+
+      test('the first sync made every Dart file of the project unverified, '
+          'and a run with no error lets them leave', () async {
+        expect(unverifiedNow(), contains('lib/main.dart'));
+        await run(dartChecks, mode: VerifyMode.fast);
+        expect(unverifiedNow(), isEmpty);
+      });
+
+      group('a partial run lets no file leave', () {
+        setUp(() => markUnverified(['lib/a.dart', 'lib/b.dart']));
+
+        test('one that reports dart.plugin_failed', () async {
+          await run(
+            [...dartChecks, const PluginFailedCheck()],
+            mode: VerifyMode.fast,
+            files: ['lib/c.dart'],
+            codeAnalysis: ScriptedCodeAnalysis(pluginFailures: ['broken']),
+          );
+          expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart', 'lib/c.dart']);
+        });
+
+        test('one that reports knowledge.stale', () async {
+          await run(
+            dartChecks,
+            mode: VerifyMode.fast,
+            refreshed: const KnowledgeRefresh.failed('the packages are gone'),
+          );
+          expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart']);
+        });
+
+        test('one in which a dart.* check was named as not run', () async {
+          final result = await run([
+            ...dartChecks,
+            const _DartNotRunCheck(),
+          ], mode: VerifyMode.fast);
+          expect([
+            for (final check in result.notRun) check.id,
+          ], contains('dart.partly'));
+          expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart']);
+        });
+      });
+
+      test('tests not run (test.failed, while the code has an error) don\'t '
+          'make a run partial: a clean file leaves', () async {
+        await markUnverified(['lib/a.dart', 'lib/b.dart']);
+        final result = await run(
+          [...dartChecks, const TestFailedCheck()],
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [diagnostic(DiagnosticLevel.error, file: 'lib/a.dart')],
+          ),
+        );
+        expect([
+          for (final check in result.notRun) check.id,
+        ], contains('test.failed'));
+        expect(unverifiedNow(), ['lib/a.dart']);
+      });
+
+      test('a file a refresh saw change again during the run stays, though '
+          'the run found no error on it', () async {
+        await markUnverified(['lib/a.dart', 'lib/b.dart']);
+        final analysis = ScriptedCodeAnalysis();
+        analysis.onAsked = () async {
+          // As a refresh of another call would record a new edit of a.dart.
+          final now = store().readState().state!;
+          await store().locked(
+            () => store().writeState(
+              now.copyWith(
+                dartFiles: {...?now.dartFiles, 'lib/a.dart': 'edited again'},
+              ),
+            ),
+          );
+        };
+        await run(dartChecks, mode: VerifyMode.fast, codeAnalysis: analysis);
+        expect(unverifiedNow(), ['lib/a.dart']);
+      });
+
+      test('a dart fix question the analysis can\'t answer gives the general '
+          'hint, and the run neither fails nor blames a check; any other '
+          'error is a bug and fails the run', () async {
+        await markUnverified(['lib/a.dart']);
+        ScriptedCodeAnalysis failing(Object failure) => ScriptedCodeAnalysis(
+          found: [
+            diagnostic(
+              DiagnosticLevel.info,
+              file: 'lib/a.dart',
+              code: 'deprecated_member_use',
+            ),
+          ],
+        )..fixFailure = failure;
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          mode: VerifyMode.fast,
+          codeAnalysis: failing(
+            const CodeAnalysisException('it was asked with no reading taken'),
+          ),
+        );
+        expect(
+          result.findings.single.fixHint,
+          contains('`dart fix --dry-run` lists the uses'),
+        );
+        await expectLater(
+          run(
+            [const DartDeprecatedCheck()],
+            mode: VerifyMode.fast,
+            codeAnalysis: failing(StateError('a bug')),
+          ),
+          throwsA(
+            isA<VerifyCheckError>().having(
+              (e) => e.checkId,
+              'checkId',
+              'dart.deprecated',
+            ),
+          ),
+        );
+      });
+
+      test('the dart fix questions are capped by dartFixBudget: a question '
+          'still unanswered then is given up, and the uses not answered get '
+          'the general hint', () async {
+        await markUnverified(['lib/a.dart']);
+        final uses = [
+          for (var line = 1; line <= 3; line++)
+            diagnostic(
+              DiagnosticLevel.info,
+              file: 'lib/a.dart',
+              line: line,
+              code: 'deprecated_member_use',
+            ),
+        ];
+        final analysis = ScriptedCodeAnalysis(found: uses, fixable: {...uses})
+          // The first answer would come long after the budget.
+          ..onFixAsked = (() => Future<void>.delayed(dartFixBudget * 5));
+        final gathering = VerifyGathering(
+          analysis,
+          unverified: UnverifiedFiles(['lib/a.dart']),
+        );
+        final spent = Stopwatch()..start();
+        await gathering.code();
+        final answers = await gathering.dartFixes();
+        spent.stop();
+        expect(answers, isEmpty);
+        expect(spent.elapsed, lessThan(dartFixBudget * 2));
+        final result = await run(
+          [const DartDeprecatedCheck()],
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+        );
+        expect(analysis.askedFixes, [same(uses.first), same(uses.first)]);
+        expect(
+          [
+            for (final finding in result.findings)
+              finding.fixHint!.contains('`dart fix --dry-run`'),
+          ],
+          [true, true, true],
+        );
+      });
+
+      test('files given to a run whose lock stays busy are checked, and the '
+          'result says they were not kept', () async {
+        final lock = await KnowledgeLock.acquire(p.join(app, '.appstein'));
+        addTearDown(lock.release);
+        final result = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          files: ['lib/given.dart'],
+          refreshed: const KnowledgeRefresh.current(),
+          lockTimeout: const Duration(milliseconds: 200),
+          codeAnalysis: ScriptedCodeAnalysis(
+            found: [
+              diagnostic(DiagnosticLevel.warning, file: 'lib/given.dart'),
+            ],
+          ),
+        );
+        expect(
+          [
+            for (final finding in result.findings)
+              if (finding.file != null) finding.file,
+          ],
+          ['lib/given.dart'],
+        );
+        expect(result.notices, [contains('not kept among the unverified')]);
+        lock.release();
+        expect(unverifiedNow(), isNot(contains('lib/given.dart')));
       });
     });
   });

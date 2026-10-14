@@ -24,6 +24,7 @@ import 'route_query.dart';
 import 'tool_answer.dart';
 import '../verify/engine_checks.dart';
 import '../verify/test_run.dart';
+import '../verify/unverified_files.dart';
 import '../verify/verify_check.dart';
 import '../verify/verify_run.dart';
 import 'toolchain_report.dart';
@@ -85,10 +86,16 @@ final class _OutOfTurn implements CodeAnalysis {
   final _Turn _turn;
 
   @override
-  Future<CodeReading> read() async {
+  Future<CodeReading> read() => _outOfTurn(_analysis.read);
+
+  @override
+  Future<bool> canDartFix(CodeDiagnostic diagnostic) =>
+      _outOfTurn(() => _analysis.canDartFix(diagnostic));
+
+  Future<T> _outOfTurn<T>(Future<T> Function() ask) async {
     _turn.give();
     try {
-      return await _analysis.read();
+      return await ask();
     } finally {
       await _turn.take();
     }
@@ -496,6 +503,35 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       final mode = arguments['scope'] == 'fast'
           ? VerifyMode.fast
           : VerifyMode.full;
+      final List<String> files;
+      switch (arguments['files']) {
+        case null:
+          files = const [];
+        case final List<Object?> given when given.every((f) => f is String):
+          if (mode != VerifyMode.fast) {
+            return _refuse(
+              '`files` works with `scope: fast` only: a full run checks '
+              'every file. Call `verify` again without `files`, or with '
+              '`scope: fast`.',
+              freshness,
+            );
+          }
+          try {
+            files = resolveVerifyFiles(projectRoot, given.cast<String>());
+          } on VerifyFilesException catch (error) {
+            final message = error.message.replaceAll('--files', '`files`');
+            return _refuse(
+              '$message Call `verify` again with paths inside the project.',
+              freshness,
+            );
+          }
+        default:
+          return _refuse(
+            '`files` must be a list of paths. Call `verify` again with a '
+            'list.',
+            freshness,
+          );
+      }
       final result = await runVerify(
         projectRoot: projectRoot,
         config: config,
@@ -506,6 +542,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
         codeAnalysis: _OutOfTurn(analysis, _calls),
         refreshed: KnowledgeRefresh.fromFreshness(freshness),
         dartSdkPath: dartSdkPath,
+        files: files,
       );
       return switch (verifyAnswer(result, mode: mode)) {
         ToolReply(result: final json, :final summary) => _reply(

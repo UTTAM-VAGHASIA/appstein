@@ -58,13 +58,33 @@ void main() {
     );
   });
 
-  test('the input is a scope: fast or full', () {
+  test('the input is a scope: fast or full, and optional files that the '
+      'schema says are for a fast run', () {
     expectMatchesSchema(ToolSchemas.verifyInput, {'scope': 'fast'});
     expectMatchesSchema(ToolSchemas.verifyInput, {'scope': 'full'});
+    expectMatchesSchema(ToolSchemas.verifyInput, {
+      'scope': 'fast',
+      'files': ['lib/a.dart', 'lib/my file.dart'],
+    });
+    final files =
+        (ToolSchemas.verifyInput['properties']! as Map)['files']! as Map;
+    expect(
+      files['description'],
+      allOf(
+        contains('`scope: fast` only'),
+        contains('outside the project'),
+        contains('project root'),
+      ),
+    );
     for (final bad in [
       <String, Object?>{},
       {'scope': 'all'},
       {'scope': 3},
+      {'scope': 'fast', 'files': 'lib/a.dart'},
+      {
+        'scope': 'fast',
+        'files': [3],
+      },
     ]) {
       expect(
         Schema.fromMap(ToolSchemas.verifyInput).validate(bad),

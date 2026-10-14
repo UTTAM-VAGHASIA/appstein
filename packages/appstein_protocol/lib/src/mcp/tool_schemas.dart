@@ -554,6 +554,16 @@ abstract final class ToolSchemas {
         description:
             '`fast` after a change; `full` before you say the task is done.',
       ),
+      'files': jsonList(
+        jsonString(),
+        description:
+            'With `scope: fast` only: files you changed, added to the '
+            'unverified files for this run and after it, so their warnings '
+            'and lints are reported. Paths from the project root, or '
+            'absolute inside the project; a folder stands for its Dart files; '
+            'a deleted file or one that is not Dart is accepted. A path outside the project, or `files` with '
+            '`scope: full`, is refused.',
+      ),
     },
     required: ['scope'],
   );

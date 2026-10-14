@@ -493,6 +493,105 @@ void main() {
       expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
     });
 
+    group('--files', () {
+      CodeDiagnostic warning(String file) => CodeDiagnostic(
+        file: file,
+        line: 1,
+        code: 'unused_import',
+        message: 'Unused import.',
+        level: DiagnosticLevel.warning,
+      );
+
+      test('fails, with exit 3, with a full run', () async {
+        for (final args in [
+          ['verify', '--files', 'lib/a.dart'],
+          ['verify', '--full', '--files', 'lib/a.dart'],
+        ]) {
+          err.clear();
+          expect(await run(args), ExitCodes.appsteinFailed);
+          expect(
+            err.toString(),
+            startsWith(
+              '--files works with a fast run only: pass --fast with it. A '
+              'full run checks every file.\n',
+            ),
+          );
+        }
+        expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
+      });
+
+      test('fails, with exit 3, for a path outside the project, relative or '
+          'absolute', () async {
+        final outside = p.join(work.path, 'elsewhere', 'a.dart');
+        for (final path in ['../a.dart', 'lib/../../a.dart', outside]) {
+          err.clear();
+          expect(
+            await run(['verify', '--fast', '--files', path]),
+            ExitCodes.appsteinFailed,
+          );
+          expect(
+            err.toString(),
+            startsWith(
+              'The path `$path` given to --files is outside the project '
+              '(${p.normalize(p.absolute(project))}).',
+            ),
+          );
+        }
+        expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
+      });
+
+      test('adds the files for a fast run: relative from the project root '
+          'wherever verify runs, absolute inside the project, with spaces, '
+          'deleted or not Dart', () async {
+        File(p.join(project, 'lib', 'a.dart'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('int a = 1;\n');
+        final analysis = ScriptedCodeAnalysis(
+          found: [
+            warning('lib/a.dart'),
+            warning('lib/my file.dart'),
+            warning('lib/other.dart'),
+            warning('pubspec.yaml'),
+          ],
+        );
+        expect(
+          await run(
+            [
+              'verify',
+              '--fast',
+              '--files',
+              'lib/a.dart,lib/gone.dart,pubspec.yaml',
+              '--files',
+              p.join(project, 'lib', 'my file.dart'),
+            ],
+            analysis: analysis,
+            // Relative paths are still taken from the project root.
+            workingDirectory: p.join(project, 'lib'),
+          ),
+          ExitCodes.errorsFound, // knowledge.stale
+        );
+        final text = out.toString();
+        expect(text, contains('\nlib/a.dart\n  warning dart.warning (line 1)'));
+        expect(text, contains('\nlib/my file.dart\n  warning dart.warning'));
+        expect(text, contains('\npubspec.yaml\n  warning dart.warning'));
+        expect(text, isNot(contains('lib/other.dart')));
+      });
+
+      test('on Windows a path in another letter case names the file on '
+          'disk', () async {
+        File(p.join(project, 'lib', 'Home.dart'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('int a = 1;\n');
+        await run([
+          'verify',
+          '--fast',
+          '--files',
+          'LIB/home.DART',
+        ], analysis: ScriptedCodeAnalysis(found: [warning('lib/Home.dart')]));
+        expect(out.toString(), contains('\nlib/Home.dart\n  warning'));
+      }, testOn: 'windows');
+    });
+
     test('fails, with exit 3, for a format it does not have', () async {
       expect(
         await run(['verify', '--format', 'xml']),
@@ -1133,7 +1232,7 @@ void main() {
         out.toString(),
         startsWith('Check the project against its knowledge (fast or full).'),
       );
-      for (final flag in ['--fast', '--full', '--format']) {
+      for (final flag in ['--fast', '--full', '--format', '--files=<paths>']) {
         expect(out.toString(), contains(flag));
       }
       expect(out.toString(), contains('[text (default), json]'));

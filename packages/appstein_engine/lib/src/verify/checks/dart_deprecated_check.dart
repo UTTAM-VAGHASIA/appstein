@@ -58,26 +58,47 @@ final class DartDeprecatedCheck implements GatheringCheck {
   // The comments are read from the source files: one that works removes
   // the diagnostic from the analysis server's reading. The server is asked
   // first, since its reading says which files to read.
+  //
+  // On the unverified files, each use's fix hint says whether `dart fix` can
+  // migrate it, which the analysis server is asked here too.
   @override
   Future<void> gather(VerifyGathering gathering) async {
     await gathering.code();
     await gathering.deprecationIgnores();
+    await gathering.dartFixes();
   }
 
   @override
-  Future<List<Finding>> run(VerifyContext context) async => [
-    for (final diagnostic in context.code.diagnostics)
-      if (isDeprecatedUseCode(diagnostic.code))
-        Finding(
-          id: 'dart.deprecated',
-          severity: Severity.error,
-          file: diagnostic.file,
-          line: diagnostic.line,
-          message: '${diagnostic.message} (`${diagnostic.code}`)',
-          fixHint:
-              'Replace it with the API the message names. `dart fix '
-              '--dry-run` lists the uses it can migrate by itself.',
-        ),
+  Future<List<Finding>> run(VerifyContext context) async {
+    final fixes = context.dartFixes;
+    return [
+      for (final diagnostic in context.code.diagnostics)
+        if (isDeprecatedUseCode(diagnostic.code))
+          Finding(
+            id: 'dart.deprecated',
+            severity: Severity.error,
+            file: diagnostic.file,
+            line: diagnostic.line,
+            message: '${diagnostic.message} (`${diagnostic.code}`)',
+            fixHint: switch (fixes[diagnostic]) {
+              true =>
+                "The package that deprecated this API describes a migration "
+                    'for it (`fix_data.yaml`): `dart fix --apply` applies it, '
+                    'unless the package marks it for the IDE only. Or replace '
+                    'it with the API the message names.',
+              false =>
+                "`dart fix` can't migrate this use: replace it with the API "
+                    'the message names.',
+              null =>
+                'Replace it with the API the message names. `dart fix '
+                    '--dry-run` lists the uses it can migrate by itself.',
+            },
+          ),
+      ..._hidings(context),
+    ];
+  }
+
+  Iterable<Finding> _hidings(VerifyContext context) => [
     for (final hiding in context.deprecationIgnores)
       Finding(
         id: 'dart.deprecated',

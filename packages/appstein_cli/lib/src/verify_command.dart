@@ -14,12 +14,16 @@ import 'version.dart';
 typedef VerifyChecks =
     List<({VerifyCheck check, String? pack})> Function(List<Pack> packs);
 
-/// `appstein verify [--fast | --full] [--format text|json]`: checks the
-/// project against its knowledge (spec §5.3, §9), after bringing the
-/// knowledge up to date. It never writes a project file outside
-/// `.appstein/`. For the code checks it starts the project's Dart analysis
-/// server, waits for the first analysis, and stops the server before it
-/// returns.
+/// `appstein verify [--fast | --full] [--format text|json] [--files
+/// paths]`: checks the project against its knowledge (spec §5.3, §9),
+/// after bringing the knowledge up to date. It never writes a project file
+/// outside `.appstein/`. For the code checks it starts the project's Dart
+/// analysis server, waits for the first analysis, and stops the server
+/// before it returns.
+///
+/// `--files` (fast runs only) adds files to the unverified files, for the
+/// run and after it (`resolveVerifyFiles`): a path outside the project,
+/// and `--files` with a full run, are usage errors.
 ///
 /// Exit codes (spec §9.5): 0 when no finding is an error; 1 when one is; 3
 /// when Appstein itself failed (no project, a bad `appstein.yaml`, bad
@@ -53,6 +57,15 @@ final class VerifyCommand extends Command<int> {
         allowed: const ['text', 'json'],
         defaultsTo: 'text',
         help: 'How the findings are printed.',
+      )
+      ..addMultiOption(
+        'files',
+        valueHelp: 'paths',
+        help:
+            'With --fast: add these files to the unverified files, for this '
+            'run and after it. Paths are from the project root, or absolute '
+            'inside the project; a folder stands for its Dart files. '
+            'Separate them with commas, or repeat the option.',
       );
   }
 
@@ -94,6 +107,15 @@ final class VerifyCommand extends Command<int> {
     if (results.flag('fast') && results.flag('full')) {
       usageException('Pass --fast or --full, not both.');
     }
+    final given = results.multiOption('files');
+    // The unverified files belong to fast runs: a full run checks every
+    // file anyway.
+    if (results.wasParsed('files') && !results.flag('fast')) {
+      usageException(
+        '--files works with a fast run only: pass --fast with it. A full run '
+        'checks every file.',
+      );
+    }
     final projectRoot = resolveProjectRoot(globalResults, environment);
     if (projectRoot == null) {
       err
@@ -104,6 +126,12 @@ final class VerifyCommand extends Command<int> {
         )
         ..writeln('Run it inside the project, or pass --project <path>.');
       return ExitCodes.appsteinFailed;
+    }
+    final List<String> files;
+    try {
+      files = resolveVerifyFiles(projectRoot, given);
+    } on VerifyFilesException catch (error) {
+      usageException(error.message);
     }
     final AppsteinConfig config;
     try {
@@ -149,6 +177,7 @@ final class VerifyCommand extends Command<int> {
         checks: checks(packs),
         codeAnalysis: codeAnalysis,
         dartSdkPath: dartSdkPath,
+        files: files,
       ),
     );
     final result = found.withNotices(left);

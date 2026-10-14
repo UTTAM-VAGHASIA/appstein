@@ -12,6 +12,7 @@ import '../packs/pack.dart';
 import 'checks/dart_deprecated_check.dart';
 import 'suppressions.dart';
 import 'test_run.dart';
+import 'unverified_files.dart';
 import 'verify_check.dart';
 
 /// The findings no suppression hides and no `verify.severity` override
@@ -24,6 +25,75 @@ const unsuppressibleIds = {
 };
 
 const _runAgain = 'Then run `appstein verify` again.';
+
+/// Writes the unverified files this run leaves in `state.json`, under the
+/// knowledge lock the caller holds (slice 1d.2, spec §9.1):
+/// - the run's [added] files (`--files`) join them;
+/// - a file of the run's [unverified] set on which the run [reported] no
+///   error leaves them: an error hidden by a suppression, or lowered by
+///   `verify.severity`, counts as none. That is judged only when the run
+///   took a [reading] of the code analysis: a run whose Dart checks didn't
+///   run verified no file;
+/// - a file the reading could not read joins them and never leaves;
+/// - **a partial run lets no file leave** ([partial], the owner's decision
+///   of 2026-10-14): one that reports `dart.plugin_failed` or
+///   `knowledge.stale`, or in which a `dart.*` check was named as not run.
+///   Tests not run don't make a run partial.
+///
+/// A `state.json` that can't be read or written is left as it is: the files
+/// stay unverified, which only makes a later run report more. Returns false
+/// when that left [added] files out.
+Future<bool> _settleUnverified(
+  KnowledgeStore store, {
+  required List<Finding> reported,
+  required CodeReading? reading,
+  required UnverifiedFiles unverified,
+  required List<String> added,
+  required Map<String, String>? hashesAtStart,
+  required bool partial,
+}) async {
+  final now = store.readState().state;
+  if (now == null) return added.isEmpty;
+  final withErrors = UnverifiedFiles([
+    for (final finding in reported)
+      if (finding.severity == Severity.error) ?finding.file,
+  ]);
+  final next = unverifiedAfterVerify(
+    now,
+    added: added,
+    unreadable: reading?.unreadableFiles.keys ?? const [],
+    verified: reading == null || partial
+        ? const []
+        : [
+            for (final file in unverified.files)
+              if (!withErrors.contains(file)) file,
+          ],
+    hashesAtStart: hashesAtStart,
+  );
+  if (next == null) return true;
+  try {
+    await store.writeState(now.copyWith(unverified: next));
+    return true;
+  } on KnowledgeWriteException {
+    // Left as they were; see above.
+    return added.isEmpty;
+  }
+}
+
+/// The check IDs of the analyzer's code checks (slice 1d.2): a run in which
+/// one of them was named as not run checked the code only in part, so no
+/// file leaves the unverified files. Tests not run (`test.failed`, while the
+/// code has an analyzer error) don't count: the owner's decision of
+/// 2026-10-14, after the second review.
+bool _isCodeCheck(String id) => id.startsWith('dart.');
+
+/// What the run tells when the files it was given could not be kept for
+/// later runs (`state.json` was not written).
+const _filesNotKept =
+    'The files given to this run (`--files`, or the tool\'s `files`) were '
+    'checked in it, but not kept among the unverified files for later runs: '
+    'another Appstein process held the knowledge lock, or `state.json` could '
+    'not be written. Give them again with the next fast run.';
 
 String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 
@@ -52,6 +122,16 @@ String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 ///    the analysis's reading (`VerifyGathering.suppressionComments`).
 /// 6. It asks each [FollowingCheck] that ran for what it adds now that it is
 ///    known which findings stay, and applies `verify.severity` to those.
+/// 7. Still holding the lock, it writes the unverified files the run leaves
+///    to `state.json` (slice 1d.2): [files] join them, a file of the run's
+///    set with no error in the result leaves them, and a file that could not
+///    be read stays (`unverifiedAfterVerify`).
+///
+/// The unverified files are read once, after the refresh and before
+/// anything is gathered, with [files] added: paths from the project root
+/// with `/`, as `resolveVerifyFiles` gives them (`--files`, or the tool's
+/// `files`). That one set is what is gathered for and what the checks judge
+/// (`VerifyContext.unverified`).
 ///
 /// [checks] is every check of the project, each with the pack that
 /// contributed it (null for the engine's); `checksFor` builds the list.
@@ -75,6 +155,7 @@ Future<VerifyResult> runVerify({
   required CodeAnalysis codeAnalysis,
   KnowledgeRefresh? refreshed,
   String? dartSdkPath,
+  List<String> files = const [],
 }) async {
   final refresh =
       refreshed ??
@@ -84,6 +165,12 @@ Future<VerifyResult> runVerify({
         dartSdkPath: dartSdkPath,
         runAgain: _runAgain,
       );
+  // The unverified files, read once, after the refresh that adds to them
+  // and before the lock: the same set for what is gathered and what is
+  // judged. Files are replaced whole, so reading without the lock is safe.
+  final store = KnowledgeStore(projectRoot);
+  final atStart = store.readState().state;
+  final unverified = UnverifiedFiles([...?atStart?.unverified, ...files]);
   // Everything slow, and everything the analysis server answers, is
   // gathered here: after the refresh, which may fetch the packages the
   // analysis reads, and before the knowledge lock, which other Appstein
@@ -91,6 +178,7 @@ Future<VerifyResult> runVerify({
   final gathering = VerifyGathering(
     codeAnalysis,
     projectRoot: projectRoot,
+    unverified: unverified,
     // With the sync's machine and process runner, so the tests run on the
     // Flutter SDK the knowledge was built for.
     runTests: () => runProjectTests(
@@ -129,7 +217,10 @@ Future<VerifyResult> runVerify({
       (ignore.file, ignore.line, deprecatedIgnoreMessage(ignore)),
   };
 
-  Future<VerifyResult> body(KnowledgeRefresh refresh) async {
+  Future<VerifyResult> body(
+    KnowledgeRefresh refresh, {
+    bool locked = false,
+  }) async {
     final knowledge = KnowledgeSnapshot(projectRoot);
     var stale = refresh.problem;
     var staleFix = refresh.fixHint;
@@ -180,6 +271,9 @@ Future<VerifyResult> runVerify({
         notRun[id] = CheckNotRun(id: id, reason: reason);
         incomplete.addAll(running);
       },
+      dartFixesReader: () => gathering.dartFixesFor(runningCheck),
+      unverified: unverified,
+      mode: mode,
     );
     for (final (:check, :pack) in checks) {
       if (mode == VerifyMode.fast && check.mode != VerifyMode.fast) continue;
@@ -267,12 +361,32 @@ Future<VerifyResult> runVerify({
         });
       }
     }
+    final reported = [...suppressed.kept, ...following];
+    // Reported before the suppressions, which can't hide either of them.
+    final partial =
+        overridden.any(
+          (finding) =>
+              finding.id == 'knowledge.stale' ||
+              finding.id == 'dart.plugin_failed',
+        ) ||
+        notRun.keys.any(_isCodeCheck);
+    final kept = locked
+        ? await _settleUnverified(
+            store,
+            reported: reported,
+            reading: gathering.reading,
+            unverified: unverified,
+            added: files,
+            hashesAtStart: atStart?.dartFiles,
+            partial: partial,
+          )
+        : files.isEmpty;
     return VerifyResult(
-      findings: sortFindings([...suppressed.kept, ...following]),
+      findings: sortFindings(reported),
       suppressed: suppressed.suppressed,
       activeSuppressions: suppressed.active,
       notRun: notRun.values.toList()..sort((a, b) => a.id.compareTo(b.id)),
-      notices: gathering.notices,
+      notices: [...gathering.notices, if (!kept) _filesNotKept],
     );
   }
 
@@ -280,9 +394,10 @@ Future<VerifyResult> runVerify({
   // it again would double the time before the same answer.
   if (refresh.problem == lockBusyProblem) return body(refresh);
   try {
-    return await KnowledgeStore(
-      projectRoot,
-    ).locked(() => body(refresh), timeout: sync.lockTimeout);
+    return await store.locked(
+      () => body(refresh, locked: true),
+      timeout: sync.lockTimeout,
+    );
   } on KnowledgeWriteException catch (error) {
     // `.appstein` can't be created or opened (it is a file, or the folder
     // is read-only). That is the project's to fix, so it is a finding, and

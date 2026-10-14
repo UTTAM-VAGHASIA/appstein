@@ -94,9 +94,12 @@ int one() => 1;
 
     for (final mode in VerifyMode.values) {
       test('${mode.name}: each error is a dart.error with its file, line, '
-          'message and code; the warning is not reported', () async {
+          'message and code; the warning is not one', () async {
         final result = await verify(app, server, mode: mode);
-        final found = dart(result);
+        final found = [
+          for (final finding in dart(result))
+            if (finding.id == 'dart.error') finding,
+        ];
         expect(
           [for (final finding in found) (finding.id, finding.file)],
           [
@@ -170,7 +173,12 @@ int one() => 1;
         expect(result.findings.first.id, 'knowledge.stale');
         final found = dart(result);
         expect(found, isNotEmpty);
-        expect({for (final finding in found) finding.id}, {'dart.error'});
+        // The project's warnings too: in a full run everywhere, and in a fast
+        // run on the unverified files, which are every file here (nothing
+        // was ever verified, and a run with stale knowledge lets none leave).
+        expect({
+          for (final finding in found) finding.id,
+        }, contains('dart.error'));
         expect([
           for (final finding in found) finding.message,
         ], contains(endsWith(' (`uri_does_not_exist`)')));
@@ -562,7 +570,9 @@ void notHiding() {
           "'stale' is deprecated and shouldn't be used. Use fresh instead. "
           '(`deprecated_member_use_from_same_package`)',
         );
-        expect(one.fixHint, contains('`dart fix --dry-run`'));
+        // Every file is unverified (the first sync), and the stand-in package
+        // has no `fix_data.yaml`.
+        expect(one.fixHint, startsWith("`dart fix` can't migrate this use"));
         // The comments: what each hides, and the visible way out.
         expect(above.message, contains('`// ignore:` comment'));
         expect(above.message, contains('`deprecated_member_use`'));
@@ -928,10 +938,10 @@ void fileWide() => oldWay();
     });
   });
 
-  // Why a file `verify` can't read may be left out of the source reading:
-  // the analysis server can't read it either, and then reports the file as
-  // analyzed, with no diagnostic. On Windows a lock another handle holds
-  // makes a file unreadable.
+  // The analysis server can't read a locked file either, and reports it as
+  // analyzed, with no diagnostic: without `dart.unreadable` every code check
+  // would read it as clean. On Windows a lock another handle holds makes a
+  // file unreadable.
   group('a file that can\'t be read', () {
     late String app;
     late AnalysisServer server;
@@ -972,20 +982,580 @@ void uses() {
 
     tearDownAll(() => server.stop());
 
-    test('the server reports no diagnostic for it, and verify nothing: '
-        'neither the use nor the comment', () async {
+    test('the server reports no diagnostic for it, and verify reports '
+        'dart.unreadable on it, in fast and full runs; it stays '
+        'unverified', () async {
       final reading = await server.read();
       expect(reading.analyzedFiles, contains(locked));
       expect([
         for (final diagnostic in reading.diagnostics)
           if (diagnostic.file == locked) diagnostic.code,
       ], isEmpty);
+      expect(reading.unreadableFiles.keys, [locked]);
 
-      final result = await verify(app, server, mode: VerifyMode.fast);
-      expect([
-        for (final finding in result.findings)
-          if (finding.file == locked) finding.id,
-      ], isEmpty);
+      for (final mode in VerifyMode.values) {
+        final result = await verify(app, server, mode: mode);
+        expect(
+          [
+            for (final finding in result.findings)
+              if (finding.file == locked) (finding.id, finding.severity),
+          ],
+          [('dart.unreadable', Severity.error)],
+          reason: mode.name,
+        );
+        expect(
+          result.findings
+              .firstWhere((finding) => finding.id == 'dart.unreadable')
+              .message,
+          allOf(
+            startsWith('This file could not be read ('),
+            endsWith('), so nothing in it was checked.'),
+          ),
+        );
+        expect(
+          KnowledgeStore(app).readState().state!.unverified,
+          contains(locked),
+        );
+      }
     });
   }, testOn: 'windows');
+
+  // A kept server: a file locked after a reading, and one created and
+  // locked; once the lock is gone, the server reads the file again.
+  group('a file locked while a server is kept', () {
+    late String app;
+    late AnalysisServer server;
+
+    const later = 'lib/later.dart';
+    const created = 'lib/created.dart';
+
+    setUpAll(() {
+      app = copyFixtureApp();
+      writeProjectFile(app, later, 'int later() => \'text\';\n');
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('each is dart.unreadable while it is locked; unlocked, its errors '
+        'are reported again', () async {
+      var reading = await server.read();
+      expect(
+        [
+          for (final diagnostic in reading.diagnostics)
+            if (diagnostic.file == later) diagnostic.code,
+        ],
+        ['return_of_invalid_type'],
+      );
+      writeProjectFile(app, created, 'int created() => \'text\';\n');
+      final holds = [
+        for (final file in [later, created])
+          File(
+            p.joinAll([app, ...file.split('/')]),
+          ).openSync(mode: FileMode.append)..lockSync(FileLock.exclusive),
+      ];
+      reading = await server.read();
+      expect(reading.unreadableFiles.keys, [created, later]);
+      final result = await verify(app, server, mode: VerifyMode.fast);
+      expect(
+        [
+          for (final finding in result.findings)
+            if (finding.id == 'dart.unreadable') finding.file,
+        ],
+        [created, later],
+      );
+      for (final held in holds) {
+        held
+          ..unlockSync()
+          ..closeSync();
+      }
+      reading = await server.read();
+      expect(reading.unreadableFiles, isEmpty);
+      expect(
+        {
+          for (final diagnostic in reading.diagnostics)
+            if (diagnostic.file == later || diagnostic.file == created)
+              (diagnostic.file, diagnostic.code),
+        },
+        {
+          (later, 'return_of_invalid_type'),
+          (created, 'return_of_invalid_type'),
+        },
+      );
+    });
+  }, testOn: 'windows');
+
+  // Fix round 1 of ticket 06: a lock past the first byte, a lock taken
+  // between the look and the server's read, and files behind a junction.
+  group('locks the first look can miss, and files behind a link', () {
+    late String app;
+    late AnalysisServer server;
+    late String shared;
+    Future<void> Function()? afterLook;
+
+    const partial = 'lib/partial.dart';
+    const late = 'lib/late_lock.dart';
+
+    File fileOf(String relative) =>
+        File(p.joinAll([app, ...relative.split('/')]));
+
+    setUpAll(() async {
+      app = copyFixtureApp();
+      shared = p.join(p.dirname(app), 'shared');
+      File(p.join(shared, 'behind.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('/// Behind the link.\nint behind() => 1;\n');
+      // On Windows a junction, which needs no admin rights.
+      Link(p.join(app, 'lib', 'linked')).createSync(shared);
+      writeProjectFile(app, partial, '/// Fine.\nint partial() => 1;\n');
+      writeProjectFile(app, late, '/// Fine.\nint late() => 1;\n');
+      server = AnalysisServer(
+        projectRoot: app,
+        guardCommand: testGuardCommand,
+        dartExecutable: () => testDart,
+        afterLook: () async => afterLook?.call(),
+      );
+      await server.read();
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('a link to a Dart file is analyzed under the link\'s name, and an '
+        'edit of its target is in the next reading at once', () async {
+      final target = File(p.join(shared, 'target.dart'))
+        ..writeAsStringSync('/// Fine.\nint target() => 1;\n');
+      try {
+        Link(p.join(app, 'lib', 'file_link.dart')).createSync(target.path);
+      } on FileSystemException catch (error) {
+        markTestSkipped('No file link could be made here: ${error.message}');
+        return;
+      }
+      var reading = await server.read();
+      expect(reading.analyzedFiles, contains('lib/file_link.dart'));
+      target.writeAsStringSync('/// Broken.\nint target() => "x";\n');
+      reading = await server.read();
+      expect(
+        [
+          for (final diagnostic in reading.diagnostics)
+            if (diagnostic.file == 'lib/file_link.dart') diagnostic.code,
+        ],
+        ['return_of_invalid_type'],
+      );
+    });
+
+    test('a file behind a junction is analyzed by its path through the link, '
+        'and an edit there is in the next reading at once', () async {
+      var reading = await server.read();
+      expect(reading.analyzedFiles, contains('lib/linked/behind.dart'));
+      File(
+        p.join(shared, 'behind.dart'),
+      ).writeAsStringSync('/// Broken.\nint behind() => "text";\n');
+      reading = await server.read();
+      expect(
+        [
+          for (final diagnostic in reading.diagnostics)
+            if (diagnostic.file == 'lib/linked/behind.dart') diagnostic.code,
+        ],
+        ['return_of_invalid_type'],
+      );
+      File(
+        p.join(shared, 'behind.dart'),
+      ).writeAsStringSync('/// Behind the link.\nint behind() => 1;\n');
+      reading = await server.read();
+      expect(
+        reading.diagnostics.where(
+          (diagnostic) => diagnostic.file == 'lib/linked/behind.dart',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('an edited file locked past its first byte is dart.unreadable, and '
+        'stays unverified', () async {
+      fileOf(partial).writeAsStringSync('/// Broken.\nint partial() => "x";\n');
+      final held = fileOf(partial).openSync(mode: FileMode.append)
+        ..lockSync(FileLock.exclusive, 5);
+      try {
+        final result = await verify(app, server, mode: VerifyMode.fast);
+        expect(
+          [
+            for (final finding in result.findings)
+              if (finding.file == partial) finding.id,
+          ],
+          ['dart.unreadable'],
+        );
+        expect(
+          KnowledgeStore(app).readState().state!.unverified,
+          contains(partial),
+        );
+      } finally {
+        held
+          ..unlockSync(5)
+          ..closeSync();
+      }
+      final reading = await server.read();
+      expect(reading.unreadableFiles, isEmpty);
+      expect(
+        [
+          for (final diagnostic in reading.diagnostics)
+            if (diagnostic.file == partial) diagnostic.code,
+        ],
+        ['return_of_invalid_type'],
+      );
+    });
+
+    test('a file locked after the look, before the server reads it, and '
+        'still locked after the reading, is dart.unreadable, not clean, and '
+        'does not leave', () async {
+      fileOf(late).writeAsStringSync('/// Broken.\nint late() => "x";\n');
+      RandomAccessFile? held;
+      afterLook = () async {
+        held ??= fileOf(late).openSync(mode: FileMode.append)
+          ..lockSync(FileLock.exclusive);
+      };
+      try {
+        final result = await verify(app, server, mode: VerifyMode.fast);
+        expect(
+          [
+            for (final finding in result.findings)
+              if (finding.file == late) finding.id,
+          ],
+          ['dart.unreadable'],
+        );
+        expect(
+          KnowledgeStore(app).readState().state!.unverified,
+          contains(late),
+        );
+      } finally {
+        afterLook = null;
+        held
+          ?..unlockSync()
+          ..closeSync();
+      }
+      final reading = await server.read();
+      expect(
+        [
+          for (final diagnostic in reading.diagnostics)
+            if (diagnostic.file == late) diagnostic.code,
+        ],
+        ['return_of_invalid_type'],
+      );
+    });
+  }, testOn: 'windows');
+
+  // Ticket 06 with a real server and the real refresh: the files that
+  // change on disk join the unverified files, and a fast run reports their
+  // warnings and lints only.
+  group('warnings, lints and the unverified files', () {
+    late String app;
+    late AnalysisServer server;
+
+    const a = 'lib/a.dart';
+    const b = 'lib/b.dart';
+    const old = 'lib/old.dart';
+
+    List<(String, String?)> found(VerifyResult result) => [
+      for (final finding in result.findings)
+        if (finding.id.startsWith('dart.')) (finding.id, finding.file),
+    ];
+
+    setUpAll(() async {
+      app = copyFixtureApp();
+      // A lint the fixture's options don't switch on.
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        'linter:\n  rules:\n    - prefer_single_quotes\n',
+      );
+      // An old warning and an old lint in a file nobody touches.
+      writeProjectFile(app, old, '''
+import 'dart:math';
+
+/// Old.
+String old() => "old";
+''');
+      writeProjectFile(app, a, '/// A.\nint a() => 1;\n');
+      writeProjectFile(app, b, '/// B.\nint b() => 2;\n');
+      server = realAnalysisServer(app);
+      // The first run records every file; none is unverified.
+      await verify(app, server, mode: VerifyMode.fast);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test(
+      'a full run reports the old warning and lint; a fast run doesn\'t',
+      () async {
+        final full = await verify(app, server);
+        expect(
+          found(full),
+          containsAll([('dart.warning', old), ('dart.lint', old)]),
+        );
+        final warning = full.findings.firstWhere(
+          (finding) => finding.id == 'dart.warning',
+        );
+        expect(warning.severity, Severity.warning);
+        expect(warning.line, 1);
+        expect(warning.message, endsWith(' (`unused_import`)'));
+        final lint = full.findings.firstWhere(
+          (finding) => finding.id == 'dart.lint',
+        );
+        expect(lint.severity, Severity.info);
+        expect(lint.line, 4);
+        expect(lint.message, endsWith(' (`prefer_single_quotes`)'));
+        final fast = await verify(app, server, mode: VerifyMode.fast);
+        expect(found(fast), isEmpty);
+      },
+    );
+
+    test('the scenario from the interview: A broken, then B edited '
+        'correctly; A stays unverified and its findings stay', () async {
+      writeProjectFile(app, a, '''
+import 'dart:io';
+
+/// A, broken.
+int a() => "text";
+''');
+      var fast = await verify(app, server, mode: VerifyMode.fast);
+      expect(found(fast), [
+        ('dart.error', a),
+        ('dart.warning', a),
+        ('dart.lint', a),
+      ]);
+      expect(KnowledgeStore(app).readState().state!.unverified, [a]);
+
+      writeProjectFile(app, b, '/// B, edited.\nint b() => 3;\n');
+      fast = await verify(app, server, mode: VerifyMode.fast);
+      expect(found(fast), [
+        ('dart.error', a),
+        ('dart.warning', a),
+        ('dart.lint', a),
+      ]);
+      expect(KnowledgeStore(app).readState().state!.unverified, [a]);
+
+      // A fixed: its lint and warning go with the error, and it leaves.
+      writeProjectFile(app, a, '/// A, fixed.\nint a() => 1;\n');
+      fast = await verify(app, server, mode: VerifyMode.fast);
+      expect(found(fast), isEmpty);
+      expect(KnowledgeStore(app).readState().state!.unverified, isEmpty);
+    });
+
+    test('a test file that changes joins them too', () async {
+      writeProjectFile(app, 'test/extra_test.dart', '''
+import 'dart:math';
+
+void main() {}
+''');
+      final fast = await verify(app, server, mode: VerifyMode.fast);
+      expect(found(fast), [('dart.warning', 'test/extra_test.dart')]);
+      File(p.join(app, 'test', 'extra_test.dart')).deleteSync();
+      await verify(app, server, mode: VerifyMode.fast);
+      expect(KnowledgeStore(app).readState().state!.unverified, isEmpty);
+    });
+
+    test('verify.severity raises dart.warning and a suppression hides '
+        'dart.lint', () async {
+      final result = await verify(
+        app,
+        server,
+        config: const AppsteinConfig(
+          verify: VerifyConfig(severity: {'dart.warning': Severity.error}),
+          suppressions: [
+            SuppressionEntry(
+              id: 'dart.lint',
+              path: old,
+              reason: 'Kept as it was.',
+              line: 3,
+            ),
+          ],
+        ),
+      );
+      expect(
+        [
+          for (final finding in result.findings)
+            if (finding.file == old) (finding.id, finding.severity),
+        ],
+        [('dart.warning', Severity.error)],
+      );
+      expect(result.suppressed, 1);
+    });
+  });
+
+  // `dart fix` can migrate a use when the package that deprecated the API
+  // describes the migration in its `fix_data.yaml`.
+  group('deprecated use with and without a data-driven fix', () {
+    late String app;
+    late AnalysisServer server;
+
+    const uses = 'lib/uses_old.dart';
+    const before = 'lib/before.dart';
+
+    setUpAll(() async {
+      app = copyFixtureApp();
+      final stub = p.join(p.dirname(app), 'stubs', 'flutter', 'lib');
+      File(p.join(stub, 'old.dart')).writeAsStringSync('''
+/// Old, with a migration.
+@Deprecated('Use newWay instead.')
+void oldWay() {}
+
+/// Old, with a migration for the IDE only.
+@Deprecated('Use newIde instead.')
+void oldIde() {}
+
+/// Old, with none.
+@Deprecated('Rewrite it.')
+void otherWay() {}
+
+/// New.
+void newWay() {}
+
+/// New, for the IDE's migration.
+void newIde() {}
+''');
+      File(p.join(stub, 'fix_data.yaml')).writeAsStringSync('''
+version: 1
+transforms:
+  - title: 'Rename to newWay'
+    date: 2026-01-01
+    element:
+      uris: ['old.dart']
+      function: 'oldWay'
+    changes:
+      - kind: 'rename'
+        newName: 'newWay'
+  - title: 'Rename to newIde'
+    date: 2026-01-01
+    bulkApply: false
+    element:
+      uris: ['old.dart']
+      function: 'oldIde'
+    changes:
+      - kind: 'rename'
+        newName: 'newIde'
+''');
+      writeProjectFile(app, before, '''
+import 'package:flutter/old.dart';
+
+/// Uses the old one.
+void before() => oldWay();
+''');
+      server = realAnalysisServer(app);
+      await verify(app, server, mode: VerifyMode.fast);
+      // As if a run had verified it earlier: `before` is not unverified.
+      final store = KnowledgeStore(app);
+      final now = store.readState().state!;
+      await store.locked(
+        () => store.writeState(now.copyWith(unverified: const [])),
+      );
+      writeProjectFile(app, uses, '''
+import 'package:flutter/old.dart';
+
+/// Uses all three.
+void uses() {
+  oldWay();
+  oldIde();
+  otherWay();
+}
+''');
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('a kept answer belongs to the text the reading was taken from: an '
+        'edit between the reading and the question files nothing under the '
+        'new text', () async {
+      const swap = 'lib/swap.dart';
+      addTearDown(() => deleteProjectFile(app, swap));
+      writeProjectFile(app, swap, '''
+import 'package:flutter/old.dart';
+
+/// Swapped.
+void swap() {
+  oldWay();
+}
+''');
+      var reading = await server.read();
+      final migratable = reading.diagnostics.singleWhere(
+        (diagnostic) => diagnostic.file == swap,
+      );
+      // The same offset and code, with a use that has no migration.
+      writeProjectFile(app, swap, '''
+import 'package:flutter/old.dart';
+
+/// Swapped.
+void swap() {
+  otherWay();
+}
+''');
+      // Asked after the edit, about the reading before it. The server
+      // usually still answers for the old text (true); its own file watcher
+      // may have taken the edit in already (false). Either way the answer
+      // must not be kept for the new text.
+      final first = await server.canDartFix(migratable);
+      reading = await server.read();
+      final other = reading.diagnostics.singleWhere(
+        (diagnostic) => diagnostic.file == swap,
+      );
+      expect((other.offset, other.code), (migratable.offset, migratable.code));
+      expect(await server.canDartFix(other), isFalse, reason: 'first: $first');
+    });
+
+    test('on an unverified file the hint says whether dart fix can migrate '
+        'it; elsewhere it stays general; an answer is asked once', () async {
+      final reading = await server.read();
+      final [migrated, ideOnly, rewritten] = [
+        for (final diagnostic in reading.diagnostics)
+          if (diagnostic.file == uses) diagnostic,
+      ];
+      expect(migrated.offset, isNotNull);
+      final asked = Stopwatch()..start();
+      expect(await server.canDartFix(migrated), isTrue);
+      final first = asked.elapsedMicroseconds;
+      // A migration the package marks for the IDE only is offered the same
+      // way: the server's answer doesn't tell the two apart, so the hint
+      // says only what holds.
+      expect(await server.canDartFix(ideOnly), isTrue);
+      expect(await server.canDartFix(rewritten), isFalse);
+      final three = asked.elapsedMicroseconds;
+      asked.reset();
+      for (var i = 0; i < 10; i++) {
+        expect(await server.canDartFix(migrated), isTrue);
+      }
+      final kept = asked.elapsedMicroseconds / 10;
+      // ignore: avoid_print
+      print(
+        'canDartFix on the fixture app: first question '
+        '${(first / 1000).toStringAsFixed(1)} ms, three questions '
+        '${(three / 1000).toStringAsFixed(1)} ms, a kept answer '
+        '${(kept / 1000).toStringAsFixed(2)} ms',
+      );
+
+      String? hint(VerifyResult result, String file, String name) => result
+          .findings
+          .firstWhere(
+            (finding) =>
+                finding.id == 'dart.deprecated' &&
+                finding.file == file &&
+                finding.message.contains("'$name'"),
+          )
+          .fixHint;
+
+      for (final mode in VerifyMode.values) {
+        final result = await verify(app, server, mode: mode);
+        for (final name in ['oldWay', 'oldIde']) {
+          expect(
+            hint(result, uses, name),
+            startsWith('The package that deprecated this API describes a '),
+          );
+        }
+        expect(hint(result, uses, 'otherWay'), startsWith("`dart fix` can't"));
+        expect(
+          hint(result, before, 'oldWay'),
+          contains('`dart fix --dry-run`'),
+        );
+        // A deprecated use is an error: the file stays unverified.
+        expect(KnowledgeStore(app).readState().state!.unverified, [uses]);
+      }
+    });
+  });
 }

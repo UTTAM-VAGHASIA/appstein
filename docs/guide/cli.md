@@ -207,9 +207,9 @@ A refusal is exit 1, not 3: the project has something to fix (fetch the packages
 
 `appstein verify` checks the project against its knowledge and prints the findings. What a run does, and every check, is in [verify](verify.md); [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) only starts it and prints.
 
-1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`.
-2. **Finds the project and loads `appstein.yaml`**, as `docs` does: no project, or an invalid file, exits **3**.
-3. **Calls `runVerify`** with the project's packs, `checksFor(packs)` and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`. The call is wrapped in `terminalCodeAnalysis`: the run gets an analysis server of its own, started behind the guard when a check first asks and stopped when the run ends, normally or with an error (see [verify](verify.md#the-analysis-server)).
+1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`. `--files <paths>` (comma-separated, or the option repeated; a folder stands for the Dart files under it) adds files to the [unverified files](verify.md#the-unverified-files); without `--fast` it is a usage error, exit **3**, since the default is a full run.
+2. **Finds the project and loads `appstein.yaml`**, as `docs` does: no project, or an invalid file, exits **3**. The `--files` paths are then resolved against the project root (`resolveVerifyFiles`), not the folder `verify` runs in; a path outside the project is a usage error, exit **3**.
+3. **Calls `runVerify`** with the project's packs, `checksFor(packs)`, the `--files` paths and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`. The call is wrapped in `terminalCodeAnalysis`: the run gets an analysis server of its own, started behind the guard when a check first asks and stopped when the run ends, normally or with an error (see [verify](verify.md#the-analysis-server)).
 4. **Prints the result to stdout**, as `formatVerify` or as indented JSON, and exits with `verifyExitCode`: **1** when a finding is an error, else **0**.
 
 Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3. An analysis server that can't answer isn't either: `runAppstein` prints the `CodeAnalysisException`'s reason and exits 3. Tests that can't be run at all (`TestRunException`: no Flutter SDK, or `flutter test` could not be started) are handled the same way. A `flutter test` that started and ended with a failing exit code without naming a failing test, a run that was stopped at its time limit, and a run whose output ended early are findings (`test.failed`), so they go to stdout and exit 1.
@@ -294,11 +294,12 @@ $ appstein help verify
 Check the project against its knowledge (fast or full).
 
 Usage: appstein verify [arguments]
--h, --help      Print this usage information.
-    --fast      Run only the fast checks, as after every change.
-    --full      Run every check, as before a task is done (the default).
-    --format    How the findings are printed.
-                [text (default), json]
+-h, --help             Print this usage information.
+    --fast             Run only the fast checks, as after every change.
+    --full             Run every check, as before a task is done (the default).
+    --format           How the findings are printed.
+                       [text (default), json]
+    --files=<paths>    With --fast: add these files to the unverified files, for this run and after it. Paths are from the project root, or absolute inside the project; a folder stands for its Dart files. Separate them with commas, or repeat the option.
 
 Run "appstein help" to see global options.
 ```

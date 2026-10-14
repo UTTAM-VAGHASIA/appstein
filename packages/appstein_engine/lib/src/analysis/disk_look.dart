@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
+
+import '../knowledge/dart_files.dart' show fileKey;
 
 /// How far back from a look a file's time may lie and the file still be
 /// told to the server again at the next look. A file written twice within
@@ -30,8 +33,11 @@ const diskClockStep = Duration(seconds: 2);
 ///   the nearest one above it, and of each `pubspec.yaml` below it.
 ///
 /// Folders whose name starts with a dot are left out, as the server leaves
-/// them out. Links are not followed. A folder or file that can't be read
-/// counts as not there.
+/// them out. A link to a folder (a Windows junction) is followed, as the
+/// server follows it, and a file behind it is named by its path through the
+/// link; a link back to a folder the walk is inside is not followed again.
+/// A folder or a settings file that can't be read counts as not there; a
+/// Dart file that can't be read is noted in [unreadable].
 final class DiskLook {
   DiskLook._(this.root, this.at);
 
@@ -120,6 +126,13 @@ final class DiskLook {
   /// Each Dart file's time of last change and size, by absolute path.
   final dart = <String, (DateTime, int)>{};
 
+  /// Each Dart file of [dart] that could not be opened and read, by
+  /// absolute path, with the system's reason. Every Dart file is opened and
+  /// its first byte read, in the same walk that takes its time and size: on
+  /// Windows a file another program holds locked still has a time and a
+  /// size, and the analysis server reads it as empty, with no diagnostic.
+  final unreadable = <String, String>{};
+
   /// The text of each file that sets how the project is analyzed, by
   /// absolute path.
   final settings = <String, String>{};
@@ -133,14 +146,18 @@ final class DiskLook {
       );
 
   /// The Dart files that changed, appeared or are gone since the [earlier]
-  /// look, and those whose time lies so close to that look that a change
-  /// could hide behind the same time and size ([diskClockStep]). In path
-  /// order.
+  /// look, those whose time lies so close to that look that a change could
+  /// hide behind the same time and size ([diskClockStep]), and those that
+  /// could not be read then: the server may have read one as empty, and it
+  /// must read it again once it can. In path order.
   List<String> dartChangedSince(DiskLook earlier) {
     final sure = earlier.at.subtract(diskClockStep);
     return [
       for (final MapEntry(key: path, value: now) in dart.entries)
-        if (earlier.dart[path] != now || !now.$1.isBefore(sure)) path,
+        if (earlier.dart[path] != now ||
+            !now.$1.isBefore(sure) ||
+            earlier.unreadable.containsKey(path))
+          path,
       for (final path in earlier.dart.keys)
         if (!dart.containsKey(path)) path,
     ]..sort();
@@ -168,8 +185,30 @@ final class DiskLook {
   }
 
   /// Notes the Dart files under [folder], and with [settings] the settings
-  /// files there too.
+  /// files there too. A link to a folder (a Windows junction) is followed,
+  /// as the analysis server follows it, and what is behind it is named by
+  /// its path through the link; a link back to a folder the walk is already
+  /// inside is not followed again.
   Future<void> _walk(String folder, {required bool settings}) async {
+    final String resolved;
+    try {
+      resolved = await Directory(folder).resolveSymbolicLinks();
+    } on FileSystemException {
+      return;
+    }
+    // Like the analyzer's walk, the top folder is not among those the walk
+    // is inside: a link back to it is walked once.
+    await _walkIn(folder, resolved, const {}, settings: settings);
+  }
+
+  /// [_walk] inside [folder], whose path with every link resolved is
+  /// [resolved], below the folders [inside] (resolved, as [fileKey]s).
+  Future<void> _walkIn(
+    String folder,
+    String resolved,
+    Set<String> inside, {
+    required bool settings,
+  }) async {
     final List<FileSystemEntity> entries;
     try {
       entries = await Directory(folder).list(followLinks: false).toList();
@@ -177,21 +216,59 @@ final class DiskLook {
       return;
     }
     final waiting = <Future<void>>[];
+    // Notes the Dart file [file]: its time and size (through a link, the
+    // target's), and whether its first byte can be read.
+    Future<void> noteDart(File file) async {
+      final stat = await file.stat();
+      if (stat.type == FileSystemEntityType.notFound) return;
+      dart[file.path] = (stat.modified, stat.size);
+      if (await _opens.run(() => _unreadable(file)) case final reason?) {
+        unreadable[file.path] = reason;
+      }
+    }
+
     for (final entry in entries) {
       final name = p.basename(entry.path);
+      // The server leaves out every name that starts with a dot, a file's
+      // as well as a folder's (checked with a real server).
+      if (name.startsWith('.')) continue;
       if (entry is Directory) {
-        if (!name.startsWith('.')) {
-          waiting.add(_walk(entry.path, settings: settings));
-        }
+        final here = p.join(resolved, name);
+        // Through a link the walk can reach a folder it is already inside
+        // (a link from `lib/up` to the project: `lib/up/lib`); the server
+        // skips it, and so does the walk.
+        if (inside.contains(fileKey(here))) continue;
+        waiting.add(
+          _walkIn(entry.path, here, {
+            ...inside,
+            fileKey(here),
+          }, settings: settings),
+        );
+      } else if (entry is Link) {
+        waiting.add(() async {
+          final type = await FileSystemEntity.type(entry.path);
+          if (type == FileSystemEntityType.file) {
+            // A link to a file: a Dart file of the project, under the
+            // link's name, as the analyzer's walk lists it.
+            if (name.endsWith('.dart')) await noteDart(File(entry.path));
+            return;
+          }
+          if (type != FileSystemEntityType.directory) return;
+          final String target;
+          try {
+            target = await Directory(entry.path).resolveSymbolicLinks();
+          } on FileSystemException {
+            return;
+          }
+          if (inside.contains(fileKey(target))) return;
+          await _walkIn(entry.path, target, {
+            ...inside,
+            fileKey(target),
+          }, settings: settings);
+        }());
       } else if (entry is File) {
         if (name.endsWith('.dart')) {
-          waiting.add(
-            entry.stat().then((stat) {
-              if (stat.type != FileSystemEntityType.notFound) {
-                dart[entry.path] = (stat.modified, stat.size);
-              }
-            }),
-          );
+          waiting.add(noteDart(entry));
         } else if (!settings) {
           continue;
         } else if (name == 'analysis_options.yaml') {
@@ -206,6 +283,108 @@ final class DiskLook {
       }
     }
     await Future.wait(waiting);
+  }
+
+  /// The files this look has open at once, at most [openFilesAtOnce]: a
+  /// project with more Dart files than the system lets a process open
+  /// (256 in macOS's Terminal, 1,024 on Linux) would otherwise read as
+  /// unreadable.
+  final _opens = _OpenPool(openFilesAtOnce);
+
+  /// The most files this look had open at once, for tests of the bound.
+  int get mostOpenAtOnce => _opens.most;
+
+  /// The text of each file [readWhole] read, by absolute path, as UTF-8
+  /// (malformed bytes replaced, as the analysis server reads them).
+  final texts = <String, String>{};
+
+  /// Reads each of [paths] (Dart files of this look) whole, keeps its text
+  /// in [texts], and notes in [unreadable] each that can't be read, or takes
+  /// it out when it now can. The walk reads only a file's first byte, which
+  /// a lock on bytes further in doesn't stop; the files the server is told
+  /// to read again are read whole here, and the server is given that text.
+  Future<void> readWhole(Iterable<String> paths) => Future.wait([
+    for (final path in paths)
+      if (dart.containsKey(path))
+        _opens.run(() => _readText(path)).then((read) {
+          switch (read) {
+            case (text: final text?, reason: _):
+              texts[path] = text;
+              unreadable.remove(path);
+            case (text: null, reason: final reason?):
+              texts.remove(path);
+              unreadable[path] = reason;
+            case _:
+              // Gone: the next look finds it gone.
+              texts.remove(path);
+              unreadable.remove(path);
+          }
+        }),
+  ]);
+
+  /// The text of the file at [path], or why it can't be read whole; both
+  /// null when it is gone.
+  static Future<({String? text, String? reason})> _readText(String path) async {
+    final file = File(path);
+    try {
+      final bytes = await _retryingTooManyOpen(file.readAsBytes);
+      if (bytes == null) return (text: null, reason: null);
+      return (
+        text: const Utf8Decoder(allowMalformed: true).convert(bytes),
+        reason: null,
+      );
+    } on FileSystemException catch (error) {
+      if (!await file.exists()) return (text: null, reason: null);
+      return (
+        text: null,
+        reason: error.osError?.message.trim() ?? error.message,
+      );
+    }
+  }
+
+  /// Why [file] can't be opened and its first byte read; null when it can.
+  /// Reading one byte also finds a lock on the file's bytes that starts at
+  /// the first byte (on Windows, `LockFileEx`); opening finds a file another
+  /// program opened without sharing it. A file that was deleted meanwhile is
+  /// no reason: the next look finds it gone.
+  static Future<String?> _unreadable(File file) async {
+    try {
+      await _retryingTooManyOpen(() async {
+        final opened = await file.open();
+        try {
+          await opened.read(1);
+        } finally {
+          await opened.close();
+        }
+      });
+      return null;
+    } on FileSystemException catch (error) {
+      if (!await file.exists()) return null;
+      return error.osError?.message.trim() ?? error.message;
+    }
+  }
+
+  /// Runs [action], and again while it fails because this process has too
+  /// many files open (other work of Appstein may hold some): that says
+  /// nothing about the file. When it still fails after a while, the answer
+  /// is null: the file is not reported as unreadable for it.
+  static Future<T?> _retryingTooManyOpen<T>(Future<T> Function() action) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await action();
+      } on FileSystemException catch (error) {
+        if (!_tooManyOpen(error)) rethrow;
+        if (attempt >= 50) return null;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+  }
+
+  /// Whether [error] says the process or the system has too many files open
+  /// (`EMFILE` 24 and `ENFILE` 23 on Linux and macOS, error 4 on Windows).
+  static bool _tooManyOpen(FileSystemException error) {
+    final code = error.osError?.errorCode;
+    return Platform.isWindows ? code == 4 : (code == 24 || code == 23);
   }
 
   /// [folder], then each folder above it up to the drive's or the file
@@ -295,6 +474,44 @@ final class DiskLook {
     }
     // Anything else is read as a path, as the analyzer reads it.
     return p.normalize(p.join(p.dirname(from), included));
+  }
+}
+
+/// How many files one look at the disk opens at once (finding 1 of the
+/// second review of ticket 06): far below the smallest limit in common use,
+/// 256 open files in macOS's Terminal.
+const openFilesAtOnce = 32;
+
+/// Runs at most [limit] actions at once; the others wait their turn.
+final class _OpenPool {
+  _OpenPool(this.limit);
+
+  final int limit;
+  var _running = 0;
+  final _waiting = <Completer<void>>[];
+
+  /// The most actions that ran at once.
+  var most = 0;
+
+  Future<T> run<T>(Future<T> Function() action) async {
+    if (_running >= limit) {
+      final turn = Completer<void>();
+      _waiting.add(turn);
+      await turn.future;
+    } else {
+      _running++;
+    }
+    if (_running > most) most = _running;
+    try {
+      return await action();
+    } finally {
+      if (_waiting.isNotEmpty) {
+        // The turn passes on: as many run as before.
+        _waiting.removeAt(0).complete();
+      } else {
+        _running--;
+      }
+    }
   }
 }
 

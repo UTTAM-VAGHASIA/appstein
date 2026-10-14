@@ -81,6 +81,9 @@ final class _Server implements StoppableCodeAnalysis {
   }
 
   @override
+  Future<bool> canDartFix(CodeDiagnostic diagnostic) async => false;
+
+  @override
   Future<void> stop() async {
     if (!running) return;
     log.add('stop begins');

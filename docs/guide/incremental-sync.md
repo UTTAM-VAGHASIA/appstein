@@ -44,6 +44,8 @@ It runs the cheap steps of a sync for real, in `_prepare`:
 4. native config (about 5 ms);
 5. `readIndexSources`, which reads what INDEX.md summarizes.
 
+`detect` and `run` then hash the project's other Dart files, `readDartFileHashes`, for the unverified files ([below](#statejson)). It is not part of `freshness`, which stays synchronous and writes nothing.
+
 Then it computes **every output's input hash** and compares it with the one in `state.json`. It uses the same functions a sync uses: `_deltaHash` and `_indexHash` were pulled out of the building code for this. "Current" therefore can't use a different idea of what the inputs are than a sync does. The map's files all share the map's hash. `map/native.json` and the platform files bring their own.
 
 `freshness` returns a [`Freshness`](../../packages/appstein_engine/lib/src/knowledge/freshness.dart): `current` (true when there are no `reasons`), the `reasons`, the `changed` input names and the `state.json` it compared with. A reason is written to follow "because". The ones that don't name a file:
@@ -82,7 +84,7 @@ A file that can't be read has no hash (`null`, written `missing` in `state.json`
 **The folders are walked as the analyzer walks them.** The inputs must cover exactly the files the map is built from, so `_filesUnder` copies the analyzer's walk (analyzer 14.4.0, `ContextRootImpl._includedFilesInFolder`):
 
 - **Links are followed.** A link to a folder, or a Windows junction, is walked into, and a file behind it is named by its path through the link, as the analyzer names it: `project:lib/linked/s.dart`. An edit behind the link therefore changes the hash.
-- **Loops end.** A folder whose resolved path is one the walk is already inside is skipped. Like the analyzer, the walk tracks only the folders on its current path, not every folder it has seen, so two links to one folder are both inputs (removing one changes the map, so it must change the hash). A link `lib/loop` to `lib` is walked once, as `lib/loop/…`, and stops at `lib/loop/loop`.
+- **Loops end.** A folder whose resolved path is one the walk is already inside is skipped. Like the analyzer, the walk tracks only the folders on its current path, not every folder it has seen, so two links to one folder are both inputs (removing one changes the map, so it must change the hash). The folder a walk starts at is not among the folders it is inside, and the two walks start at different folders: **the map's walk starts at `lib/`** (and `test/`, `testing/`), so a link `lib/loop` to `lib` is walked once, as `lib/loop/…`, and stops at `lib/loop/loop`; **the analysis server's walk starts at the project folder**, so `lib` is a folder it is inside when it meets `lib/loop`, and it skips that link (checked with a real server; the scan for the unverified files does the same, [below](#statejson)).
 - **Only the unlistable folder is lost.** A folder that can't be listed, or whose link can't be resolved, is one input named after that folder alone, with a trailing `/` and no hash: `project:lib/locked/`, `local-package:<name>/lib/locked/`, or `project:lib/` when `lib/` itself can't be. Its siblings are still walked and hashed. The analyzer skips that folder too, so the map and the hash agree; when the folder becomes readable, its key disappears and its files appear, so the change is seen.
 
 **Names, not paths.** The hash covers the names above, never an absolute path. A project folder that moves keeps its hashes.
@@ -106,7 +108,42 @@ A file that can't be read has no hash (`null`, written `missing` in `state.json`
 
 `changed` is for the checks that come later: `verify --fast` (slice 1d) and the package skills (slice 1b.8) read it to look only at what changed. With no earlier `state.json`, `changed` lists every input, but the *report* (`SyncReport.changed`) is empty then, so a first sync doesn't print 200 "changed" files.
 
-**Each change is reported once.** The first `--detect` that finds nothing changed empties `changed`. It does that inside the store's lock, and only if `state.json` is still exactly the one it checked (it compares the canonical JSON). If another sync wrote it in between, it leaves it alone. If the lock stays busy past the lock timeout, it skips emptying the list and still reports "current": nothing is stale, so a hook mustn't fail, and the writer holding the lock is writing a new `state.json` anyway. Every later `--detect` writes no byte.
+**Each change is reported once.** The first `--detect` that finds nothing changed empties `changed`. It does that inside the store's lock, and only if `state.json` is still exactly the one it checked (it compares the canonical JSON). If another sync wrote it in between, it leaves it alone. If the lock stays busy past the lock timeout, it skips emptying the list and still reports "current": nothing is stale, so a hook mustn't fail, and the writer holding the lock is writing a new `state.json` anyway. Every later `--detect` writes no byte, unless a Dart file changed (below).
+
+**Four more keys, from slice 1d.2: `dartFiles`, `unverified`, `dartStamps` and `dartScannedAt`.** They are optional when read. A `state.json` written before that slice has none of them, and is read like a missing one for the unverified files: every Dart file is unverified (the owner's decision of 2026-10-14, after the second review).
+
+| Key | Holds |
+|---|---|
+| `dartFiles` | the SHA-256 of every Dart file the analysis server covers, by its path from the project root with `/` (`unreadable` for one that could not be read) |
+| `unverified` | the [unverified files](verify.md#the-unverified-files), sorted. Left out while there are none |
+| `dartStamps` | the time of last change and the size of each Dart file the scan read itself (not the map's inputs), as `<microseconds since the epoch, UTC>/<bytes>` |
+| `dartScannedAt` | when the scan that recorded `dartStamps` began |
+
+Every refresh hashes the Dart files ([`readDartFileHashes`](../../packages/appstein_engine/lib/src/knowledge/dart_files.dart), timed as `dart files`), wider than the map's inputs: the whole project folder, as the analysis server walks it. What the server walks was checked with a real server on Windows (fix rounds 1 and 2 of ticket 06):
+
+- it analyzes a `.dart` file under `build/`, `ios/Pods/` and `node_modules/`, so those are walked, and leaves out every name that starts with a dot, folders' and files' (`lib/.dotted.dart` was not analyzed), so those are not;
+- it analyzes the files behind a link to a folder (a junction), named by their path through the link (`lib/linked/a.dart`), and a link to a Dart file under the link's name (`lib/file_link.dart`), so links are followed and a file behind one is hashed under that name. A folder reached through a link that the walk is already inside is skipped: a link from `lib/up` to the project lists everything outside `lib/` a second time (`lib/up/bin/b.dart`) and skips `lib/up/lib`, in the server and in the walk alike (see [the map's walk](#the-maps-inputs) for why `lib/loop` differs there);
+- it leaves out what `analysis_options.yaml` excludes (`analyzer: exclude:`), so the walk does too: a folder when a pattern ends in `/**` and the rest matches it, and each file a pattern matches. Only the root's options file is read for this.
+
+A file the map's inputs already hashed is not read again. **A file the scan hashes itself is read again only when it may have changed** (the owner's decision after the second review): when its time or size differs from `dartStamps`, or its time lies within `diskClockStep` (2 s) of `dartScannedAt`, the same rule the look before a reading uses. The known limit is the look's: a same-size edit whose time is put back more than 2 s before the last scan is not seen until the file changes again. A refresh writes `state.json` when a hash or a stamp changed (the scan time only with them, so an unchanged project writes nothing). Measured with the real function (the session's `bench07`, medians of 9, a cache warmed first):
+
+| Project | Every file read | With the earlier scan |
+|---|---|---|
+| This repo's worktree, 449 Dart files (the reviewer saw 610 to 1,100 ms) | 421 ms | 104 ms |
+| 200 Dart files, none of them the map's | 133 ms | 28 ms |
+| The same with a `build/` of 20,000 files | 496 ms | 375 ms (the listing of `build/`) |
+
+The walk lists each folder at once and lets other work run every 4 ms, so an MCP server keeps answering. Measured on the Windows development machine with copies of the walk (the session's `bench06`, against the reviewer's `bench`), medians of 9 run alternately:
+
+| Project | Before (one blocking walk) | Now | The event loop stood still for at most, now |
+|---|---|---|---|
+| 200 Dart files | 13 ms | 10 ms | 16 ms (the Windows timer's own step) |
+| 200 Dart files and a `build/` of 20,000 files | 366 ms | 383 ms | 16 ms (before: 366 ms) |
+| 1,000 Dart files | 22 ms | 19 ms | 16 ms |
+
+A walk that listed every folder asynchronously at once took 17 s with that `build/`, and one that listed them one after another asynchronously 1.0 s: listing a folder at once and yielding between folders is the cheapest form found. A `build/` that `analysis_options.yaml` excludes costs nothing.
+
+A file whose hash differs from `dartFiles`, a new one and a gone one join `unverified` (`unverifiedAfterRefresh`), in a rebuild (read again under the lock, since a `verify` run may have changed the list) and in a `--detect` that finds the knowledge current: that one writes `state.json` with the new hashes and the files added, under the lock, merged into whatever `state.json` holds then. So a changed test or `bin/` file rebuilds nothing, and is still seen. When the lock stays busy, nothing is written and the next `--detect` finds the same change again, by the same hashes. **With no earlier state** (a first sync, a `state.json` that was deleted or can't be read, or one with no `dartFiles`) every Dart file is unverified: nothing counts as verified before it was checked (the owner's decision of 2026-10-14). Where file names don't depend on letter case (Windows, macOS), a file renamed in letter case only is one entry, by its new name. `verify` removes files from `unverified`; nothing else does. The hashes are not part of any input hash: they change no generated file.
 
 **Older `state.json` files.** One written before 1b.7 lacks `sources`, `written` and `changed`, so it fails to read and `--detect` says "state.json is damaged or from an older Appstein" and rebuilds. That costs one rebuild. Raising the format version instead would have rewritten every generated file once, for no gain: nobody has 1b.6 state files.
 
@@ -195,8 +232,9 @@ Timing costs a few stopwatch reads, so every sync does it, and the numbers are a
 - `packages/appstein_engine/test/map/analyzer_cache_test.dart`: the file format (round trip, only used entries kept, sorted keys, every kind of damage), the path, the canary with the real analyzer, the version pin, and `catchAnalyzerErrors`.
 - `packages/appstein_engine/test/map/map_inputs_test.dart`: the input names, local packages, pub cache and SDK packages skipped, damaged package config, `pubCacheFolders`, that a moved project keeps its hash, and the walk: a linked folder (a junction on Windows), two links to one folder, a link loop, and (POSIX only) an unreadable folder beside hashed siblings.
 - `packages/appstein_engine/test/knowledge/knowledge_sync_cache_test.dart`: the cache is created and read, the knowledge is the same with a warm cache as with none, a damaged cache, garbage entries (the guard and the retry), a cache that can't be saved, and a skipped map.
-- `packages/appstein_engine/test/knowledge/knowledge_sync_detect_test.dart`: the freshness matrix. Nothing changed (and the change list emptied once, or left for later when the lock is busy), each kind of change, hand edits and a damaged or older `state.json`, a file edited while the sync analyzes, a skipped map tried again, an edit behind a linked folder, "current" reached with the Android and iOS packs and after a decision-file rebuild, native and other packs.
+- `packages/appstein_engine/test/knowledge/knowledge_sync_detect_test.dart`: the freshness matrix. Nothing changed (and the change list emptied once, or left for later when the lock is busy), each kind of change, hand edits and a damaged or older `state.json`, a file edited while the sync analyzes, a skipped map tried again, an edit behind a linked folder, "current" reached with the Android and iOS packs and after a decision-file rebuild, native and other packs. The unverified files: every Dart file recorded by the first sync, and every one unverified, as after a deleted or unreadable `state.json` and one written before slice 1d.2; the stamps kept and an unchanged project writing nothing; a file behind a link (a junction on Windows) hashed through the link and its edit joining, a link back into `lib` not followed; what `analysis_options.yaml` excludes left out, `build/` and `ios/Pods/` kept; a rename in letter case only as one entry (Windows, macOS); a changed `bin/` or `integration_test/` file joins while detect stays current, a dot folder's does not; a `lib/` edit and a deleted test join and stay through later refreshes and a full sync; a `state.json` from before slice 1d.2; a busy lock that loses no change.
 - `packages/appstein_engine/test/knowledge/sync_timings_test.dart`: steps add up and keep their order, a step comes before its parts, and a step that throws is still timed. `knowledge_sync_detect_test.dart`'s "timings" group names the steps of a rebuild and of a "current" detect, and `knowledge_store_test.dart` checks `onTimed`, its retry count (Windows) and `onReplace`.
+- `packages/appstein_engine/test/knowledge/dart_files_test.dart`: the scan alone: an unchanged file kept without being read, a file whose time or size changed read again, the `diskClockStep` rule (with a same-size edit whose time is put back), the map's inputs neither read nor stamped, a link from `lib/up` to the project walked as the server walks it, and dot-named files left out.
 - `packages/appstein_cli/test/sync_command_test.dart`: `--detect` and its report lines, that `--changed` is not an option, and `--timings` (its lines come after the report, and it is left out of the help).
 
 See [testing](testing.md) for how these tests are built, and [knowledge-store](knowledge-store.md) for how the files are written.

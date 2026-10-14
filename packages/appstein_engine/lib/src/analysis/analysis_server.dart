@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../host/host_environment.dart';
+import '../knowledge/input_hash.dart';
 import '../sdk/sdk_detector.dart';
 import 'analysis_guard.dart';
 import 'code_analysis.dart';
@@ -14,6 +15,11 @@ import 'process_identity.dart';
 /// How long an analysis server may take until its analysis is done, before
 /// the run fails (slice 1d.2). The slowest start measured was 71 s.
 const analysisReadyTimeout = Duration(seconds: 180);
+
+/// The ID the analysis server gives a data-driven fix (a migration a
+/// package's `fix_data.yaml` describes), the kind `dart fix` applies to the
+/// use of a deprecated API. Measured in ticket 02 of slice 1d.2.
+const dataDrivenFixId = 'dart.fix.dataDriven';
 
 /// The real `dart` executable of the Dart SDK at [dartSdkPath]: never the
 /// `dart.bat` wrapper of a Flutter SDK or FVM's, which each cost a second
@@ -128,7 +134,15 @@ final class AnalysisServer implements StoppableCodeAnalysis {
     required this.dartExecutable,
     this.readyTimeout = analysisReadyTimeout,
     this.processLookup = lookUpProcess,
+    this.afterLook,
   }) : projectRoot = p.normalize(p.absolute(projectRoot));
+
+  /// **Test-only**, like [processLookup]: called in each reading after the
+  /// look at the disk and the reading of the changed files, before the
+  /// server is told of them, so a test can change a file at that moment.
+  /// Production code leaves it null; `ownAnalysisServer` and the CLI never
+  /// pass it.
+  final Future<void> Function()? afterLook;
 
   /// Asks the system which process runs under an ID: how a process is
   /// shown to be one this object started before it is ended by its ID.
@@ -288,6 +302,32 @@ final class AnalysisServer implements StoppableCodeAnalysis {
     }
   }
 
+  /// Asks the running server, which answered the last [read], whether it
+  /// offers a data-driven fix for [diagnostic] (`edit.getFixes` at the
+  /// diagnostic's offset): a migration the package that deprecated the API
+  /// describes in its `fix_data.yaml`. Nothing is changed, on disk or in the
+  /// server.
+  ///
+  /// The answer is kept by the file's path, the hash of the text the server
+  /// analyzed (the text a reading gave it), the offset and the code, for as
+  /// long as the server runs: a use in an unchanged file is asked about
+  /// once. Where that text isn't known the answer is not kept.
+  ///
+  /// Throws a [CodeAnalysisException] when no reading was taken from the
+  /// running server (another caller replaced it, or it died: the offset
+  /// belongs to that reading), and when the server fails meanwhile. A
+  /// caller falls back to saying nothing.
+  @override
+  Future<bool> canDartFix(CodeDiagnostic diagnostic) async {
+    final session = _session;
+    if (session == null || !session.answered) {
+      throw const CodeAnalysisException(
+        'it was asked about a fix with no reading taken from it',
+      );
+    }
+    return session.canDartFix(diagnostic);
+  }
+
   /// How often one question starts a server again before it gives up.
   static const _mostStarts = 5;
 
@@ -343,6 +383,33 @@ final class _Session {
   /// The folders whose packages the look leaves out ([unchangingFolders]).
   late final List<String> _unchanging;
 
+  /// The Dart files of the project the server read for the reading under
+  /// way, which are read whole before and after it.
+  var _told = const <String>[];
+
+  /// The hash of the text the server analyzes for each Dart file of the
+  /// project, by absolute path, where it is known: read the same whole
+  /// before and after the reading in which the server read it. What
+  /// [canDartFix]'s kept answers are keyed by.
+  final _textHashes = <String, String>{};
+
+  void _noteText(String file, String? text) {
+    if (text == null) {
+      _textHashes.remove(file);
+    } else {
+      _textHashes[file] = sha256Hex(utf8.encode(text));
+    }
+  }
+
+  /// Whether no reading has been taken from this session yet.
+  var _firstReading = true;
+
+  /// What [canDartFix] answered, by file, the hash of its text, offset and
+  /// code: an unchanged file is never asked about again while this session
+  /// runs. A new session (a settings change, which can change the fixes)
+  /// starts empty.
+  final _fixAnswers = <String, bool>{};
+
   /// The reading before the one that is asked for now: readings are taken
   /// one after the other.
   Future<void> _turn = Future.value();
@@ -361,7 +428,7 @@ final class _Session {
   ({int guard, int server})? processes;
 
   /// The requests the server hasn't answered, by ID.
-  final _pending = <String, Completer<void>>{};
+  final _pending = <String, Completer<Object?>>{};
   var _nextId = 0;
 
   /// The latest diagnostics the server sent for each file, as it sent them.
@@ -461,6 +528,22 @@ final class _Session {
     if (!now.sameSettingsAs(_seen)) throw const _SettingsChanged();
     final changed = now.dartChangedSince(_seen);
     _seen = now;
+    // The files of the project the server reads for this reading: those
+    // told below, and at a session's first reading every file, which it
+    // read when it started. Each is read whole here and again after the
+    // reading (the look reads only a file's first byte, which a lock
+    // further in doesn't stop): a lock taken in between that is still held
+    // is found by the second read. The server is not given the text as an
+    // overlay: an overlay keeps its own file watcher off that file for good,
+    // and the watcher is what sees a change the look can't (a same-size
+    // edit whose time is put back), shown by the engine's tests.
+    _told = [
+      for (final file in _firstReading ? now.dart.keys : changed)
+        if (p.isWithin(_root, file)) file,
+    ];
+    _firstReading = false;
+    await now.readWhole(_told);
+    await _owner.afterLook?.call();
     if (changed.isEmpty) {
       await _request('server.getVersion');
       return;
@@ -506,6 +589,17 @@ final class _Session {
       _waiting.add(done);
       await done.future;
     }
+    // A file locked after the look, before the server read it, was read as
+    // empty: still unreadable now, it is reported so. The text the server
+    // analyzed is known when both reads gave the same text (the server read
+    // the file between them); otherwise it is not, and no fix answer is
+    // kept for that file.
+    final before = {for (final file in _told) file: _seen.texts[file]};
+    await _seen.readWhole(_told);
+    for (final file in _told) {
+      final text = _seen.texts[file];
+      _noteText(file, text == before[file] ? text : null);
+    }
     answered = true;
     final found = <CodeDiagnostic>[];
     // The server sends `analysis.errors` for every file it analyzes, with
@@ -519,7 +613,7 @@ final class _Session {
         if (error case {
           'severity': final String severity,
           'type': final String type,
-          'location': {'startLine': final int line},
+          'location': {'startLine': final int line, 'offset': final int offset},
           'code': final String code,
           'message': final String message,
         }) {
@@ -530,6 +624,7 @@ final class _Session {
             CodeDiagnostic(
               file: relative,
               line: line,
+              offset: offset,
               code: code,
               message: message,
               level: switch (severity) {
@@ -557,18 +652,94 @@ final class _Session {
       final byLine = a.line.compareTo(b.line);
       return byLine != 0 ? byLine : a.code.compareTo(b.code);
     });
+    // The files this reading's look could not read, among those the server
+    // analyzed: it lists such a file with no diagnostic. One the project's
+    // options exclude is not the analysis's, and is left out.
+    final covered = analyzed.toSet();
+    final unreadable = <String, String>{
+      for (final MapEntry(key: file, value: reason) in _seen.unreadable.entries)
+        if (p.isWithin(_root, file) &&
+            covered.contains(p.split(p.relative(file, from: _root)).join('/')))
+          p.split(p.relative(file, from: _root)).join('/'): reason,
+    };
     return CodeReading(
       diagnostics: found,
       pluginFailures: List.unmodifiable(_pluginFailures),
       notices: _owner.leftProcesses(),
       analyzedFiles: List.unmodifiable(analyzed..sort()),
+      unreadableFiles: Map.unmodifiable(
+        Map.fromEntries(
+          unreadable.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+        ),
+      ),
     );
   }
 
-  Future<void> _request(String method, [Map<String, Object?>? params]) {
+  /// Whether the server offers a data-driven fix for [diagnostic], which
+  /// `dart fix` applies by itself. Asked after a reading, in turn with the
+  /// readings, of the files as that reading saw them.
+  Future<bool> canDartFix(CodeDiagnostic diagnostic) {
+    final asked = _turn.then((_) => _canDartFix(diagnostic));
+    _turn = asked.then<void>((_) {}, onError: (Object _) {});
+    return asked;
+  }
+
+  Future<bool> _canDartFix(CodeDiagnostic diagnostic) async {
+    final offset = diagnostic.offset;
+    if (offset == null) return false;
+    await _opened;
+    if (_failure case final failure?) throw failure;
+    final file = p.joinAll([_root, ...diagnostic.file.split('/')]);
+    // The text the reading was taken from, not the file as it is now: an
+    // edit since then must not file an answer under the wrong text.
+    final text = _textHashes[file];
+    final key = '${diagnostic.file}|$text|$offset|${diagnostic.code}';
+    if (text != null) {
+      if (_fixAnswers[key] case final known?) return known;
+    }
+    final found = await _askDartFix(file, offset, diagnostic.code);
+    // Kept only when the text the server analyzed is known.
+    if (text != null) _fixAnswers[key] = found;
+    return found;
+  }
+
+  Future<bool> _askDartFix(String file, int offset, String asked) async {
+    final Object? answer;
+    try {
+      answer = await _request('edit.getFixes', {
+        'file': file,
+        'offset': offset,
+      });
+    } on CodeAnalysisException {
+      // A refusal (a file the options leave out) offers no fix; a server
+      // that failed fails the question.
+      if (_failure case final failure?) throw failure;
+      return false;
+    }
+    if (answer case {'fixes': final List<Object?> entries}) {
+      for (final entry in entries) {
+        if (entry case {
+          'error': {
+            'code': final String code,
+            'location': {'offset': final int at},
+          },
+          'fixes': final List<Object?> fixes,
+        } when code == asked && at == offset) {
+          for (final fix in fixes) {
+            if (fix case {'id': dataDrivenFixId}) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /// Sends a request, and completes with the server's `result` when it
+  /// answers.
+  Future<Object?> _request(String method, [Map<String, Object?>? params]) {
     if (_failure case final failure?) throw failure;
     final id = '${++_nextId}';
-    final answered = _pending[id] = Completer<void>();
+    final answered = _pending[id] = Completer<Object?>();
     _send({'id': id, 'method': method, 'params': ?params});
     return answered.future;
   }
@@ -602,7 +773,7 @@ final class _Session {
             ),
           );
         } else {
-          answered.complete();
+          answered.complete(message['result']);
         }
       case 'server.status' when params is Map<String, Object?>:
         final analysis = params['analysis'];

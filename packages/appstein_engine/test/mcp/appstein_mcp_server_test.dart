@@ -543,6 +543,48 @@ void main() {
       expect(textOf(result), contains('2 findings are suppressed.'));
     });
 
+    test('`files` adds files for a fast run, with the same rules as '
+        '--files: a full run or a path outside the project is an error '
+        'reply', () async {
+      CodeDiagnostic warning(String file) => CodeDiagnostic(
+        file: file,
+        line: 1,
+        code: 'unused_import',
+        message: 'Unused.',
+        level: DiagnosticLevel.warning,
+      );
+      analysis.found = [warning('lib/a.dart'), warning('lib/b.dart')];
+      final server = await serve();
+      final full = await call(server, 'verify', {
+        'scope': 'full',
+        'files': ['lib/a.dart'],
+      });
+      expect(full.isError, isTrue);
+      expect(textOf(full), startsWith('`files` works with `scope: fast` only'));
+      final outside = await call(server, 'verify', {
+        'scope': 'fast',
+        'files': ['../a.dart'],
+      });
+      expect(outside.isError, isTrue);
+      expect(
+        textOf(outside),
+        startsWith('The path `../a.dart` given to `files` is outside the '),
+      );
+      final json = structured(
+        await call(server, 'verify', {
+          'scope': 'fast',
+          'files': ['lib/a.dart'],
+        }),
+      );
+      expect(
+        [
+          for (final finding in json['findings']! as List)
+            if ((finding as Map)['id'] == 'dart.warning') finding['file'],
+        ],
+        ['lib/a.dart'],
+      );
+    });
+
     test('the other tools never wait for the analysis server: they are '
         'answered while a verify call waits for its reading', () async {
       final asked = Completer<void>();
