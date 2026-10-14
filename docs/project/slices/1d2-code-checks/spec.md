@@ -157,6 +157,10 @@ The hook that runs a fast run by itself after each edit is not part of this slic
   - **Nothing counts as verified before it was checked.** With no earlier state (Appstein's first sync of a project, or a deleted or unreadable `state.json`), every Dart file is unverified. The first fast run shows the whole project's warnings and lints once.
   - **A partial run lets no file leave.** In a run that reports `dart.plugin_failed` or `knowledge.stale`, or in which a code check was named as not run, no file leaves the unverified files.
   - The design's description of `state.json` names the Dart file hashes and the unverified files (§6.2).
+- **Decided after the second review of ticket 06** (owner, 2026-10-14):
+  - **Tests not run don't make a run partial.** The unverified files track each file's own analyzer findings; the tests judge the project, not a file. So `test.failed` named as not run (the tests are skipped while the code has an analyzer error) does not stop clean files from leaving. `dart.plugin_failed`, `knowledge.stale` and a `dart.*` check named as not run still do.
+  - **An older state counts as none.** A `state.json` written before this slice, without the Dart file hashes, is read like a missing one: every Dart file is unverified.
+  - **Unchanged files are not hashed again.** The scan of the Dart files outside the map's inputs hashes a file again only when its time or size changed, as the analysis's look does. The same known limit holds: an edit that keeps the size and puts the file time back is not seen until the file changes again.
 
 **`--apply`**
 
