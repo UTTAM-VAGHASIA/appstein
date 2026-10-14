@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import '../support/flutter_test_output.dart';
@@ -50,6 +51,8 @@ final class _CheckPack implements Pack {
 }
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   group('checksFor', () {
     test('lists the engine\'s checks, then each pack\'s with its pack', () {
       final first = FakeCheck(['a.one']);

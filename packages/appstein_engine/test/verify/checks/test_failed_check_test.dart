@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../knowledge/support/sync_harness.dart';
+import '../../support/analyzer_warm_up.dart';
 import '../../support/fake_process_runner.dart';
 import '../../support/fixture_app.dart';
 import '../../support/flutter_test_output.dart';
@@ -27,6 +28,8 @@ const _analyzerError = CodeDiagnostic(
 // `test.failed` through `runVerify`, with the process runner scripted
 // (slice 1d.2, seam 3). The fixture app has a `test/` folder.
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
   late FakeProcessRunner runner;

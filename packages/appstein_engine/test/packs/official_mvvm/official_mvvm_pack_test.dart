@@ -3,9 +3,12 @@ import 'package:appstein_engine/official_mvvm.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:test/test.dart';
 
+import '../../support/analyzer_warm_up.dart';
 import '../../support/fixture_app.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   test('the pack describes itself', () {
     const pack = OfficialMvvmPack();
     expect(pack.id, 'official_mvvm');

@@ -9,11 +9,14 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import 'support/sync_harness.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late FakeProcessRunner runner;
   late String app;

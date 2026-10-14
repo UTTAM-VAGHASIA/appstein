@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 
 import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import '../support/scripted_code_analysis.dart';
@@ -194,6 +195,8 @@ final class _FollowingCheck implements FollowingCheck {
 }
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
   late FakeProcessRunner runner;
@@ -405,17 +408,45 @@ void main() {
     test('another process holds the lock while the knowledge needs a '
         'rebuild: one wait, and a fix hint', () async {
       await run([]);
-      File(p.join(app, 'lib', 'extra.dart')).writeAsStringSync('int x = 1;\n');
+      // Newer than the lock file: the packages need `flutter pub get`, which
+      // the fake runner fails, so the rebuild skips the map and costs next to
+      // nothing, however busy the machine is. What is measured is the lock.
+      File(
+        p.join(app, 'pubspec.yaml'),
+      ).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 5)));
       await holdLock(p.join(app, '.appstein'), 60000);
-      final other = FakeCheck(['other.check']);
+      Future<Duration> timed(Duration lockTimeout) async {
+        final watch = Stopwatch()..start();
+        final result = await run([
+          FakeCheck(['map.check'], needsMap: true),
+          FakeCheck(['other.check']),
+        ], lockTimeout: lockTimeout);
+        expect(ids(result), ['knowledge.stale'], reason: '$lockTimeout');
+        return watch.elapsed;
+      }
+
+      // The same run with no wait at all: it does the same work (a run that
+      // gives up writes nothing, and does not save the analyzer cache), so
+      // what the real run takes beyond it is the waiting.
+      final without = await timed(Duration.zero);
       const timeout = Duration(seconds: 3);
+      final other = FakeCheck(['other.check']);
       final watch = Stopwatch()..start();
       final result = await run([
         FakeCheck(['map.check'], needsMap: true),
         other,
       ], lockTimeout: timeout);
-      // Waiting for the lock a second time would take twice the timeout.
-      expect(watch.elapsed, lessThan(timeout * 1.8));
+      final waited = watch.elapsed - without;
+      // It waited for the lock, and once: a second wait would take twice the
+      // timeout.
+      expect(watch.elapsed, greaterThanOrEqualTo(timeout));
+      expect(
+        waited,
+        lessThan(timeout * 1.8),
+        reason:
+            'ran ${watch.elapsed} where the same run with no wait took '
+            '$without',
+      );
       expect(ids(result), ['knowledge.stale']);
       expect(result.findings.single.message, contains(lockBusyProblem));
       expect(

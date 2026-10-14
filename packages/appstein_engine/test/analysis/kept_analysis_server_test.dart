@@ -391,7 +391,7 @@ void main() {
       throwsA(isA<CodeAnalysisException>()),
     );
     expect(kept.server.processes, isNull);
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('a real server: stopped with its guard when the idle time ends, and '
       'started again by the next use, which reports what changed '

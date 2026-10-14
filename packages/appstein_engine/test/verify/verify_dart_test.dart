@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 
 import '../analysis/support/analysis_support.dart';
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import '../support/flutter_test_output.dart';
@@ -20,6 +21,8 @@ const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
 // seam 1). A start costs seconds, so each group starts one server for its
 // app and every test of the group reads from it; no test edits a file.
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   Future<VerifyResult> verify(
     String app,
     CodeAnalysis analysis, {

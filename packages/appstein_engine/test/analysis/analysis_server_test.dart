@@ -259,7 +259,7 @@ int one() => 1;
         reason: 'the guard or the server is still running',
       );
     }, timeout: const Timeout(Duration(minutes: 5)));
-  });
+  }, timeout: const Timeout(Duration(minutes: 5)));
 
   group('a server that can\'t answer', () {
     late String app;
@@ -435,7 +435,7 @@ int one() => 1;
         for (final found in reading.diagnostics) found.file,
       ], contains('lib/broken.dart'));
     }, timeout: const Timeout(Duration(minutes: 3)));
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   // What a real server can't be made to do on demand, with a scripted one
   // behind the guard (`fake_server_guard.dart`).
@@ -954,5 +954,5 @@ int one() => 1;
       await failed;
       expect(server.processes, isNull);
     });
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

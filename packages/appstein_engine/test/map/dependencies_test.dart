@@ -4,9 +4,12 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fixture_app.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   Future<ProjectAnalysis> analyze(String app) async {
     final analysis = await ProjectAnalysis.analyze(
       app,

@@ -5,6 +5,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import 'support/hold_lock.dart';
@@ -13,6 +14,8 @@ import 'support/sync_harness.dart';
 const _again = 'Then run `appstein verify` again.';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
   late FakeProcessRunner runner;
@@ -56,15 +59,35 @@ void main() {
 
   test('another process holds the lock: it gives up at the timeout', () async {
     expect((await refresh()).ok, isTrue);
+    // Newer than the lock file: the packages need `flutter pub get`, which
+    // the fake runner fails, so the rebuild skips the map and costs next to
+    // nothing, however busy the machine is. What is measured is the lock.
     File(
-      p.join(app, 'lib', 'main.dart'),
-    ).writeAsStringSync('// changed\n', mode: FileMode.append);
+      p.join(app, 'pubspec.yaml'),
+    ).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 5)));
     await holdLock(p.join(app, '.appstein'), 60000);
+    // The same refresh with no wait at all: it does the same work (a run
+    // that gives up writes nothing), so what the real refresh takes beyond it
+    // is the waiting.
+    final without = Stopwatch()..start();
+    expect(
+      (await refresh(lockTimeout: Duration.zero)).problem,
+      lockBusyProblem,
+    );
+    without.stop();
     final watch = Stopwatch()..start();
     final result = await refresh(
       lockTimeout: const Duration(milliseconds: 200),
     );
-    expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+    // The timeout it was given is the one it waits: a wait of the default
+    // 10 s, or of the 60 s the lock is held, would add that much.
+    expect(
+      watch.elapsed - without.elapsed,
+      lessThan(const Duration(seconds: 5)),
+      reason:
+          'took ${watch.elapsed} where the same refresh with no wait '
+          'took ${without.elapsed}',
+    );
     expect(result.problem, lockBusyProblem);
     expect(
       result.fixHint,

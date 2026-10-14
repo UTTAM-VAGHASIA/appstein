@@ -13,6 +13,7 @@ import 'package:test/test.dart';
 
 import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import '../support/flutter_test_output.dart';
@@ -21,6 +22,8 @@ import 'support/mcp_client.dart';
 import 'support/mcp_support.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
   late FakeProcessRunner runner;

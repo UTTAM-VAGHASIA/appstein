@@ -2,9 +2,12 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fixture_app.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   group('docSummary', () {
     test('takes the first sentence of the first paragraph', () {
       expect(

@@ -84,11 +84,115 @@ Future<bool> processAlive(int id) async {
   return _seenStarts[id] == start;
 }
 
+/// A process as the system lists it: its ID, its parent's ID, and a number
+/// that grows with the time it started (null when the system did not say).
+/// The numbers of two processes mean something only when they come from one
+/// listing ([listedProcesses] says what they are).
+typedef ListedProcess = ({int id, int parent, int? start});
+
+/// The running processes under the process [root] among [listed]: its
+/// children, their children and so on, by ID. [root] itself is left out.
+///
+/// A process counts as a child only when it started at or after its parent.
+/// The system names each process's parent by ID and never clears it: when a
+/// parent ends, its children keep its ID, and a new process that is given
+/// that ID looks like their parent. A child cannot be older than its parent,
+/// so the start tells a real child from one of those. The rule is applied at
+/// every level of the walk. When either start is not known, the process is
+/// counted: a survivor must never be left out for want of a time.
+Set<int> descendantsOf(int root, Iterable<ListedProcess> listed) {
+  final starts = <int, int?>{};
+  final byParent = <int, List<ListedProcess>>{};
+  for (final process in listed) {
+    starts[process.id] = process.start;
+    (byParent[process.parent] ??= []).add(process);
+  }
+  final under = <int>{};
+  final queue = [root];
+  while (queue.isNotEmpty) {
+    final parent = queue.removeLast();
+    final parentStart = starts[parent];
+    for (final child in byParent[parent] ?? const <ListedProcess>[]) {
+      final childStart = child.start;
+      if (parentStart != null &&
+          childStart != null &&
+          childStart < parentStart) {
+        continue;
+      }
+      if (child.id != root && under.add(child.id)) queue.add(child.id);
+    }
+  }
+  return under;
+}
+
+/// The seconds in `ps`'s `etime` text (`mm:ss`, `hh:mm:ss` or
+/// `dd-hh:mm:ss`), or null when it is none of these.
+int? elapsedSeconds(String text) {
+  final days = text.split('-');
+  if (days.length > 2) return null;
+  final clock = days.last.split(':').map(int.tryParse).toList();
+  final whole = days.length == 2 ? int.tryParse(days.first) : 0;
+  if (whole == null || clock.length < 2 || clock.length > 3) return null;
+  var seconds = 0;
+  for (final part in clock) {
+    if (part == null) return null;
+    seconds = seconds * 60 + part;
+  }
+  return whole * 86400 + seconds;
+}
+
+/// The processes in [listing], one per line, with their starts.
+///
+/// - On Windows a line is `<id> <parent id>`, and the start is asked of
+///   [lookUp] (the product's `lookUpProcess`, which asks `kernel32` and starts
+///   no process): the creation time in UTC, as file time. A wall clock would
+///   do worse: a time in the local zone is ambiguous in the hour that
+///   repeats when daylight saving ends, and a clock set back reorders two
+///   starts. A process [lookUp] finds gone is left out (it ended since the
+///   listing, or is not this user's, so no process of the test's); one it can
+///   not tell about has no start.
+/// - Elsewhere a line is `<id> <parent id> <etime>` of `ps`, and the start is
+///   minus the seconds the process has run: `ps` takes every `etime` from one
+///   "now", so no clock is read and none can be set back.
+///
+/// The process with the ID [lister], which lists, is left out.
+List<ListedProcess> listedProcesses(
+  String listing, {
+  required bool windows,
+  required ProcessSeen Function(int id) lookUp,
+  int? lister,
+}) {
+  final listed = <ListedProcess>[];
+  for (final line in const LineSplitter().convert(listing)) {
+    final words = line.trim().split(RegExp(r'\s+'));
+    if (words.length < 2 || words.length > 3) continue;
+    final id = int.tryParse(words[0]);
+    final parent = int.tryParse(words[1]);
+    if (id == null || parent == null || id == lister) continue;
+    int? start;
+    if (windows) {
+      switch (lookUp(id)) {
+        case ProcessRunning(:final identity):
+          start = int.tryParse(identity.start);
+        case ProcessGone():
+          continue;
+        case ProcessUnknown():
+          break;
+      }
+    } else if (words.length == 3) {
+      final elapsed = elapsedSeconds(words[2]);
+      start = elapsed == null ? null : -elapsed;
+    }
+    listed.add((id: id, parent: parent, start: start));
+  }
+  return listed;
+}
+
 /// The running processes under the process [root], which the test itself
-/// started: its children, their children and so on, by ID. [root] itself
-/// and the tool that lists them are left out.
+/// started: its children, their children and so on, by ID ([descendantsOf]
+/// says which processes count). [root] itself and the tool that lists them
+/// are left out.
 Future<Set<int>> processesUnder(int root) async {
-  final parents = <int, int>{};
   final ProcessResult list;
   if (Platform.isWindows) {
     list = await Process.run('powershell', [
@@ -98,23 +202,17 @@ Future<Set<int>> processesUnder(int root) async {
           r'ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }',
     ]);
   } else {
-    list = await Process.run('ps', ['-A', '-o', 'pid=,ppid=']);
+    list = await Process.run('ps', ['-A', '-o', 'pid=,ppid=,etime=']);
   }
-  for (final line in const LineSplitter().convert('${list.stdout}')) {
-    final numbers = line.trim().split(RegExp(r'\s+')).map(int.tryParse);
-    if (numbers.toList() case [final id?, final parent?]) {
-      if (id != list.pid) parents[id] = parent;
-    }
-  }
-  final under = <int>{root};
-  var grew = true;
-  while (grew) {
-    grew = false;
-    for (final MapEntry(key: id, value: parent) in parents.entries) {
-      if (under.contains(parent) && under.add(id)) grew = true;
-    }
-  }
-  return under..remove(root);
+  return descendantsOf(
+    root,
+    listedProcesses(
+      '${list.stdout}',
+      windows: Platform.isWindows,
+      lookUp: lookUpProcess,
+      lister: list.pid,
+    ),
+  );
 }
 
 /// Those of the processes a test recorded under [ids] that are still

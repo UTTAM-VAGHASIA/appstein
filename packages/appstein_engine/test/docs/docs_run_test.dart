@@ -11,12 +11,15 @@ import 'package:test/test.dart';
 import '../decisions/support/decision_files.dart';
 import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
   late FakeProcessRunner runner;
