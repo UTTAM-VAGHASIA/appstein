@@ -16,7 +16,7 @@ The Dart tools that could answer are too slow to ask after every change. A cold 
 
 `appstein verify` gains the code checks: analyzer errors, deprecated use, analyzer warnings and lints, formatting, pending fixes and the project's tests.
 
-`appstein mcp` keeps a Dart analysis server running, so the `verify` tool answers from **warm analysis**: about 0.1 s after an edit in the measurement. A fast run reports errors and deprecated use anywhere in the project, and the smaller findings only on the **unverified files**. A **full run** covers everything and runs the tests.
+`appstein mcp` keeps a Dart analysis server running, so the `verify` tool answers from **warm analysis**: the server itself answers about 0.1 s after an edit, and the whole fast `verify` call, most of it the knowledge refresh, took 1.0 to 1.3 s in CI (ticket 11; the numbers are in Further Notes). A fast run reports errors and deprecated use anywhere in the project, and the smaller findings only on the **unverified files**. A **full run** covers everything and runs the tests.
 
 `verify` still never changes a project file unless it is asked to: a new `--apply` flag makes a full run fix and format the project first. A person can hide a finding in Dart code with a visible comment that needs a reason.
 
@@ -259,7 +259,22 @@ A good test here states what a person or an agent sees: given this project, thes
 
 The rows marked "ticket 02" were measured again with `tool/measure_analysis_server.dart`, which waits for the plugin's diagnostics before it calls a server ready. The interview's 7.6 s and 0.56 GB for LSP were taken when the server said it was done, about 10 s before the plugin had finished.
 
-Not measured: Linux, macOS, CI machines, a 1,000-file app, a fix for a removed API, a test file that fails to compile. In the measurement every pending `fix_data` migration also showed as `deprecated_member_use` on the same line, and `dart fix --dry-run` printed no line numbers.
+**The 5 s limit where an agent meets it** (ticket 11, `tool/measure_sync.dart` in CI run 38721583522 of 2026-10-15, whose three measurement jobs passed; GitHub's runners, the 200-file app without the plugin, median of three):
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| **Warm fast `verify` on a running `appstein mcp`, after an edit that adds an error** (limit: under 5 s) | **1.00 s** | **0.97 s** | **1.30 s** |
+| of which the knowledge refresh / `verify` after it | 0.94 s / 0.06 s | 0.82 s / 0.09 s | 1.22 s / 0.12 s |
+| First `verify` call: the analysis server starts, is ready, and reads | 0.73 s | 1.16 s | 3.40 s |
+| Memory of `appstein mcp`, its guard and the server, ready / after the calls | 0.31 / 0.54 GB | 0.34 / 0.59 GB | 0.58 / 0.80 GB |
+| Terminal `verify --fast`, cold / warm analysis cache (no limit) | 8.8 s / 0.77 s | 8.3 s / 1.17 s | 9.7 s / 3.7 s |
+| Terminal `verify` (full), cold / warm analysis cache (no limit) | 11.8 s / 1.31 s | 11.7 s / 1.81 s | 13.1 s / 8.6 s |
+| Runs until the cache stopped growing | 5 | 5 | still growing after 15 (the cap) |
+| Most memory of a terminal fast / full run, warm cache | 0.30 / 0.40 GB | 0.28 / 0.40 GB | 0.61 / 0.88 GB |
+
+The cold column is a first run on a machine whose analysis cache is empty, as on a new CI runner or a new developer's machine; the warm column is a developer's repeated runs. On Windows the cache never stopped growing within 15 runs. Each terminal run ends its server before it has saved all it worked out, which is the likely reason, but not a proven one: Linux and macOS end it the same way and their caches stopped growing after five runs. Ticket 13 removes the half-written files the ends leave behind; the slow warm-up on Windows stays a known limit. The development machine, loaded by other test runs, gave 1.6 to 1.9 s for the warm fast call.
+
+Not measured: a 1,000-file app for `verify`, a fix for a removed API, a test file that fails to compile. In the measurement every pending `fix_data` migration also showed as `deprecated_member_use` on the same line, and `dart fix --dry-run` printed no line numbers.
 
 **Two things assumed, not asked.** Compile errors can be hidden like any other finding, so the list of findings nothing can hide stays at four. The Dart checks cover what `dart analyze` covers in the project.
 

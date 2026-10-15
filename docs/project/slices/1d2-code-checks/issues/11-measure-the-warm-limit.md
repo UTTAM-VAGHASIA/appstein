@@ -4,13 +4,13 @@
 
 **Blocked by:** 04, 06.
 
-Status: claimed
+Status: resolved
 
 - [x] The measurement tool starts the compiled `appstein mcp` on the 200-file app, waits until warm analysis is ready, edits one file, calls the `verify` tool with the fast scope, and takes the median of three. 5 s or more fails the run, with a message giving the measured time (the design's "< 5 s"; owner, 2026-10-15).
 - [x] The edit in the measurement introduces a real error, and the measurement fails if the reply doesn't report it, so a fast answer that missed the change can't pass.
 - [x] The terminal `appstein verify --fast` and the terminal full run are timed and recorded with no limit; the old 5 s limit on the terminal fast run is removed.
 - [x] The analysis server's start-up time and its memory are recorded with them.
-- [ ] CI runs the measurement on Linux, macOS and Windows, and the numbers of one green run on each are written into the slice's spec beside the interview's numbers.
+- [x] CI runs the measurement on Linux, macOS and Windows, and the numbers of one green run on each are written into the slice's spec beside the interview's numbers.
 - [x] If the warm fast run exceeds 5 s on any of the three, work stops and the owner is asked: the design's limit is not changed to fit.
 - [x] The guide page that describes the measurements is updated; the guide check passes.
 
@@ -43,3 +43,13 @@ Status: claimed
   - A failure while sampling memory no longer crashes the tool or leaves its folder behind.
 - **Seen on the busy machine:** the existing `sync --detect` limit (under 2 s) was missed once at 2.5-2.6 s, while other test runs were going. CI will show whether this happens on a quiet runner.
 - **Not run:** Linux and macOS. The `ps` paths are tested with fixed inputs only.
+
+**2026-10-15, later: two CI runs, and the measurement fixed.**
+
+- **First CI run (38630902740).** All three measurement jobs passed the 5 s limit, but two rows were wrong, both faults of the tool, not of `verify`:
+  - Windows printed 0.00 GB for a terminal run's memory: the sampler had missed the run.
+  - On Linux and macOS, terminal fast runs timed slower than full ones: the analysis cache started cold, and the fast runs went first and paid for filling it.
+  - A test of ticket 04 also failed on Linux and macOS, because `ps` gives start times to the second; fixed in `f5af4c9`.
+- **The tool now** gives the server a cache folder of its own and records both a cold and a warm time for the terminal runs (owner, 2026-10-15). Warm means after warm-up runs until the cache stops growing, at most 15, and the row says when the cap was hit. A memory sample counts only when it saw the guard and a Dart server; a run never seen is run again, then fails. This was reviewed three times and committed in `ebde68e`, with a last check that caught Linux's `dart:<script>` process names before any CI run.
+- **Second CI run (38721583522).** All three measurement jobs passed; the numbers are in the slice spec's Further Notes. Warm fast `verify` took 1.00 s on Linux, 0.97 s on macOS and 1.30 s on Windows. The run failed elsewhere, in two older tests that had never run on those systems (a macOS process-identity test from ticket 04, a Linux test-time-limit test from ticket 10). They are being fixed separately; neither touches the measurement.
+- **Found by the measurement, for the owner:** each end of the analysis server left half-written files in the machine's shared Dart cache; ticket 13 cleans them up. On Windows a terminal `verify` stays slow for 15 or more runs on a new machine, while Linux and macOS warm up in five.
