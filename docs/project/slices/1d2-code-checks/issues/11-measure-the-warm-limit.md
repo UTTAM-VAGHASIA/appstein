@@ -4,13 +4,13 @@
 
 **Blocked by:** 04, 06.
 
-Status: resolved
+Status: claimed
 
 - [x] The measurement tool starts the compiled `appstein mcp` on the 200-file app, waits until warm analysis is ready, edits one file, calls the `verify` tool with the fast scope, and takes the median of three. 5 s or more fails the run, with a message giving the measured time (the design's "< 5 s"; owner, 2026-10-15).
 - [x] The edit in the measurement introduces a real error, and the measurement fails if the reply doesn't report it, so a fast answer that missed the change can't pass.
 - [x] The terminal `appstein verify --fast` and the terminal full run are timed and recorded with no limit; the old 5 s limit on the terminal fast run is removed.
 - [x] The analysis server's start-up time and its memory are recorded with them.
-- [x] CI runs the measurement on Linux, macOS and Windows, and the numbers of one green run on each are written into the slice's spec beside the interview's numbers.
+- [ ] CI runs the measurement on Linux, macOS and Windows, and the numbers of one green run on each are written into the slice's spec beside the interview's numbers. (Numbers written from run 38721583522, whose measurement jobs passed but which failed elsewhere; this box waits for a fully green run, after the fixes to the process identity and the test stop, and the numbers are written again from it if they changed.)
 - [x] If the warm fast run exceeds 5 s on any of the three, work stops and the owner is asked: the design's limit is not changed to fit.
 - [x] The guide page that describes the measurements is updated; the guide check passes.
 
