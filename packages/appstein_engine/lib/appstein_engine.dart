@@ -111,6 +111,7 @@ export 'src/toolchain/toolchain_reader.dart';
 export 'src/toolchain/xcode_template_parser.dart';
 export 'src/verify/checks/dart_deprecated_check.dart' show DartDeprecatedCheck;
 export 'src/verify/checks/dart_error_check.dart';
+export 'src/verify/checks/dart_fix_pending_check.dart';
 export 'src/verify/checks/dart_level_checks.dart';
 export 'src/verify/checks/dart_unformatted_check.dart';
 export 'src/verify/checks/dart_unreadable_check.dart';
@@ -121,6 +122,7 @@ export 'src/verify/checks/paths_exist_check.dart';
 export 'src/verify/checks/plugin_failed_check.dart';
 export 'src/verify/checks/test_failed_check.dart';
 export 'src/verify/checks/test_required_check.dart';
+export 'src/verify/apply.dart';
 export 'src/verify/decision_check.dart';
 export 'src/verify/deprecation_ignores.dart'
     show

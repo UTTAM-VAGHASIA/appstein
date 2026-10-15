@@ -13,6 +13,213 @@ import 'support/analysis_support.dart';
 // `dart`. One server is shared by the tests that only read; the others
 // start their own, which costs a few seconds each.
 void main() {
+  // How `--apply` writes a file (fix round 1 of ticket 08).
+  group('replaceFileText', () {
+    late Directory folder;
+
+    setUp(() => folder = tempDir());
+
+    List<String> namesIn() =>
+        [for (final entity in folder.listSync()) p.basename(entity.path)]
+          ..sort();
+
+    test('writes the text exactly as it is, byte order mark and CRLF line '
+        'ends included, and leaves nothing beside the file', () async {
+      final file = File(p.join(folder.path, 'a b.dart'))
+        ..writeAsStringSync('old\n');
+      const text = '\u{FEFF}// New.\r\nint a = 1;\r\n';
+      await replaceFileText(file.path, text);
+      expect(file.readAsBytesSync(), utf8.encode(text));
+      expect(file.readAsBytesSync().take(3), [0xEF, 0xBB, 0xBF]);
+      expect(namesIn(), ['a b.dart']);
+    });
+
+    test('a file held open without its deletion shared can\'t be replaced: '
+        'it is written in place, and nothing is left beside it', () async {
+      final file = File(p.join(folder.path, 'held.dart'))
+        ..writeAsStringSync('old, and longer than the new text\n');
+      // Dart opens a file on Windows without sharing its deletion, so the
+      // new file can't take its place while this is open.
+      final held = file.openSync();
+      var open = true;
+      addTearDown(() {
+        if (open) held.closeSync();
+      });
+      // The rename is refused here, so the write in place is what is tried.
+      final probe = File(p.join(folder.path, 'probe.txt'))
+        ..writeAsStringSync('x');
+      expect(
+        () => probe.renameSync(file.path),
+        throwsA(isA<FileSystemException>()),
+      );
+      probe.deleteSync();
+      await replaceFileText(file.path, 'new\n');
+      held.closeSync();
+      open = false;
+      expect(file.readAsStringSync(), 'new\n');
+      expect(namesIn(), ['held.dart']);
+    }, testOn: 'windows');
+
+    test('a new file that could not be written completely (a full disk) is '
+        'deleted, and the original is never written in place', () async {
+      final file = File(p.join(folder.path, 'full.dart'))
+        ..writeAsStringSync('original\n');
+      final before = file.readAsBytesSync();
+      await expectLater(
+        replaceFileText(
+          file.path,
+          'a new text that does not fit\n',
+          writeBeside: (open, bytes) async {
+            await open.writeFrom(bytes.sublist(0, 5));
+            throw const FileSystemException('There is not enough space');
+          },
+        ),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            'its new text could not be written to a new file beside it '
+                '(There is not enough space)',
+          ),
+        ),
+      );
+      expect(file.readAsBytesSync(), before);
+      expect(namesIn(), ['full.dart']);
+    });
+
+    test('a new file that could not even be made because the disk is full '
+        'leaves the original untouched', () async {
+      final file = File(p.join(folder.path, 'full.dart'))
+        ..writeAsStringSync('original\n');
+      final before = file.readAsBytesSync();
+      final diskFull = OSError(
+        'There is not enough space on the disk.',
+        Platform.isWindows ? 112 : 28,
+      );
+      await expectLater(
+        replaceFileText(
+          file.path,
+          'a new text that does not fit\n',
+          openBeside: (_) async =>
+              throw FileSystemException('Cannot open file', 'x', diskFull),
+        ),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            startsWith('no new file could be made beside it: the disk is full'),
+          ),
+        ),
+      );
+      expect(file.readAsBytesSync(), before);
+      expect(namesIn(), ['full.dart']);
+    });
+
+    test('a new file that could not be made for another reason (a folder no '
+        'file can be made in) is written in place', () async {
+      final file = File(p.join(folder.path, 'denied.dart'))
+        ..writeAsStringSync('old\n');
+      await replaceFileText(
+        file.path,
+        'new\n',
+        openBeside: (_) async => throw const FileSystemException(
+          'Cannot open file',
+          'x',
+          OSError('Access is denied.', 5),
+        ),
+      );
+      expect(file.readAsStringSync(), 'new\n');
+      expect(namesIn(), ['denied.dart']);
+    });
+
+    test('a full disk is told apart by its error code on each system', () {
+      expect(isDiskFull(null), isFalse);
+      expect(isDiskFull(const OSError('denied', 5)), isFalse);
+      if (Platform.isWindows) {
+        expect(isDiskFull(const OSError('full', 112)), isTrue);
+        expect(isDiskFull(const OSError('full', 39)), isTrue);
+        expect(isDiskFull(const OSError('quota', 1295)), isTrue);
+      } else {
+        expect(isDiskFull(const OSError('full', 28)), isTrue);
+        expect(
+          isDiskFull(OSError('quota', Platform.isMacOS ? 69 : 122)),
+          isTrue,
+        );
+      }
+    });
+
+    test('a link to a file stays a link: the file it points to gets the '
+        'text', () async {
+      final target = File(p.join(folder.path, 'real', 'target.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('old\n');
+      final link = Link(p.join(folder.path, 'link.dart'));
+      try {
+        link.createSync(target.path);
+      } on FileSystemException catch (error) {
+        markTestSkipped(
+          'No link to a file can be made here (on Windows that needs '
+          'developer mode or administrator rights): ${error.message}',
+        );
+        return;
+      }
+      await replaceFileText(link.path, 'new\n');
+      expect(FileSystemEntity.isLinkSync(link.path), isTrue);
+      expect(target.readAsStringSync(), 'new\n');
+      expect(namesIn(), ['link.dart', 'real']);
+      expect(
+        Directory(
+          p.join(folder.path, 'real'),
+        ).listSync().map((entity) => p.basename(entity.path)),
+        ['target.dart'],
+      );
+    });
+
+    test('the permissions to give the new file: the original\'s, and only '
+        'when they differ', () {
+      expect(permissionsToSet(besideMode: 0x81A4, originalMode: 0x81ED), '755');
+      expect(
+        permissionsToSet(besideMode: 0x81A4, originalMode: 0x81A4),
+        isNull,
+      );
+      // Only the permission bits count, not the kind of file.
+      expect(permissionsToSet(besideMode: 0x1A4, originalMode: 0x81A4), isNull);
+      expect(permissionsToSet(besideMode: 0x81A4, originalMode: 0x8180), '600');
+    });
+
+    test('on Linux and macOS the new file gets the original\'s permissions, '
+        'with no chmod when they are the same; a chmod that fails means a '
+        'write in place', () async {
+      final file = File(p.join(folder.path, 'run.dart'))
+        ..writeAsStringSync('old\n');
+      expect(Process.runSync('chmod', ['755', file.path]).exitCode, 0);
+      final asked = <String>[];
+      Future<bool> counted(String mode, String path) async {
+        asked.add(mode);
+        return (await Process.run('chmod', [mode, path])).exitCode == 0;
+      }
+
+      await replaceFileText(file.path, 'new\n', chmod: counted);
+      expect(file.statSync().mode & 0x1FF, 0x1ED);
+      expect(file.readAsStringSync(), 'new\n');
+      expect(asked, ['755']);
+
+      // The same permissions as a new file gets: no chmod at all.
+      final plain = File(p.join(folder.path, 'plain.dart'))
+        ..writeAsStringSync('old\n');
+      asked.clear();
+      await replaceFileText(plain.path, 'new\n', chmod: counted);
+      expect(asked, isEmpty);
+
+      // chmod fails: the complete new text is written in place, so the
+      // original keeps its permissions.
+      await replaceFileText(file.path, 'newer\n', chmod: (_, _) async => false);
+      expect(file.statSync().mode & 0x1FF, 0x1ED);
+      expect(file.readAsStringSync(), 'newer\n');
+      expect(namesIn(), ['plain.dart', 'run.dart']);
+    }, testOn: '!windows');
+  });
+
   group('a real server on a project with problems', () {
     late String app;
     late AnalysisServer server;
@@ -670,6 +877,431 @@ int one() => 1;
       ], within: const Duration(milliseconds: 600));
       expect(fresh.changed, {'lib/a.dart': true});
       expect(fresh.refused, isEmpty);
+    });
+
+    // Ticket 08: the pending fixes in passes on overlays, and `--apply`, on
+    // the `fixes-<how>@<log>` scenarios.
+    group('pending fixes', () {
+      late String log;
+
+      /// The five files the scenarios know, and the server for [how].
+      AnalysisServer fixesServer(String how) {
+        for (final name in ['a', 'b', 'c', 'd', 'e']) {
+          writeProjectFile(app, 'lib/$name.dart', 'int $name = 1;\n');
+        }
+        log = p.join(tempDir().path, 'requests.log');
+        return scripted('fixes-$how@$log');
+      }
+
+      /// The requests the server got since the last call, one line each.
+      List<String> requests() {
+        final file = File(log);
+        if (!file.existsSync()) return [];
+        final lines = file.readAsLinesSync();
+        file.deleteSync();
+        return lines;
+      }
+
+      Map<String, List<int>> disk() => {
+        for (final name in ['a', 'b', 'c', 'd', 'e'])
+          name: File(p.join(app, 'lib', '$name.dart')).readAsBytesSync(),
+      };
+
+      test('the passes until one finds none: the counts summed, each pass '
+          'applied to an overlay, the overlays removed at the end, nothing '
+          'written, and the next reading tells the server those files '
+          'again', () async {
+        final server = fixesServer('done');
+        await server.read();
+        final before = disk();
+        requests();
+        final found = await server.pendingFixes(
+          within: const Duration(seconds: 30),
+        );
+        expect(found.counts, {
+          'lib/a.dart': {'x_code': 2},
+        });
+        expect(found.passes, 1);
+        expect(found.unfinished, isNull);
+        expect(requests(), [
+          'edit.bulkFixes',
+          'analysis.updateContent add lib/a.dart',
+          'edit.bulkFixes',
+          'analysis.updateContent remove lib/a.dart',
+        ]);
+        expect(disk(), before);
+        // The overlaid file is told again (with any file the look sees as
+        // possibly changed).
+        await server.read();
+        expect(
+          requests().first,
+          allOf(
+            startsWith('analysis.updateContent '),
+            contains('remove lib/a.dart'),
+          ),
+        );
+      });
+
+      test('a refused pass, a pass never answered and a refused overlay stop '
+          'the passes with why, keep what the passes before found, and still '
+          'remove the overlays', () async {
+        for (final (how, why) in [
+          ('refuse', 'the analysis server refused a pass (it refused a '),
+          ('silent', 'the analysis server did not finish them within 1.5 s'),
+          ('refuseadd', 'the analysis server refused an overlay (it refused '),
+        ]) {
+          final server = fixesServer(how);
+          await server.read();
+          final before = disk();
+          requests();
+          final found = await server.pendingFixes(
+            within: const Duration(milliseconds: 1500),
+          );
+          expect(found.unfinished, startsWith(why), reason: how);
+          expect(found.counts['lib/a.dart']!['x_code'], 2, reason: how);
+          expect(found.passes, how == 'refuseadd' ? 0 : 1, reason: how);
+          // Sent, taken or not: removed all the same.
+          expect(requests().last, 'analysis.updateContent remove lib/a.dart');
+          expect(disk(), before, reason: how);
+          await server.stop();
+        }
+      });
+
+      test('passes that never end stop after four, as dart fix does, and '
+          'that is finished, not cut short', () async {
+        final server = fixesServer('forever');
+        await server.read();
+        requests();
+        final found = await server.pendingFixes(
+          within: const Duration(seconds: 30),
+        );
+        expect(found.unfinished, isNull);
+        expect(found.passes, AnalysisServer.mostFixPasses);
+        expect(found.passes, 4);
+        expect(found.counts, {
+          'lib/a.dart': {'x_code': 8},
+        });
+        expect(
+          requests().where((request) => request == 'edit.bulkFixes'),
+          hasLength(4),
+        );
+      });
+
+      test('a server that never answers an overlay\'s change is given up and '
+          'stopped, so the overlay ends with it: the question fails, nothing '
+          'is written, and the next reading is a new server\'s', () async {
+        final server = fixesServer('deafadd');
+        await server.read();
+        final first = server.processes!;
+        await recordProcesses([first.guard, first.server]);
+        final before = disk();
+        final watch = Stopwatch()..start();
+        await expectLater(
+          server.pendingFixes(within: const Duration(seconds: 1)),
+          throwsA(
+            isA<CodeAnalysisException>().having(
+              (error) => error.reason,
+              'reason',
+              'it did not answer an overlay of the fixes within 5 s',
+            ),
+          ),
+        );
+        expect(watch.elapsed, lessThan(const Duration(seconds: 15)));
+        expect(
+          await goneWithin([first.guard], const Duration(seconds: 10)),
+          isNotNull,
+        );
+        expect(disk(), before);
+        // A new server answers, and the next question is asked of it.
+        await server.read();
+        expect(server.processes!.guard, isNot(first.guard));
+
+        // The overlays' removal never answered: the rewrite fails before it
+        // has written anything.
+        final deaf = fixesServer('deafremove');
+        await deaf.read();
+        final untouched = disk();
+        await expectLater(
+          deaf.applyFixesAndFormat(
+            leaveUnformatted: (_) async => false,
+            within: const Duration(seconds: 1),
+          ),
+          throwsA(
+            isA<CodeAnalysisException>().having(
+              (error) => error.reason,
+              'reason',
+              'it did not answer the removal of the overlays within 5 s',
+            ),
+          ),
+        );
+        expect(disk(), untouched);
+      });
+
+      test('a file whose text the reading could not tell (it changed between '
+          'the reading\'s two whole reads) is never changed: the passes stop '
+          'with why, and the rewrite leaves it and names it', () async {
+        for (final name in ['a', 'b', 'c', 'd', 'e']) {
+          writeProjectFile(app, 'lib/$name.dart', 'int $name = 1;\n');
+        }
+        log = p.join(tempDir().path, 'requests.log');
+        var once = true;
+        final server = AnalysisServer(
+          projectRoot: app,
+          guardCommand: [
+            Platform.resolvedExecutable,
+            analysisSupportFile('fake_server_guard.dart'),
+            'fixes-done@$log',
+          ],
+          dartExecutable: () => testDart,
+          // Between the reading's two whole reads of every file.
+          afterLook: () async {
+            if (!once) return;
+            once = false;
+            writeProjectFile(app, 'lib/a.dart', 'int a = 22;\n');
+          },
+        );
+        addTearDown(server.stop);
+        await server.read();
+        final pending = await server.pendingFixes(
+          within: const Duration(seconds: 30),
+        );
+        expect(
+          pending.unfinished,
+          'the text of lib/a.dart on disk is not the one the reading saw, or '
+          'the reading could not tell which text it saw',
+        );
+        expect(pending.counts, isEmpty);
+        final changes = await server.applyFixesAndFormat(
+          leaveUnformatted: (_) async => false,
+          within: const Duration(seconds: 30),
+        );
+        expect(
+          File(p.join(app, 'lib', 'a.dart')).readAsStringSync(),
+          'int a = 22;\n',
+        );
+        expect(changes.written, isNot(contains('lib/a.dart')));
+        expect(changes.leftAlone.keys, contains('lib/a.dart'));
+        expect(
+          changes.notices.first,
+          startsWith('Applying fixes and formatting left `lib/a.dart` as it '),
+        );
+      });
+
+      /// The `fixes-done` server, with what the rewrite writes with and the
+      /// process lookup replaced.
+      AnalysisServer fixesServerWith({
+        Future<void> Function(String path, String text) replaceText =
+            replaceFileText,
+        ProcessLookup processLookup = lookUpProcess,
+      }) {
+        for (final name in ['a', 'b', 'c', 'd', 'e']) {
+          writeProjectFile(app, 'lib/$name.dart', 'int $name = 1;\n');
+        }
+        log = p.join(tempDir().path, 'requests.log');
+        final server = AnalysisServer(
+          projectRoot: app,
+          guardCommand: [
+            Platform.resolvedExecutable,
+            analysisSupportFile('fake_server_guard.dart'),
+            'fixes-done@$log',
+          ],
+          dartExecutable: () => testDart,
+          replaceText: replaceText,
+          processLookup: processLookup,
+        );
+        addTearDown(server.stop);
+        return server;
+      }
+
+      test('a file whose new text could not be written completely is left '
+          'untouched and named, with why; the others are written', () async {
+        final server = fixesServerWith(
+          replaceText: (path, text) => replaceFileText(
+            path,
+            text,
+            writeBeside: (open, bytes) async {
+              if (path.endsWith('a.dart')) {
+                await open.writeFrom(bytes.sublist(0, 2));
+                throw const FileSystemException('disk full');
+              }
+              await open.writeFrom(bytes);
+            },
+          ),
+        );
+        await server.read();
+        final before = disk();
+        final changes = await server.applyFixesAndFormat(
+          leaveUnformatted: (_) async => false,
+          within: const Duration(seconds: 30),
+        );
+        expect(disk()['a'], before['a']);
+        expect(changes.leftAlone, {
+          'lib/a.dart':
+              'it could not be written (its new text could not be written to '
+              'a new file beside it (disk full))',
+        });
+        expect(changes.written, [
+          'lib/b.dart',
+          'lib/c.dart',
+          'lib/d.dart',
+          'lib/e.dart',
+        ]);
+        expect(
+          Directory(
+            p.join(app, 'lib'),
+          ).listSync().map((entity) => p.basename(entity.path)),
+          hasLength(5),
+        );
+      });
+
+      test('a new file an earlier rewrite left beside a file is removed '
+          'before the writes, unless the process that made it still '
+          'runs', () async {
+        // A process that has ended and one that runs, as the lookup says.
+        const ended = 999991;
+        const running = 999992;
+        final server = fixesServerWith(
+          processLookup: (id) => switch (id) {
+            ended => const ProcessGone(),
+            running => const ProcessRunning(
+              ProcessIdentity(id: running, start: 'now', image: 'appstein'),
+            ),
+            _ => lookUpProcess(id),
+          },
+        );
+        await server.read();
+        String beside(String name, int maker) =>
+            p.join(app, 'lib', besideFileName(name, maker));
+        for (final (name, maker) in [
+          ('b.dart', ended),
+          ('c.dart', running),
+          ('d.dart', pid),
+        ]) {
+          File(beside(name, maker)).writeAsStringSync('a full copy\n');
+        }
+        File(p.join(app, 'lib', '.notes.tmp')).writeAsStringSync('mine\n');
+        await server.applyFixesAndFormat(
+          leaveUnformatted: (_) async => false,
+          within: const Duration(seconds: 30),
+        );
+        expect(File(beside('b.dart', ended)).existsSync(), isFalse);
+        expect(File(beside('d.dart', pid)).existsSync(), isFalse);
+        expect(File(beside('c.dart', running)).existsSync(), isTrue);
+        expect(File(p.join(app, 'lib', '.notes.tmp')).existsSync(), isTrue);
+      });
+
+      test('the writes have no time limit: a write slower than the whole '
+          'call\'s limit is still named, and the server is not given '
+          'up', () async {
+        const within = Duration(seconds: 1);
+        final slower = fixQuestionLimit(within) + const Duration(seconds: 1);
+        var waited = false;
+        final server = fixesServerWith(
+          replaceText: (path, text) async {
+            if (!waited) {
+              waited = true;
+              await Future<void>.delayed(slower);
+            }
+            await replaceFileText(path, text);
+          },
+        );
+        await server.read();
+        final changes = await server.applyFixesAndFormat(
+          leaveUnformatted: (_) async => false,
+          within: within,
+        );
+        expect(changes.written, hasLength(5));
+        expect(changes.leftAlone, isEmpty);
+        // Still the same, healthy server.
+        final guard = server.processes!.guard;
+        await server.read();
+        expect(server.processes!.guard, guard);
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('a question with no reading taken from the server fails', () async {
+        final server = fixesServer('done');
+        await expectLater(
+          server.pendingFixes(within: const Duration(seconds: 5)),
+          throwsA(isA<CodeAnalysisException>()),
+        );
+        await expectLater(
+          server.applyFixesAndFormat(
+            leaveUnformatted: (_) async => false,
+            within: const Duration(seconds: 5),
+          ),
+          throwsA(isA<CodeAnalysisException>()),
+        );
+      });
+
+      test('apply writes each file once with its fixed and formatted text, '
+          'never a file edited since the reading, one the caller leaves '
+          'unformatted, or one that is not UTF-8; the overlays are removed '
+          'and the next reading tells every file it touched', () async {
+        final server = fixesServer('done');
+        File(
+          p.join(app, 'lib', 'e.dart'),
+        ).writeAsBytesSync([...utf8.encode('int e = 1; // '), 0xFF, 10]);
+        await server.read();
+        // Edited after the reading: it must not be overwritten.
+        writeProjectFile(app, 'lib/c.dart', 'int c = 2;\n');
+        final eBefore = File(p.join(app, 'lib', 'e.dart')).readAsBytesSync();
+        requests();
+        final left = <String>[];
+        final changes = await server.applyFixesAndFormat(
+          leaveUnformatted: (file) async {
+            left.add(file);
+            return file == 'lib/d.dart';
+          },
+          within: const Duration(seconds: 30),
+        );
+        expect(changes.written, ['lib/a.dart', 'lib/b.dart']);
+        expect(changes.leftAlone, {
+          'lib/c.dart':
+              'its text on disk is not the one the reading saw, or the '
+              'reading could not tell which text it saw',
+          'lib/e.dart':
+              'it is not valid UTF-8, so it could not be written back '
+              'unchanged',
+        });
+        // Nothing is left beside the files.
+        expect(
+          [
+            for (final entity in Directory(p.join(app, 'lib')).listSync())
+              p.basename(entity.path),
+          ]..sort(),
+          ['a.dart', 'b.dart', 'c.dart', 'd.dart', 'e.dart'],
+        );
+        String text(String name) =>
+            File(p.join(app, 'lib', '$name.dart')).readAsStringSync();
+        expect(text('a'), 'num a = 1;\n');
+        expect(text('b'), '// formatted\nint b = 1;\n');
+        expect(text('c'), 'int c = 2;\n');
+        expect(text('d'), 'int d = 1;\n');
+        expect(File(p.join(app, 'lib', 'e.dart')).readAsBytesSync(), eBefore);
+        expect(
+          left,
+          unorderedEquals([for (final n in 'abcde'.split('')) 'lib/$n.dart']),
+        );
+        final asked = requests();
+        expect(asked.first, 'edit.bulkFixes');
+        expect(asked.last, 'analysis.updateContent remove lib/a.dart');
+        // The formatter was asked about the fixed file while its overlay was
+        // in place, and never about the file left unformatted.
+        expect(
+          asked.indexOf('edit.format lib/a.dart'),
+          lessThan(asked.indexOf('analysis.updateContent remove lib/a.dart')),
+        );
+        expect(asked, isNot(contains('edit.format lib/d.dart')));
+        await server.read();
+        expect(
+          requests().first,
+          allOf(
+            startsWith('analysis.updateContent '),
+            contains('remove lib/a.dart'),
+            contains('remove lib/b.dart'),
+          ),
+        );
+      });
     });
 
     test('a refused request fails the question with what the server '

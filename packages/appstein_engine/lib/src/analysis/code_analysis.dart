@@ -164,6 +164,144 @@ abstract interface class CodeAnalysis {
     List<String> files, {
     required Duration within,
   });
+
+  /// The fixes `dart fix --dry-run` of the project's SDK would list for the
+  /// project as the last [read] saw it (which must have been taken first):
+  /// how many of each code, in each file.
+  ///
+  /// They are found as `dart fix` finds them, in passes: the server is asked
+  /// for every fix it would apply in bulk, the fixes are applied to an
+  /// overlay of each file they change, in the server's memory, and it is
+  /// asked again, until a pass finds none or four passes have found fixes
+  /// (`dart fix` of the pinned SDK stops there too; that is finished, not
+  /// cut short). **Nothing is written to disk**, and the overlays are
+  /// removed when the passes end, also when they fail or [within] runs out,
+  /// so the next [read] is of the files on disk. A file of the project that
+  /// is a link to a file outside it is left out, as it is from the writes of
+  /// [applyFixesAndFormat].
+  ///
+  /// [within] is the time all the passes may take, counted from when the
+  /// server is asked (as for [canDartFix]). When it runs out, or the server
+  /// refuses a pass or an overlay, the answer is what the passes before
+  /// found, marked incomplete with why ([PendingFixes.unfinished]).
+  ///
+  /// Throws a [CodeAnalysisException] when the analysis can't answer as a
+  /// whole: no reading was taken from the running server, the server failed
+  /// meanwhile, or it did not answer an overlay's change in time (the
+  /// server is then given up, so no overlay outlives it).
+  Future<PendingFixes> pendingFixes({required Duration within});
+
+  /// Rewrites the project's files on disk as `dart fix --apply` and then
+  /// `dart format` of the project's SDK would: the fixes are found in passes,
+  /// as [pendingFixes] finds them, then each Dart file the last [read] listed
+  /// is formatted (the fixed text where it was fixed) unless [leaveUnformatted]
+  /// says it must not be (a generated file). Each file is written once, with
+  /// its final text, only when that differs from the text on disk, and
+  /// whole: a new file beside it takes its place.
+  ///
+  /// A file is left as it is, and named in [AppliedChanges.leftAlone] with
+  /// why, when its text on disk is not the one the last [read] saw (or the
+  /// reading could not tell which text it saw), when it isn't valid UTF-8,
+  /// when it is outside the project (a link), or when it can't be written:
+  /// an edit made meanwhile is never lost, and what the file needs stays
+  /// pending for the checks that follow.
+  ///
+  /// [within] is the time the server's part may take (as for
+  /// [pendingFixes]); when it runs out, what was found by then is written and
+  /// the rest stays pending. Each request to the server has a limit of its
+  /// own, and the server's part as a whole one too ([fixQuestionLimit]):
+  /// past it the server is given up, the call fails and nothing is written.
+  /// The writes come after the server's part has ended (the overlays are
+  /// removed), need no server and have no limit: once they begin, the call
+  /// returns what they wrote.
+  ///
+  /// Throws a [CodeAnalysisException] as [pendingFixes] does, only ever
+  /// before anything is written. A file that can't be written is reported in
+  /// [AppliedChanges.leftAlone], never thrown.
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  });
+}
+
+/// What `CodeAnalysis.applyFixesAndFormat` did to the project's files.
+final class AppliedChanges {
+  /// Creates the outcome.
+  const AppliedChanges({this.written = const [], this.leftAlone = const {}});
+
+  /// Each file it rewrote, from the project root with `/`, sorted.
+  final List<String> written;
+
+  /// Each file it would have rewritten and left as it was, from the project
+  /// root with `/` (or as the server named it, when outside), with why in
+  /// words that follow "left as it was: ".
+  final Map<String, String> leftAlone;
+
+  /// One line for each of [leftAlone], for the run's notices: they are no
+  /// finding, but the reader must know the file was not rewritten.
+  List<String> get notices => [
+    for (final MapEntry(key: file, value: why) in leftAlone.entries)
+      'Applying fixes and formatting left `$file` as it was: $why. What it '
+          'needs is still reported.',
+  ];
+}
+
+/// The least time each request of the fix passes and of the rewrite of
+/// `--apply` is given, whatever is left of the budget: a server that has
+/// not answered a change of an overlay by then is taken for one that will
+/// not, and is given up.
+const fixRequestFloor = Duration(seconds: 5);
+
+/// How long a caller waits for `CodeAnalysis.pendingFixes` or
+/// `CodeAnalysis.applyFixesAndFormat` given [within]: the budget, an
+/// overlay's change and its removal at their floor ([fixRequestFloor]),
+/// and [questionGrace] for a server stuck on an earlier question.
+Duration fixQuestionLimit(Duration within) =>
+    within + fixRequestFloor * 2 + questionGrace;
+
+/// [time] in seconds, as a reason says it: `120 s`, `1.5 s`.
+String secondsText(Duration time) =>
+    '${time.inMilliseconds / 1000} s'.replaceFirst('.0 s', ' s');
+
+/// What `CodeAnalysis.pendingFixes` found: the fixes `dart fix` would apply,
+/// by file and code.
+final class PendingFixes {
+  /// Creates the answer.
+  const PendingFixes({
+    this.counts = const {},
+    this.passes = 0,
+    this.unfinished,
+    this.notCounted = const [],
+  });
+
+  /// The files the server had fixes for that are outside the project once
+  /// links are followed (a link from the project to a file elsewhere), from
+  /// the project root with `/`, sorted: their fixes are not in [counts], so
+  /// the counts can be lower than `dart fix --dry-run`'s, which follows the
+  /// link.
+  final List<String> notCounted;
+
+  /// One line for each of [notCounted], for the run's notices.
+  List<String> get notices => [
+    for (final file in notCounted)
+      '`dart fix` would also fix `$file`, which is outside the project once '
+          'links are followed; its fixes were not counted in '
+          '`dart.fix_pending`, and `--apply` leaves it as it is.',
+  ];
+
+  /// How many fixes of each code `dart fix` would apply in each file: the
+  /// file from the project root with `/`, then the diagnostic's code, then
+  /// the count summed over the passes, as `dart fix --dry-run` sums them.
+  final Map<String, Map<String, int>> counts;
+
+  /// How many passes found fixes.
+  final int passes;
+
+  /// Why the passes stopped before one found no fix, in words that complete
+  /// "the pending fixes were not all found: "; null when they finished. The
+  /// [counts] are then those of the passes that ended, so they may be lower
+  /// than `dart fix` would list.
+  final String? unfinished;
 }
 
 /// How long past its `within` a question to the analysis may keep a caller

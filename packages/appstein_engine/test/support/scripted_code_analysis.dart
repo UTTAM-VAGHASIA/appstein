@@ -57,6 +57,7 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
   @override
   Future<CodeReading> read() async {
     asked++;
+    events.add('read');
     await onAsked?.call();
     if (failure case final failure?) throw failure;
     return CodeReading(
@@ -82,6 +83,7 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
     CodeDiagnostic diagnostic, {
     required Duration within,
   }) async {
+    events.add('canDartFix');
     askedFixes.add(diagnostic);
     fixWithin.add(within);
     // Like the analysis server: gives up with a `TimeoutException` when the
@@ -90,6 +92,67 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
     if (failure case final failure?) throw failure;
     if (fixFailure case final failure?) throw failure;
     return fixable.contains(diagnostic);
+  }
+
+  /// What each question asked was, in order: `read`, `canDartFix`,
+  /// `formatChanges`, `pendingFixes` and `applyFixesAndFormat`.
+  final events = <String>[];
+
+  /// What [pendingFixes] answers with.
+  PendingFixes pending = const PendingFixes();
+
+  /// Called each time [pendingFixes] is asked, before it answers.
+  Future<void> Function()? onPendingAsked;
+
+  /// What [pendingFixes] throws, when set; [read] still answers.
+  Object? pendingFailure;
+
+  /// The time each [pendingFixes] was given, in order.
+  final pendingWithin = <Duration>[];
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) async {
+    events.add('pendingFixes');
+    pendingWithin.add(within);
+    await onPendingAsked?.call();
+    if (failure case final failure?) throw failure;
+    if (pendingFailure case final failure?) throw failure;
+    return pending;
+  }
+
+  /// What [applyFixesAndFormat] does: by default it writes nothing and
+  /// answers with [applied]. A test may write files in it.
+  Future<List<String>> Function(
+    Future<bool> Function(String file) leaveUnformatted,
+  )?
+  onApply;
+
+  /// The files [applyFixesAndFormat] says it wrote when [onApply] is not
+  /// set.
+  List<String> applied = const [];
+
+  /// The files [applyFixesAndFormat] says it left as they were, with why.
+  Map<String, String> leftAlone = const {};
+
+  /// What [applyFixesAndFormat] throws, when set.
+  Object? applyFailure;
+
+  /// The time each [applyFixesAndFormat] was given, in order.
+  final applyWithin = <Duration>[];
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) async {
+    events.add('applyFixesAndFormat');
+    applyWithin.add(within);
+    if (failure case final failure?) throw failure;
+    if (applyFailure case final failure?) throw failure;
+    return AppliedChanges(
+      written: await onApply?.call(leaveUnformatted) ?? applied,
+      leftAlone: leftAlone,
+    );
   }
 
   /// The files [formatChanges] says the formatter would change.
@@ -119,6 +182,7 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
     List<String> files, {
     required Duration within,
   }) async {
+    events.add('formatChanges');
     askedFormats.add(files);
     formatWithin.add(within);
     // Like the analysis server: when the time it was given runs out it

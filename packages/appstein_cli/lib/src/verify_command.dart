@@ -14,16 +14,21 @@ import 'version.dart';
 typedef VerifyChecks =
     List<({VerifyCheck check, String? pack})> Function(List<Pack> packs);
 
-/// `appstein verify [--fast | --full] [--format text|json] [--files
-/// paths]`: checks the project against its knowledge (spec §5.3, §9),
-/// after bringing the knowledge up to date. It never writes a project file
-/// outside `.appstein/`. For the code checks it starts the project's Dart
-/// analysis server, waits for the first analysis, and stops the server
-/// before it returns.
+/// `appstein verify [--fast | --full] [--apply] [--format text|json]
+/// [--files paths]`: checks the project against its knowledge (spec §5.3,
+/// §9), after bringing the knowledge up to date. Without `--apply` it never
+/// writes a project file outside `.appstein/`. For the code checks it starts
+/// the project's Dart analysis server, waits for the first analysis, and
+/// stops the server before it returns.
 ///
 /// `--files` (fast runs only) adds files to the unverified files, for the
 /// run and after it (`resolveVerifyFiles`): a path outside the project,
 /// and `--files` with a full run, are usage errors.
+///
+/// `--apply` (full runs only) first applies the fixes `dart fix` would apply
+/// and formats the project (`applyToProject`), then refreshes the knowledge
+/// and runs every check; the result names each file it rewrote. With
+/// `--fast` it is a usage error.
 ///
 /// Exit codes (spec §9.5): 0 when no finding is an error; 1 when one is; 3
 /// when Appstein itself failed (no project, a bad `appstein.yaml`, bad
@@ -66,6 +71,15 @@ final class VerifyCommand extends Command<int> {
             'run and after it. Paths are from the project root, or absolute '
             'inside the project; a folder stands for its Dart files. '
             'Separate them with commas, or repeat the option.',
+      )
+      ..addFlag(
+        'apply',
+        negatable: false,
+        help:
+            'With a full run: first apply the fixes `dart fix` would apply '
+            'and format the whole project (generated files left out), then '
+            'check. Names each file it rewrote. Without it, verify writes no '
+            'project file.',
       );
   }
 
@@ -116,6 +130,14 @@ final class VerifyCommand extends Command<int> {
         'checks every file.',
       );
     }
+    final apply = results.flag('apply');
+    // Files are never rewritten in the middle of an agent's work.
+    if (apply && results.flag('fast')) {
+      usageException(
+        '--apply works with a full run only: run `appstein verify --apply` '
+        'without --fast. A fast run never rewrites files.',
+      );
+    }
     final projectRoot = resolveProjectRoot(globalResults, environment);
     if (projectRoot == null) {
       err
@@ -158,28 +180,44 @@ final class VerifyCommand extends Command<int> {
     // Appstein's failure: the runner reports the `VerifyCheckError` or the
     // `CodeAnalysisException` and exits 3. The server is stopped either
     // way, by the scope.
-    final found = await analysis(
-      (codeAnalysis) => runVerify(
-        projectRoot: projectRoot,
-        config: config,
-        packs: packs,
-        // Package skills start a process and write agent folders, which
-        // belongs to `appstein sync`.
-        sync: KnowledgeSync(
-          environment: environment,
-          appsteinVersion: appsteinVersion,
+    final found = await analysis((codeAnalysis) async {
+      // `--apply` rewrites the files first: the refresh and the reading that
+      // follow are of the rewritten files.
+      final changes = apply
+          ? await applyToProject(codeAnalysis, projectRoot: projectRoot)
+          : const AppliedChanges();
+      final VerifyResult result;
+      try {
+        result = await runVerify(
+          projectRoot: projectRoot,
+          config: config,
           packs: packs,
-          baseline: config.delta.baseline,
-          agents: config.integrations.agents,
-          packageSkills: false,
-        ),
-        mode: results.flag('fast') ? VerifyMode.fast : VerifyMode.full,
-        checks: checks(packs),
-        codeAnalysis: codeAnalysis,
-        dartSdkPath: dartSdkPath,
-        files: files,
-      ),
-    );
+          // Package skills start a process and write agent folders, which
+          // belongs to `appstein sync`.
+          sync: KnowledgeSync(
+            environment: environment,
+            appsteinVersion: appsteinVersion,
+            packs: packs,
+            baseline: config.delta.baseline,
+            agents: config.integrations.agents,
+            packageSkills: false,
+          ),
+          mode: results.flag('fast') ? VerifyMode.fast : VerifyMode.full,
+          checks: checks(packs),
+          codeAnalysis: codeAnalysis,
+          dartSdkPath: dartSdkPath,
+          files: files,
+        );
+      } on Object {
+        // The run failed after `--apply` had rewritten files: they are named
+        // before the failure is reported (exit 3), so none goes unread.
+        if (changes.written.isNotEmpty) {
+          err.writeln(rewrittenBeforeFailure(changes.written));
+        }
+        rethrow;
+      }
+      return result.withApplied(changes.written).withNotices(changes.notices);
+    });
     final result = found.withNotices(left);
     out.write(
       results.option('format') == 'json'
@@ -214,6 +252,15 @@ CodeAnalysisScope terminalCodeAnalysis({
   onLeft: onLeft,
 );
 
+/// What `appstein verify --apply` prints to stderr when the run fails after
+/// it rewrote [files]: each of them, to be read again before it is edited.
+String rewrittenBeforeFailure(List<String> files) => [
+  '--apply rewrote ${files.length == 1 ? 'this file' : 'these files'} before '
+      'the run failed (read ${files.length == 1 ? 'it' : 'them'} again before '
+      'you edit ${files.length == 1 ? 'it' : 'them'}):',
+  for (final file in files) '  $file',
+].join('\n');
+
 /// The exit code of `appstein verify` for [result] (spec §9.5): 1 when a
 /// finding is an error, else 0. Warnings, info findings and checks that did
 /// not run never fail a run on their own: a check that could not run comes
@@ -225,6 +272,9 @@ String _count(int count, String one, String many) =>
     '$count ${count == 1 ? one : many}';
 
 /// The text `appstein verify` prints for [result] (spec §9.3):
+/// - first, when `--apply` rewrote files ([VerifyResult.applied]), a section
+///   that names each of them, to be read again before they are edited;
+///   without `--apply`, or when it rewrote nothing, there is no section;
 /// - the findings in groups: `(project)` for those about no file, then one
 ///   group per file. A group with an error comes before a group without
 ///   one; inside each half, `(project)` is first and the files are in path
@@ -250,7 +300,18 @@ String formatVerify(VerifyResult result) {
       if (!hasError(file)) file,
   ];
 
-  final lines = <String>[];
+  final lines = <String>[
+    // Before the findings: the agent must read these again before it edits
+    // them.
+    if (result.applied.isNotEmpty) ...[
+      result.applied.length == 1
+          ? 'Rewritten by --apply (read this file again before you edit it):'
+          : 'Rewritten by --apply (read these files again before you edit '
+                'them):',
+      for (final file in result.applied) '  $file',
+      '',
+    ],
+  ];
   for (final file in files) {
     lines.add(file ?? '(project)');
     for (final finding in groups[file]!) {

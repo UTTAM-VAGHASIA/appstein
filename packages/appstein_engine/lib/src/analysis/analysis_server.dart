@@ -135,7 +135,13 @@ final class AnalysisServer implements StoppableCodeAnalysis {
     this.readyTimeout = analysisReadyTimeout,
     this.processLookup = lookUpProcess,
     this.afterLook,
+    this.replaceText = replaceFileText,
   }) : projectRoot = p.normalize(p.absolute(projectRoot));
+
+  /// How [applyFixesAndFormat] writes a file's new text: [replaceFileText].
+  /// **Test-only** to replace, like [afterLook], so a test can make a write
+  /// fail or take long.
+  final Future<void> Function(String path, String text) replaceText;
 
   /// **Test-only**, like [processLookup]: called in each reading after the
   /// look at the disk and the reading of the changed files, before the
@@ -391,6 +397,122 @@ final class AnalysisServer implements StoppableCodeAnalysis {
         );
   }
 
+  /// Asks the running server, which answered the last [read], for the fixes
+  /// `dart fix --dry-run` would list, in passes (`edit.bulkFixes`, as `dart
+  /// fix` asks): each pass's edits are applied to an overlay of the file in
+  /// the server's memory (`analysis.updateContent` with `add`), and the
+  /// server is asked again, until a pass finds none or [mostFixPasses] passes
+  /// have found fixes, which is where `dart fix` of the pinned SDK stops too
+  /// (finished, not cut short). The counts of every pass are summed by file
+  /// and code.
+  ///
+  /// - **Nothing is written to disk.** The overlays are removed when the
+  ///   passes end, also when a pass fails, is refused or runs out of time,
+  ///   and the next reading tells the server those files again (`_renew`),
+  ///   so it is of the files on disk. A server that refuses to remove an
+  ///   overlay, or does not answer an overlay's change within its limit, is
+  ///   given up and stopped at once, so the overlay ends with it, and the
+  ///   question fails.
+  /// - **The passes are asked in turn with the readings**, after the reading
+  ///   the run judges, so no finding is judged against the fixed code, and
+  ///   no other question is answered while an overlay is in place.
+  /// - **A file is only ever changed from the text the reading saw.** A file
+  ///   whose text on disk is no longer the reading's, or whose text the
+  ///   reading could not tell (it changed between the reading's two whole
+  ///   reads), stops the passes: the server's edits were made for its own
+  ///   copy, which may be another text. A file reached through a link to
+  ///   outside the project is left out.
+  /// - **At most [within] is spent**, counted from now (and [questionGrace]
+  ///   past that for a server stuck on an earlier question): a pass still
+  ///   unanswered then is given up, and the answer says the passes did not
+  ///   finish (`PendingFixes.unfinished`). So does a refused pass or overlay.
+  ///
+  /// Throws a [CodeAnalysisException] when no reading was taken from the
+  /// running server, and when the server fails meanwhile.
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) async {
+    final session = _session;
+    if (session == null || !session.answered) {
+      throw const CodeAnalysisException(
+        'it was asked for the pending fixes with no reading taken from it',
+      );
+    }
+    final since = Stopwatch()..start();
+    final limit = fixQuestionLimit(within);
+    return session
+        .pendingFixes(since, within)
+        .timeout(
+          limit,
+          onTimeout: () => PendingFixes(
+            unfinished:
+                'the analysis server did not answer within '
+                '${secondsText(limit)}',
+          ),
+        );
+  }
+
+  /// The most passes in which the pending fixes are asked: `dart fix` of the
+  /// pinned SDK (3.47.5) stops after four passes that found fixes, and a
+  /// chain of eight migrations was shown to stop there (four listed, and
+  /// `--apply` leaving the fifth name). Reaching it is finished, as it is for
+  /// `dart fix`, so a fix that undoes another never makes a run partial.
+  static const mostFixPasses = 4;
+
+  /// Applies the fixes [pendingFixes] finds to the files on disk, and formats
+  /// each Dart file of the last reading that [leaveUnformatted] does not
+  /// rule out, with the server's formatter (`edit.format`, asked of the
+  /// fixed text while its overlay is in place). The overlays are removed,
+  /// and then each file is written once, with its final text, only when
+  /// that differs from the text on disk, through a new file beside it that
+  /// takes its place ([replaceText], [replaceFileText]).
+  ///
+  /// A file is written only when its text on disk is still the text the
+  /// last reading saw and the text the fixes were applied to, it is valid
+  /// UTF-8, and it is inside the project once links are followed; otherwise
+  /// it is left as it is, with why (`AppliedChanges.leftAlone`), and what it
+  /// needs stays pending. So is a file whose new text could not be written.
+  /// The next reading tells the server every file that was written or
+  /// overlaid.
+  ///
+  /// [within] is counted from now, and every request has a limit of its own
+  /// ([fixRequestFloor] at least). **The server's part is limited as a
+  /// whole too**, for a server stuck on an earlier question: when the
+  /// passes, the formatting and the removal of the overlays have not ended
+  /// within [fixQuestionLimit], the server is given up, the call fails, and
+  /// nothing is written. The writes that follow need no server and have no
+  /// limit: once they begin, the call returns what was written.
+  ///
+  /// Throws a [CodeAnalysisException] as [pendingFixes] does.
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) async {
+    final session = _session;
+    if (session == null || !session.answered) {
+      throw const CodeAnalysisException(
+        'it was asked to apply fixes with no reading taken from it',
+      );
+    }
+    final since = Stopwatch()..start();
+    final limit = fixQuestionLimit(within);
+    final rewrite = session.applyFixesAndFormat(
+      leaveUnformatted,
+      since,
+      within,
+    );
+    try {
+      await rewrite.serverDone.timeout(limit);
+    } on TimeoutException {
+      // The writes wait for the server's part; they see this and write
+      // nothing, since the call's answer could no longer name them.
+      session._rewriteAbandoned = true;
+      rewrite.written.ignore();
+      throw session.giveUp('the rewrite', limit);
+    }
+    return rewrite.written;
+  }
+
   /// How often one question starts a server again before it gives up.
   static const _mostStarts = 5;
 
@@ -426,6 +548,240 @@ final class AnalysisServer implements StoppableCodeAnalysis {
 /// that found it can't answer, and a new one must.
 final class _SettingsChanged implements Exception {
   const _SettingsChanged();
+}
+
+/// What the passes of the pending fixes found.
+final class _FixPasses {
+  /// The counts by file (from the project root with `/`) and code.
+  final counts = <String, Map<String, int>>{};
+
+  /// How many passes found fixes.
+  var passes = 0;
+
+  /// Why the passes stopped early; null when one found no fix.
+  String? unfinished;
+
+  /// The text on disk of each file a pass changed, by absolute path, as the
+  /// first pass that changed it read it.
+  final bases = <String, String>{};
+
+  /// The files among [bases] that are not valid UTF-8: never written.
+  final notUtf8 = <String>{};
+
+  /// The files with fixes that are outside the project once links are
+  /// followed: never overlaid, counted or written.
+  final outside = <String>{};
+
+  /// The file whose text the passes could not rely on, which stopped them.
+  final unknownText = <String>{};
+}
+
+/// What the server's part of a rewrite worked out, for the writes.
+final class _RewritePlan {
+  _RewritePlan({
+    required this.finals,
+    required this.bases,
+    required this.notUtf8,
+    required this.leftAlone,
+  });
+
+  /// The final text of each file, by absolute path.
+  final Map<String, String> finals;
+
+  /// The text each file had on disk when it was taken up, by absolute path.
+  final Map<String, String> bases;
+
+  /// The files that are not valid UTF-8.
+  final Set<String> notUtf8;
+
+  /// The files left as they were so far, from the project root, with why.
+  final Map<String, String> leftAlone;
+}
+
+/// The overlays of one run of the fix passes.
+final class _Overlays {
+  /// The text the server has for each file, by absolute path.
+  final texts = <String, String>{};
+
+  /// Every file an overlay was sent for, taken by the server or not: each is
+  /// removed afterwards.
+  final sent = <String>{};
+}
+
+/// Writes all of [bytes] to [file] and flushes them: how [replaceFileText]
+/// writes the new file beside the original, unless a test passes its own.
+Future<void> _writeAll(RandomAccessFile file, List<int> bytes) async {
+  await file.writeFrom(bytes);
+  await file.flush();
+}
+
+/// Sets the permissions of the file at [path] to [mode] (octal, as `chmod`
+/// takes it); false when that failed. What [replaceFileText] runs, on Linux
+/// and macOS only, when the new file's permissions differ from the
+/// original's.
+Future<bool> _chmod(String mode, String path) async {
+  try {
+    return (await Process.run('chmod', [mode, path])).exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
+}
+
+/// The name of the new file [replaceFileText] writes beside the file
+/// [name], for the process [processId]: a dot first, so the analysis and
+/// Appstein's look leave it out.
+String besideFileName(String name, int processId) =>
+    '.$name.appstein-$processId.tmp';
+
+/// A file [besideFileName] made: group 1 is the process that made it.
+final besideFilePattern = RegExp(r'^\..+\.appstein-(\d+)\.tmp$');
+
+/// The `chmod` mode to give the new file so it has the original's
+/// permissions, or null when they are the same already: the permission
+/// bits (`& 0o777`) of the new file's [besideMode] and of the original's
+/// [originalMode], as `FileStat.mode` gives them.
+String? permissionsToSet({required int besideMode, required int originalMode}) {
+  final wanted = originalMode & 0x1FF;
+  if ((besideMode & 0x1FF) == wanted) return null;
+  return wanted.toRadixString(8);
+}
+
+/// Replaces the text of the file at [path] with [text], UTF-8 encoded
+/// exactly as it is: a byte order mark at its start is kept, and line ends
+/// are not touched. A file that is a link to a file keeps being a link: the
+/// text goes to the file it points to.
+///
+/// **A crash or a full disk never leaves the file half written.** The text
+/// goes to a new file beside it ([besideFileName], named with a dot, so the
+/// analysis leaves it out), which then takes the file's place. On Linux and
+/// macOS the new file is first given the original's permissions when they
+/// differ ([permissionsToSet], one `chmod`); that costs no process when they
+/// are the same.
+///
+/// - **The original is written in place only when that is safe:** when the
+///   new file was written completely and could not take the original's
+///   place (on Windows, another program holds the original open without
+///   sharing its deletion), or could not be given the original's
+///   permissions; and when the new file could not even be created (a folder
+///   in which no file can be made), unless the reason is a full disk or a
+///   quota ([isDiskFull]). Never after a partial write of the new file.
+/// - **When the new file could not be created on a full disk, or not
+///   written completely** (a full disk, a quota), it is deleted and the
+///   original is left untouched: a [FileSystemException] says so.
+/// - The new file is removed on every path. A process killed between the
+///   two steps leaves it behind; the next `--apply` removes it
+///   (`AnalysisServer.applyFixesAndFormat`).
+///
+/// [openBeside], [writeBeside] and [chmod] are for tests: the first makes
+/// the creation of the new file fail, the second makes its write fail part
+/// way, the last stands for `chmod`.
+///
+/// Throws a [FileSystemException] when the file was left as it was.
+Future<void> replaceFileText(
+  String path,
+  String text, {
+  Future<RandomAccessFile> Function(File file) openBeside = _openBeside,
+  Future<void> Function(RandomAccessFile file, List<int> bytes) writeBeside =
+      _writeAll,
+  Future<bool> Function(String mode, String path) chmod = _chmod,
+}) async {
+  final bytes = utf8.encode(text);
+  // A link stays a link: its target is what gets the text.
+  var target = path;
+  try {
+    target = await File(path).resolveSymbolicLinks();
+  } on FileSystemException {
+    // Not there to resolve: the path is written as it is.
+  }
+  final beside = File(
+    p.join(p.dirname(target), besideFileName(p.basename(target), pid)),
+  );
+  final RandomAccessFile open;
+  try {
+    open = await openBeside(beside);
+  } on FileSystemException catch (error) {
+    if (isDiskFull(error.osError)) {
+      // A write in place could fail part way too: the original stays.
+      try {
+        if (await beside.exists()) await beside.delete();
+      } on FileSystemException {
+        // The next `--apply` tries.
+      }
+      throw FileSystemException(
+        'no new file could be made beside it: the disk is full '
+        '(${error.message})',
+        target,
+        error.osError,
+      );
+    }
+    // No file can be made beside it: nothing partial exists anywhere.
+    await File(target).writeAsBytes(bytes, flush: true);
+    return;
+  }
+  try {
+    try {
+      await writeBeside(open, bytes);
+    } on FileSystemException catch (error) {
+      throw FileSystemException(
+        'its new text could not be written to a new file beside it '
+        '(${error.message})',
+        target,
+        error.osError,
+      );
+    } finally {
+      try {
+        await open.close();
+      } on FileSystemException {
+        // The bytes were flushed, or the write already failed.
+      }
+    }
+    // Complete: from here a write in place is safe.
+    if (await _samePermissions(beside, target, chmod)) {
+      try {
+        await beside.rename(target);
+        return;
+      } on FileSystemException {
+        // Refused: written in place below.
+      }
+    }
+    await File(target).writeAsBytes(bytes, flush: true);
+  } finally {
+    try {
+      if (await beside.exists()) await beside.delete();
+    } on FileSystemException {
+      // Nothing more can be done about it here; the next `--apply` tries.
+    }
+  }
+}
+
+/// Whether [error] says the disk is full or a quota is reached:
+/// `ERROR_DISK_FULL` (112), `ERROR_HANDLE_DISK_FULL` (39) and
+/// `ERROR_DISK_QUOTA_EXCEEDED` (1295) on Windows, `ENOSPC` (28) and
+/// `EDQUOT` (122 on Linux, 69 on macOS) elsewhere.
+bool isDiskFull(OSError? error) {
+  final code = error?.errorCode;
+  if (code == null) return false;
+  if (Platform.isWindows) return code == 112 || code == 39 || code == 1295;
+  if (Platform.isMacOS) return code == 28 || code == 69;
+  return code == 28 || code == 122;
+}
+
+Future<RandomAccessFile> _openBeside(File file) =>
+    file.open(mode: FileMode.writeOnly);
+
+/// Whether [beside] has, or was given, the permissions of [original]; false
+/// when `chmod` failed. Always true on Windows, which has no such bits.
+Future<bool> _samePermissions(
+  File beside,
+  String original,
+  Future<bool> Function(String mode, String path) chmod,
+) async {
+  if (Platform.isWindows) return true;
+  final mode = permissionsToSet(
+    besideMode: (await beside.stat()).mode,
+    originalMode: (await File(original).stat()).mode,
+  );
+  return mode == null || await chmod(mode, beside.path);
 }
 
 /// One run of the server: its guard process and what the server has said.
@@ -956,6 +1312,540 @@ final class _Session {
       );
     } on FileSystemException {
       return null;
+    }
+  }
+
+  /// The pending fixes, in passes on overlays; asked after a reading, in
+  /// turn with the readings ([AnalysisServer.pendingFixes]).
+  Future<PendingFixes> pendingFixes(Stopwatch since, Duration within) {
+    final asked = _turn.then(
+      (_) => _onOverlays(
+        (overlays) async {
+          final passes = await _fixPasses(overlays, since, within);
+          return PendingFixes(
+            counts: passes.counts,
+            passes: passes.passes,
+            unfinished: passes.unfinished,
+            notCounted: [for (final file in passes.outside) _named(file)]
+              ..sort(),
+          );
+        },
+        since,
+        within,
+      ),
+    );
+    _turn = asked.then<void>((_) {}, onError: (Object _) {});
+    return asked;
+  }
+
+  /// The fixes applied and the files formatted, on disk; asked after a
+  /// reading, in turn with the readings
+  /// ([AnalysisServer.applyFixesAndFormat]). `serverDone` completes when the
+  /// server's part has ended (the overlays are removed), or fails with it;
+  /// `written` is what the writes that follow wrote.
+  ({Future<void> serverDone, Future<AppliedChanges> written})
+  applyFixesAndFormat(
+    Future<bool> Function(String file) leaveUnformatted,
+    Stopwatch since,
+    Duration within,
+  ) {
+    final serverDone = Completer<void>();
+    final asked = _turn.then((_) async {
+      final plan = await _onOverlays(
+        (overlays) => _planRewrite(overlays, leaveUnformatted, since, within),
+        since,
+        within,
+      );
+      serverDone.complete();
+      return _writeRewrite(plan);
+    });
+    asked.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        if (!serverDone.isCompleted) {
+          serverDone.completeError(error, stackTrace);
+        }
+      },
+    );
+    _turn = asked.then<void>((_) {}, onError: (Object _) {});
+    return (serverDone: serverDone.future, written: asked);
+  }
+
+  /// Gives this server up because it did not answer [what] within [limit],
+  /// or would keep an overlay: the session fails, and its processes are
+  /// stopped at once, so an overlay in its memory ends with it. The next
+  /// question starts a new server. Returns the failure to throw.
+  CodeAnalysisException giveUp(String what, Duration limit) {
+    _fail(
+      CodeAnalysisException(
+        'it did not answer $what within ${secondsText(limit)}',
+      ),
+    );
+    unawaited(stop());
+    return _failure!;
+  }
+
+  /// Sends [files] to the server as `analysis.updateContent`, about [what],
+  /// with [left] to answer and [fixRequestFloor] at least. A
+  /// server that does not answer in time is given up ([giveUp]); a refusal
+  /// is thrown as it is, with the session still alive.
+  Future<void> _changeOverlays(
+    String what,
+    Map<String, Object?> files,
+    Duration left,
+  ) async {
+    final limit = left < fixRequestFloor ? fixRequestFloor : left;
+    try {
+      await _request('analysis.updateContent', {'files': files}).timeout(limit);
+    } on TimeoutException {
+      throw giveUp(what, limit);
+    }
+  }
+
+  /// Runs [body] with the overlays it gives the server ([_Overlays]), and
+  /// removes them all when [body] ends, normally or with an error, unless
+  /// [body] removed them itself ([_removeOverlays]). The next reading tells
+  /// the server each of those files again (`_renew`): it reads them from
+  /// disk, and its notifications about the overlays' text are replaced
+  /// before that reading is taken.
+  Future<T> _onOverlays<T>(
+    Future<T> Function(_Overlays overlays) body,
+    Stopwatch since,
+    Duration within,
+  ) async {
+    await _opened;
+    if (_failure case final failure?) throw failure;
+    final overlays = _Overlays();
+    try {
+      return await body(overlays);
+    } finally {
+      await _removeOverlays(overlays, since, within);
+    }
+  }
+
+  /// Takes every overlay in [overlays] away. A server that refuses, or does
+  /// not answer in time, is given up and stopped, so the overlay ends with
+  /// it, and that failure is thrown: a server that kept an overlay would
+  /// answer for text that is not on disk.
+  Future<void> _removeOverlays(
+    _Overlays overlays,
+    Stopwatch since,
+    Duration within,
+  ) async {
+    if (overlays.sent.isEmpty) return;
+    final files = [...overlays.sent];
+    overlays.sent.clear();
+    _renew.addAll(files);
+    // A server that has failed is stopped, with its overlays.
+    if (_failure != null) return;
+    try {
+      await _changeOverlays('the removal of the overlays', {
+        for (final file in files) file: {'type': 'remove'},
+      }, within - since.elapsed);
+    } on CodeAnalysisException catch (error) {
+      if (_failure case final failure?) throw failure;
+      _fail(
+        CodeAnalysisException(
+          'it kept the overlays of the pending fixes (${error.reason})',
+        ),
+      );
+      unawaited(stop());
+      throw _failure!;
+    }
+  }
+
+  /// Whether [path] is a file of the project once links are followed: a
+  /// file reached through a link to outside the project is never overlaid or
+  /// written, so `--apply` can't write through it.
+  Future<bool> _inProject(String path) async {
+    if (!p.isWithin(_root, path)) return false;
+    try {
+      final real = await File(path).resolveSymbolicLinks();
+      final root = await Directory(_root).resolveSymbolicLinks();
+      return p.isWithin(root, real);
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  /// Why a file reached through a link was left out.
+  static const _outsideWhy =
+      'it is outside the project once links are followed';
+
+  /// Why a file whose text could not be relied on was left out.
+  static const _changedWhy =
+      'its text on disk is not the one the reading saw, or the reading could '
+      'not tell which text it saw';
+
+  /// The text each file had on disk when a pass first needed it, by
+  /// absolute path, and whether it is valid UTF-8; null when it could not be
+  /// read, is no longer the text the last reading saw, or the reading could
+  /// not tell which text it saw (the file changed between the reading's two
+  /// whole reads, so no hash was kept): the server's copy may then be
+  /// another text, and its edits must not be applied to this one.
+  Future<({String text, bool utf8})?> _baseText(String path) async {
+    final List<int> bytes;
+    try {
+      bytes = await File(path).readAsBytes();
+    } on FileSystemException {
+      return null;
+    }
+    final text = const Utf8Decoder(allowMalformed: true).convert(bytes);
+    final known = _textHashes[path];
+    if (known == null || sha256Hex(utf8.encode(text)) != known) {
+      // The next reading tells the server the file again.
+      _renew.add(path);
+      return null;
+    }
+    var valid = true;
+    try {
+      utf8.decode(bytes);
+    } on FormatException {
+      valid = false;
+    }
+    return (text: text, utf8: valid);
+  }
+
+  /// The passes of [pendingFixes]: [overlays] gets the fixed text of each
+  /// file a pass changed, and the server analyzes it in place of the file.
+  Future<_FixPasses> _fixPasses(
+    _Overlays overlays,
+    Stopwatch since,
+    Duration within,
+  ) async {
+    final found = _FixPasses();
+    while (true) {
+      // As `dart fix` does: the passes so far are all there is.
+      if (found.passes >= AnalysisServer.mostFixPasses) return found;
+      final left = within - since.elapsed;
+      if (left <= Duration.zero) {
+        return found
+          ..unfinished =
+              'the analysis server did not finish them within '
+              '${secondsText(within)}';
+      }
+      final Object? answer;
+      try {
+        answer = await _request('edit.bulkFixes', {
+          'included': [_root],
+          'inTestMode': false,
+          'updatePubspec': false,
+        }).timeout(left);
+      } on TimeoutException {
+        continue;
+      } on CodeAnalysisException catch (error) {
+        if (_failure case final failure?) throw failure;
+        return found
+          ..unfinished = 'the analysis server refused a pass (${error.reason})';
+      }
+      if (answer case {
+        'edits': final List<Object?> edits,
+        'details': final List<Object?> details,
+      }) {
+        if (edits.isEmpty) return found;
+        final changed = <String, String>{};
+        final outside = <String>{};
+        for (final fileEdit in edits) {
+          if (fileEdit case {
+            'file': final String file,
+            'edits': final List<Object?> sourceEdits,
+          }) {
+            if (!await _inProject(file)) {
+              outside.add(file);
+              found.outside.add(file);
+              continue;
+            }
+            var text = changed[file] ?? overlays.texts[file];
+            if (text == null) {
+              final base = await _baseText(file);
+              if (base == null) {
+                found.unknownText.add(file);
+                return found
+                  ..unfinished =
+                      'the text of ${_named(file)} on disk is not the one the '
+                      'reading saw, or the reading could not tell which text '
+                      'it saw';
+              }
+              found.bases[file] = base.text;
+              if (!base.utf8) found.notUtf8.add(file);
+              text = base.text;
+            }
+            final applied = _applyEdits(text, sourceEdits);
+            if (applied == null) return found..unfinished = _unknownForm;
+            changed[file] = applied;
+          } else {
+            return found..unfinished = _unknownForm;
+          }
+        }
+        for (final detail in details) {
+          if (detail case {
+            'path': final String path,
+            'fixes': final List<Object?> fixes,
+          } when p.isWithin(_root, path) && !outside.contains(path)) {
+            final byCode = found.counts.putIfAbsent(_named(path), () => {});
+            for (final fix in fixes) {
+              if (fix case {
+                'code': final String code,
+                'occurrences': final int count,
+              }) {
+                byCode[code] = (byCode[code] ?? 0) + count;
+              }
+            }
+          }
+        }
+        // Only files outside the project had fixes: nothing more to find.
+        if (changed.isEmpty) return found;
+        // Removed afterwards whether or not the server took them.
+        overlays.sent.addAll(changed.keys);
+        try {
+          await _changeOverlays('an overlay of the fixes', {
+            for (final MapEntry(key: file, value: text) in changed.entries)
+              file: {'type': 'add', 'content': text},
+          }, within - since.elapsed);
+        } on CodeAnalysisException catch (error) {
+          if (_failure case final failure?) throw failure;
+          return found
+            ..unfinished =
+                'the analysis server refused an overlay (${error.reason})';
+        }
+        overlays.texts.addAll(changed);
+        found.passes++;
+      } else {
+        return found..unfinished = _unknownForm;
+      }
+    }
+  }
+
+  static const _unknownForm =
+      'the analysis server answered in a form Appstein does not know';
+
+  /// [path] from the project root with `/`, or as it is when it is outside.
+  String _named(String path) => p.isWithin(_root, path)
+      ? p.split(p.relative(path, from: _root)).join('/')
+      : path;
+
+  /// [text] with the server's [edits] applied in the order they are listed
+  /// (a file's edits come last offset first); null when an edit is not in a
+  /// form Appstein knows or falls outside the text.
+  static String? _applyEdits(String text, List<Object?> edits) {
+    for (final edit in edits) {
+      if (edit case {
+        'offset': final int offset,
+        'length': final int length,
+        'replacement': final String replacement,
+      } when offset >= 0 && length >= 0 && offset + length <= text.length) {
+        text = text.replaceRange(offset, offset + length, replacement);
+      } else {
+        return null;
+      }
+    }
+    return text;
+  }
+
+  /// Set when the caller gave up on the server's part of a rewrite: the
+  /// writes that would follow it write nothing.
+  var _rewriteAbandoned = false;
+
+  /// [applyFixesAndFormat]'s part that needs the server: the passes, then
+  /// the formatter, then the removal of the overlays.
+  Future<_RewritePlan> _planRewrite(
+    _Overlays overlays,
+    Future<bool> Function(String file) leaveUnformatted,
+    Stopwatch since,
+    Duration within,
+  ) async {
+    // The Dart files of the reading, before a pass sends notifications about
+    // overlays.
+    final dartFiles = [
+      for (final file in _errors.keys)
+        if (p.isWithin(_root, file) &&
+            file.endsWith('.dart') &&
+            !_seen.unreadable.containsKey(file))
+          file,
+    ]..sort();
+    final leftAlone = <String, String>{};
+    final passes = await _fixPasses(overlays, since, within);
+    for (final file in passes.outside) {
+      leftAlone[_named(file)] = _outsideWhy;
+    }
+    for (final file in passes.unknownText) {
+      leftAlone[_named(file)] = _changedWhy;
+    }
+    final finals = {...overlays.texts};
+    final bases = {...passes.bases};
+    final notUtf8 = {...passes.notUtf8};
+    // Formatted 32 at a time, each from its fixed text when it has one.
+    final toFormat = <String>[];
+    for (final file in dartFiles) {
+      if (await leaveUnformatted(_named(file))) continue;
+      if (!await _inProject(file)) {
+        leftAlone[_named(file)] = _outsideWhy;
+        continue;
+      }
+      toFormat.add(file);
+    }
+    for (var from = 0; from < toFormat.length; from += _formatInFlight) {
+      if (within - since.elapsed <= Duration.zero) break;
+      await Future.wait([
+        for (final file in toFormat.skip(from).take(_formatInFlight))
+          () async {
+            var text = finals[file];
+            if (text == null) {
+              final base = await _baseText(file);
+              if (base == null) {
+                leftAlone[_named(file)] = _changedWhy;
+                return;
+              }
+              bases[file] = base.text;
+              if (!base.utf8) notUtf8.add(file);
+              text = base.text;
+            }
+            final left = within - since.elapsed;
+            if (left <= Duration.zero) return;
+            final Object? answer;
+            try {
+              answer = await _request('edit.format', {
+                'file': file,
+                'selectionOffset': 0,
+                'selectionLength': 0,
+              }).timeout(left);
+            } on TimeoutException {
+              return;
+            } on CodeAnalysisException {
+              if (_failure case final failure?) throw failure;
+              // A file that does not parse, or that the formatter refused:
+              // left as the fixes made it.
+              return;
+            }
+            if (answer case {'edits': final List<Object?> edits}) {
+              // The formatter's edits are listed for the text it has; applied
+              // last offset first, whatever order they come in.
+              final sorted = [...edits]
+                ..sort(
+                  (a, b) => switch ((a, b)) {
+                    ({'offset': final int x}, {'offset': final int y}) =>
+                      y.compareTo(x),
+                    _ => 0,
+                  },
+                );
+              if (_applyEdits(text, sorted) case final formatted?) {
+                finals[file] = formatted;
+              }
+            }
+          }(),
+      ]);
+    }
+    // The overlays go before anything is written: a server that would keep
+    // one fails the rewrite here, while nothing has been written yet.
+    await _removeOverlays(overlays, since, within);
+    return _RewritePlan(
+      finals: finals,
+      bases: bases,
+      notUtf8: notUtf8,
+      leftAlone: leftAlone,
+    );
+  }
+
+  /// [applyFixesAndFormat]'s writes, which need no server and have no time
+  /// limit: once they begin, what they wrote is returned. Nothing is written
+  /// when the caller gave up on the server's part.
+  Future<AppliedChanges> _writeRewrite(_RewritePlan plan) async {
+    if (_rewriteAbandoned) return const AppliedChanges();
+    final _RewritePlan(:finals, :bases, :notUtf8, :leftAlone) = plan;
+    await _removeStaleBesideFiles(finals.keys);
+    final written = <String>[];
+    // A link in the project to a file in the project: both names are in
+    // [finals], one file on disk. It is written once, under the first name;
+    // the other name is listed as written too, never as "changed meanwhile"
+    // because the first write changed it.
+    final writtenFiles = <String>{};
+    for (final MapEntry(key: file, value: text) in finals.entries) {
+      final base = bases[file];
+      if (base == null || text == base) continue;
+      final real = await _resolved(file);
+      if (writtenFiles.contains(real)) {
+        // Told to the server again under this name too.
+        _renew.add(file);
+        written.add(_named(file));
+        continue;
+      }
+      if (notUtf8.contains(file)) {
+        leftAlone[_named(file)] =
+            'it is not valid UTF-8, so it could not be written back unchanged';
+        continue;
+      }
+      // Written only when the disk still has the text the fixes and the
+      // formatter worked on: an edit made meanwhile is never overwritten.
+      final now = await _baseText(file);
+      if (now == null || now.text != base) {
+        leftAlone[_named(file)] = _changedWhy;
+        continue;
+      }
+      try {
+        await _owner.replaceText(file, text);
+      } on FileSystemException catch (error) {
+        leftAlone[_named(file)] = 'it could not be written (${error.message})';
+        continue;
+      }
+      _renew.add(file);
+      writtenFiles.add(real);
+      written.add(_named(file));
+    }
+    return AppliedChanges(
+      written: written..sort(),
+      leftAlone: Map.fromEntries(
+        leftAlone.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+      ),
+    );
+  }
+
+  /// [file] with its links followed; [file] itself when it can't be
+  /// resolved.
+  Future<String> _resolved(String file) async {
+    try {
+      return p.normalize(await File(file).resolveSymbolicLinks());
+    } on FileSystemException {
+      return p.normalize(file);
+    }
+  }
+
+  /// Removes the new files an earlier rewrite left beside the originals in
+  /// the folders of [files] ([besideFilePattern]): a process killed between
+  /// writing one and putting it in place leaves it, a full copy of a source
+  /// file that `git add -A` would commit. One is removed only when the
+  /// process that made it is not running ([AnalysisServer.processLookup]),
+  /// or is this one (whose writes are one at a time, and none is under way):
+  /// another `appstein` may be writing its own.
+  Future<void> _removeStaleBesideFiles(Iterable<String> files) async {
+    final folders = <String>{};
+    for (final file in files) {
+      try {
+        folders.add(p.dirname(await File(file).resolveSymbolicLinks()));
+      } on FileSystemException {
+        folders.add(p.dirname(file));
+      }
+    }
+    for (final folder in folders) {
+      final List<FileSystemEntity> entries;
+      try {
+        entries = await Directory(folder).list(followLinks: false).toList();
+      } on FileSystemException {
+        continue;
+      }
+      for (final entry in entries) {
+        if (entry is! File) continue;
+        final made = besideFilePattern.firstMatch(p.basename(entry.path));
+        final maker = made == null ? null : int.tryParse(made[1]!);
+        if (maker == null) continue;
+        if (maker != pid && _owner.processLookup(maker) is! ProcessGone) {
+          continue;
+        }
+        try {
+          await entry.delete();
+        } on FileSystemException {
+          // Left for the next rewrite.
+        }
+      }
     }
   }
 

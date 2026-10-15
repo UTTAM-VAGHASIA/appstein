@@ -2789,6 +2789,235 @@ void f() {
         expect(analysis.fixWithin.single, greaterThan(Duration.zero));
       });
     });
+
+    // Ticket 08 with the stand-in's `pending`.
+    group('dart.fix_pending', () {
+      const dartChecks = <VerifyCheck>[
+        DartErrorCheck(),
+        DartUnformattedCheck(),
+        DartFixPendingCheck(),
+      ];
+      KnowledgeStore store() => KnowledgeStore(app);
+
+      void write(String relative, String text) => File(
+        p.joinAll([app, ...relative.split('/')]),
+      ).writeAsStringSync(text);
+
+      setUp(() async {
+        for (final name in ['a', 'b', 'c']) {
+          write('lib/$name.dart', 'int $name = 1;\n');
+        }
+        await run([]);
+      });
+
+      ScriptedCodeAnalysis pendingIn(Map<String, Map<String, int>> counts) =>
+          ScriptedCodeAnalysis(
+            analyzedFiles: ['lib/a.dart', 'lib/b.dart', 'lib/c.dart'],
+          )..pending = PendingFixes(counts: counts, passes: 1);
+
+      test('a full run reports one warning per file and code, with the count, '
+          'on the file with no line and a hint that names --apply', () async {
+        final analysis = pendingIn({
+          'lib/a.dart': {'deprecated_member_use': 6, 'unnecessary_new': 1},
+          'lib/b.dart': {'prefer_single_quotes': 2},
+        });
+        final result = await run(dartChecks, codeAnalysis: analysis);
+        expect(
+          [
+            for (final finding in result.findings)
+              (finding.id, finding.file, finding.line, finding.severity),
+          ],
+          [
+            ('dart.fix_pending', 'lib/a.dart', null, Severity.warning),
+            ('dart.fix_pending', 'lib/a.dart', null, Severity.warning),
+            ('dart.fix_pending', 'lib/b.dart', null, Severity.warning),
+          ],
+        );
+        expect(
+          [for (final finding in result.findings) finding.message],
+          [
+            '`dart fix` would apply fixes to this file: '
+                '`deprecated_member_use: 6 fixes`.',
+            '`dart fix` would apply fixes to this file: '
+                '`unnecessary_new: 1 fix`.',
+            '`dart fix` would apply fixes to this file: '
+                '`prefer_single_quotes: 2 fixes`.',
+          ],
+        );
+        expect(
+          result.findings.first.fixHint,
+          allOf(
+            contains('`appstein verify --apply`'),
+            contains('`dart fix --apply`'),
+          ),
+        );
+        expect(result.notRun, isEmpty);
+        expect(analysis.pendingWithin, [fixBudgetFull]);
+      });
+
+      test('a fast run never runs it, never asks for the passes and does not '
+          'name it as not run', () async {
+        final analysis = pendingIn({
+          'lib/a.dart': {'unnecessary_new': 1},
+        });
+        final result = await run(
+          dartChecks,
+          mode: VerifyMode.fast,
+          codeAnalysis: analysis,
+          files: ['lib/a.dart'],
+        );
+        expect(result.findings, isEmpty);
+        expect(result.notRun, isEmpty);
+        expect(analysis.events, isNot(contains('pendingFixes')));
+      });
+
+      test('the passes are asked while gathering, before the knowledge lock, '
+          'after the reading and once', () async {
+        var lockFree = false;
+        final analysis = pendingIn({})
+          ..onPendingAsked = () async {
+            final lock = await KnowledgeLock.acquire(
+              p.join(app, '.appstein'),
+              timeout: const Duration(milliseconds: 100),
+            );
+            lock.release();
+            lockFree = true;
+          };
+        await run(dartChecks, codeAnalysis: analysis);
+        expect(lockFree, isTrue);
+        expect(analysis.events.first, 'read');
+        expect(
+          analysis.events.where((event) => event == 'pendingFixes'),
+          hasLength(1),
+        );
+        expect(analysis.events, isNot(contains('applyFixesAndFormat')));
+      });
+
+      test('passes that did not finish name the check as not run, with why; '
+          'what they found is reported; no file leaves the unverified '
+          'files', () async {
+        final now = store().readState().state!;
+        await store().locked(
+          () => store().writeState(now.copyWith(unverified: ['lib/a.dart'])),
+        );
+        final analysis = pendingIn({})
+          ..pending = const PendingFixes(
+            counts: {
+              'lib/b.dart': {'unnecessary_new': 1},
+            },
+            passes: 1,
+            unfinished: 'the analysis server did not finish them within 120 s',
+          );
+        final result = await run(dartChecks, codeAnalysis: analysis);
+        expect(
+          [for (final finding in result.findings) finding.file],
+          ['lib/b.dart'],
+        );
+        final [notRun] = result.notRun;
+        expect(notRun.id, 'dart.fix_pending');
+        expect(
+          notRun.reason,
+          'the pending fixes were not all found: the analysis server did not '
+          'finish them within 120 s. The counts reported are those of the '
+          'passes that ended',
+        );
+        expect(store().readState().state!.unverified, ['lib/a.dart']);
+      });
+
+      test('a server that fails during the passes fails the run with its own '
+          'exception; any other error is a bug', () async {
+        const failure = CodeAnalysisException('it ended by itself');
+        await expectLater(
+          run(
+            dartChecks,
+            codeAnalysis: pendingIn({})..pendingFailure = failure,
+          ),
+          throwsA(same(failure)),
+        );
+        await expectLater(
+          run(
+            dartChecks,
+            codeAnalysis: pendingIn({})..pendingFailure = StateError('a bug'),
+          ),
+          throwsA(
+            isA<VerifyCheckError>().having(
+              (e) => e.checkId,
+              'checkId',
+              'dart.fix_pending',
+            ),
+          ),
+        );
+      });
+
+      test('verify.severity changes it and a suppression hides it, in the '
+          'config and in the file', () async {
+        write(
+          'lib/b.dart',
+          '// appstein:ignore-file dart.fix_pending — kept as written\n'
+              'int b = 1;\n',
+        );
+        final result = await run(
+          dartChecks,
+          codeAnalysis: pendingIn({
+            'lib/a.dart': {'unnecessary_new': 1},
+            'lib/b.dart': {'unnecessary_new': 1},
+            'lib/c.dart': {'unnecessary_new': 1},
+          }),
+          config: const AppsteinConfig(
+            verify: VerifyConfig(
+              severity: {'dart.fix_pending': Severity.error},
+            ),
+            suppressions: [
+              SuppressionEntry(
+                id: 'dart.fix_pending',
+                path: 'lib/c.dart',
+                reason: 'Fixed by hand later.',
+                line: 3,
+              ),
+            ],
+          ),
+        );
+        expect(
+          [
+            for (final finding in result.findings)
+              (finding.file, finding.severity),
+          ],
+          [('lib/a.dart', Severity.error)],
+        );
+        expect(result.suppressed, 2);
+      });
+
+      test('applyToProject takes a reading first, then asks the analysis to '
+          'rewrite, with the apply budget, leaving out generated files and '
+          'files no longer on disk', () async {
+        write(
+          'lib/gen.dart',
+          '// GENERATED CODE - DO NOT MODIFY BY HAND\nint gen = 1;\n',
+        );
+        final left = <String, bool>{};
+        final analysis = pendingIn({})
+          ..onApply = (leaveUnformatted) async {
+            for (final file in [
+              'lib/a.dart',
+              'lib/gen.dart',
+              'lib/gone.dart',
+            ]) {
+              left[file] = await leaveUnformatted(file);
+            }
+            return ['lib/a.dart'];
+          };
+        expect((await applyToProject(analysis, projectRoot: app)).written, [
+          'lib/a.dart',
+        ]);
+        expect(analysis.events, ['read', 'applyFixesAndFormat']);
+        expect(analysis.applyWithin, [applyBudget]);
+        expect(left, {
+          'lib/a.dart': false,
+          'lib/gen.dart': true,
+          'lib/gone.dart': true,
+        });
+      });
+    });
   });
 
   test('a finding is stamped with the pack whose check reported it', () async {

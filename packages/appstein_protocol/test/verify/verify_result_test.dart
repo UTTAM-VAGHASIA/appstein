@@ -80,6 +80,7 @@ void main() {
       'notRun': [
         {'id': 'docs.stale', 'reason': 'the map is not up to date'},
       ],
+      'applied': <Object?>[],
     });
     expect(VerifyResult.fromJson(result.toJson()).toJson(), result.toJson());
   });
@@ -91,7 +92,23 @@ void main() {
       'suppressed': 0,
       'activeSuppressions': 0,
       'notRun': <Object?>[],
+      'applied': <Object?>[],
     });
+  });
+
+  test('applied: always in the JSON form, empty without --apply, read back, '
+      'kept by withNotices, and a result written without the field reads as '
+      'having none', () {
+    const plain = VerifyResult(findings: []);
+    expect(plain.applied, isEmpty);
+    final applied = plain.withApplied(const ['lib/a.dart', 'lib/b.dart']);
+    expect(applied.toJson()['applied'], ['lib/a.dart', 'lib/b.dart']);
+    expect(VerifyResult.fromJson(applied.toJson()).applied, applied.applied);
+    expect(applied.withNotices(const ['Note.']).applied, applied.applied);
+    expect(
+      VerifyResult.fromJson(plain.toJson()..remove('applied')).applied,
+      isEmpty,
+    );
   });
 
   test('notices: in the JSON form only when there are any, read back, and '

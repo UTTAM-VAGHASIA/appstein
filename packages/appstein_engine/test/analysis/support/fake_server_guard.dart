@@ -44,8 +44,121 @@ Map<String, Object?> _diagnostic(
 void _errors(String file, List<Map<String, Object?>> errors) =>
     _event('analysis.errors', {'file': file, 'errors': errors});
 
+/// The `fixes-<how>@<log file>` scenarios: five files, `lib/a.dart` to
+/// `lib/e.dart`, analyzed with no diagnostic. The first `edit.bulkFixes`
+/// rewrites the start of `a.dart` (`int` to `num`) and counts two fixes of
+/// `x_code` there; what the next pass does is `<how>`: `done` finds none,
+/// `refuse` is refused, `silent` is never answered, and `forever` finds the
+/// same fix again every time. Three more find none in the next pass but
+/// treat the overlays otherwise: `deafadd` never answers an overlay's
+/// `add`, `deafremove` never answers a `remove` once a pass has been asked,
+/// and `refuseadd` refuses the `add`. `edit.format` answers that every file but `a.dart` would get
+/// a `// formatted` line at its start. Every request after the start is
+/// noted in the log file, one line each, with the change and the files of
+/// an `analysis.updateContent`.
+Future<void> _fixes(
+  Map<String, Object?> request,
+  String how,
+  String log,
+  String root,
+  int passes,
+) async {
+  final id = request['id'];
+  final params = request['params'] as Map<String, Object?>?;
+  String named(String file) => p.split(p.relative(file, from: root)).join('/');
+  final noted = switch (params) {
+    {'files': final Map<String, Object?> files} =>
+      ' ${files.entries.map((file) => '${(file.value! as Map)['type']} ${named(file.key)}').join(', ')}',
+    {'file': final String file} => ' ${named(file)}',
+    _ => '',
+  };
+  File(
+    log,
+  ).writeAsStringSync('${request['method']}$noted\n', mode: FileMode.append);
+  switch (request['method']) {
+    case 'edit.bulkFixes':
+      final a = p.join(root, 'lib', 'a.dart');
+      final again = passes > 1;
+      if (again && how == 'silent') return;
+      if (again && how == 'refuse') {
+        _send({
+          'id': id,
+          'error': {'code': 'SERVER_ERROR', 'message': 'The fix threw.'},
+        });
+        return;
+      }
+      final none = again && how != 'forever';
+      _send({
+        'id': id,
+        'result': {
+          'edits': [
+            if (!none)
+              {
+                'file': a,
+                'fileStamp': 0,
+                'edits': [
+                  // `forever` rewrites the same word back and forth.
+                  {
+                    'offset': 0,
+                    'length': 3,
+                    'replacement': passes.isOdd ? 'num' : 'int',
+                  },
+                ],
+              },
+          ],
+          'details': [
+            if (!none)
+              {
+                'path': a,
+                'fixes': [
+                  {'code': 'x_code', 'occurrences': 2},
+                ],
+              },
+          ],
+        },
+      });
+    case 'edit.format':
+      final file = params!['file']! as String;
+      _send({
+        'id': id,
+        'result': {
+          'edits': [
+            if (!file.endsWith('a.dart'))
+              {'offset': 0, 'length': 0, 'replacement': '// formatted\n'},
+          ],
+          'selectionOffset': 0,
+          'selectionLength': 0,
+        },
+      });
+    case 'analysis.updateContent':
+      final types = {
+        for (final change in (params!['files']! as Map).values)
+          (change! as Map)['type'],
+      };
+      if (how == 'deafadd' && types.contains('add')) return;
+      // Only once a pass has made an overlay: a reading tells files with
+      // `remove` too.
+      if (how == 'deafremove' && types.contains('remove') && passes > 0) {
+        return;
+      }
+      if (how == 'refuseadd' && types.contains('add')) {
+        _send({
+          'id': id,
+          'error': {'code': 'INVALID_OVERLAY_CHANGE', 'message': 'No.'},
+        });
+        return;
+      }
+      _send({'id': id});
+    default:
+      _send({'id': id});
+  }
+}
+
 Future<void> main(List<String> arguments) async {
   final scenario = arguments.first;
+  final fixes = RegExp(r'^fixes-(\w+)@(.+)$').firstMatch(scenario);
+  var fixRoot = '';
+  var bulkFixes = 0;
   // `crash:<process ID>`, `names:<process ID>` and `deaf:<process ID>` name
   // that process as the server. `names:` then answers every request and
   // analyzes nothing; `deaf:` does the same, but ends neither when asked to
@@ -59,6 +172,17 @@ Future<void> main(List<String> arguments) async {
   await for (final line in lines) {
     final request = jsonDecode(line) as Map<String, Object?>;
     final id = request['id'];
+    if (fixes != null && fixRoot.isNotEmpty) {
+      if (request['method'] == 'edit.bulkFixes') bulkFixes++;
+      await _fixes(
+        request,
+        fixes.group(1)!,
+        fixes.group(2)!,
+        fixRoot,
+        bulkFixes,
+      );
+      continue;
+    }
     switch (request['method']) {
       case 'server.shutdown' when deaf:
         continue;
@@ -96,6 +220,12 @@ Future<void> main(List<String> arguments) async {
         }
         _send({'id': id});
         _status(true);
+        if (fixes != null) {
+          fixRoot = root;
+          for (final name in ['a', 'b', 'c', 'd', 'e']) {
+            _errors(inProject('lib/$name.dart'), []);
+          }
+        }
         switch (scenario) {
           // A file whose results the server takes back.
           case 'flush':

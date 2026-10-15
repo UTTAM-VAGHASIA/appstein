@@ -6,6 +6,7 @@ import '../analysis/code_analysis.dart';
 import '../decisions/decision_store.dart';
 import '../mcp/knowledge_snapshot.dart';
 import '../packs/pack.dart';
+import 'apply.dart';
 import 'deprecation_ignores.dart';
 import 'formatting.dart';
 import 'suppression_comments.dart';
@@ -41,6 +42,7 @@ final class VerifyContext {
     this.onNotRun,
     this.dartFixesReader,
     this.formattingReader,
+    this.pendingFixesReader,
     this._unverified,
     this.mode = VerifyMode.full,
   });
@@ -91,6 +93,22 @@ final class VerifyContext {
       (throw StateError(
         'This context has no answers about formatting. '
         '$_howToGatherFormatting',
+      )))();
+
+  /// Gives [pendingFixes]. `runVerify` passes one that throws when the check
+  /// that is running did not gather them. Null makes [pendingFixes] throw.
+  final PendingFixes Function()? pendingFixesReader;
+
+  /// The fixes `dart fix` would apply to the project, by file and code: the
+  /// run's passes on the analysis server, asked before the knowledge lock
+  /// and after the reading [code] took ([VerifyGathering.pendingFixes]).
+  ///
+  /// Only a check that asked for them in its own [GatheringCheck.gather] may
+  /// read them; for any other check it throws a [StateError], as [code] does.
+  PendingFixes get pendingFixes =>
+      (pendingFixesReader ??
+      (throw StateError(
+        'This context has no pending fixes. $_howToGatherPendingFixes',
       )))();
 
   /// Gives [tests]: the run's one run of the project's tests. `runVerify`
@@ -204,14 +222,14 @@ final class VerifyContext {
 /// for an analysis server.
 ///
 /// Each kind of answer is gathered once per run, however many checks ask
-/// for it, so every check judges the same one. Today there are five: the
+/// for it, so every check judges the same one. Today there are six: the
 /// code analysis's reading, the comments and settings that hide deprecated
 /// use, whether `dart fix` can migrate each deprecated use on the
-/// [unverified] files, which Dart files the formatter would change, and the
-/// project's test run. A later check with slow work of its own (the pending
-/// fixes) adds it here in the same way: a method the check calls from
-/// [GatheringCheck.gather], and a getter on [VerifyContext] for what it
-/// found.
+/// [unverified] files, which Dart files the formatter would change, the
+/// fixes `dart fix` would apply, and the project's test run. A later check
+/// with slow work of its own adds it here in the same way: a method the
+/// check calls from [GatheringCheck.gather], and a getter on [VerifyContext]
+/// for what it found.
 final class VerifyGathering {
   /// Creates the gathering of one run, which asks [codeAnalysis], reads the
   /// source files of the project at [projectRoot], and runs the project's
@@ -301,7 +319,7 @@ final class VerifyGathering {
       if (refused.isNotEmpty)
         'the analysis server could not answer for ${_named(refused, answers)}',
       if (unanswered.isNotEmpty)
-        'the analysis server did not answer within ${_seconds(budget)} for '
+        'the analysis server did not answer within ${secondsText(budget)} for '
             '${unanswered.length} '
             '${unanswered.length == 1 ? 'file' : 'files'}',
     ];
@@ -328,9 +346,6 @@ final class VerifyGathering {
     return parts.join(', ') + (more > 0 ? ' and $more more' : '');
   }
 
-  static String _seconds(Duration time) =>
-      '${time.inMilliseconds / 1000} s'.replaceFirst('.0 s', ' s');
-
   /// What [formatting] found, for [check] when it runs.
   ///
   /// Throws a [StateError] that names [check] when it did not ask for it in
@@ -341,6 +356,46 @@ final class VerifyGathering {
       throw StateError(
         'The check `${check.ids.first}` read the formatting without '
         'gathering it. $_howToGatherFormatting',
+      );
+    }
+    return found;
+  }
+
+  Future<PendingFixes>? _pendingAsked;
+  PendingFixes? _pending;
+  final _pendingAskers = <VerifyCheck?>{};
+
+  /// The fixes `dart fix` would apply to the whole project
+  /// (`CodeAnalysis.pendingFixes`), found in passes on overlays in the
+  /// analysis server's memory, never on disk. The reading [code] takes is
+  /// taken first, so no finding is judged against the fixed code. The first
+  /// call asks; later calls get the same answer.
+  ///
+  /// The cost is capped by [fixBudgetFull], which the analysis holds on the
+  /// question itself. Passes not finished by then, or a pass the server
+  /// refused, are said in `PendingFixes.unfinished`, and do not fail the run.
+  /// A server that fails does: the `CodeAnalysisException` is passed on as it
+  /// is, as for [formatting].
+  ///
+  /// Throws a `CodeAnalysisException` when the reading can't be taken or the
+  /// analysis can't answer.
+  Future<PendingFixes> pendingFixes() {
+    _pendingAskers.add(_gatheringFor);
+    return _pendingAsked ??= _reading()
+        .then((_) => _codeAnalysis.pendingFixes(within: fixBudgetFull))
+        .then((found) => _pending = found);
+  }
+
+  /// What [pendingFixes] found, for [check] when it runs.
+  ///
+  /// Throws a [StateError] that names [check] when it did not ask for it in
+  /// its own `gather`.
+  PendingFixes pendingFixesFor(VerifyCheck check) {
+    final found = _pending;
+    if (found == null || !_pendingAskers.contains(check)) {
+      throw StateError(
+        'The check `${check.ids.first}` read the pending fixes without '
+        'gathering them. $_howToGatherPendingFixes',
       );
     }
     return found;
@@ -481,9 +536,11 @@ final class VerifyGathering {
     return _reading();
   }
 
-  /// What the code analysis said beside its reading that the run's reader
-  /// must be told (`CodeReading.notices`); empty when it was not asked.
-  List<String> get notices => _code?.notices ?? const [];
+  /// What the code analysis said beside its answers that the run's reader
+  /// must be told: the reading's (`CodeReading.notices`), and the files the
+  /// pending fixes left uncounted (`PendingFixes.notices`); empty when
+  /// nothing was asked.
+  List<String> get notices => [...?_code?.notices, ...?_pending?.notices];
 
   Future<CodeReading> _reading() =>
       _asked ??= _codeAnalysis.read().then((reading) => _code = reading);
@@ -605,6 +662,10 @@ const dartFixBudget = Duration(seconds: 1);
 const _howToGatherFixes =
     'A check that reads `context.dartFixes` implements `GatheringCheck` and '
     'calls `gathering.dartFixes()` in `gather`.';
+
+const _howToGatherPendingFixes =
+    'A check that reads `context.pendingFixes` implements `GatheringCheck` '
+    'and calls `gathering.pendingFixes()` in `gather`.';
 
 const _howToGatherFormatting =
     'A check that reads `context.formatting` implements `GatheringCheck` and '

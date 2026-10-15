@@ -22,6 +22,7 @@ import 'memory_tools.dart';
 import 'record_decision.dart';
 import 'route_query.dart';
 import 'tool_answer.dart';
+import '../verify/apply.dart';
 import '../verify/engine_checks.dart';
 import '../verify/test_run.dart';
 import '../verify/unverified_files.dart';
@@ -112,6 +113,33 @@ final class _OutOfTurn implements CodeAnalysis {
           within + questionGrace,
           onTimeout: () => const FormatAnswers(),
         ),
+  );
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) => _outOfTurn(
+    () => _analysis
+        .pendingFixes(within: within)
+        .timeout(
+          // Past the analysis's own limit: a server that does not answer an
+          // overlay is given up there, and that failure is the answer.
+          fixQuestionLimit(within) + questionGrace,
+          onTimeout: () => const PendingFixes(
+            unfinished: 'the analysis server did not answer in time',
+          ),
+        ),
+  );
+
+  // No limit around it here: the files it writes must be in its answer. The
+  // analysis holds `within`, a limit per request and one on the whole call.
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) => _outOfTurn(
+    () => _analysis.applyFixesAndFormat(
+      leaveUnformatted: leaveUnformatted,
+      within: within,
+    ),
   );
 
   Future<T> _outOfTurn<T>(Future<T> Function() ask) async {
@@ -338,7 +366,10 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
             'Check the project against its knowledge and get findings, each '
             'with its file, line and a fix hint. `scope: fast` after a '
             'change; `scope: full` before you say the task is done. An '
-            'error blocks "done"; warnings and info are reported only.',
+            'error blocks "done"; warnings and info are reported only. '
+            '`apply: true` with `scope: full` first applies `dart fix` and '
+            'formats the project, and lists the files it rewrote in '
+            '`applied`: read them again before you edit them.',
         inputSchema: ObjectSchema.fromMap(ToolSchemas.verifyInput),
         outputSchema: ObjectSchema.fromMap(
           toolOutputSchema(ToolSchemas.verifyResult),
@@ -499,60 +530,106 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// this run then judges that newer knowledge, and its reply still states
   /// the freshness its own refresh found.
   ///
+  /// With `apply: true` (full scope only), the project is fixed and
+  /// formatted first (`applyToProject`), before the refresh, so the refresh
+  /// and the reading are of the rewritten files, as in `appstein verify
+  /// --apply`. Everything the call asks is checked before that, so a refusal
+  /// never follows a rewrite; a failure after it still names the files it
+  /// rewrote. `apply` with the fast scope is refused.
+  ///
   /// [analysis] is the call's code analysis, which the caller has entered
   /// (`codeAnalysis`) before it took the calls' turn.
   Future<CallToolResult> _verify(
     Map<String, Object?> arguments,
     CodeAnalysis analysis,
   ) async {
-    KnowledgeSync? sync;
-    final freshness = await _freshen(built: (built) => sync = built);
+    final mode = arguments['scope'] == 'fast'
+        ? VerifyMode.fast
+        : VerifyMode.full;
+    // What the call asks is checked before anything is rewritten: a refusal
+    // after `apply` would leave files rewritten that no result names. The
+    // refusal is sent after the refresh, with the freshness it found.
+    String? refusal;
+    var files = const <String>[];
+    var config = const AppsteinConfig();
+    final apply = arguments['apply'];
     try {
-      final using = sync;
-      // Without a sync there are no packs, so no list of checks.
-      if (using == null) return _refuse('The checks could not run.', freshness);
-      final AppsteinConfig config;
-      try {
-        config = loadConfig(projectRoot) ?? const AppsteinConfig();
-      } on ConfigException catch (error) {
-        final problem = '$error'.replaceFirst(RegExp(r'\.$'), '');
-        return _refuse(
+      config = loadConfig(projectRoot) ?? const AppsteinConfig();
+    } on ConfigException catch (error) {
+      final problem = '$error'.replaceFirst(RegExp(r'\.$'), '');
+      refusal =
           'The checks could not run: appstein.yaml is invalid: $problem. '
-          'Fix it, then call `verify` again.',
-          freshness,
-        );
-      }
-      final mode = arguments['scope'] == 'fast'
-          ? VerifyMode.fast
-          : VerifyMode.full;
-      final List<String> files;
+          'Fix it, then call `verify` again.';
+    }
+    if (refusal == null && apply is! bool?) {
+      refusal =
+          '`apply` must be true or false. Call `verify` again with '
+          '`apply: true`, or without it.';
+    }
+    if (refusal == null && apply == true && mode == VerifyMode.fast) {
+      // Files are never rewritten in the middle of an agent's work.
+      refusal =
+          '`apply` works with `scope: full` only: a fast run never rewrites '
+          'files. Call `verify` again with `scope: full`, or without '
+          '`apply`.';
+    }
+    if (refusal == null) {
       switch (arguments['files']) {
         case null:
-          files = const [];
+          break;
         case final List<Object?> given when given.every((f) => f is String):
           if (mode != VerifyMode.fast) {
-            return _refuse(
-              '`files` works with `scope: fast` only: a full run checks '
-              'every file. Call `verify` again without `files`, or with '
-              '`scope: fast`.',
-              freshness,
-            );
+            refusal =
+                '`files` works with `scope: fast` only: a full run checks '
+                'every file. Call `verify` again without `files`, or with '
+                '`scope: fast`.';
+            break;
           }
           try {
             files = resolveVerifyFiles(projectRoot, given.cast<String>());
           } on VerifyFilesException catch (error) {
             final message = error.message.replaceAll('--files', '`files`');
-            return _refuse(
-              '$message Call `verify` again with paths inside the project.',
-              freshness,
-            );
+            refusal =
+                '$message Call `verify` again with paths inside the project.';
           }
         default:
-          return _refuse(
-            '`files` must be a list of paths. Call `verify` again with a '
-            'list.',
-            freshness,
-          );
+          refusal =
+              '`files` must be a list of paths. Call `verify` again with a '
+              'list.';
+      }
+    }
+    final codeAnalysis = _OutOfTurn(analysis, _calls);
+    // `apply` rewrites the files before the knowledge is brought up to date,
+    // as `appstein verify --apply` does: the refresh and the reading that
+    // follow are of the rewritten files.
+    var applied = const <String>[];
+    var leftAlone = const <String>[];
+    if (refusal == null && apply == true) {
+      try {
+        final changes = await applyToProject(
+          codeAnalysis,
+          projectRoot: projectRoot,
+        );
+        applied = changes.written;
+        leftAlone = changes.notices;
+      } on CodeAnalysisException catch (error) {
+        refusal = '$error $_doctor';
+      }
+    }
+    KnowledgeSync? sync;
+    final freshness = await _freshen(built: (built) => sync = built);
+    // A refusal after `apply` rewrote files still names them.
+    String rewritten(String message) => applied.isEmpty
+        ? message
+        : '$message `apply` rewrote ${applied.join(', ')} before that: read '
+              '${applied.length == 1 ? 'it' : 'them'} again before you edit '
+              '${applied.length == 1 ? 'it' : 'them'}.';
+    if (refusal case final message?) return _refuse(message, freshness);
+    try {
+      final using = sync;
+      // Without a sync there are no packs, so no list of checks.
+      if (using == null) {
+        return _refuse(rewritten('The checks could not run.'), freshness);
       }
       final result = await runVerify(
         projectRoot: projectRoot,
@@ -561,29 +638,34 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
         sync: using,
         mode: mode,
         checks: checksFor(using.packs),
-        codeAnalysis: _OutOfTurn(analysis, _calls),
+        codeAnalysis: codeAnalysis,
         refreshed: KnowledgeRefresh.fromFreshness(freshness),
         dartSdkPath: dartSdkPath,
         files: files,
       );
-      return switch (verifyAnswer(result, mode: mode)) {
+      return switch (verifyAnswer(
+        result.withApplied(applied).withNotices(leftAlone),
+        mode: mode,
+      )) {
         ToolReply(result: final json, :final summary) => _reply(
           json,
           summary,
           freshness,
         ),
-        ToolRefusal(:final message) => _refuse(message, freshness),
+        ToolRefusal(:final message) => _refuse(rewritten(message), freshness),
       };
     } on CodeAnalysisException catch (error) {
       // A broken setup, not a bug to report; the server keeps running.
-      return _refuse('$error $_doctor', freshness);
+      return _refuse(rewritten('$error $_doctor'), freshness);
     } on TestRunException catch (error) {
       // The project's tests could not be run: a broken setup as well.
-      return _refuse('$error $_doctor', freshness);
+      return _refuse(rewritten('$error $_doctor'), freshness);
     } on Object catch (error) {
       return _refuse(
-        'Appstein failed to answer: $error. $_doctor If this keeps '
-        'happening, please report it.',
+        rewritten(
+          'Appstein failed to answer: $error. $_doctor If this keeps '
+          'happening, please report it.',
+        ),
         freshness,
       );
     }

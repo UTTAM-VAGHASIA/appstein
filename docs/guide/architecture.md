@@ -108,7 +108,7 @@ The engine's core (everything outside the pack folders `lib/src/packs/official_m
 | `decisions/` | Decision records: the text of one file, how a `\` in a path is read, and the store that reads the folder by the spec's rules and writes under the lock | [decisions-and-memory](decisions-and-memory.md) |
 | `memory/` | The memory files: where they are, and how a lesson line is appended | [decisions-and-memory](decisions-and-memory.md) |
 | `docs/` | The human docs: what a page may read, the renderer, the page marker, the engine's own pages, and the code that compares, writes and deletes in the docs folder | [human-docs](human-docs.md) |
-| `verify/` | The verifier: the frame (`runVerify`), the check interfaces, the engine's checks, suppressions | [verify](verify.md) |
+| `verify/` | The verifier: the frame (`runVerify`), the check interfaces, the engine's checks, suppressions, and `applyToProject`, what `--apply` does before a run | [verify](verify.md) |
 | `analysis/` | The Dart analysis server verify's code checks ask: starting it behind a guard, asking it, stopping it; the `CodeAnalysis` interface a verify run asks, once, before it takes the knowledge lock | [verify](verify.md#the-analysis-server) |
 | `index/` | `INDEX.md`: what it reads from the project, and the renderer that keeps it within 1,500 tokens | [index-md](index-md.md) |
 | `skills/` | Package skills: running package:skills for the agents set up in the project when the dependencies change | [package-skills](package-skills.md) |

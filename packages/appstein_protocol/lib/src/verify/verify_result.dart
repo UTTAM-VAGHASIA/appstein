@@ -27,6 +27,7 @@ final class VerifyResult {
     this.activeSuppressions = 0,
     this.notRun = const [],
     this.notices = const [],
+    this.applied = const [],
   });
 
   /// Reads a result from its JSON form.
@@ -48,6 +49,8 @@ final class VerifyResult {
       // Absent in a result with nothing to tell, and in every result
       // written before the field existed.
       notices: json.containsKey('notices') ? fields.strings('notices') : [],
+      // Absent in every result written before the field existed.
+      applied: json.containsKey('applied') ? fields.strings('applied') : [],
     );
   }
 
@@ -60,7 +63,24 @@ final class VerifyResult {
           activeSuppressions: activeSuppressions,
           notRun: notRun,
           notices: [...notices, ...more],
+          applied: applied,
         );
+
+  /// This result with [files] as its [applied] files.
+  VerifyResult withApplied(List<String> files) => VerifyResult(
+    findings: findings,
+    suppressed: suppressed,
+    activeSuppressions: activeSuppressions,
+    notRun: notRun,
+    notices: notices,
+    applied: files,
+  );
+
+  /// Each file `--apply` (or the tool's `apply`) rewrote before the checks
+  /// ran, from the project folder with `/`, sorted (spec §9.2, §9.3): an
+  /// agent reads them again before it edits them. Empty without `--apply`,
+  /// and when it rewrote nothing.
+  final List<String> applied;
 
   /// The findings that were not suppressed.
   final List<Finding> findings;
@@ -107,6 +127,7 @@ final class VerifyResult {
     'activeSuppressions': activeSuppressions,
     'notRun': [for (final entry in notRun) entry.toJson()],
     if (notices.isNotEmpty) 'notices': notices,
+    'applied': applied,
   };
 }
 

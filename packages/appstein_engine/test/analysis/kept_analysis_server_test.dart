@@ -87,6 +87,16 @@ final class _Server implements StoppableCodeAnalysis {
   }) async => false;
 
   @override
+  Future<PendingFixes> pendingFixes({required Duration within}) async =>
+      const PendingFixes();
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) async => const AppliedChanges();
+
+  @override
   Future<FormatAnswers> formatChanges(
     List<String> files, {
     required Duration within,

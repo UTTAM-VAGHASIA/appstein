@@ -67,6 +67,44 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
     return fixable.contains(diagnostic);
   }
 
+  /// What [pendingFixes] answers with.
+  PendingFixes pending = const PendingFixes();
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) async {
+    if (failure case final failure?) throw failure;
+    return pending;
+  }
+
+  /// What [applyFixesAndFormat] does: by default it writes nothing and
+  /// answers with [applied]. A test may write files in it.
+  Future<List<String>> Function(
+    Future<bool> Function(String file) leaveUnformatted,
+  )?
+  onApply;
+
+  /// What [applyFixesAndFormat] answers with when [onApply] is not set.
+  List<String> applied = const [];
+
+  /// How often [applyFixesAndFormat] was asked.
+  int applyAsked = 0;
+
+  /// The files [applyFixesAndFormat] says it left as they were, with why.
+  Map<String, String> leftAlone = const {};
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) async {
+    applyAsked++;
+    if (failure case final failure?) throw failure;
+    return AppliedChanges(
+      written: await onApply?.call(leaveUnformatted) ?? applied,
+      leftAlone: leftAlone,
+    );
+  }
+
   /// The files [formatChanges] says the formatter would change.
   Set<String> unformatted = {};
 

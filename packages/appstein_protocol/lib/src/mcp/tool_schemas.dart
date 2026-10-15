@@ -564,6 +564,14 @@ abstract final class ToolSchemas {
             'a deleted file or one that is not Dart is accepted. A path outside the project, or `files` with '
             '`scope: full`, is refused.',
       ),
+      'apply': jsonBoolean(
+        description:
+            'With `scope: full` only: first apply the fixes `dart fix` would '
+            'apply and format the whole project (generated files left out), '
+            'then check. This rewrites files: the result names each one in '
+            '`applied`, and you must read those again before you edit them. '
+            '`apply` with `scope: fast` is refused.',
+      ),
     },
     required: ['scope'],
   );
@@ -630,6 +638,13 @@ abstract final class ToolSchemas {
             'such as a process Appstein could not stop, with the command '
             'to end it by hand. Absent when there is nothing to tell.',
       ),
+      'applied': jsonList(
+        jsonString(),
+        description:
+            'Each file `apply` rewrote before the checks ran, from the '
+            'project folder. Read these files again before you edit them. '
+            'Empty without `apply`, and when it rewrote nothing.',
+      ),
     },
     required: [
       'findings',
@@ -637,6 +652,7 @@ abstract final class ToolSchemas {
       'suppressed',
       'activeSuppressions',
       'notRun',
+      'applied',
     ],
   );
 }

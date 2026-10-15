@@ -1379,7 +1379,10 @@ void main() {}
       expect(
         [
           for (final finding in result.findings)
-            if (finding.file == old) (finding.id, finding.severity),
+            // The file's fixable diagnostics are also `dart.fix_pending`
+            // findings, which this test is not about.
+            if (finding.file == old && finding.id != 'dart.fix_pending')
+              (finding.id, finding.severity),
         ],
         [('dart.warning', Severity.error)],
       );
@@ -2055,5 +2058,508 @@ class Remote {
         );
       },
     );
+  });
+
+  // Ticket 08 with a real server: `dart.fix_pending` agrees with the real
+  // `dart fix --dry-run` of the SDK that runs the tests, and `--apply` with
+  // its `dart fix --apply` and `dart format`.
+  group('pending fixes and --apply', () {
+    late String app;
+    late AnalysisServer server;
+
+    const usesOld = 'lib/fixes/uses_old.dart';
+    const twoPasses = 'lib/fixes/two_passes.dart';
+    const bom = 'lib/fixes/bom.dart';
+    const quotes = 'lib/fixes/quotes.dart';
+    const generated = 'lib/fixes/generated.dart';
+    const excluded = 'lib/excluded/quotes.dart';
+
+    /// Every file of [project] but what Appstein keeps in `.appstein/`, by
+    /// its path from the project with `/`, with its bytes.
+    Map<String, List<int>> filesOf(String project) => {
+      for (final entity in Directory(project).listSync(recursive: true))
+        if (entity is File &&
+            !p
+                .split(p.relative(entity.path, from: project))
+                .contains('.appstein'))
+          p.split(p.relative(entity.path, from: project)).join('/'): entity
+              .readAsBytesSync(),
+    };
+
+    /// The Dart files of [project] outside `.dart_tool/`, with their text.
+    Map<String, String> dartTexts(String project) => {
+      for (final MapEntry(key: file, value: bytes) in filesOf(project).entries)
+        if (file.endsWith('.dart') && !file.startsWith('.dart_tool/'))
+          file: utf8.decode(bytes),
+    };
+
+    /// What the real `dart fix --dry-run` of the SDK that runs the tests
+    /// lists for [project]: by file (from the project with `/`) and code.
+    /// It prints a file's path alone on a line, and under it one line per
+    /// code: `  deprecated_member_use • 3 fixes`.
+    Future<Map<String, Map<String, int>>> realDryRun(String project) async {
+      final result = await Process.run(
+        testDart,
+        ['fix', '--dry-run', '.'],
+        workingDirectory: project,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      final counts = <String, Map<String, int>>{};
+      String? file;
+      final fix = RegExp(r'^\s+(\S+) \S+ (\d+) fix(?:es)?$');
+      for (final line in LineSplitter.split('${result.stdout}')) {
+        if (fix.firstMatch(line) case final match? when file != null) {
+          counts.putIfAbsent(file, () => {})[match[1]!] = int.parse(match[2]!);
+        } else if (line.isNotEmpty && !line.startsWith(' ')) {
+          file = p.split(line.trim()).join('/');
+        }
+      }
+      return counts;
+    }
+
+    /// The counts the `dart.fix_pending` findings of [result] give, by file
+    /// and code.
+    Map<String, Map<String, int>> pendingIn(VerifyResult result) {
+      final counts = <String, Map<String, int>>{};
+      for (final finding in result.findings) {
+        if (finding.id != 'dart.fix_pending') continue;
+        final match = RegExp(
+          r'`(\S+): (\d+) fix(?:es)?`',
+        ).firstMatch(finding.message)!;
+        counts.putIfAbsent(finding.file!, () => {})[match[1]!] = int.parse(
+          match[2]!,
+        );
+      }
+      return counts;
+    }
+
+    setUpAll(() async {
+      app = copyFixtureApp();
+      final stub = p.join(p.dirname(app), 'stubs', 'flutter', 'lib');
+      File(p.join(stub, 'old.dart')).writeAsStringSync('''
+/// Old, with a migration.
+@Deprecated('Use newWay instead.')
+void oldWay() {}
+
+/// Old, with a migration for the IDE only.
+@Deprecated('Use newIde instead.')
+void oldIde() {}
+
+/// Old, with none.
+@Deprecated('Rewrite it.')
+void otherWay() {}
+
+/// New.
+void newWay() {}
+
+/// New, for the IDE's migration.
+void newIde() {}
+
+/// Older still: its migration leads to [oldWay], whose own leads on.
+@Deprecated('Use oldWay instead.')
+void olderWay() {}
+''');
+      File(p.join(stub, 'fix_data.yaml')).writeAsStringSync('''
+version: 1
+transforms:
+  - title: 'Rename to oldWay'
+    date: 2025-01-01
+    element:
+      uris: ['old.dart']
+      function: 'olderWay'
+    changes:
+      - kind: 'rename'
+        newName: 'oldWay'
+  - title: 'Rename to newWay'
+    date: 2026-01-01
+    element:
+      uris: ['old.dart']
+      function: 'oldWay'
+    changes:
+      - kind: 'rename'
+        newName: 'newWay'
+  - title: 'Rename to newIde'
+    date: 2026-01-01
+    bulkApply: false
+    element:
+      uris: ['old.dart']
+      function: 'oldIde'
+    changes:
+      - kind: 'rename'
+        newName: 'newIde'
+''');
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        'analyzer:\n  exclude:\n    - lib/excluded/**\n'
+            'linter:\n  rules:\n    - prefer_single_quotes\n'
+            '    - unnecessary_new\n',
+      );
+      writeProjectFile(app, usesOld, '''
+import 'package:flutter/old.dart';
+
+/// Uses the old ones.
+void usesOld() {
+  oldWay();
+  oldWay();
+  oldWay();
+  oldIde();
+  otherWay();
+}
+''');
+      // A migration whose result needs another: a second pass finds it.
+      writeProjectFile(app, twoPasses, '''
+import 'package:flutter/old.dart';
+
+/// Uses the oldest one.
+void twoPasses() {
+  olderWay();
+  olderWay();
+}
+''');
+      // Fixes and a format of its own, after a byte order mark.
+      writeProjectFile(
+        app,
+        bom,
+        '\u{FEFF}/// With a mark.\nString marked( ) => "marked";\n',
+      );
+      // Fixes and a format of its own, with CRLF line ends.
+      writeProjectFile(
+        app,
+        quotes,
+        '/// A box.\r\nclass Box {\r\n  /// Makes one.\r\n  Box( );\r\n}\r\n\r\n'
+        '/// Quotes.\r\nString quotes() =>  "double" + "quoted";\r\n\r\n'
+        '/// New.\r\nBox make() => new Box();\r\n',
+      );
+      writeProjectFile(
+        app,
+        generated,
+        '// GENERATED CODE - DO NOT MODIFY BY HAND\n\n'
+        '/// Generated.\nString generated( ) => "made";\n',
+      );
+      writeProjectFile(
+        app,
+        excluded,
+        '/// Excluded.\nString excluded( ) => "left";\n',
+      );
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('a full run reports one dart.fix_pending per file and code with the '
+        'count, equal to the real dart fix --dry-run; deprecated use is '
+        'still judged against the code on disk', () async {
+      final watch = Stopwatch()..start();
+      final result = await verify(app, server);
+      watch.stop();
+      final ours = pendingIn(result);
+      final real = await realDryRun(app);
+      expect(ours, real);
+      expect(ours[usesOld], {'deprecated_member_use': 3});
+      // Two in the first pass and two in the second, summed as `dart fix`
+      // sums them.
+      expect(ours[twoPasses], {'deprecated_member_use': 4});
+      expect(ours[quotes], containsPair('prefer_single_quotes', 2));
+      expect(ours[quotes], containsPair('unnecessary_new', 1));
+      expect(ours, contains(generated));
+      expect(ours, isNot(contains(excluded)));
+      final finding = result.findings.firstWhere(
+        (finding) =>
+            finding.id == 'dart.fix_pending' && finding.file == usesOld,
+      );
+      expect(finding.severity, Severity.warning);
+      expect(finding.line, isNull);
+      expect(finding.message, contains('`deprecated_member_use: 3 fixes`'));
+      expect(finding.fixHint, contains('`appstein verify --apply`'));
+      expect([
+        for (final check in result.notRun) check.id,
+      ], isNot(contains('dart.fix_pending')));
+      // The reading was taken before the passes: the uses the passes
+      // migrated in the server's memory are still reported.
+      expect([
+        for (final finding in result.findings)
+          if (finding.id == 'dart.deprecated' && finding.file == usesOld)
+            finding.line,
+      ], hasLength(5));
+      // ignore: avoid_print
+      print(
+        'A full run with dart.fix_pending on the fixture app: '
+        '${watch.elapsedMilliseconds} ms',
+      );
+    });
+
+    test('without --apply nothing is written: every project file is '
+        'byte-identical after a full and a fast run, and the next reading of '
+        'the kept server shows the code as it is on disk', () async {
+      final before = filesOf(app);
+      await verify(app, server);
+      await verify(app, server, mode: VerifyMode.fast);
+      final after = filesOf(app);
+      expect(after.keys, unorderedEquals(before.keys));
+      for (final MapEntry(key: file, value: bytes) in before.entries) {
+        expect(after[file], bytes, reason: file);
+      }
+      String described(CodeReading reading) => [
+        for (final found in reading.diagnostics)
+          '${found.file}:${found.line} ${found.code} ${found.message}',
+      ].join('\n');
+      final first = await server.read();
+      final watch = Stopwatch()..start();
+      final pending = await server.pendingFixes(within: fixBudgetFull);
+      watch.stop();
+      expect(pending.unfinished, isNull);
+      expect(pending.passes, 2);
+      final next = await server.read();
+      expect(described(next), described(first));
+      expect(
+        described(next),
+        contains("$usesOld:5 deprecated_member_use 'oldWay' is deprecated"),
+      );
+      // ignore: avoid_print
+      print(
+        'pendingFixes on the fixture app: ${pending.passes} passes and one '
+        'that found none, ${watch.elapsedMilliseconds} ms',
+      );
+    });
+
+    test('--apply gives the text the real dart fix --apply and dart format '
+        'give, leaves generated and excluded files unformatted, names each '
+        'file it rewrote; then nothing is pending or unformatted and a second '
+        '--apply rewrites nothing', () async {
+      // The same project beside it, for the real tools.
+      final twin = p.join(p.dirname(app), 'twin app');
+      for (final MapEntry(key: file, value: bytes) in filesOf(app).entries) {
+        File(p.joinAll([twin, ...file.split('/')]))
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync(bytes);
+      }
+      final fixed = await Process.run(testDart, [
+        'fix',
+        '--apply',
+        '.',
+      ], workingDirectory: twin);
+      expect(fixed.exitCode, 0, reason: '${fixed.stdout}${fixed.stderr}');
+      final toFormat = [
+        for (final MapEntry(key: file, value: text) in dartTexts(twin).entries)
+          if (!file.startsWith('lib/excluded/') &&
+              !text.startsWith('// GENERATED CODE'))
+            file,
+      ];
+      final formatted = await Process.run(testDart, [
+        'format',
+        ...toFormat,
+      ], workingDirectory: twin);
+      expect(
+        formatted.exitCode,
+        0,
+        reason: '${formatted.stdout}${formatted.stderr}',
+      );
+
+      final before = dartTexts(app);
+      final watch = Stopwatch()..start();
+      final changes = await applyToProject(server, projectRoot: app);
+      watch.stop();
+      final applied = changes.written;
+      expect(changes.leftAlone, isEmpty);
+      final after = dartTexts(app);
+      expect(after, dartTexts(twin));
+      // Byte for byte too: the CRLF line ends are kept, and the byte order
+      // mark goes, as the real tools drop it.
+      for (final file in [bom, quotes]) {
+        final path = p.joinAll([...p.split(app), ...file.split('/')]);
+        final twinPath = p.joinAll([...p.split(twin), ...file.split('/')]);
+        expect(
+          File(path).readAsBytesSync(),
+          File(twinPath).readAsBytesSync(),
+          reason: file,
+        );
+      }
+      expect(utf8.decode(File(p.join(app, bom)).readAsBytesSync()), '''
+/// With a mark.
+String marked() => 'marked';
+''');
+      expect(after[quotes], contains('\r\n'));
+      expect(after[quotes], isNot(contains(RegExp('[^\r]\n'))));
+      expect(applied, [
+        for (final file in before.keys.toList()..sort())
+          if (before[file] != after[file]) file,
+      ]);
+      expect(applied, containsAll([usesOld, quotes, generated]));
+      expect(applied, isNot(contains(excluded)));
+      expect(after[usesOld], contains('newWay();'));
+      expect(after[usesOld], contains('oldIde();'));
+      expect(after[twoPasses], contains('  newWay();\n  newWay();'));
+      // The generated file got its fixes and kept its layout.
+      expect(after[generated], contains("generated( ) => 'made'"));
+      expect(after[excluded], before[excluded]);
+
+      final result = await verify(app, server);
+      expect(pendingIn(result), isEmpty);
+      expect([
+        for (final finding in result.findings)
+          if (finding.id == 'dart.unformatted') finding.file,
+      ], isEmpty);
+      expect((await applyToProject(server, projectRoot: app)).written, isEmpty);
+      // ignore: avoid_print
+      print(
+        'applyToProject on the fixture app: ${watch.elapsedMilliseconds} ms '
+        'for ${applied.length} files',
+      );
+    });
+
+    // The reviewer's probe: the pinned `dart fix` stops after four passes.
+    test('a chain of eight migrations: the counts and the text stop where the '
+        'real dart fix stops, after four passes, and the run is not '
+        'partial', () async {
+      final chained = copyFixtureApp();
+      final stub = p.join(p.dirname(chained), 'stubs', 'flutter', 'lib');
+      File(p.join(stub, 'chain.dart')).writeAsStringSync(
+        [
+          for (var i = 0; i < 8; i++)
+            "/// Step $i.\n@Deprecated('Use f${i + 1} instead.')\nvoid f$i() {}\n",
+          '/// The last.\nvoid f8() {}\n',
+        ].join('\n'),
+      );
+      File(p.join(stub, 'fix_data.yaml')).writeAsStringSync(
+        'version: 1\ntransforms:\n${[for (var i = 0; i < 8; i++) "  - title: 'Rename to f${i + 1}'\n"
+              '    date: 2026-01-0${i + 1}\n'
+              '    element:\n'
+              "      uris: ['chain.dart']\n"
+              "      function: 'f$i'\n"
+              '    changes:\n'
+              "      - kind: 'rename'\n"
+              "        newName: 'f${i + 1}'\n"].join()}',
+      );
+      const chain = 'lib/chain.dart';
+      writeProjectFile(chained, chain, '''
+import 'package:flutter/chain.dart';
+
+/// Starts the chain.
+void start() {
+  f0();
+}
+''');
+      final own = realAnalysisServer(chained);
+      addTearDown(own.stop);
+      final result = await verify(chained, own);
+      final ours = pendingIn(result);
+      expect(ours[chain], {'deprecated_member_use': 4});
+      expect(ours, await realDryRun(chained));
+      expect([
+        for (final check in result.notRun) check.id,
+      ], isNot(contains('dart.fix_pending')));
+
+      final twin = p.join(p.dirname(chained), 'twin app');
+      for (final MapEntry(key: file, value: bytes) in filesOf(
+        chained,
+      ).entries) {
+        File(p.joinAll([twin, ...file.split('/')]))
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync(bytes);
+      }
+      final fixed = await Process.run(testDart, [
+        'fix',
+        '--apply',
+        '.',
+      ], workingDirectory: twin);
+      expect(fixed.exitCode, 0, reason: '${fixed.stdout}${fixed.stderr}');
+      final changes = await applyToProject(own, projectRoot: chained);
+      expect(changes.written, contains(chain));
+      final text = dartTexts(chained)[chain]!;
+      expect(text, contains('  f4();\n'));
+      expect(text, dartTexts(twin)[chain]);
+    });
+
+    test('a Dart file reached through a link to outside the project is never '
+        'overlaid, counted or written: the rewrite leaves it and names '
+        'it', () async {
+      final linked = copyFixtureApp();
+      writeProjectFile(
+        linked,
+        'analysis_options.yaml',
+        'linter:\n  rules:\n    - prefer_single_quotes\n',
+      );
+      final outside = p.join(p.dirname(linked), 'outside lib');
+      final messy = File(p.join(outside, 'messy.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('/// Messy.\nString messy( ) => "messy";\n');
+      // On Windows a junction, which needs no admin rights.
+      Link(p.join(linked, 'lib', 'linked')).createSync(outside);
+      writeProjectFile(
+        linked,
+        'lib/inside.dart',
+        '/// Inside.\nString inside( ) => "inside";\n',
+      );
+      final own = realAnalysisServer(linked);
+      addTearDown(own.stop);
+      final reading = await own.read();
+      expect(reading.analyzedFiles, contains('lib/linked/messy.dart'));
+      final pending = await own.pendingFixes(within: fixBudgetFull);
+      expect(pending.counts.keys, contains('lib/inside.dart'));
+      expect(pending.counts.keys, isNot(contains('lib/linked/messy.dart')));
+      // Not counted, and said so: `dart fix --dry-run` would count it.
+      expect(pending.notCounted, ['lib/linked/messy.dart']);
+      const notice =
+          '`dart fix` would also fix `lib/linked/messy.dart`, which is outside '
+          'the project once links are followed; its fixes were not counted in '
+          '`dart.fix_pending`, and `--apply` leaves it as it is.';
+      expect(pending.notices, [notice]);
+      // A full run carries it in its notices, which the terminal prints and
+      // the tool returns.
+      expect((await verify(linked, own)).notices, contains(notice));
+      final before = messy.readAsBytesSync();
+      final changes = await applyToProject(own, projectRoot: linked);
+      expect(changes.written, contains('lib/inside.dart'));
+      expect(changes.written, isNot(contains('lib/linked/messy.dart')));
+      expect(changes.leftAlone, {
+        'lib/linked/messy.dart':
+            'it is outside the project once links are followed',
+      });
+      expect(messy.readAsBytesSync(), before);
+      expect(
+        File(p.join(linked, 'lib', 'inside.dart')).readAsStringSync(),
+        "/// Inside.\nString inside() => 'inside';\n",
+      );
+    });
+
+    test('a file the project reaches by two names, through a link inside '
+        'the project, is written once and named under both, never as '
+        'changed meanwhile', () async {
+      final twice = copyFixtureApp();
+      writeProjectFile(
+        twice,
+        'analysis_options.yaml',
+        'linter:\n  rules:\n    - prefer_single_quotes\n',
+      );
+      writeProjectFile(
+        twice,
+        'lib/shared/messy.dart',
+        '/// Messy.\nString messy( ) => "messy";\n',
+      );
+      // On Windows a junction, which needs no admin rights.
+      Link(
+        p.join(twice, 'lib', 'alias'),
+      ).createSync(p.join(twice, 'lib', 'shared'));
+      final own = realAnalysisServer(twice);
+      addTearDown(own.stop);
+      final reading = await own.read();
+      expect(
+        reading.analyzedFiles,
+        containsAll(['lib/shared/messy.dart', 'lib/alias/messy.dart']),
+      );
+      final changes = await applyToProject(own, projectRoot: twice);
+      expect(
+        changes.written,
+        containsAll(['lib/shared/messy.dart', 'lib/alias/messy.dart']),
+      );
+      expect(changes.leftAlone, isEmpty);
+      expect(
+        File(p.join(twice, 'lib', 'shared', 'messy.dart')).readAsStringSync(),
+        "/// Messy.\nString messy() => 'messy';\n",
+      );
+    });
   });
 }

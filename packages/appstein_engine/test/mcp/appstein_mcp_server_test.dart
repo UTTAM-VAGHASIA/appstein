@@ -585,6 +585,97 @@ void main() {
       );
     });
 
+    test('`apply` with the full scope rewrites the files before the '
+        'knowledge is refreshed, names them in `applied` and tells the agent '
+        'to read them again; with the fast scope, or with input that is '
+        'refused, nothing is rewritten', () async {
+      final main = File(p.join(app, 'lib', 'main.dart'));
+      analysis.onApply = (_) async {
+        main.writeAsStringSync('${main.readAsStringSync()}// Fixed.\n');
+        return ['lib/main.dart'];
+      };
+      final server = await serve();
+      // Synced once, so the next refresh says what changed.
+      await call(server, 'overview');
+
+      final fast = await call(server, 'verify', {
+        'scope': 'fast',
+        'apply': true,
+      });
+      expect(fast.isError, isTrue);
+      expect(textOf(fast), startsWith('`apply` works with `scope: full` only'));
+      final wrong = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': 'yes',
+      });
+      // The input schema refuses it before the tool runs.
+      expect(wrong.isError, isTrue);
+      expect(textOf(wrong), contains('["apply"]'));
+      final withFiles = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': true,
+        'files': ['lib/a.dart'],
+      });
+      expect(withFiles.isError, isTrue);
+      expect(analysis.events, isNot(contains('applyFixesAndFormat')));
+
+      final plain = structured(
+        await call(server, 'verify', {'scope': 'full', 'apply': false}),
+      );
+      expect(plain['applied'], isEmpty);
+      expect(analysis.events, isNot(contains('applyFixesAndFormat')));
+
+      analysis.leftAlone = {
+        'lib/linked/x.dart':
+            'it is outside the project once links are followed',
+      };
+      final result = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': true,
+      });
+      final json = structured(result);
+      expect(json['applied'], ['lib/main.dart']);
+      // The refresh came after the rewrite: it saw the file change.
+      expect((json['freshness']! as Map)['changed'], contains('lib/main.dart'));
+      expect(
+        textOf(result),
+        startsWith(
+          '`apply` rewrote 1 file (lib/main.dart): read it again before you '
+          'edit it. Full verify: ',
+        ),
+      );
+      // A file it left as it was is told, as a notice and in the text.
+      const notice =
+          'Applying fixes and formatting left `lib/linked/x.dart` as it was: '
+          'it is outside the project once links are followed. What it needs '
+          'is still reported.';
+      expect(json['notices'], [notice]);
+      expect(textOf(result), contains(notice));
+      expect(
+        analysis.events.where((event) => event == 'applyFixesAndFormat'),
+        hasLength(1),
+      );
+      expect(VerifyResult.fromJson(json).applied, ['lib/main.dart']);
+    });
+
+    test('an analysis server that fails while `apply` rewrites is an error '
+        'reply with the reason and `appstein doctor`', () async {
+      analysis.applyFailure = const CodeAnalysisException('it ended by itself');
+      final server = await serve();
+      final failed = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': true,
+      });
+      expect(failed.isError, isTrue);
+      expect(
+        textOf(failed),
+        startsWith(
+          'The Dart analysis server could not answer: it ended by itself. '
+          'Run `appstein doctor`',
+        ),
+      );
+    });
+
     test('the other tools never wait for the analysis server: they are '
         'answered while a verify call waits for its reading', () async {
       final asked = Completer<void>();

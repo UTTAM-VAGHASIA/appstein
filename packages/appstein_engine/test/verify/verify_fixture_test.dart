@@ -76,6 +76,7 @@ void main() {
           ('dart.warning', null),
           ('dart.lint', null),
           ('dart.unformatted', null),
+          ('dart.fix_pending', null),
           ('test.failed', null),
           ('a.one', 'a'),
           ('b.one', 'b'),

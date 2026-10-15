@@ -100,6 +100,40 @@ void main() {
       );
     });
 
+    test('the files --apply rewrote come first, in a section of their own; '
+        'with none there is no section', () {
+      expect(
+        formatVerify(
+          const VerifyResult(
+            findings: [_noTest],
+          ).withApplied(const ['lib/a.dart', 'lib/b.dart']),
+        ),
+        'Rewritten by --apply (read these files again before you edit '
+        'them):\n'
+        '  lib/a.dart\n'
+        '  lib/b.dart\n'
+        '\n'
+        'lib/ui/profile\n'
+        '  warning verify.test_required: The feature `profile` has no test.\n'
+        '    fix: Add a test under `test/ui/profile/`.\n'
+        '\n'
+        '0 errors, 1 warning, 0 info. No findings suppressed.\n',
+      );
+      expect(
+        formatVerify(const VerifyResult(findings: []).withApplied(const [])),
+        '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
+      );
+      expect(
+        formatVerify(
+          const VerifyResult(findings: []).withApplied(const ['lib/a.dart']),
+        ),
+        startsWith(
+          'Rewritten by --apply (read this file again before you edit it):\n'
+          '  lib/a.dart\n\n',
+        ),
+      );
+    });
+
     test('with nothing found, it is the summary line alone', () {
       expect(
         formatVerify(const VerifyResult(findings: [])),
@@ -382,7 +416,10 @@ void main() {
         'suppressed',
         'activeSuppressions',
         'notRun',
+        'applied',
       ]);
+      // Without --apply, nothing was rewritten.
+      expect(json['applied'], isEmpty);
       expect(json['summary'], {'errors': 1, 'warnings': 1, 'info': 0});
       final result = VerifyResult.fromJson(json);
       expect(
@@ -491,6 +528,118 @@ void main() {
       );
       expect(err.toString(), startsWith('Pass --fast or --full, not both.\n'));
       expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
+    });
+
+    group('--apply', () {
+      test('fails, with exit 3, with --fast, and rewrites nothing', () async {
+        final analysis = ScriptedCodeAnalysis();
+        expect(
+          await run(['verify', '--fast', '--apply'], analysis: analysis),
+          ExitCodes.appsteinFailed,
+        );
+        expect(
+          err.toString(),
+          startsWith(
+            '--apply works with a full run only: run `appstein verify '
+            '--apply` without --fast. A fast run never rewrites files.\n',
+          ),
+        );
+        expect(analysis.applyAsked, 0);
+        expect(Directory(p.join(project, '.appstein')).existsSync(), isFalse);
+      });
+
+      test('a run that fails after the rewrite still names the files it '
+          'rewrote, on stderr, and exits 3; a file left as it was is a '
+          'note', () async {
+        final analysis = ScriptedCodeAnalysis()
+          ..applied = ['lib/a.dart', 'lib/b.dart'];
+        await expectLater(
+          run(
+            ['verify', '--apply'],
+            analysis: analysis,
+            verifyChecks: (_) => [(check: const _ThrowingCheck(), pack: null)],
+          ),
+          completion(ExitCodes.appsteinFailed),
+        );
+        expect(
+          err.toString(),
+          startsWith(
+            '--apply rewrote these files before the run failed (read them '
+            'again before you edit them):\n'
+            '  lib/a.dart\n'
+            '  lib/b.dart\n',
+          ),
+        );
+        expect(err.toString(), contains('boom.check'));
+        expect(
+          rewrittenBeforeFailure(['lib/a.dart']),
+          '--apply rewrote this file before the run failed (read it again '
+          'before you edit it):\n'
+          '  lib/a.dart',
+        );
+
+        err.clear();
+        out.clear();
+        analysis.leftAlone = {
+          'lib/linked/x.dart':
+              'it is outside the project once links are followed',
+        };
+        await run(['verify', '--apply'], analysis: analysis);
+        expect(
+          out.toString(),
+          contains(
+            'Note:\n'
+            '  Applying fixes and formatting left `lib/linked/x.dart` as it '
+            'was: it is outside the project once links are followed. What it '
+            'needs is still reported.\n',
+          ),
+        );
+      });
+
+      test('rewrites before the knowledge is brought up to date, and names '
+          'the files it rewrote: in `applied` and in a section before the '
+          'findings', () async {
+        bool? knowledgeBefore;
+        final analysis = ScriptedCodeAnalysis()
+          ..onApply = (_) async {
+            knowledgeBefore = File(
+              p.join(project, '.appstein', 'INDEX.md'),
+            ).existsSync();
+            return ['lib/a.dart', 'lib/b c.dart'];
+          };
+        await run(['verify', '--apply'], analysis: analysis);
+        // The project had no knowledge: the run built it after the rewrite.
+        expect(knowledgeBefore, isFalse);
+        expect(
+          out.toString(),
+          startsWith(
+            'Rewritten by --apply (read these files again before you edit '
+            'them):\n'
+            '  lib/a.dart\n'
+            '  lib/b c.dart\n'
+            '\n'
+            '(project)\n',
+          ),
+        );
+        out.clear();
+        await run([
+          'verify',
+          '--apply',
+          '--format',
+          'json',
+        ], analysis: analysis);
+        final json = jsonDecode(out.toString()) as Map<String, Object?>;
+        expect(json['applied'], ['lib/a.dart', 'lib/b c.dart']);
+        expect(analysis.applyAsked, 2);
+      });
+
+      test('without it nothing is asked to rewrite, and there is no '
+          'section', () async {
+        final analysis = ScriptedCodeAnalysis()..applied = ['lib/a.dart'];
+        await run(['verify'], analysis: analysis);
+        expect(analysis.applyAsked, 0);
+        expect(out.toString(), isNot(contains('Rewritten by --apply')));
+      });
     });
 
     group('--files', () {
@@ -1128,6 +1277,59 @@ void main() {
           '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
         );
       });
+
+      test(
+        'with a real analysis server: --apply formats the project, names '
+        'the file it rewrote, and the run after it is clean; without '
+        '--apply nothing is written',
+        () => withChildProcessesToItself(() async {
+          // In turn with the tests that count this process's children: its
+          // analysis servers would be counted as theirs.
+          final messy = File(p.join(project, 'lib', 'messy.dart'))
+            ..writeAsStringSync('int messy( int x )=>x;\n');
+          expect(
+            await run(['verify'], realServer: true, dartSdkPath: testDartSdk),
+            ExitCodes.ok,
+          );
+          expect(out.toString(), contains('warning dart.unformatted'));
+          expect(out.toString(), isNot(contains('Rewritten by --apply')));
+          expect(messy.readAsStringSync(), 'int messy( int x )=>x;\n');
+          out.clear();
+          expect(
+            await run(
+              ['verify', '--apply', '--format', 'json'],
+              realServer: true,
+              dartSdkPath: testDartSdk,
+            ),
+            ExitCodes.ok,
+            reason: '$err',
+          );
+          final json = jsonDecode(out.toString()) as Map<String, Object?>;
+          expect(json['applied'], ['lib/messy.dart']);
+          // The new file puts the human docs behind (`docs.stale`); no code
+          // finding is left.
+          expect([
+            for (final finding in json['findings']! as List)
+              (finding as Map)['id'],
+          ], everyElement('docs.stale'));
+          expect(messy.readAsStringSync(), 'int messy(int x) => x;\n');
+          out.clear();
+          expect(
+            await run(
+              ['verify', '--apply'],
+              realServer: true,
+              dartSdkPath: testDartSdk,
+            ),
+            ExitCodes.ok,
+          );
+          // Nothing left to rewrite: no section, and no code finding.
+          expect(out.toString(), isNot(contains('Rewritten by --apply')));
+          expect(out.toString(), isNot(contains(' dart.')));
+          expect(out.toString(), startsWith('docs/app/'));
+          // Three runs, each starting a guard from source and a server.
+        }),
+        timeout: const Timeout(Duration(minutes: 10)),
+      );
 
       // The whole path: the command starts the guard (`dart bin/appstein.dart
       // analysis-server-guard`), the guard starts the analysis server of the

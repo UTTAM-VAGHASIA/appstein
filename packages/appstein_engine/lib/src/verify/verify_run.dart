@@ -274,6 +274,7 @@ Future<VerifyResult> runVerify({
       },
       dartFixesReader: () => gathering.dartFixesFor(runningCheck),
       formattingReader: () => gathering.formattingFor(runningCheck),
+      pendingFixesReader: () => gathering.pendingFixesFor(runningCheck),
       unverified: unverified,
       mode: mode,
     );
