@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import 'src/large_build.dart';
 import 'src/mcp_session.dart';
 import 'src/process_memory.dart';
+import 'src/terminal_verify.dart';
 import 'src/warm_measurement.dart';
 import 'src/warm_verify.dart';
 
@@ -42,11 +43,16 @@ import 'src/warm_verify.dart';
 ///   (the analysis server starting), the memory of the server's process
 ///   tree, and where the time of a call went;
 /// - the terminal `appstein verify --fast` and `appstein verify` on that app,
-///   which start their own analysis server: timed three times each and
-///   printed with the most memory a run held, with no limit. It also checks
-///   what the real command does: both exit 0 with the summary line, and
-///   `--format json` reports the page edited by hand as the one
-///   `docs.stale` finding;
+///   which start their own analysis server, with the server's disk cache in
+///   a folder of this tool (`measureTerminalRows`): three times each on a
+///   cold cache (a new, empty folder each run) and three times each on a
+///   warm one (after full runs until one adds no cache entry, at most 15,
+///   printed), fast and full in alternating order, printed side by side with
+///   the most memory a run held, with no limit. It also checks what the real
+///   command does: every run exits 0, names no check as not run, prints no
+///   notice and ends with its summary line, a full run reports the page
+///   edited by hand, and `--format json` reports that page as the one
+///   `docs.stale` finding. The `appstein mcp` rows use the same warm cache;
 /// - what a reading of the project costs the warm call, in this process:
 ///   the analysis server's look at the disk and the scan of the Dart files,
 ///   on the 200-file app with and without a large `build/` folder. Printed
@@ -118,6 +124,18 @@ Future<void> main(List<String> args) async {
     final mcp = <String, List<Duration>>{};
     // The most memory a terminal verify run held, by row.
     final terminalPeaks = <String, int>{};
+    // The terminal verify rows, with the warm-up before the warm ones, and
+    // the time of that whole step: every run of it, sampled and JSON runs
+    // included.
+    TerminalRows? terminal;
+    Duration? terminalTime;
+    // The analysis server's disk cache of every `appstein verify` and
+    // `appstein mcp` this tool starts, except the cold runs, which each get
+    // a new one: this tool's own, so what other steps of a CI job left in
+    // the default cache (`~/.dartServer`) changes no row, on any system.
+    final warmCache = (Directory(
+      p.join(work.path, 'analysis server cache'),
+    )..createSync()).path;
     WarmResult? warm;
     List<_ReadingRow>? reading;
 
@@ -148,12 +166,14 @@ ${line('**`sync --detect` after editing the router**, median of 3 (target under 
 ${line('**`docs`, writing every page** (target under 2 s)', 'docsFirst')}
 ${line('**`docs`, nothing to write**, median of 3 (target under 2 s)', 'docs')}
 ${line('**`docs --check`**, median of 3 (target under 2 s)', 'docsCheck')}
-${line('`verify --fast` in the terminal, median of 3 (no limit)', 'verifyFast')}
-${line('`verify` (full) in the terminal, median of 3 (no limit)', 'verifyFull')}
+| `verify --fast` in the terminal, median of 3 (no limit): cold analysis-server cache / warm | ${cell(200, 'verifyFastCold')} / ${cell(200, 'verifyFastWarm')} | not measured |
+| `verify` (full) in the terminal, median of 3 (no limit): cold analysis-server cache / warm | ${cell(200, 'verifyFullCold')} / ${cell(200, 'verifyFullWarm')} | not measured |
 ''');
       if (broken.isNotEmpty) stdout.writeln(_breakdown(broken));
       if (warm case final measured?) {
-        stdout.writeln(_warmTable(measured, terminalPeaks));
+        stdout.writeln(
+          _warmTable(measured, terminalPeaks, terminal, terminalTime),
+        );
       }
       if (reading case final read?) stdout.writeln(_readingTable(read));
       if (mcp.isNotEmpty) {
@@ -270,7 +290,7 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
         // The knowledge is fresh after the last detect, so these measure
         // spec §15's "MCP tool responses < 1 s from fresh knowledge". The
         // first call starts the server; it is not counted.
-        final session = await _startMcp(exe, app, flutterRoot);
+        final session = await _startMcp(exe, app, flutterRoot, warmCache);
         try {
           await session.time('overview', const {});
           for (final (tool, arguments) in _mcpCalls) {
@@ -350,72 +370,122 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
         // these time the terminal fast and full runs, which start their own
         // analysis server, with no limit (spec §15: the 5 s limit is the
         // warm tool's, measured below), and check what the real command
-        // prints. Warnings alone (a feature without a test, the edited page)
-        // exit 0.
-        Future<_Run> verify([List<String> flags = const []]) =>
-            _run(exe, app, flutterRoot, flags, command: 'verify');
-        for (final (row, flags, ending) in const [
-          (
-            'verifyFast',
-            ['--fast'],
-            '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
-          ),
-          ('verifyFull', <String>[], ' info. No findings suppressed.\n'),
-        ]) {
-          final three = <_Run>[];
-          for (var i = 0; i < 3; i++) {
-            final run = await verify(flags);
-            if (run.exitCode != 0 || !run.stdout.endsWith(ending)) {
-              stderr.writeln(
-                'appstein verify ${flags.join(' ')}: exit code '
-                '${run.exitCode}, expected 0 and output ending "$ending":\n'
-                '${run.stdout}${run.stderr}',
-              );
-              exitCode = 1;
-              return;
-            }
-            three.add(run);
-          }
-          record(row, three);
-          // One more run, not timed, with the memory of its process tree
-          // sampled: the guard and the analysis server it started.
+        // prints (`terminalVerifyProblem`). Warnings alone (a feature without
+        // a test, the edited page, the router's formatting) exit 0.
+        //
+        // The analysis server's disk cache is this tool's own folder
+        // (`analysisCacheVariable`), so what earlier steps of the job left in
+        // `~/.dartServer` changes nothing: a cold row starts each run with an
+        // empty folder, and a warm row runs after the warm-up, which stops
+        // when the folder stops growing or at its cap of 15 runs
+        // (`measureTerminalRows`, which also runs a full run first so the
+        // fast runs have no unverified file). The whole step is timed, so
+        // its growth in a CI job can be watched.
+        final stepWatch = Stopwatch()..start();
+        // Printed also when the step fails, so a failing CI job still shows
+        // how long the step ran.
+        try {
+          var coldCaches = 0;
+          final TerminalRows measured;
           try {
-            terminalPeaks[row] = await _peakOfVerify(
-              exe,
-              app,
-              flutterRoot,
-              flags,
+            measured = terminal = await measureTerminalRows(
+              run: (flag, cache) async {
+                final run = await _run(
+                  exe,
+                  app,
+                  flutterRoot,
+                  [flag],
+                  command: 'verify',
+                  cache: cache,
+                );
+                return (
+                  exitCode: run.exitCode,
+                  stdout: run.stdout,
+                  stderr: run.stderr,
+                  elapsed: run.elapsed,
+                );
+              },
+              warmCache: warmCache,
+              newCache: () => (Directory(
+                p.join(work.path, 'cold cache ${coldCaches++}'),
+              )..createSync()).path,
+              discardCache: (cache) =>
+                  discardCache(cache, warn: stderr.writeln),
+              cacheCount: countCache,
             );
           } on StateError catch (error) {
-            stderr.writeln('appstein verify ${flags.join(' ')}: $error');
+            stderr.writeln(error.message);
             exitCode = 1;
             return;
           }
-        }
-        final json = await verify(const ['--format', 'json']);
-        final stalePages = json.exitCode != 0
-            ? null
-            : [
-                for (final finding
-                    in (jsonDecode(json.stdout) as Map)['findings'] as List)
-                  if ((finding as Map)['id'] == 'docs.stale') finding['file'],
-              ];
-        if (stalePages?.join(',') != 'docs/app/routes.md') {
-          stderr.writeln(
-            'appstein verify --format json after a hand edit of routes.md: '
-            'exit code ${json.exitCode}, and docs.stale on $stalePages; '
-            'expected exit code 0 and only docs/app/routes.md:\n'
-            '${json.stderr}',
+          for (final (row, three) in [
+            ('verifyFastCold', measured.coldFast),
+            ('verifyFullCold', measured.coldFull),
+            ('verifyFastWarm', measured.warmFast),
+            ('verifyFullWarm', measured.warmFull),
+          ]) {
+            times[row] = medianOf(three);
+            runs[row] = three;
+          }
+          // One more run of each, not timed, on the warm cache, with the
+          // memory of its process tree sampled: the guard and the analysis
+          // server it started.
+          for (final (row, flag) in const [
+            ('verifyFast', fastFlag),
+            ('verifyFull', fullFlag),
+          ]) {
+            try {
+              terminalPeaks[row] = await sampledPeak(
+                () => _sampleVerify(exe, app, flutterRoot, flag, warmCache),
+                flag: flag,
+              );
+            } on StateError catch (error) {
+              stderr.writeln(error.message);
+              exitCode = 1;
+              return;
+            }
+          }
+          final json = await _run(
+            exe,
+            app,
+            flutterRoot,
+            const ['--format', 'json'],
+            command: 'verify',
+            cache: warmCache,
           );
-          exitCode = 1;
-          return;
+          final stalePages = json.exitCode != 0
+              ? null
+              : [
+                  for (final finding
+                      in (jsonDecode(json.stdout) as Map)['findings'] as List)
+                    if ((finding as Map)['id'] == 'docs.stale') finding['file'],
+                ];
+          if (stalePages?.join(',') != 'docs/app/routes.md') {
+            stderr.writeln(
+              'appstein verify --format json after a hand edit of routes.md: '
+              'exit code ${json.exitCode}, and docs.stale on $stalePages; '
+              'expected exit code 0 and only docs/app/routes.md:\n'
+              '${json.stderr}',
+            );
+            exitCode = 1;
+            return;
+          }
+        } finally {
+          final took = terminalTime = stepWatch.elapsed;
+          stderr.writeln(
+            'The terminal verify runs took ${_seconds(took)} in all.',
+          );
         }
       }
 
       if (held) {
         // The limit of spec §15 where an agent meets it: the `verify` tool
-        // of a running `appstein mcp`, after one file is edited.
-        warm = await _measureWarm(exe, app, flutterRoot);
+        // of a running `appstein mcp`, after one file is edited. Its server
+        // uses the warm cache of the terminal rows, after their warm-up,
+        // which may stop at its cap of 15 runs with the cache still growing:
+        // the same folder and steps on every system, though not always a
+        // cache that stopped growing.
+        warm = await _measureWarm(exe, app, flutterRoot, warmCache);
         if (warm.problem case final problem?) {
           // What was measured so far goes in the log before the failure.
           printTables();
@@ -487,28 +557,43 @@ const _mcpCalls = [
   ('toolchain', <String, Object?>{}),
 ];
 
-/// Starts `appstein mcp` for [app], the way an agent's client does.
-Future<McpSession> _startMcp(String exe, String app, String flutterRoot) =>
-    McpSession.start(
-      exe,
-      ['--project', app, 'mcp'],
-      environment: {'FLUTTER_ROOT': flutterRoot},
-      clientName: 'measure_sync',
-    );
+/// The environment of every `appstein` process this tool starts: the Flutter
+/// SDK at [flutterRoot], and, when [cache] is given, the analysis server's
+/// disk cache in that folder ([analysisCacheVariable]).
+Map<String, String> _environment(String flutterRoot, [String? cache]) => {
+  'FLUTTER_ROOT': flutterRoot,
+  analysisCacheVariable: ?cache,
+};
+
+/// Starts `appstein mcp` for [app], the way an agent's client does, with
+/// the analysis server's cache in [cache].
+Future<McpSession> _startMcp(
+  String exe,
+  String app,
+  String flutterRoot,
+  String cache,
+) => McpSession.start(
+  exe,
+  ['--project', app, 'mcp'],
+  environment: _environment(flutterRoot, cache),
+  clientName: 'measure_sync',
+);
 
 /// The view model that the warm measurement edits.
 const _editedFile = 'lib/ui/feature_9/view_models/feature_9_view_model.dart';
 
-/// Starts `appstein mcp` on [app] and runs the warm measurement on it
-/// (`measureWarm`), which closes it and checks no process of it is left.
+/// Starts `appstein mcp` on [app], with the analysis server's cache in
+/// [cache], and runs the warm measurement on it (`measureWarm`), which
+/// closes it and checks no process of it is left.
 Future<WarmResult> _measureWarm(
   String exe,
   String app,
   String flutterRoot,
+  String cache,
 ) async {
   final McpSession session;
   try {
-    session = await _startMcp(exe, app, flutterRoot);
+    session = await _startMcp(exe, app, flutterRoot, cache);
   } on StateError catch (error) {
     return WarmResult()
       ..problem = 'appstein mcp did not start: ${error.message}';
@@ -516,27 +601,36 @@ Future<WarmResult> _measureWarm(
   return measureWarm(session, project: app, file: _editedFile);
 }
 
-/// Runs `appstein verify [flags]` once more, without timing it, and returns
-/// the most memory its process tree held (the guard and the analysis server
-/// it starts). Throws a [StateError] when it exits with anything but 0.
-Future<int> _peakOfVerify(
+/// Runs `appstein verify [flag]` once, without timing it, with the analysis
+/// server's cache in [cache], and samples the memory of its process tree
+/// (the guard and the analysis server it starts): its output, exit code and
+/// peak, which is null when the sampling never saw the guard and the server
+/// (`peakTreeMemory`). Throws a [StateError] when the process list can't be
+/// read.
+Future<SampledRun> _sampleVerify(
   String exe,
   String app,
   String flutterRoot,
-  List<String> flags,
+  String flag,
+  String cache,
 ) async {
-  final process = await Process.start(
-    exe,
-    ['--project', app, 'verify', ...flags],
-    environment: {'FLUTTER_ROOT': flutterRoot},
-  );
+  // One look before the run, so the first look of the sampling does not
+  // pay for starting the lister: on a new Windows machine the first
+  // PowerShell process listing can take longer than a whole run.
+  await listProcesses();
+  final process = await Process.start(exe, [
+    '--project',
+    app,
+    'verify',
+    flag,
+  ], environment: _environment(flutterRoot, cache));
   final output = Future.wait([
     process.stdout.transform(utf8.decoder).join(),
     process.stderr.transform(utf8.decoder).join(),
   ]);
   // The sampling and the run are awaited together: a process list that
   // fails while the run goes on must not be an error nobody listens to.
-  final (int code, int most) =
+  final (int code, int? most) =
       await exitAndPeak(
         process.exitCode,
         peakTreeMemory(process.pid, process.exitCode),
@@ -548,10 +642,7 @@ Future<int> _peakOfVerify(
         throw error;
       });
   final [out, err] = await output;
-  if (code != 0) {
-    throw StateError('exit code $code:\n$out$err');
-  }
-  return most;
+  return (exitCode: code, stdout: out, stderr: err, peak: most);
 }
 
 /// One size of `build/`: what the reading of the project costs there.
@@ -622,14 +713,40 @@ String _spread(List<Duration> times) => times.isEmpty
     : '${medianOf(times).inMilliseconds} ms '
           '(${times.map((time) => time.inMilliseconds).join(', ')})';
 
-/// The memory of a terminal run, or "not measured" before it was taken.
+/// The memory of a terminal run, or "not measured" before it was taken. A
+/// sampling that never saw the run fails the measurement (`sampledPeak`), so
+/// this is never a 0 that measured nothing.
 String _peak(Map<String, int> peaks, String row) =>
     peaks.containsKey(row) ? _gigabytes(peaks[row]!) : 'not measured';
 
+/// [time] in seconds, to a tenth.
+String _seconds(Duration time) =>
+    '${(time.inMilliseconds / 1000).toStringAsFixed(1)} s';
+
+/// The warm-up before the warm terminal rows: how many runs, their times,
+/// the cache entries each added and the half-written files each left
+/// (`countCache`), and whether it stopped at its cap.
+String _warmUp(TerminalRows? rows) {
+  if (rows == null || rows.warmUp.isEmpty) return 'not measured';
+  final runs = rows.warmUp.length;
+  return '$runs ${runs == 1 ? 'run' : 'runs'}: '
+      '${rows.warmUp.map((time) => time.inMilliseconds).join(', ')} ms, '
+      'adding ${rows.warmUpAdded.join(', ')} cache entries and leaving '
+      '${rows.warmUpHalfWritten.join(', ')} half-written files'
+      '${rows.capped ? '. **Stopped at the cap of $terminalWarmUpMost with '
+                'the cache still growing**: the warm rows may not be warm' : ''}';
+}
+
 /// The third table: the warm `verify` tool, with the 5 s limit, beside the
-/// terminal runs' memory and the cost of starting the analysis server. After
-/// a failed measurement it holds what was measured before the failure.
-String _warmTable(WarmResult warm, Map<String, int> terminalPeaks) =>
+/// terminal runs' warm-up, memory and total time, and the cost of starting
+/// the analysis server. After a failed measurement it holds what was
+/// measured before the failure.
+String _warmTable(
+  WarmResult warm,
+  Map<String, int> terminalPeaks,
+  TerminalRows? terminal,
+  Duration? terminalTime,
+) =>
     '''
 | `verify` where an agent meets it, 200-file app (${Platform.operatingSystem}) | Result |
 |---|---|${warm.problem == null ? '' : '\n| **The measurement failed**, the rows below stop where it did | ${warm.problem!.replaceAll('|', '/').replaceAll('\n', ' ')} |'}
@@ -639,8 +756,10 @@ String _warmTable(WarmResult warm, Map<String, int> terminalPeaks) =>
 | Where that went: `verify` once the refresh is done, median of 3 | ${_spread(warm.afterRefresh)} |
 | First `verify` call: the analysis server starts and is ready, then reads | ${warm.startUp.inMilliseconds} ms |
 | Memory of `appstein mcp`, its guard and the analysis server, when ready / after the calls | ${_gigabytes(warm.memoryReady)} / ${_gigabytes(warm.memoryAfter)} |
-| Most memory of a terminal `verify --fast` run (its own guard and server) | ${_peak(terminalPeaks, 'verifyFast')} |
-| Most memory of a terminal `verify` (full) run | ${_peak(terminalPeaks, 'verifyFull')} |
+| Warm-up of the analysis server's cache before the warm terminal rows: full runs until one adds no cache entry and leaves no half-written file (at most $terminalWarmUpMost) | ${_warmUp(terminal)} |
+| The terminal `verify` step, every run of it (first, cold, warm-up, warm, sampled and JSON runs) | ${terminalTime == null ? 'not measured' : _seconds(terminalTime)} |
+| Most memory of a terminal `verify --fast` run on the warm cache (its own guard and server) | ${_peak(terminalPeaks, 'verifyFast')} |
+| Most memory of a terminal `verify` (full) run on the warm cache | ${_peak(terminalPeaks, 'verifyFull')} |
 ''';
 
 /// The fourth table: what the reading of the project costs a warm call.
@@ -723,19 +842,24 @@ final class _Run {
   }
 }
 
+/// Runs `appstein <command> [flags]` on [app] and times it; with [cache],
+/// the analysis server it starts keeps its disk cache there.
 Future<_Run> _run(
   String exe,
   String app,
   String flutterRoot,
   List<String> flags, {
   String command = 'sync',
+  String? cache,
 }) async {
   final watch = Stopwatch()..start();
-  final result = await Process.run(
-    exe,
-    ['--project', app, command, if (command == 'sync') '--timings', ...flags],
-    environment: {'FLUTTER_ROOT': flutterRoot},
-  );
+  final result = await Process.run(exe, [
+    '--project',
+    app,
+    command,
+    if (command == 'sync') '--timings',
+    ...flags,
+  ], environment: _environment(flutterRoot, cache));
   watch.stop();
   return _Run(
     result.exitCode,

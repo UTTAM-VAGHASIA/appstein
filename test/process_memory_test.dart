@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -41,6 +42,43 @@ void main() {
         (150, 4, 2048, null),
       ]);
     });
+
+    test('reads the name after the start, spaces and all', () {
+      final rows = parseWindowsProcessList(
+        '0 0 8192 - System Idle Process\r\n'
+        '4242 4 1048576 1000 dart.exe\r\n'
+        '4300 4242 2048 1001 conhost.exe\r\n',
+      );
+      expect(rows.map((row) => (row.id, row.start, row.name)), [
+        (0, null, 'System Idle Process'),
+        (4242, 1000, 'dart.exe'),
+        (4300, 1001, 'conhost.exe'),
+      ]);
+    });
+  });
+
+  group('programOf', () {
+    test('is the program without its folder and .exe, in lower case', () {
+      for (final (name, program) in [
+        ('dart.exe', 'dart'),
+        ('DartVM.EXE', 'dartvm'),
+        ('dart', 'dart'),
+        ('/Users/runner/flutter/bin/cache/dart-sdk/bin/dartvm', 'dartvm'),
+        (r'C:\Program Files\dart sdk\bin\dartaotruntime.exe', 'dartaotruntime'),
+        ('conhost.exe', 'conhost'),
+        // Linux: the VM renames its process `dart:<script>`, cut to 15.
+        ('dart:silent_gua', 'dart'),
+        ('dart:analysis_s', 'dart'),
+        ('dart:hold_chain', 'dart'),
+      ]) {
+        expect(
+          programOf(ProcessRow(1, 0, 0, null, name)),
+          program,
+          reason: name,
+        );
+      }
+      expect(programOf(const ProcessRow(1, 0, 0)), isNull);
+    });
   });
 
   group('parsePsProcessList', () {
@@ -58,6 +96,21 @@ void main() {
         (500, 1, 2048 * 1024, 1000000000 - 10 * 1000),
         (600, 1, 1024 * 1024, null),
       ]);
+    });
+
+    test('reads comm after the elapsed time: a name on Linux, a path with '
+        'spaces on macOS', () {
+      final rows = parsePsProcessList(
+        '  700     1   2048    00:10 dart\n'
+        '  701   700   4096    00:09 /Users/runner/my flutter/bin/cache/'
+        'dart-sdk/bin/dartvm\n',
+        now: 1000000000,
+      );
+      expect(rows.map((row) => (row.id, row.name)), [
+        (700, 'dart'),
+        (701, '/Users/runner/my flutter/bin/cache/dart-sdk/bin/dartvm'),
+      ]);
+      expect(programOf(rows.last), 'dartvm');
     });
   });
 
@@ -276,6 +329,10 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
 
+    test('passes on a sampling that never saw the run as null', () async {
+      expect(await exitAndPeak(Future.value(0), Future.value(null)), (0, null));
+    });
+
     test('a run that fails is a StateError too', () async {
       await expectLater(
         exitAndPeak(
@@ -283,6 +340,216 @@ void main() {
           Future.value(1),
         ),
         throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('reachesServer', () {
+    const run = 10;
+    const guard = 11;
+    const server = 12;
+
+    test(
+      'is true when a Dart program runs under the guard, on each system',
+      () {
+        for (final name in [
+          'dart.exe', // Windows
+          'dartvm.exe',
+          'dart', // Linux
+          'dart:analysis_s', // Linux: the VM's own name, cut to 15
+          'dartaotruntime',
+          '/Users/runner/flutter/bin/cache/dart-sdk/bin/dartvm', // macOS
+          r'C:\Program Files\flutter sdk\bin\cache\dart-sdk\bin\dart.exe',
+        ]) {
+          expect(
+            reachesServer([
+              const ProcessRow(run, 1, 100, null, 'appstein.exe'),
+              const ProcessRow(guard, run, 100, null, 'appstein.exe'),
+              ProcessRow(server, guard, 100, null, name),
+            ], run),
+            isTrue,
+            reason: name,
+          );
+        }
+      },
+    );
+
+    test('is true for the server deeper under the guard: dart.exe hands it '
+        'to a dartvm.exe', () {
+      expect(
+        reachesServer(const [
+          ProcessRow(run, 1, 100, null, 'appstein.exe'),
+          ProcessRow(guard, run, 100, null, 'appstein.exe'),
+          ProcessRow(13, guard, 100, null, 'conhost.exe'),
+          ProcessRow(server, guard, 100, null, 'cmd.exe'),
+          ProcessRow(14, server, 100, null, 'dartvm.exe'),
+        ], run),
+        isTrue,
+      );
+    });
+
+    test('is false when only a conhost.exe is under the guard: a console '
+        "program's own child, not the server", () {
+      expect(
+        reachesServer(const [
+          ProcessRow(run, 1, 100, null, 'appstein.exe'),
+          ProcessRow(guard, run, 100, null, 'appstein.exe'),
+          ProcessRow(server, guard, 100, null, 'conhost.exe'),
+        ], run),
+        isFalse,
+      );
+    });
+
+    test('is false for a Dart program that is a child of the run, not of '
+        'the guard', () {
+      expect(
+        reachesServer(const [
+          ProcessRow(run, 1, 100, null, 'appstein'),
+          ProcessRow(guard, run, 100, null, 'dart'),
+        ], run),
+        isFalse,
+      );
+    });
+
+    test('is false when the program under the guard has no name', () {
+      expect(
+        reachesServer(const [
+          ProcessRow(run, 1, 100),
+          ProcessRow(guard, run, 100),
+          ProcessRow(server, guard, 100),
+        ], run),
+        isFalse,
+      );
+    });
+
+    test('is false for the run alone, or a server of another tree', () {
+      expect(
+        reachesServer(const [ProcessRow(run, 1, 100, null, 'appstein')], run),
+        isFalse,
+      );
+      expect(
+        reachesServer(const [
+          ProcessRow(run, 1, 100, null, 'appstein'),
+          ProcessRow(guard, run, 100, null, 'appstein'),
+          ProcessRow(server, 99, 100, null, 'dart'),
+        ], run),
+        isFalse,
+      );
+    });
+
+    test('is false when the run itself is not in the list', () {
+      expect(
+        reachesServer(const [
+          ProcessRow(guard, run, 100, null, 'appstein'),
+          ProcessRow(server, guard, 100, null, 'dart'),
+        ], run),
+        isFalse,
+      );
+    });
+
+    test('is false when the "server" started before the "guard": another '
+        'program given an old ID', () {
+      expect(
+        reachesServer(const [
+          ProcessRow(run, 1, 100, 1000, 'appstein'),
+          ProcessRow(guard, run, 100, 2000, 'appstein'),
+          ProcessRow(server, guard, 100, 500, 'dart'),
+        ], run),
+        isFalse,
+      );
+    });
+  });
+
+  group('peakTreeMemory', () {
+    const run = 10;
+    const tool = 1;
+    const guard = 11;
+    const server = 12;
+
+    test('is null, never 0, when no look found the run: it had ended before '
+        'the first look', () async {
+      var looks = 0;
+      final peak = await peakTreeMemory(
+        run,
+        Future.value(),
+        lister: () async {
+          looks++;
+          // Only the tool, and a child of the run that outlived it.
+          return const [ProcessRow(tool, 0, 500), ProcessRow(11, run, 700)];
+        },
+      );
+      expect(peak, isNull);
+      expect(looks, 1);
+    });
+
+    test('is null when the looks found the run but never its guard and '
+        'server: bare appstein is not its peak', () async {
+      final ended = Completer<void>();
+      final looks = [
+        const [ProcessRow(tool, 0, 500), ProcessRow(run, tool, 20)],
+        const [
+          ProcessRow(tool, 0, 500),
+          ProcessRow(run, tool, 20, null, 'appstein.exe'),
+          ProcessRow(guard, run, 30, null, 'appstein.exe'),
+          // A console program's own child, not a server.
+          ProcessRow(13, guard, 8, null, 'conhost.exe'),
+        ],
+      ];
+      var look = 0;
+      final peak = await peakTreeMemory(
+        run,
+        ended.future,
+        lister: () async {
+          final rows = looks[look++];
+          if (look == looks.length) ended.complete();
+          return rows;
+        },
+      );
+      expect(peak, isNull);
+    });
+
+    test('is the most the tree held in the looks that found the run, once '
+        'one found its guard and server, and ignores the looks after it '
+        'ended', () async {
+      final ended = Completer<void>();
+      final looks = [
+        // Before the server started: only the console host is under the
+        // guard.
+        const [
+          ProcessRow(run, tool, 100, null, 'appstein.exe'),
+          ProcessRow(guard, run, 200, null, 'appstein.exe'),
+          ProcessRow(13, guard, 10, null, 'conhost.exe'),
+        ],
+        const [
+          ProcessRow(run, tool, 100, null, 'appstein.exe'),
+          ProcessRow(guard, run, 200, null, 'appstein.exe'),
+          ProcessRow(13, guard, 10, null, 'conhost.exe'),
+          ProcessRow(server, guard, 900, null, 'dart.exe'),
+        ],
+        // The run has ended; a child it left is not its memory any more.
+        const [ProcessRow(guard, run, 5000)],
+      ];
+      var look = 0;
+      final peak = await peakTreeMemory(
+        run,
+        ended.future,
+        lister: () async {
+          final rows = looks[look++];
+          if (look == looks.length) ended.complete();
+          return rows;
+        },
+      );
+      expect(peak, 100 + 200 + 10 + 900);
+    });
+
+    test('passes on a failed look as an error', () async {
+      await expectLater(
+        peakTreeMemory(
+          run,
+          Future.value(),
+          lister: () async => throw StateError('the process list failed'),
+        ),
+        throwsStateError,
       );
     });
   });
@@ -330,12 +597,33 @@ void main() {
       },
     );
 
-    test('peakTreeMemory samples until told to stop', () async {
+    test('names this process with a Dart program', () async {
+      final rows = await listProcesses();
+      expect(
+        dartPrograms,
+        contains(programOf(rows.firstWhere((row) => row.id == pid))),
+      );
+    });
+
+    test('peakTreeMemory samples a chain of three processes (a run, its '
+        '"guard" and a Dart "server" under it) until told to stop', () async {
+      final run = await Process.start(Platform.resolvedExecutable, [
+        p.join('test', 'support', 'hold_chain.dart'),
+        '3',
+      ]);
+      addTearDown(() async {
+        await run.stdin.close();
+        await run.exitCode;
+      });
+      // It says so once the whole chain has started.
+      await run.stdout
+          .transform(utf8.decoder)
+          .firstWhere((text) => text.contains('started'));
       final stop = Completer<void>();
-      final peak = peakTreeMemory(pid, stop.future);
+      final peak = peakTreeMemory(run.pid, stop.future);
       await Future<void>.delayed(const Duration(milliseconds: 100));
       stop.complete();
-      expect(await peak, greaterThan(1024 * 1024));
+      expect(await peak, greaterThan(3 * 1024 * 1024));
     });
   });
 }

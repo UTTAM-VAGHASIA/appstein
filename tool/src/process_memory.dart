@@ -5,7 +5,7 @@ import 'dart:math' as math;
 /// One running process, as the measuring tools see it.
 final class ProcessRow {
   /// Creates a row.
-  const ProcessRow(this.id, this.parent, this.bytes, [this.start]);
+  const ProcessRow(this.id, this.parent, this.bytes, [this.start, this.name]);
 
   /// The process's ID.
   final int id;
@@ -22,7 +22,29 @@ final class ProcessRow {
   /// system did not say. On Linux and macOS it is the listing's time minus
   /// `ps`'s elapsed time, so it is good to about a second.
   final int? start;
+
+  /// The program it runs, as the system names it: `Win32_Process.Name` on
+  /// Windows (`dart.exe`), `ps`'s `comm` elsewhere (a name on Linux, the
+  /// program's path on macOS); null when the listing did not say.
+  final String? name;
 }
+
+/// The program of [row] without its folder and its `.exe`, in lower case:
+/// `dartvm` for `/Users/x/flutter/bin/cache/dart-sdk/bin/dartvm` and for
+/// `dartvm.exe`; null when the row has no name. On Linux the Dart VM names
+/// its process `dart:<script>`, cut to 15 characters (`dart:silent_gua`
+/// in CI), so a name that starts with `dart:` is `dart`.
+String? programOf(ProcessRow row) {
+  final name = row.name;
+  if (name == null) return null;
+  if (name.toLowerCase().startsWith('dart:')) return 'dart';
+  final base = name.split(RegExp(r'[\\/]')).last.toLowerCase();
+  return base.endsWith('.exe') ? base.substring(0, base.length - 4) : base;
+}
+
+/// The programs an analysis server runs as: the SDK's `dart`, the VM it may
+/// hand a script to (`dartvm`), and the AOT runtime.
+const dartPrograms = {'dart', 'dartvm', 'dartaotruntime'};
 
 /// The seconds in `ps`'s `etime` text (`mm:ss`, `hh:mm:ss` or
 /// `dd-hh:mm:ss`), or null when it is none of those.
@@ -41,15 +63,17 @@ int? elapsedSeconds(String text) {
 }
 
 /// The rows of PowerShell's `Get-CimInstance Win32_Process` printed as
-/// `<id> <parent id> <working set bytes> <start>` lines ([listProcesses]);
-/// the start is in milliseconds since the epoch, or `-` when it is not
-/// known. A line without the start is read too. A line that isn't numbers
-/// (a process whose working set isn't known) is left out.
+/// `<id> <parent id> <working set bytes> <start> <name>` lines
+/// ([listProcesses]); the start is in milliseconds since the epoch, or `-`
+/// when it is not known, and the name is the rest of the line (it may hold
+/// spaces). A line without the name, or without the start and the name, is
+/// read too. A line that doesn't start with three numbers (a process whose
+/// working set isn't known) is left out.
 List<ProcessRow> parseWindowsProcessList(String output) {
   final rows = <ProcessRow>[];
   for (final line in output.split(RegExp(r'\r?\n'))) {
     final words = line.trim().split(RegExp(r'\s+'));
-    if (words.length < 3 || words.length > 4) continue;
+    if (words.length < 3) continue;
     final numbers = words.take(3).map(int.tryParse).toList();
     if (numbers.contains(null)) continue;
     rows.add(
@@ -57,32 +81,35 @@ List<ProcessRow> parseWindowsProcessList(String output) {
         numbers[0]!,
         numbers[1]!,
         numbers[2]!,
-        words.length == 4 ? int.tryParse(words[3]) : null,
+        words.length > 3 ? int.tryParse(words[3]) : null,
+        words.length > 4 ? words.skip(4).join(' ') : null,
       ),
     );
   }
   return rows;
 }
 
-/// The rows of `ps -A -o pid=,ppid=,rss=,etime=`, whose memory is in
+/// The rows of `ps -A -o pid=,ppid=,rss=,etime=,comm=`, whose memory is in
 /// kilobytes. [now] is the time of the listing, in milliseconds since the
-/// epoch: a row's start is [now] less its elapsed time. A line that isn't
-/// three numbers and an elapsed time is left out; one with only the three
-/// numbers has no start.
+/// epoch: a row's start is [now] less its elapsed time. The name is the rest
+/// of the line (on macOS the program's path, which may hold spaces). A line
+/// that doesn't start with three numbers is left out; one with only the
+/// three numbers has no start, and one without the rest has no name.
 List<ProcessRow> parsePsProcessList(String output, {required int now}) {
   final rows = <ProcessRow>[];
   for (final line in output.split(RegExp(r'\r?\n'))) {
     final words = line.trim().split(RegExp(r'\s+'));
-    if (words.length < 3 || words.length > 4) continue;
+    if (words.length < 3) continue;
     final numbers = words.take(3).map(int.tryParse).toList();
     if (numbers.contains(null)) continue;
-    final elapsed = words.length == 4 ? elapsedSeconds(words[3]) : null;
+    final elapsed = words.length > 3 ? elapsedSeconds(words[3]) : null;
     rows.add(
       ProcessRow(
         numbers[0]!,
         numbers[1]!,
         numbers[2]! * 1024,
         elapsed == null ? null : now - elapsed * 1000,
+        words.length > 4 ? words.skip(4).join(' ') : null,
       ),
     );
   }
@@ -131,10 +158,14 @@ Future<List<ProcessRow>> listProcesses() async {
           r'[int64](($_.CreationDate.ToFileTimeUtc() - 116444736000000000) '
           r'/ 10000) } else { "-" }; '
           r'"$($_.ProcessId) $($_.ParentProcessId) '
-          r'$([int64]$_.WorkingSetSize) $start" }',
+          r'$([int64]$_.WorkingSetSize) $start $($_.Name)" }',
     ]);
   } else {
-    list = await Process.run('ps', ['-A', '-o', 'pid=,ppid=,rss=,etime=']);
+    list = await Process.run('ps', [
+      '-A',
+      '-o',
+      'pid=,ppid=,rss=,etime=,comm=',
+    ]);
   }
   return checkedProcessList(
     list.exitCode,
@@ -218,30 +249,82 @@ Set<int> survivors(Map<int, int?> before, List<ProcessRow> now) {
 }
 
 /// Waits for a run's [exit] code and for [peak], the sampling of its memory
-/// that was started beside it, and returns both. Both are listened to at
+/// that was started beside it, and returns both; the peak is null when the
+/// sampling never saw the run ([peakTreeMemory]). Both are listened to at
 /// once: a sampling that fails while the run goes on (the process list can
 /// fail) is a [StateError] at once, not an error nobody listens to. A
 /// failure of either is a [StateError].
-Future<(int, int)> exitAndPeak(Future<int> exit, Future<int> peak) async {
+Future<(int, int?)> exitAndPeak(Future<int> exit, Future<int?> peak) async {
   try {
-    final [code, most] = await Future.wait([exit, peak], eagerError: true);
-    return (code, most);
+    final [code, most] = await Future.wait<int?>([
+      exit,
+      peak,
+    ], eagerError: true);
+    return (code!, most);
   } on Object catch (error) {
     final reason = error is StateError ? error.message : '$error';
     throw StateError('the run or the sampling of its memory failed: $reason');
   }
 }
 
+/// Whether [rows] hold the process [root] running, with a Dart program
+/// ([dartPrograms]) under one of its children: for a terminal `appstein
+/// verify`, the analysis server under the guard ([processTree] decides who
+/// is under whom). Anything else under the guard does not count: on Windows
+/// each console program gets a `conhost.exe` child, so the guard alone has
+/// a child of its own. A process whose name the listing did not give is not
+/// shown to be a server.
+bool reachesServer(List<ProcessRow> rows, int root) {
+  if (!rows.any((row) => row.id == root)) return false;
+  final tree = processTree(rows, root);
+  final children = {
+    for (final row in rows)
+      if (row.parent == root && tree.contains(row.id)) row.id,
+  };
+  // Everything under a child, at any depth.
+  final under = <int>{};
+  var grew = true;
+  while (grew) {
+    grew = false;
+    for (final row in rows) {
+      if (!tree.contains(row.id) || under.contains(row.id)) continue;
+      if (children.contains(row.parent) || under.contains(row.parent)) {
+        under.add(row.id);
+        grew = true;
+      }
+    }
+  }
+  return rows.any(
+    (row) => under.contains(row.id) && dartPrograms.contains(programOf(row)),
+  );
+}
+
 /// The most memory the process [root] and the processes under it held,
-/// looked at repeatedly (a look takes up to a second on Windows) until
-/// [until] completes. It looks at least once.
-Future<int> peakTreeMemory(int root, Future<void> until) async {
+/// looked at repeatedly until [until] completes. It looks at least once.
+///
+/// Returns null when no look found [root] running with its guard and the
+/// analysis server under it ([reachesServer]): a run that ended before the
+/// first look was taken (a look takes about half a second on Windows, and
+/// the first one on a new machine can take many seconds), or a look that
+/// caught the run before it started its server, saw a part of its memory or
+/// none, which is not its peak. The peak is the most of the looks that
+/// found [root] running. [lister] gives the process list; tests replace it.
+Future<int?> peakTreeMemory(
+  int root,
+  Future<void> until, {
+  Future<List<ProcessRow>> Function() lister = listProcesses,
+}) async {
   var ended = false;
   unawaited(until.whenComplete(() => ended = true));
   var peak = 0;
+  var seen = false;
   do {
-    peak = math.max(peak, treeMemory(await listProcesses(), root));
+    final rows = await lister();
+    if (rows.any((row) => row.id == root)) {
+      seen = seen || reachesServer(rows, root);
+      peak = math.max(peak, treeMemory(rows, root));
+    }
     await Future<void>.delayed(const Duration(milliseconds: 200));
   } while (!ended);
-  return peak;
+  return seen ? peak : null;
 }
