@@ -4,6 +4,7 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
+import 'analysis_guard_command.dart';
 import 'docs_command.dart';
 import 'doctor_command.dart';
 import 'exit_codes.dart';
@@ -22,7 +23,15 @@ import 'version.dart';
 /// (also for tests) builds the environment when [environment] is null.
 /// [mcpChannel] (also for tests) gives the connection `appstein mcp` serves;
 /// by default stdin and stdout. [verifyChecks] (also for tests) replaces the
-/// checks `appstein verify` runs.
+/// checks `appstein verify` runs, and [dartSdkPath] (also for tests) is the
+/// Dart SDK `appstein verify` and `appstein mcp` read `dart:` libraries
+/// from and run the analysis server with, where a fake Flutter SDK has
+/// none. [codeAnalysis] (also for tests) replaces the analysis server that
+/// `appstein verify` and the `verify` tool of `appstein mcp` would start.
+///
+/// It returns only after the clean-ups of the analysis servers the command
+/// stopped have ended (`analysisCleanUpsDone`), which run after the
+/// command has printed its result.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -34,6 +43,8 @@ Future<int> runAppstein(
   HostEnvironment Function()? environmentFactory,
   McpChannel Function()? mcpChannel,
   VerifyChecks? verifyChecks,
+  CodeAnalysisScope? codeAnalysis,
+  String? dartSdkPath,
 }) async {
   final output = out ?? stdout;
   final errors = err ?? stderr;
@@ -59,6 +70,8 @@ Future<int> runAppstein(
           err: errors,
           environment: machine,
           checks: verifyChecks ?? checksFor,
+          codeAnalysis: codeAnalysis,
+          dartSdkPath: dartSdkPath,
         ),
       )
       ..addCommand(
@@ -67,8 +80,11 @@ Future<int> runAppstein(
           err: errors,
           environment: machine,
           channel: mcpChannel ?? () => stdioMcpChannel(stdin, stdout),
+          codeAnalysis: codeAnalysis,
+          dartSdkPath: dartSdkPath,
         ),
-      );
+      )
+      ..addCommand(AnalysisGuardCommand());
     extraCommands.forEach(runner.addCommand);
     return await runner.run(arguments) ?? ExitCodes.ok;
   } on UsageException catch (error) {
@@ -80,6 +96,20 @@ Future<int> runAppstein(
   } on ConfigException catch (error) {
     errors.writeln('Invalid appstein.yaml: $error');
     return ExitCodes.appsteinFailed;
+  } on CodeAnalysisException catch (error) {
+    // The analysis server could not answer: a broken setup, not a bug to
+    // report with a stack trace, and never "no errors" (spec §9.5).
+    errors
+      ..writeln(error)
+      ..writeln('Run `appstein doctor` to check your setup.');
+    return ExitCodes.appsteinFailed;
+  } on TestRunException catch (error) {
+    // The project's tests could not be run at all: a broken setup too, and
+    // never "no test failed" (spec §9.5).
+    errors
+      ..writeln(error)
+      ..writeln('Run `appstein doctor` to check your setup.');
+    return ExitCodes.appsteinFailed;
   } on VerifyCheckError catch (error) {
     // The message names the check, and the trace is where the check threw.
     reportCrash(errors, error, error.stackTrace);
@@ -87,6 +117,11 @@ Future<int> runAppstein(
   } catch (error, stackTrace) {
     reportCrash(errors, error, stackTrace);
     return ExitCodes.appsteinFailed;
+  } finally {
+    // A stopped analysis server's half-written cache files are deleted
+    // after the stop returned, so the result was printed first; the
+    // command returns, and the process ends, once they are.
+    await analysisCleanUpsDone();
   }
 }
 

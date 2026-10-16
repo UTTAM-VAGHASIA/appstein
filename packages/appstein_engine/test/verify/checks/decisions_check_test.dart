@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 
 import '../../decisions/support/decision_files.dart';
 import '../../knowledge/support/sync_harness.dart';
+import '../../support/analyzer_warm_up.dart';
 import '../../support/fixture_app.dart';
 import '../../support/temp.dart';
 import '../support/verify_support.dart';
@@ -43,6 +44,8 @@ final class _FakeDecisionCheck implements DecisionCheck {
 }
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String root;
 
   setUp(() => root = tempDir().path);

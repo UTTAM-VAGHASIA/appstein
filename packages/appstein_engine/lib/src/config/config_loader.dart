@@ -108,6 +108,11 @@ final class _ConfigReader {
   static final _checkIdPattern = RegExp(
     r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$',
   );
+
+  /// A path that starts with a drive letter and a colon. `C:foo` is not
+  /// absolute for `package:path`, but on Windows it is a path on the C:
+  /// drive's own current folder, so it can't be inside the project.
+  static final _driveLetterPattern = RegExp('^[A-Za-z]:');
   static final _packageNamePattern = RegExp(r'^[a-z_][a-z0-9_]*$');
   static final _flutterMinorPattern = RegExp(r'^\d+\.\d+$');
 
@@ -200,13 +205,17 @@ final class _ConfigReader {
           'A suppression\'s path must use /, also on Windows.',
         );
       }
-      if (p.posix.isAbsolute(raw) || p.windows.isAbsolute(raw)) {
+      // Checked on the path as it will be used, trimmed and normalized, so
+      // `./C:foo` and ` /docs` are refused like `C:foo` and `/docs`.
+      final normalized = p.posix.normalize(raw.trim());
+      if (p.posix.isAbsolute(normalized) ||
+          p.windows.isAbsolute(normalized) ||
+          _driveLetterPattern.hasMatch(normalized)) {
         throw _error(
           pathNode,
           'A suppression\'s path must be relative to the project root.',
         );
       }
-      final normalized = p.posix.normalize(raw.trim());
       if (normalized == '.' ||
           normalized == '..' ||
           normalized.startsWith('../')) {
@@ -293,6 +302,7 @@ final class _ConfigReader {
     _checkKeys(map, 'verify', const [
       'fast_timeout_seconds',
       'build_on_full',
+      'test_timeout_seconds',
       'severity',
     ]);
     final severity = <String, Severity>{};
@@ -331,6 +341,12 @@ final class _ConfigReader {
         'build_on_full',
         'verify.build_on_full',
         fallback: defaults.buildOnFull,
+      ),
+      testTimeoutSeconds: _int(
+        map,
+        'test_timeout_seconds',
+        'verify.test_timeout_seconds',
+        fallback: defaults.testTimeoutSeconds,
       ),
       severity: Map.unmodifiable(severity),
     );

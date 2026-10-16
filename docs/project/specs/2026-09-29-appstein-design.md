@@ -179,6 +179,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 | `skills/` | Run package:skills when dependencies change (§6.6) |
 | `text/` | Text helpers, such as edit distance |
 | `verify/` | Run checks (from packs + core), apply suppressions and severity overrides, produce findings |
+| `analysis/` | Start, ask and stop the Dart analysis server that verify's code checks use (§9.1) |
 | `mcp/` | MCP server (using `package:dart_mcp`) exposing knowledge and verify tools |
 | `docs/` | Render human documentation (`docs/app/`) from the knowledge layer, using page contributions from packs (§6.9) |
 | `integrate/` | Install and configure agent integrations (Claude Code, Codex) |
@@ -192,7 +193,7 @@ Packs start as folders because 4 packages are enough complexity for now. They be
 |---|---|
 | `appstein create <name>` | New project with the right structure, tokens and native config, plus knowledge and agent setup; must pass `verify` (§13.1) |
 | `appstein sync [--detect]` | Regenerate knowledge. A plain `sync` rebuilds everything; `--detect` compares content hashes with `state.json` and rebuilds only when an input changed (§5.4) |
-| `appstein verify [--fast\|--full] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks (§9); with neither `--fast` nor `--full`, it runs the full checks. Exit codes in §9.5 |
+| `appstein verify [--fast\|--full] [--apply] [--format json\|text] [--hook claude\|codex] [--files <…>]` | Run checks (§9); with neither `--fast` nor `--full`, it runs the full checks. `--apply` (full runs only) first applies `dart fix` and `dart format` to the project; without it `verify` writes no project file. `--files` (fast runs only) adds files to the unverified files (§9.1). Exit codes in §9.5 |
 | `appstein mcp` | Start the MCP server over stdio (launched by agents) |
 | `appstein docs [--check]` | Bring the knowledge up to date, then render the human docs into `docs/app/` (§6.9); `--check` writes no page and exits 1 if any page is stale |
 | `appstein upgrade [--dry-run]` | Apply versioned migrations after an SDK or Appstein upgrade (§13.2) |
@@ -255,7 +256,7 @@ For agents without a SessionStart hook (Codex, until verified), `AGENTS.md` inst
 ```
 .appstein/
 ├── INDEX.md               (generated, git-ignored) always-loaded entry point (≤ 1,500 tokens, enforced by test)
-├── state.json             (generated, git-ignored) input hash per source file, hash of each written file, last changes, last sync
+├── state.json             (generated, git-ignored) input hash per source file, hash of each written file, last changes, last sync, a hash of each Dart file, the unverified files (§9.1)
 ├── .lock                  (git-ignored) the write lock (§15)
 ├── platform/   (generated, git-ignored)
 │   ├── sdk.json           {flutter, dart, channel, languageVersion, fvm, appsteinNotesCoverage}
@@ -494,6 +495,7 @@ delta:
 verify:
   fast_timeout_seconds: 20       # safety cap; the target is < 5 s (§15)
   build_on_full: true            # run real debug builds in --full
+  test_timeout_seconds: 600      # a full run stops the test suite after this (§9.2)
   severity:                      # per-check overrides
     ui.no_hardcoded_colors: warning
 docs:
@@ -547,7 +549,7 @@ Every reply has a `freshness` field: `current`, `rebuilt` (with what changed) or
 | `record_decision` | `{title, why, status?, paths?, checks?, supersedes?}` to add or replace; `{accept}` with a decision's number to accept | The decision as written and its file; for a replacement, also the decision it superseded (§6.7) |
 | `memory_read` | – | The text of `memory/current.md`, or that no task is in progress, and the newest 50 lessons with a count of the older ones in `memory/lessons.md` |
 | `memory_write` | `{kind, text}`; `kind` is `current`, `lesson` or `complete` | What was written and to which file (§6.8) |
-| `verify` | `scope`: `fast` or `full` (a file list joins in slice 1d.2) | What `appstein verify --format json` prints (§9.3): the findings, their counts, the number suppressed and the checks that did not run. The server's own freshness check is the one verify uses, so the knowledge is refreshed once |
+| `verify` | `scope`: `fast` or `full`; optional `files` (fast scope), added to the unverified files (§9.1); optional `apply` (full scope), which applies `dart fix` and `dart format` first (§9.2) | What `appstein verify --format json` prints (§9.3): the findings, their counts, the number suppressed, the checks that did not run and the files `apply` rewrote, which the agent reads again before editing them. The server's own freshness check is the one verify uses, so the knowledge is refreshed once. The code checks answer from the analysis server the server keeps running (§9.1) |
 
 **`where_is` ranking** is deterministic, with no embeddings:
 
@@ -581,32 +583,47 @@ The Dart MCP server (`dart mcp-server`) runs **next to** ours. It provides the a
 
 A check that throws is Appstein failing (exit `3`, §9.5), and the message names the check.
 
-**Built in slices.** Slice 1d.1 builds this frame with the checks that only read files Appstein already has: `knowledge.stale`, `docs.stale`, the decision checks (§6.7), `memory.lessons_long` (§6.8) and `verify.test_required`. Slice 1d.2 adds the analyze, fix, format and test checks, warm analysis, `--files`, `--hook` and the Dart suppression comments. Slice 1d.3 adds the lint rules (§9.6), 1d.4 the package gate (§9.4), 1d.5 the Android checks and 1d.6 the iOS checks.
+**Built in slices.** Slice 1d.1 builds this frame with the checks that only read files Appstein already has: `knowledge.stale`, `docs.stale`, the decision checks (§6.7), `memory.lessons_long` (§6.8) and `verify.test_required`. Slice 1d.2 adds the analyze, fix, format and test checks, warm analysis inside `appstein mcp`, `--files`, `--apply` and the Dart suppression comments. Slice 1d.7, built straight after 1d.2, adds `--hook`, the hook's route to the running `appstein mcp`, one analysis server per project shared by every session, and the 5 s proof on that route. Slice 1d.3 adds the lint rules (§9.6) and runs them on the map's analyzer, so the plugin leaves the analysis server verify uses (§9.1), 1d.4 the package gate (§9.4), 1d.5 the Android checks and 1d.6 the iOS checks.
 
-### 9.1 Fast checks (after every change, changed files only, target < 5 s)
+### 9.1 Fast checks (after every change, target < 5 s)
 
 Fast checks **only report; they never modify files** (§5.4).
 
-- `dart analyze` on changed files and their dependents: fail on errors and on `deprecated_member_use*`
-- `dart fix --dry-run`: findings for pending `fix_data` migrations, each with the fix it would apply
-- `dart format --output=none --set-exit-if-changed` on changed files: a warning, applied later at Stop
+**The unverified files** are the files changed since a verify run last found no error in them. A file joins them when the knowledge refresh sees its content changed, or when `--files` names it; it leaves when a run, fast or full, reports no error on it. An error therefore can't scroll out of view when the agent edits another file. Nothing counts as verified before it was checked: when there is no earlier state (Appstein's first sync of a project, or a deleted `state.json`), every Dart file is unverified (a state written by an older Appstein, without the Dart file hashes, counts as none), and no file leaves in a run where an analysis check did not run in full (an analyzer plugin that failed, stale knowledge, a `dart.*` check named as not run). Tests not run don't count: they judge the project, not a file.
+
+- Analysis, as `dart analyze` reports it:
+  - `dart.error` (error): an analyzer error, anywhere in the project. An error in any file means the app doesn't build, and the analysis server re-reports the whole project after each edit without saying which files it analyzed again;
+  - `dart.deprecated` (error): any `deprecated_member_use*` diagnostic, anywhere in the project. On an unverified file, the finding says whether `dart fix` can migrate it;
+  - `dart.warning` (warning) and `dart.lint` (info): the analyzer's warnings and info-level lints, on the unverified files. Each finding has the analyzer's own code in its message; switching one code off stays the job of `analysis_options.yaml`.
+- An `// ignore:` or `// ignore_for_file:` comment that names `deprecated_member_use*` is itself a `dart.deprecated` error on its line: the analyzer drops the diagnostic, so the comment would otherwise be the cheapest way to "no deprecated APIs". The same holds for a comment that says `type=hint`, which hides every hint, and for an `analysis_options.yaml` entry that sets such a diagnostic to `ignore`. The visible way out is a suppression with a reason (§9.7)
+- `dart.plugin_failed` (error): an analyzer plugin the analysis server could not load, on the project with the server's message. Its rules did not run, so without this finding a broken plugin would read as "no problems"
+- `dart.unreadable` (error): a Dart file the analysis covers that could not be read, for example one another program holds locked on Windows. The analysis server reports no diagnostic for such a file, so without this finding it would read as clean, and it never counts as verified
+- `dart.unformatted` (warning): an unverified file that `dart format` of the project's SDK would change. Generated files are left out: those `analysis_options.yaml` excludes and those that start with a `GENERATED CODE - DO NOT MODIFY` header. Applied later at Stop
 - `appstein_lints` rules (§9.6), which run inside the analyzer
 - if dependencies changed: the package gate (§9.4) and package skills refresh (§6.6)
 - incremental map refresh plus the staleness check
 
-**Fast checks use warm analysis (measured in slice 1a).**
+**Fast checks use warm analysis (cold analysis measured in slice 1a, warm analysis for slice 1d.2).**
 - **The measurement:** a cold single-file `dart analyze` with the plugin took 9–16 s, on CI Linux and Windows and on a developer's Windows machine. Even without the plugin it took 4–8 s, so analysis-server start-up alone misses the target.
-- **The design:** fast checks run warm analysis inside the long-running `appstein mcp` process, which the hook contacts over a local socket.
-- **When that process isn't running:** the hook falls back to cold analysis, which took 9–16 s for one file in the measured runs, so it misses the 5 s target. The first run after the plugin changes also builds the plugin and may exceed the `fast_timeout_seconds` cap (20 s). Slice 1d measures this and decides what the hook does then.
-- **Still to prove:** that warm analysis meets 5 s. Slice 1d measures it.
+- **The design:** `appstein mcp` keeps a Dart analysis server of the project's SDK running as a child process, beside the in-process analyzer the map uses, and the code checks ask it (`docs/adr/0001-analysis-server-beside-the-map-analyzer.md`). The in-process analyzer can't serve verify: it reports no `flutter_lints` lints, no plugin rules and no fixes. The hook contacts the running process over a local socket (slice 1d.7).
+- **The protocol and the guard:** Appstein speaks the legacy analyzer protocol to the server, the one `dart analyze` and `dart fix` use, because only it says when the plugin's rules have finished; over LSP verify could report "no problems" too early. A server on that protocol outlives a killed parent, so it runs behind a guard: the `appstein` binary in a mode of its own, which ends the server when `appstein mcp` ends in any way.
+- **Memory is kept down in three steps.** One `appstein mcp` with the plugin holds about 2.3 GB for the 200-file app (the map's analyzer 0.8 GB, the server 0.6 GB, the plugin's second analysis 0.8 GB), and Appstein runs beside several agent sessions. So: the server is started by the first check that needs it and stopped when idle (slice 1d.2); one server per project is shared by every session (slice 1d.7); Appstein's lint rules run on the analyzer the map already has, and the plugin stays out of this server (slice 1d.3).
+- **A terminal run** (`appstein verify` by a person or in CI) starts its own analysis server, uses it and stops it, so both routes run the same code. It costs what `dart analyze` costs and is timed without a limit (§15).
+- **Warm analysis measured (slice 1d.2, 2026-10-12):** on the 200-file app with the plugin, on a Windows development machine, the diagnostics of an edited file and of the files that import it arrived within 0.1 s of the edit. The server took about 19 s and 1.5 GB to become ready, and 7 to 8 s and 0.6 GB without the plugin; the first start in a project builds the plugin and took about a minute. A complete list of pending fixes took 17 to 19 s on the running server, so pending fixes are a full check (§9.2).
+- **The 5 s target holds after a source edit.** The first fast check after a change to the analysis options or to the project's packages (for example after `flutter pub get`) starts the analysis server again, because the server gives no sign of when it has taken such a change in, and so waits one server start. It still returns the current findings, never the old ones.
+- **When the analysis server can't answer** (it doesn't start, dies, or doesn't become ready within 180 s; the limit is looked at again when slice 1d.2 has measured starts in CI), Appstein itself failed (exit `3`, §9.5): verify never reads that as "no errors".
+- **When `appstein mcp` isn't running:** the hook falls back to cold analysis, which took 9–16 s for one file in the measured runs, so it misses the 5 s target. The first run after the plugin changes also builds the plugin and may exceed the `fast_timeout_seconds` cap (20 s). Slice 1d.7 measures this and decides what the hook does then.
+- **Still to prove:** that the hook's route to the running process meets 5 s. Slice 1d.7 measures it.
 
-The measurements are recorded in the 1a plan.
+The cold measurements are recorded in the 1a plan, the warm ones in the 1d.2 slice spec.
 
 ### 9.2 Full checks (at "done", slower)
 
 **Code checks**
-- first apply `dart fix --apply` and `dart format` (safe at Stop), then all fast checks on the whole project
-- `flutter test`, including accessibility guideline tests (`meetsGuideline`: `androidTapTargetGuideline`, `iOSTapTargetGuideline`, `labeledTapTargetGuideline`, `textContrastGuideline`)
+- with `--apply`, first apply `dart fix --apply` and `dart format` to the whole project (safe at Stop; generated files are left out, §9.1), and name each file rewritten. Without `--apply`, `verify` writes no project file, so CI can run it
+- then all fast checks on the whole project: every file, not only the unverified files
+- `dart.fix_pending` (warning): the fixes `dart fix` would apply, one finding per file and code with the count, as `dart fix --dry-run` prints them (it gives no line numbers)
+- `test.failed` (error): `flutter test` on the whole project, including accessibility guideline tests (`meetsGuideline`: `androidTapTargetGuideline`, `iOSTapTargetGuideline`, `labeledTapTargetGuideline`, `textContrastGuideline`). One finding per failing test, on the test's file and line; a test file that can't be loaded is a finding on that file. The tests are not run, and are named as not run, while the project has a `dart.error`. A suite still running after `verify.test_timeout_seconds` (§7) is stopped and reported as one finding on the project
 - `verify.test_required` (warning): every feature in `features.json` has at least one test file. The finding is on the feature's folder
 - decisions ↔ code consistency (§6.7)
 - `memory.lessons_long` (info, §6.8)
@@ -664,7 +681,7 @@ The measurements are recorded in the 1a plan.
 - **Severities:** `error` blocks "done"; `warning` is reported only; `info` is advisory.
 - **Check IDs** follow `<pack or area>.<check>` and are stable once released.
 - **Text output** groups findings by file, errors first, then lists the checks that did not run with the reason, and ends with a one-line summary: the number of errors, warnings and info findings, then how many findings are suppressed and by how many suppressions (`3 findings suppressed by 1 suppression.`). One broad suppression can hide many findings, so both numbers are shown.
-- **JSON output** (`--format json`, and the `verify` tool) is one object: `findings` (each in the shape above), `summary` (`errors`, `warnings`, `info`), `suppressed` (the number of findings a suppression hid), `activeSuppressions` (the number of suppressions that hid at least one) and `notRun` (each check's ID and the reason).
+- **JSON output** (`--format json`, and the `verify` tool) is one object: `findings` (each in the shape above), `summary` (`errors`, `warnings`, `info`), `suppressed` (the number of findings a suppression hid), `activeSuppressions` (the number of suppressions that hid at least one), `notRun` (each check's ID and the reason) and `applied` (the files `--apply` rewrote; empty without it). The text output lists the rewritten files before the findings.
 - A finding with no file, such as `knowledge.stale`, is listed first, under the project.
 
 ### 9.4 Package gate
@@ -721,7 +738,7 @@ Results are cached in `.appstein/state.json` for 24 hours. **Offline:** existenc
 
 Professionals need an escape hatch that stays visible:
 
-- **Dart code:** `// appstein:ignore <check-id> — <reason>` on the line, or `// appstein:ignore-file <check-id> — <reason>`. Lint rules also honour the analyzer's standard `// ignore:` comments.
+- **Dart code:** `// appstein:ignore <check-id> — <reason>` at the end of the line, or alone on the line above it; or `// appstein:ignore-file <check-id> — <reason>` before the file's first declaration. The separator may be typed as `—`, `--` or ` - `, and one comment names one check. The three `suppression.*` findings below apply to these comments too, on the comment's line. Lint rules also honour the analyzer's standard `// ignore:` comments, but an `// ignore:` never hides deprecated use from verify (§9.1).
 - **Native and other files:** a `suppressions:` list in `appstein.yaml` with `id`, `path` and `reason`. `path` is a file or a glob from the project root; the entry hides the findings of that check on the files it matches.
 - **A reason is mandatory.** A suppression without a reason is itself an error (`suppression.no_reason`), and it hides nothing.
 - **A check ID must exist.** An `id` that no check of the project has is an error (`suppression.unknown_check`), so a typo never looks like a working suppression.
@@ -889,12 +906,12 @@ Even first-party packages can be discontinued (`flutter_markdown`, 2025), so the
 
 | Area | Requirement |
 |---|---|
-| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config); incremental sync (`sync --detect` after one edit) of a 200-file app < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change. The sync targets leave out a package skills run (§6.6): it happens only when dependencies change, and its time depends on the network |
+| **Performance** | Fast verify < 5 s on the fixture app (hard cap from config), measured on a running `appstein mcp` after one file is edited; a terminal run starts its own analysis server and is timed without a limit (§9.1); incremental sync (`sync --detect` after one edit) of a 200-file app < 2 s; MCP tool responses < 1 s from fresh knowledge; full sync of a 200-file app < 30 s; `appstein docs` from fresh knowledge < 2 s. Measured in CI on every change. The sync targets leave out a package skills run (§6.6): it happens only when dependencies change, and its time depends on the network |
 | **Startup** | Hooks invoke a compiled executable (AOT), not `dart run`, so start-up stays under 200 ms |
 | **Platforms** | Appstein runs on Windows, macOS and Linux (x64 and arm64 where Dart supports AOT). Paths with spaces and non-ASCII characters are supported |
 | **Concurrency** | Writes to `.appstein/` take an operating-system lock on `.appstein/.lock`, waiting up to a timeout, so two hooks or two agents never corrupt knowledge. The operating system releases the lock if a writer crashes, so a stale lock never blocks. Each file is written beside its target and then renamed over it, so readers never block and never see a half-written file |
 | **Offline** | Everything except package existence and advisory checks works offline. Network failures degrade to warnings and never block |
-| **Privacy** | No telemetry, no analytics, no code leaves the machine. Network calls: pub.dev API and advisory data; optional integrations only if enabled |
+| **Privacy** | No telemetry, no analytics, no code leaves the machine. Network calls: pub.dev API and advisory data; optional integrations only if enabled. The Dart and Flutter tools Appstein starts, the analysis server among them, keep the developer's own Dart analytics setting (`dart --disable-analytics`), as the same tools do when an IDE starts them |
 | **Robustness** | A crash or bad environment gives exit code 3 with a helpful message and never masquerades as findings. The exception is `doctor`, whose findings are exactly those problems (§9.5) |
 | **Determinism** | The same inputs give byte-identical generated knowledge and human docs (sorted keys, stable ordering, no timestamps in committed docs), so golden tests and caching work and git diffs show only real changes |
 
@@ -961,7 +978,7 @@ The benchmark lives in `benchmark/`.
 | **1a** | Workspace with 4 packages; `appstein` CLI skeleton; `--version`; `config/` + `appstein.yaml`; `sdk/` detection (incl. FVM, language version); `doctor`; CI for our repo; boundary lint on our own repo; AOT build; developer guide skeleton + `public_member_api_docs` + `dart doc` in CI (§19.6) | `doctor` correct on Windows, macOS and Linux CI; CI green; minimum supported Flutter version confirmed; guide "start here" page lets someone build and run the CLI from source |
 | **1b** | Knowledge layers 1–2 (sdk, delta + curated notes for 3.44–3.47, toolchain, map via `official_mvvm` + platform extractors, incl. doc-comment summaries in `symbols.json`), INDEX.md, `sync` (full + incremental), staleness metadata, lock file, package skills refresh | Golden tests pass on fixtures; INDEX ≤ 1,500 tokens; performance targets (§15) met for sync |
 | **1c** | MCP server with the §8 tools except `verify` and `package_check`, which 1d builds with their engines; layers 3–4 read/write with formats from §6.7–6.8; human docs renderer + `appstein docs` + pack doc pages (§6.9) | Each tool tested; works from Claude Code on a fixture; golden tests for every doc page; re-rendering unchanged knowledge changes no bytes |
-| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes, the `verify` and `package_check` MCP tools | Every check has a passing and a failing fixture; fast verify < 5 s; both tools tested. Built as six slices, 1d.1–1d.6 (§9): the verify frame first, then code checks and fast verify, lint rules, the package gate, Android, iOS |
+| **1d** | Verifier: fast + full checks, Android + iOS checks incl. static release readiness, package gate incl. advisories and offline behavior, `appstein_lints` M1 rules (incl. `document_public_classes`), `docs.stale`, suppressions, exit codes, the `verify` and `package_check` MCP tools | Every check has a passing and a failing fixture; fast verify < 5 s; both tools tested. Built as seven slices, 1d.1–1d.7 (§9): the verify frame first, then code checks, hook mode and fast verify in 5 s (1d.7, built straight after 1d.2), lint rules, the package gate, Android, iOS |
 | **1e** | `create` (incl. CI template and first human docs), `integrate` (Claude Code, Codex, `--remove`, one-Dart-MCP rule, hooks incl. SessionStart, Bash detection, the loop guard and docs rendering at Stop), verification of every "to verify in 1e" item | `create`→`verify --full` green on Linux + macOS CI; integration works end-to-end in both agents; every "to verify" item resolved and the spec updated |
 | **1f** | `upgrade` framework + 3.47 migration; all lifecycle skills + skills CI + smoke-test procedure; benchmark runner and first published run | Skills CI green on current stable and minimum SDK; the 3.47 migration tested on the legacy fixture; benchmark published |
 
@@ -1124,10 +1141,11 @@ graphify and `AGENTS.md` serve agents working on this repo. People need their ow
 | 18 | `material_ui` breaks with dependencies that expose in-framework Material types | Switch only when every dependency is compatible (§13.1); `upgrade` re-checks each time |
 | 19 | Official skills and the plugin stay frozen or keep breaking (e.g. #239) | Pinned version; broken skills overridden; each Appstein release re-checks the pinned plugin against current stable in CI |
 | 20 | `appstein_lints` version drifting from the CLI version | Pinned by `integrate`; `doctor` reports a mismatch |
-| 21 | Fast verify misses the < 5 s target | Confirmed in 1a: cold analysis misses it, so fast verify uses warm analysis in the long-running MCP process (§9.1). Whether warm analysis meets 5 s is proved in 1d |
+| 21 | Fast verify misses the < 5 s target | Confirmed in 1a: cold analysis misses it, so fast verify uses warm analysis in the long-running MCP process (§9.1). Warm analysis answered within 0.1 s of an edit when measured for 1d.2 (§9.1). Whether the hook's route to the running process meets 5 s is proved in 1d.7. A call that has to start the analysis server first (the first of a session, or the first after an idle stop) waits about 19 s for it |
 | 22 | A Stop hook that keeps failing loops the agent | Loop guard (§5.4): after 3 identical blocks, stop blocking and report to the user |
 | 23 | Committed human docs (`docs/app/`) add diff noise or merge conflicts | Deterministic output with no timestamps, rendered once per task (not per edit); conflicts are resolved by re-running `appstein docs` (§6.9) |
 | 24 | Doc comments written by agents are vague or restate the code | `appstein-develop` skill teaches what a useful doc comment says; the sample feature from `create` shows the style; the owner judges quality in the M1 sign-off (§18) |
+| 25 | Appstein holds too much memory beside several agent sessions | Measured for 1d.2: about 2.3 GB for one `appstein mcp` on the 200-file app with the plugin. Reduced in three steps (§9.1): the analysis server on demand (1d.2), one per project (1d.7), the plugin out of it (1d.3). None of the three was measured when decided; CI records the memory from 1d.2 on |
 
 ---
 

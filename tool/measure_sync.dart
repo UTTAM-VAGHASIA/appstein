@@ -2,7 +2,21 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:appstein_engine/appstein_engine.dart' show readDartFileHashes;
+// The analysis server's look at the disk is measured on its own, and the
+// engine keeps it out of its public API.
+// ignore: implementation_imports
+import 'package:appstein_engine/src/analysis/disk_look.dart'
+    show DiskLook, unchangingFolders;
 import 'package:path/path.dart' as p;
+
+import 'src/held_detect.dart';
+import 'src/large_build.dart';
+import 'src/mcp_session.dart';
+import 'src/process_memory.dart';
+import 'src/terminal_verify.dart';
+import 'src/warm_measurement.dart';
+import 'src/warm_verify.dart';
 
 /// Measures `appstein sync` against spec §15, on generated official_mvvm apps
 /// with a new app's `android/` and `ios/` files:
@@ -12,7 +26,15 @@ import 'package:path/path.dart' as p;
 ///   view model, and after one edit of the router: each under 2 s, as the
 ///   median of three runs (three different edits), because a CI machine's
 ///   speed varies by about 2x from run to run. The table shows the three
-///   times beside the median;
+///   times beside the median. A row whose median is 2 s or more is measured
+///   once more, on every system: three fresh runs (three new edits for the
+///   edit rows, each with a change to rebuild, under the same correctness
+///   checks), and it misses only when the second median is also 2 s or more
+///   (owner, 2026-10-16: a slow CI runner made one median miss that the
+///   rerun passed). The table then shows both attempts, the second marked as
+///   the one that counted, and a miss names both medians. The second table
+///   keeps the first attempt's median run. The 1,000-file rows are never held
+///   and never measured again (`measureHeldDetect`);
 /// - each MCP tool's answer on that app, from fresh knowledge, in one
 ///   `appstein mcp` process: under 1 s, as the median of three;
 /// - `appstein docs` on that app, from fresh knowledge: writing every page,
@@ -20,12 +42,30 @@ import 'package:path/path.dart' as p;
 ///   last two as the median of three). It also checks what the real command
 ///   does: the pages are written, a second run changes nothing, and
 ///   `--check` after a hand edit exits 1, names the page and writes nothing;
-/// - `appstein verify --fast` on that app, from fresh knowledge: under 5 s
-///   (spec §9.1), as the median of three. The full `appstein verify` is
-///   timed the same way and printed, with no target (the spec sets none).
-///   It also checks what the real command does: both exit 0 with warnings
-///   only, and `--format json` reports the page edited by hand as the one
-///   `docs.stale` finding.
+/// - the `verify` tool of a running `appstein mcp` on that app, the way an
+///   agent meets it (spec §9.1, §15): the server is started and warmed by a
+///   first call, then one file is edited to add a real error and `verify`
+///   with the fast scope is called, three times. The median must be under
+///   5 s (spec §15: "< 5 s"; exactly 5 s fails), and every reply must report the error, or the run fails whatever
+///   the time. The limit is not changed to fit a result: a miss is printed
+///   with the measured time, for the owner. Also printed: the first call
+///   (the analysis server starting), the memory of the server's process
+///   tree, and where the time of a call went;
+/// - the terminal `appstein verify --fast` and `appstein verify` on that app,
+///   which start their own analysis server, with the server's disk cache in
+///   a folder of this tool (`measureTerminalRows`): three times each on a
+///   cold cache (a new, empty folder each run) and three times each on a
+///   warm one (after full runs until one adds no cache entry, at most 15,
+///   printed), fast and full in alternating order, printed side by side with
+///   the most memory a run held, with no limit. It also checks what the real
+///   command does: every run exits 0, names no check as not run, prints no
+///   notice and ends with its summary line, a full run reports the page
+///   edited by hand, and `--format json` reports that page as the one
+///   `docs.stale` finding. The `appstein mcp` rows use the same warm cache;
+/// - what a reading of the project costs the warm call, in this process:
+///   the analysis server's look at the disk and the scan of the Dart files,
+///   on the 200-file app with and without a large `build/` folder. Printed
+///   only.
 ///
 /// The same rows are measured for a 1,000-file app. Their times are printed
 /// for information only and never held to a target (owner decision, slice
@@ -44,9 +84,13 @@ import 'package:path/path.dart' as p;
 /// disk that holds the checkout.
 ///
 /// The first sync of each app fetches its packages (go_router needs the
-/// network). Prints a Markdown table, then a second one with where the time
-/// of each full sync and edit went, step by step (`appstein sync --timings`),
-/// and exits 1 when a held row misses its target or a check fails.
+/// network). Prints five Markdown tables: the main one; where the time of
+/// each full sync and edit went, step by step (`appstein sync --timings`);
+/// the `verify` rows (warm, terminal, memory); what a reading costs; and the
+/// MCP answers. It exits 1 when a held row misses its target or a check
+/// fails. When the warm measurement's own checks fail (a reply that missed
+/// the error, a process left running), the tables measured so far are printed
+/// before it exits, so a CI log keeps the numbers.
 Future<void> main(List<String> args) async {
   final Directory parent;
   switch (args) {
@@ -83,10 +127,76 @@ Future<void> main(List<String> args) async {
     final columns = <int, Map<String, Duration>>{};
     // The three runs behind each median row, in the order they ran.
     final spreads = <int, Map<String, List<Duration>>>{};
+    // The three detect rows, with their second measurement when they had one.
+    final detectRows = <int, Map<String, HeldDetect<_Run>>>{};
     // The runs whose steps the second table breaks down.
     final broken = <String, _Run>{};
     var missed = <String>[];
     final mcp = <String, List<Duration>>{};
+    // The most memory a terminal verify run held, by row.
+    final terminalPeaks = <String, int>{};
+    // The terminal verify rows, with the warm-up before the warm ones, and
+    // the time of that whole step: every run of it, sampled and JSON runs
+    // included.
+    TerminalRows? terminal;
+    Duration? terminalTime;
+    // The analysis server's disk cache of every `appstein verify` and
+    // `appstein mcp` this tool starts, except the cold runs, which each get
+    // a new one: this tool's own, so what other steps of a CI job left in
+    // the default cache (`~/.dartServer`) changes no row, on any system.
+    final warmCache = (Directory(
+      p.join(work.path, 'analysis server cache'),
+    )..createSync()).path;
+    WarmResult? warm;
+    List<_ReadingRow>? reading;
+
+    // Prints every table that has something in it: when a check fails
+    // early, the rows measured before it still reach the log.
+    String cell(int files, String row) {
+      // The docs and verify rows are measured on the 200-file app only.
+      final column = columns[files];
+      if (column == null || !column.containsKey(row)) return 'not measured';
+      if (detectRows[files]?[row] case final detect?) return detect.cell();
+      final median = '${column[row]!.inMilliseconds} ms';
+      final three = spreads[files]?[row];
+      return three == null
+          ? median
+          : '$median (${three.map((time) => time.inMilliseconds).join(', ')})';
+    }
+
+    String line(String label, String row) =>
+        '| $label | ${cell(200, row)} | ${cell(1000, row)} |';
+    void printTables() {
+      stdout.writeln('''
+| Measurement (${Platform.operatingSystem}, a new process each) | 200 files | 1,000 files (info) |
+|---|---|---|
+${line('First sync, with `flutter pub get`', 'first')}
+${line('**Full sync, no analyzer cache** (target under 30 s)', 'full')}
+${line('**`sync --detect`, nothing changed**, median of 3 (target under 2 s)', 'unchanged')}
+${line('**`sync --detect` after editing a view model**, median of 3 (target under 2 s)', 'viewModel')}
+${line('**`sync --detect` after editing the router**, median of 3 (target under 2 s)', 'router')}
+${line('**`docs`, writing every page** (target under 2 s)', 'docsFirst')}
+${line('**`docs`, nothing to write**, median of 3 (target under 2 s)', 'docs')}
+${line('**`docs --check`**, median of 3 (target under 2 s)', 'docsCheck')}
+| `verify --fast` in the terminal, median of 3 (no limit): cold analysis-server cache / warm | ${cell(200, 'verifyFastCold')} / ${cell(200, 'verifyFastWarm')} | not measured |
+| `verify` (full) in the terminal, median of 3 (no limit): cold analysis-server cache / warm | ${cell(200, 'verifyFullCold')} / ${cell(200, 'verifyFullWarm')} | not measured |
+''');
+      if (broken.isNotEmpty) stdout.writeln(_breakdown(broken));
+      if (warm case final measured?) {
+        stdout.writeln(
+          _warmTable(measured, terminalPeaks, terminal, terminalTime),
+        );
+      }
+      if (reading case final read?) stdout.writeln(_readingTable(read));
+      if (mcp.isNotEmpty) {
+        stdout.writeln('''
+| MCP answer on the 200-file app (one `appstein mcp` process) | median of 3 (target under 1 s) |
+|---|---|
+${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(three.toList()..sort())[1].inMilliseconds} ms (${three.map((d) => d.inMilliseconds).join(', ')}) |'].join('\n')}
+''');
+      }
+    }
+
     for (final (files, held) in const [(200, true), (1000, false)]) {
       final app = p.join(work.path, 'app $files');
       _generateApp(app, features: (files - 2) ~/ 2);
@@ -118,7 +228,11 @@ Future<void> main(List<String> args) async {
       // Each detect row is the median of three runs, as measure_analyze
       // takes the median of three: a CI machine's speed varies by about 2x
       // from run to run, and one slow run must not fail the target, while a
-      // real slowdown still moves the median.
+      // real slowdown still moves the median. A held row (the 200-file app)
+      // whose median is 2 s or more is measured once more, with three fresh
+      // runs and, for the edit rows, three new edits: it misses only when the
+      // second median misses too (owner, 2026-10-16: a slow CI runner made a
+      // median miss that the rerun passed). `measureHeldDetect` decides.
       final runs = spreads[files] = {};
       void record(String row, List<_Run> three) {
         final median = _median(three);
@@ -126,29 +240,54 @@ Future<void> main(List<String> args) async {
         runs[row] = [for (final run in three) run.elapsed];
       }
 
+      final detects = detectRows[files] = {};
+      // Measures one detect row; false when a run was not valid, which the
+      // run has already reported (and set the exit code for).
+      Future<bool> detectRow(
+        String row,
+        String what,
+        Future<_Run?> Function(int index) one,
+      ) async {
+        final measured = await measureHeldDetect<_Run>(
+          run: one,
+          timeOf: (run) => run.elapsed,
+          retry: held,
+          onRetry: (first) => stderr.writeln(
+            '$what took ${first.inMilliseconds} ms, the median of three '
+            '(2 s or more): measuring it once more.',
+          ),
+        );
+        if (measured == null) return false;
+        times[row] = measured.counted;
+        detects[row] = measured;
+        return true;
+      }
+
       // The first detect empties the change list the full sync recorded;
       // the next ones are what a hook sees after a command that changed
       // nothing.
       await sync(const ['--detect']);
-      final unchanged = <_Run>[];
-      for (var i = 0; i < 3; i++) {
+      if (!await detectRow('unchanged', 'A detect with nothing changed', (
+        _,
+      ) async {
         final run = await sync(const ['--detect']);
         if (!run.stdout.startsWith('Knowledge is current')) {
           stderr.writeln(
             'A detect with nothing changed rebuilt:\n${run.stdout}',
           );
           exitCode = 1;
-          return;
+          return null;
         }
-        unchanged.add(run);
+        return run;
+      })) {
+        return;
       }
-      record('unchanged', unchanged);
 
-      // Three different edits of one view model, each followed by a detect.
+      // A different edit of one view model for each run (the indices 0 to 2,
+      // and 3 to 5 for a second measurement), each followed by a detect.
       const viewModel =
           'lib/ui/feature_5/view_models/feature_5_view_model.dart';
-      final edited = <_Run>[];
-      for (var i = 0; i < 3; i++) {
+      if (!await detectRow('viewModel', 'A detect after one edit', (i) async {
         _edit(
           p.join(app, viewModel),
           'int taps = 0;',
@@ -163,15 +302,19 @@ Future<void> main(List<String> args) async {
             '${run.stdout}${run.stderr}',
           );
           exitCode = 1;
-          return;
+          return null;
         }
-        edited.add(run);
+        return run;
+      })) {
+        return;
       }
-      record('viewModel', edited);
-      broken['view model edit (median), $files'] = _median(edited);
+      // The first attempt's median run, which a miss is explained by.
+      broken['view model edit (median), $files'] =
+          detects['viewModel']!.firstMedianRun;
 
-      final router = <_Run>[];
-      for (var i = 0; i < 3; i++) {
+      // The router has a route '/feature-<i>' for each feature, 99 of them
+      // here, so the edits 0 to 5 each find theirs.
+      if (!await detectRow('router', 'A detect after a router edit', (i) async {
         _edit(
           p.join(app, 'lib', 'routing', 'router.dart'),
           "'/feature-$i'",
@@ -181,24 +324,26 @@ Future<void> main(List<String> args) async {
         if (run.problem() case final problem?) {
           stderr.writeln('A detect after the router edit: $problem');
           exitCode = 1;
-          return;
+          return null;
         }
-        router.add(run);
+        return run;
+      })) {
+        return;
       }
-      record('router', router);
-      broken['router edit (median), $files'] = _median(router);
+      broken['router edit (median), $files'] =
+          detects['router']!.firstMedianRun;
 
       if (held) {
         // The knowledge is fresh after the last detect, so these measure
         // spec §15's "MCP tool responses < 1 s from fresh knowledge". The
         // first call starts the server; it is not counted.
-        final session = await _McpSession.start(exe, app, flutterRoot);
+        final session = await _startMcp(exe, app, flutterRoot, warmCache);
         try {
-          await session.call('overview', const {});
+          await session.time('overview', const {});
           for (final (tool, arguments) in _mcpCalls) {
             final three = <Duration>[];
             for (var i = 0; i < 3; i++) {
-              three.add(await session.call(tool, arguments));
+              three.add(await session.time(tool, arguments));
             }
             mcp[tool] = three;
           }
@@ -269,53 +414,133 @@ Future<void> main(List<String> args) async {
 
       if (held) {
         // The knowledge is still fresh, and `routes.md` is edited by hand:
-        // these measure spec §9.1's "fast verify under 5 s" and record the
-        // full run, and check what the real command prints. Warnings alone
-        // (a feature without a test, the edited page) exit 0.
-        Future<_Run> verify([List<String> flags = const []]) =>
-            _run(exe, app, flutterRoot, flags, command: 'verify');
-        for (final (row, flags, ending) in const [
-          (
-            'verifyFast',
-            ['--fast'],
-            '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
-          ),
-          ('verifyFull', <String>[], ' info. No findings suppressed.\n'),
-        ]) {
-          final three = <_Run>[];
-          for (var i = 0; i < 3; i++) {
-            final run = await verify(flags);
-            if (run.exitCode != 0 || !run.stdout.endsWith(ending)) {
-              stderr.writeln(
-                'appstein verify ${flags.join(' ')}: exit code '
-                '${run.exitCode}, expected 0 and output ending "$ending":\n'
-                '${run.stdout}${run.stderr}',
+        // these time the terminal fast and full runs, which start their own
+        // analysis server, with no limit (spec §15: the 5 s limit is the
+        // warm tool's, measured below), and check what the real command
+        // prints (`terminalVerifyProblem`). Warnings alone (a feature without
+        // a test, the edited page, the router's formatting) exit 0.
+        //
+        // The analysis server's disk cache is this tool's own folder
+        // (`analysisCacheVariable`), so what earlier steps of the job left in
+        // `~/.dartServer` changes nothing: a cold row starts each run with an
+        // empty folder, and a warm row runs after the warm-up, which stops
+        // when the folder stops growing or at its cap of 15 runs
+        // (`measureTerminalRows`, which also runs a full run first so the
+        // fast runs have no unverified file). The whole step is timed, so
+        // its growth in a CI job can be watched.
+        final stepWatch = Stopwatch()..start();
+        // Printed also when the step fails, so a failing CI job still shows
+        // how long the step ran.
+        try {
+          var coldCaches = 0;
+          final TerminalRows measured;
+          try {
+            measured = terminal = await measureTerminalRows(
+              run: (flag, cache) async {
+                final run = await _run(
+                  exe,
+                  app,
+                  flutterRoot,
+                  [flag],
+                  command: 'verify',
+                  cache: cache,
+                );
+                return (
+                  exitCode: run.exitCode,
+                  stdout: run.stdout,
+                  stderr: run.stderr,
+                  elapsed: run.elapsed,
+                );
+              },
+              warmCache: warmCache,
+              newCache: () => (Directory(
+                p.join(work.path, 'cold cache ${coldCaches++}'),
+              )..createSync()).path,
+              discardCache: (cache) =>
+                  discardCache(cache, warn: stderr.writeln),
+              cacheCount: countCache,
+            );
+          } on StateError catch (error) {
+            stderr.writeln(error.message);
+            exitCode = 1;
+            return;
+          }
+          for (final (row, three) in [
+            ('verifyFastCold', measured.coldFast),
+            ('verifyFullCold', measured.coldFull),
+            ('verifyFastWarm', measured.warmFast),
+            ('verifyFullWarm', measured.warmFull),
+          ]) {
+            times[row] = medianOf(three);
+            runs[row] = three;
+          }
+          // One more run of each, not timed, on the warm cache, with the
+          // memory of its process tree sampled: the guard and the analysis
+          // server it started.
+          for (final (row, flag) in const [
+            ('verifyFast', fastFlag),
+            ('verifyFull', fullFlag),
+          ]) {
+            try {
+              terminalPeaks[row] = await sampledPeak(
+                () => _sampleVerify(exe, app, flutterRoot, flag, warmCache),
+                flag: flag,
               );
+            } on StateError catch (error) {
+              stderr.writeln(error.message);
               exitCode = 1;
               return;
             }
-            three.add(run);
           }
-          record(row, three);
-        }
-        final json = await verify(const ['--format', 'json']);
-        final stalePages = json.exitCode != 0
-            ? null
-            : [
-                for (final finding
-                    in (jsonDecode(json.stdout) as Map)['findings'] as List)
-                  if ((finding as Map)['id'] == 'docs.stale') finding['file'],
-              ];
-        if (stalePages?.join(',') != 'docs/app/routes.md') {
-          stderr.writeln(
-            'appstein verify --format json after a hand edit of routes.md: '
-            'exit code ${json.exitCode}, and docs.stale on $stalePages; '
-            'expected exit code 0 and only docs/app/routes.md:\n'
-            '${json.stderr}',
+          final json = await _run(
+            exe,
+            app,
+            flutterRoot,
+            const ['--format', 'json'],
+            command: 'verify',
+            cache: warmCache,
           );
+          final stalePages = json.exitCode != 0
+              ? null
+              : [
+                  for (final finding
+                      in (jsonDecode(json.stdout) as Map)['findings'] as List)
+                    if ((finding as Map)['id'] == 'docs.stale') finding['file'],
+                ];
+          if (stalePages?.join(',') != 'docs/app/routes.md') {
+            stderr.writeln(
+              'appstein verify --format json after a hand edit of routes.md: '
+              'exit code ${json.exitCode}, and docs.stale on $stalePages; '
+              'expected exit code 0 and only docs/app/routes.md:\n'
+              '${json.stderr}',
+            );
+            exitCode = 1;
+            return;
+          }
+        } finally {
+          final took = terminalTime = stepWatch.elapsed;
+          stderr.writeln(
+            'The terminal verify runs took ${_seconds(took)} in all.',
+          );
+        }
+      }
+
+      if (held) {
+        // The limit of spec §15 where an agent meets it: the `verify` tool
+        // of a running `appstein mcp`, after one file is edited. Its server
+        // uses the warm cache of the terminal rows, after their warm-up,
+        // which may stop at its cap of 15 runs with the cache still growing:
+        // the same folder and steps on every system, though not always a
+        // cache that stopped growing.
+        warm = await _measureWarm(exe, app, flutterRoot, warmCache);
+        if (warm.problem case final problem?) {
+          // What was measured so far goes in the log before the failure.
+          printTables();
+          stderr.writeln('The warm verify measurement: $problem');
           exitCode = 1;
           return;
         }
+        reading = await _measureReading(app);
       }
 
       if (held) {
@@ -329,20 +554,12 @@ Future<void> main(List<String> args) async {
               '$what took ${took(row)}, the median of three (under 2 s)',
           if (times['docsFirst']! >= const Duration(seconds: 2))
             'the first appstein docs took ${took('docsFirst')} (under 2 s)',
-          if (times['verifyFast']! >= const Duration(seconds: 5))
-            'appstein verify --fast took ${took('verifyFast')}, the median '
-                'of three (under 5 s)',
+          ?warmLimitMiss(medianOf(warm!.fast)),
           if (full.elapsed >= const Duration(seconds: 30))
             'a full sync took ${full.elapsed.inMilliseconds} ms (under 30 s)',
-          if (times['unchanged']! >= const Duration(seconds: 2))
-            'a detect with nothing changed took ${took('unchanged')}, the '
-                'median of three (under 2 s)',
-          if (times['viewModel']! >= const Duration(seconds: 2))
-            'a detect after one edit took ${took('viewModel')}, the median '
-                'of three (under 2 s)',
-          if (times['router']! >= const Duration(seconds: 2))
-            'a detect after a router edit took ${took('router')}, the '
-                'median of three (under 2 s)',
+          ?detects['unchanged']!.miss('a detect with nothing changed'),
+          ?detects['viewModel']!.miss('a detect after one edit'),
+          ?detects['router']!.miss('a detect after a router edit'),
           for (final MapEntry(key: tool, value: three) in mcp.entries)
             if ((three.toList()..sort())[1] >= const Duration(seconds: 1))
               'the MCP tool $tool took ${(three.toList()..sort())[1].inMilliseconds} ms, '
@@ -350,38 +567,7 @@ Future<void> main(List<String> args) async {
         ];
       }
     }
-    String cell(int files, String row) {
-      // The docs and verify rows are measured on the 200-file app only.
-      if (!columns[files]!.containsKey(row)) return 'not measured';
-      final median = '${columns[files]![row]!.inMilliseconds} ms';
-      final three = spreads[files]![row];
-      return three == null
-          ? median
-          : '$median (${three.map((time) => time.inMilliseconds).join(', ')})';
-    }
-
-    String line(String label, String row) =>
-        '| $label | ${cell(200, row)} | ${cell(1000, row)} |';
-    stdout.writeln('''
-| Measurement (${Platform.operatingSystem}, a new process each) | 200 files | 1,000 files (info) |
-|---|---|---|
-${line('First sync, with `flutter pub get`', 'first')}
-${line('**Full sync, no analyzer cache** (target under 30 s)', 'full')}
-${line('**`sync --detect`, nothing changed**, median of 3 (target under 2 s)', 'unchanged')}
-${line('**`sync --detect` after editing a view model**, median of 3 (target under 2 s)', 'viewModel')}
-${line('**`sync --detect` after editing the router**, median of 3 (target under 2 s)', 'router')}
-${line('**`docs`, writing every page** (target under 2 s)', 'docsFirst')}
-${line('**`docs`, nothing to write**, median of 3 (target under 2 s)', 'docs')}
-${line('**`docs --check`**, median of 3 (target under 2 s)', 'docsCheck')}
-${line('**`verify --fast`**, median of 3 (target under 5 s)', 'verifyFast')}
-${line('`verify` (full), median of 3 (no target)', 'verifyFull')}
-''');
-    stdout.writeln(_breakdown(broken));
-    stdout.writeln('''
-| MCP answer on the 200-file app (one `appstein mcp` process) | median of 3 (target under 1 s) |
-|---|---|
-${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(three.toList()..sort())[1].inMilliseconds} ms (${three.map((d) => d.inMilliseconds).join(', ')}) |'].join('\n')}
-''');
+    printTables();
     if (missed.isNotEmpty) {
       stderr.writeln('Spec §15 targets missed on the 200-file app:');
       for (final miss in missed) {
@@ -412,94 +598,221 @@ const _mcpCalls = [
   ('toolchain', <String, Object?>{}),
 ];
 
-/// One `appstein mcp` process and a minimal JSON-RPC client over its stdin
-/// and stdout: enough to time tool calls as an agent makes them.
-final class _McpSession {
-  _McpSession._(this._process, this._lines);
+/// The environment of every `appstein` process this tool starts: the Flutter
+/// SDK at [flutterRoot], and, when [cache] is given, the analysis server's
+/// disk cache in that folder ([analysisCacheVariable]).
+Map<String, String> _environment(String flutterRoot, [String? cache]) => {
+  'FLUTTER_ROOT': flutterRoot,
+  analysisCacheVariable: ?cache,
+};
 
-  final Process _process;
-  final StreamIterator<String> _lines;
-  var _id = 0;
+/// Starts `appstein mcp` for [app], the way an agent's client does, with
+/// the analysis server's cache in [cache].
+Future<McpSession> _startMcp(
+  String exe,
+  String app,
+  String flutterRoot,
+  String cache,
+) => McpSession.start(
+  exe,
+  ['--project', app, 'mcp'],
+  environment: _environment(flutterRoot, cache),
+  clientName: 'measure_sync',
+);
 
-  static Future<_McpSession> start(
-    String exe,
-    String app,
-    String flutterRoot,
-  ) async {
-    final process = await Process.start(
-      exe,
-      ['--project', app, 'mcp'],
-      environment: {'FLUTTER_ROOT': flutterRoot},
-    );
-    unawaited(process.stderr.drain<void>());
-    final session = _McpSession._(
-      process,
-      StreamIterator(
-        process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
-      ),
-    );
-    await session._request('initialize', {
-      'protocolVersion': '2025-11-25',
-      'capabilities': <String, Object?>{},
-      'clientInfo': {'name': 'measure_sync', 'version': '1'},
-    });
-    session._send({'jsonrpc': '2.0', 'method': 'notifications/initialized'});
-    return session;
+/// The view model that the warm measurement edits.
+const _editedFile = 'lib/ui/feature_9/view_models/feature_9_view_model.dart';
+
+/// Starts `appstein mcp` on [app], with the analysis server's cache in
+/// [cache], and runs the warm measurement on it (`measureWarm`), which
+/// closes it and checks no process of it is left.
+Future<WarmResult> _measureWarm(
+  String exe,
+  String app,
+  String flutterRoot,
+  String cache,
+) async {
+  final McpSession session;
+  try {
+    session = await _startMcp(exe, app, flutterRoot, cache);
+  } on StateError catch (error) {
+    return WarmResult()
+      ..problem = 'appstein mcp did not start: ${error.message}';
   }
-
-  void _send(Map<String, Object?> message) =>
-      _process.stdin.writeln(jsonEncode(message));
-
-  Future<Map<String, Object?>> _request(
-    String method,
-    Map<String, Object?> params,
-  ) async {
-    final id = ++_id;
-    _send({'jsonrpc': '2.0', 'id': id, 'method': method, 'params': params});
-    while (await _lines.moveNext()) {
-      final message = jsonDecode(_lines.current) as Map<String, Object?>;
-      if (message['id'] != id) continue;
-      if (message['error'] case final error?) {
-        throw StateError('$method failed: $error');
-      }
-      return message['result']! as Map<String, Object?>;
-    }
-    throw StateError('appstein mcp exited before answering $method');
-  }
-
-  /// How long [tool] took to answer; throws when it answered with an error.
-  Future<Duration> call(String tool, Map<String, Object?> arguments) async {
-    final watch = Stopwatch()..start();
-    final result = await _request('tools/call', {
-      'name': tool,
-      'arguments': arguments,
-    });
-    watch.stop();
-    if (result['isError'] == true) {
-      throw StateError(
-        '$tool answered with an error: ${jsonEncode(result['content'])}',
-      );
-    }
-    return watch.elapsed;
-  }
-
-  /// Ends the server by closing its stdin, as an agent does.
-  ///
-  /// The iterator is cancelled too: between reads it holds its subscription
-  /// to the server's stdout paused, and a paused subscription keeps this
-  /// process alive after `main` returns.
-  Future<void> close() async {
-    await _process.stdin.close();
-    await _process.exitCode.timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        _process.kill();
-        return _process.exitCode;
-      },
-    );
-    await _lines.cancel();
-  }
+  return measureWarm(session, project: app, file: _editedFile);
 }
+
+/// Runs `appstein verify [flag]` once, without timing it, with the analysis
+/// server's cache in [cache], and samples the memory of its process tree
+/// (the guard and the analysis server it starts): its output, exit code and
+/// peak, which is null when the sampling never saw the guard and the server
+/// (`peakTreeMemory`). Throws a [StateError] when the process list can't be
+/// read.
+Future<SampledRun> _sampleVerify(
+  String exe,
+  String app,
+  String flutterRoot,
+  String flag,
+  String cache,
+) async {
+  // One look before the run, so the first look of the sampling does not
+  // pay for starting the lister: on a new Windows machine the first
+  // PowerShell process listing can take longer than a whole run.
+  await listProcesses();
+  final process = await Process.start(exe, [
+    '--project',
+    app,
+    'verify',
+    flag,
+  ], environment: _environment(flutterRoot, cache));
+  final output = Future.wait([
+    process.stdout.transform(utf8.decoder).join(),
+    process.stderr.transform(utf8.decoder).join(),
+  ]);
+  // The sampling and the run are awaited together: a process list that
+  // fails while the run goes on must not be an error nobody listens to.
+  final (int code, int? most) =
+      await exitAndPeak(
+        process.exitCode,
+        peakTreeMemory(process.pid, process.exitCode),
+      ).onError<StateError>((error, _) async {
+        // Only the process this function started is ended.
+        process.kill();
+        await process.exitCode;
+        await output;
+        throw error;
+      });
+  final [out, err] = await output;
+  return (exitCode: code, stdout: out, stderr: err, peak: most);
+}
+
+/// One size of `build/`: what the reading of the project costs there.
+final class _ReadingRow {
+  _ReadingRow(this.buildFiles, this.dartFiles);
+
+  /// Files in `build/`.
+  final int buildFiles;
+
+  /// Dart files the analysis sees in the whole project.
+  final int dartFiles;
+
+  /// The analysis server's look at the disk, once per call of `verify`.
+  final look = <Duration>[];
+
+  /// The scan of the Dart files, the first time (every file is hashed) and
+  /// with the last scan to compare with (nothing changed).
+  Duration scanFirst = Duration.zero;
+  final scan = <Duration>[];
+}
+
+/// Times, in this process, the two readings of the project that a warm
+/// `verify` call makes beside the analysis: the analysis server's look at
+/// the disk (`DiskLook`) and the scan of the Dart files, each three times,
+/// on [app] with no `build/` folder and with 6,000 and 26,000 files in it
+/// (the sizes ticket 04 measured).
+Future<List<_ReadingRow>> _measureReading(String app) async {
+  final rows = <_ReadingRow>[];
+  final unchanging = unchangingFolders(
+    Platform.resolvedExecutable,
+    Platform.environment,
+  );
+  for (final files in const [0, 6000, 26000]) {
+    final dartInBuild = writeLargeBuild(app, files: files);
+    // The scan trusts a file only when it is older than the last scan by
+    // more than the clock's step (2 s): a build folder is not new.
+    if (files > 0) await Future<void>.delayed(const Duration(seconds: 3));
+    final look = await DiskLook.of(app, unchanging: unchanging);
+    final row = _ReadingRow(files, look.dart.length);
+    // The look above warmed the file system's cache; three more are timed.
+    for (var i = 0; i < 3; i++) {
+      final watch = Stopwatch()..start();
+      await DiskLook.of(app, unchanging: unchanging);
+      row.look.add(watch.elapsed);
+    }
+    final watch = Stopwatch()..start();
+    final first = await readDartFileHashes(app);
+    row.scanFirst = watch.elapsed;
+    for (var i = 0; i < 3; i++) {
+      final watch = Stopwatch()..start();
+      await readDartFileHashes(app, previous: first);
+      row.scan.add(watch.elapsed);
+    }
+    rows.add(row);
+    stderr.writeln(
+      'Read a project with $files files in build/ '
+      '(${row.dartFiles} Dart files, $dartInBuild of them in build/).',
+    );
+  }
+  return rows;
+}
+
+String _gigabytes(int bytes) =>
+    '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+
+String _spread(List<Duration> times) => times.isEmpty
+    ? 'not measured'
+    : '${medianOf(times).inMilliseconds} ms '
+          '(${times.map((time) => time.inMilliseconds).join(', ')})';
+
+/// The memory of a terminal run, or "not measured" before it was taken. A
+/// sampling that never saw the run fails the measurement (`sampledPeak`), so
+/// this is never a 0 that measured nothing.
+String _peak(Map<String, int> peaks, String row) =>
+    peaks.containsKey(row) ? _gigabytes(peaks[row]!) : 'not measured';
+
+/// [time] in seconds, to a tenth.
+String _seconds(Duration time) =>
+    '${(time.inMilliseconds / 1000).toStringAsFixed(1)} s';
+
+/// The warm-up before the warm terminal rows: how many runs, their times,
+/// the cache entries each added and the half-written files each left
+/// (`countCache`), and whether it stopped at its cap.
+String _warmUp(TerminalRows? rows) {
+  if (rows == null || rows.warmUp.isEmpty) return 'not measured';
+  final runs = rows.warmUp.length;
+  return '$runs ${runs == 1 ? 'run' : 'runs'}: '
+      '${rows.warmUp.map((time) => time.inMilliseconds).join(', ')} ms, '
+      'adding ${rows.warmUpAdded.join(', ')} cache entries and leaving '
+      '${rows.warmUpHalfWritten.join(', ')} half-written files'
+      '${rows.capped ? '. **Stopped at the cap of $terminalWarmUpMost with '
+                'the cache still growing**: the warm rows may not be warm' : ''}';
+}
+
+/// The third table: the warm `verify` tool, with the 5 s limit, beside the
+/// terminal runs' warm-up, memory and total time, and the cost of starting
+/// the analysis server. After a failed measurement it holds what was
+/// measured before the failure.
+String _warmTable(
+  WarmResult warm,
+  Map<String, int> terminalPeaks,
+  TerminalRows? terminal,
+  Duration? terminalTime,
+) =>
+    '''
+| `verify` where an agent meets it, 200-file app (${Platform.operatingSystem}) | Result |
+|---|---|${warm.problem == null ? '' : '\n| **The measurement failed**, the rows below stop where it did | ${warm.problem!.replaceAll('|', '/').replaceAll('\n', ' ')} |'}
+| **Warm fast `verify`** after an edit that adds an error, median of 3 (limit: under 5 s) | ${_spread(warm.fast)} |
+| Warm fast `verify` after the error is fixed, median of 3 (no limit) | ${_spread(warm.fixed)} |
+| Where that went: the knowledge refresh after the edit (an `overview` call), median of 3 | ${_spread(warm.refresh)} |
+| Where that went: `verify` once the refresh is done, median of 3 | ${_spread(warm.afterRefresh)} |
+| First `verify` call: the analysis server starts and is ready, then reads | ${warm.startUp.inMilliseconds} ms |
+| Memory of `appstein mcp`, its guard and the analysis server, when ready / after the calls | ${_gigabytes(warm.memoryReady)} / ${_gigabytes(warm.memoryAfter)} |
+| Warm-up of the analysis server's cache before the warm terminal rows: full runs until one adds no cache entry and leaves no half-written file (at most $terminalWarmUpMost) | ${_warmUp(terminal)} |
+| The terminal `verify` step, every run of it (first, cold, warm-up, warm, sampled and JSON runs) | ${terminalTime == null ? 'not measured' : _seconds(terminalTime)} |
+| Most memory of a terminal `verify --fast` run on the warm cache (its own guard and server) | ${_peak(terminalPeaks, 'verifyFast')} |
+| Most memory of a terminal `verify` (full) run on the warm cache | ${_peak(terminalPeaks, 'verifyFull')} |
+''';
+
+/// The fourth table: what the reading of the project costs a warm call.
+String _readingTable(List<_ReadingRow> rows) =>
+    '''
+| Reading the 200-file app in this process, median of 3 | ${rows.map((row) => row.buildFiles == 0 ? 'no `build/`' : '`build/` with ${row.buildFiles} files').join(' | ')} |
+|---|${rows.map((_) => '---|').join()}
+| Dart files in the project | ${rows.map((row) => row.dartFiles).join(' | ')} |
+| The analysis server's look at the disk, before each reading | ${rows.map((row) => _spread(row.look)).join(' | ')} |
+| The scan of the Dart files, the first time (every file hashed) | ${rows.map((row) => '${row.scanFirst.inMilliseconds} ms').join(' | ')} |
+| The scan of the Dart files, nothing changed | ${rows.map((row) => _spread(row.scan)).join(' | ')} |
+''';
 
 /// The second table: where each of [runs]' time went, one column per run
 /// and one row per step `appstein sync --timings` reported (a part of the
@@ -570,19 +883,24 @@ final class _Run {
   }
 }
 
+/// Runs `appstein <command> [flags]` on [app] and times it; with [cache],
+/// the analysis server it starts keeps its disk cache there.
 Future<_Run> _run(
   String exe,
   String app,
   String flutterRoot,
   List<String> flags, {
   String command = 'sync',
+  String? cache,
 }) async {
   final watch = Stopwatch()..start();
-  final result = await Process.run(
-    exe,
-    ['--project', app, command, if (command == 'sync') '--timings', ...flags],
-    environment: {'FLUTTER_ROOT': flutterRoot},
-  );
+  final result = await Process.run(exe, [
+    '--project',
+    app,
+    command,
+    if (command == 'sync') '--timings',
+    ...flags,
+  ], environment: _environment(flutterRoot, cache));
   watch.stop();
   return _Run(
     result.exitCode,

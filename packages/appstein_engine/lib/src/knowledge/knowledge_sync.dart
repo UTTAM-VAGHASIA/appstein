@@ -20,6 +20,7 @@ import '../packs/pack.dart';
 import '../sdk/sdk_detector.dart';
 import '../skills/package_skills.dart';
 import 'canonical_json.dart';
+import 'dart_files.dart';
 import 'freshness.dart';
 import 'generated_file.dart';
 import 'input_hash.dart';
@@ -156,25 +157,55 @@ final class KnowledgeSync {
     String? dartSdkPath,
   }) async {
     final timings = SyncTimings();
+    final prepared = _prepare(projectRoot, sdk: sdk, timings: timings);
     return _rebuild(
       projectRoot,
-      _prepare(projectRoot, sdk: sdk, timings: timings),
+      prepared,
+      dartFiles: await _dartFiles(
+        projectRoot,
+        prepared,
+        timings,
+        previous: KnowledgeStore(projectRoot).readState().state,
+      ),
       dartSdkPath: dartSdkPath,
       retryFailure: true,
       timings: timings,
     );
   }
 
+  /// The hashes of every Dart file the analysis server covers, for the
+  /// unverified files (slice 1d.2): wider than the map's inputs, whose
+  /// hashes it reuses, and reading again only the files whose time or size
+  /// changed since the scan [previous] recorded. Timed as `dart files`.
+  Future<DartFileScan> _dartFiles(
+    String projectRoot,
+    _Prepared prepared,
+    SyncTimings timings, {
+    required KnowledgeState? previous,
+  }) => timings.timeAsync(
+    'dart files',
+    () => readDartFileHashes(
+      projectRoot,
+      known: prepared.mapInputs.sources,
+      previous: DartFileScan.of(previous),
+      now: _clock?.call(),
+    ),
+  );
+
   /// `appstein sync --detect` (spec §5.3, §5.4): rebuilds, as [run] does,
   /// only when [freshness] finds something changed, saying why in
   /// [SyncReport.rebuiltBecause].
   ///
-  /// When nothing changed, it builds and writes nothing, and the report has
+  /// When nothing changed, it builds nothing, and the report has
   /// [SyncReport.current]. The first such call after a rebuild empties
   /// `state.json`'s change list, so `verify --fast` checks each change once.
   /// It does that under the lock, and only if `state.json` is still the one
-  /// it checked. When the lock stays busy past [lockTimeout], it leaves the
-  /// list for a later call and still reports current.
+  /// it checked. When a Dart file the map doesn't read changed (a test's,
+  /// `bin/`'s), it writes only `state.json`, under the lock: the new hashes
+  /// of the Dart files, and the changed files added to the unverified files
+  /// (`unverifiedAfterRefresh`, slice 1d.2). When the lock stays busy past
+  /// [lockTimeout], it leaves both for a later call and still reports
+  /// current.
   ///
   /// Either way it runs package skills when they are due, as [run] does,
   /// except that it doesn't retry a run that failed with the same inputs:
@@ -192,10 +223,17 @@ final class KnowledgeSync {
       'freshness',
       () => _freshness(projectRoot, prepared),
     );
+    final scan = await _dartFiles(
+      projectRoot,
+      prepared,
+      timings,
+      previous: freshness.state,
+    );
     if (!freshness.current) {
       return _rebuild(
         projectRoot,
         prepared,
+        dartFiles: scan,
         dartSdkPath: dartSdkPath,
         reasons: freshness.reasons,
         retryFailure: false,
@@ -203,32 +241,44 @@ final class KnowledgeSync {
       );
     }
     final checked = freshness.state!;
-    if (checked.changed.isNotEmpty) {
+    // A Dart file the map doesn't read (a test's, `bin/`'s) changed: nothing
+    // is rebuilt, but it joins the unverified files.
+    // A file whose time or size changed with the same text changes only its
+    // stamp: written too, so the next scan doesn't read it again.
+    final dartChanged =
+        canonicalJson(checked.dartFiles) != canonicalJson(scan.hashes) ||
+        canonicalJson(checked.dartStamps) != canonicalJson(scan.stamps);
+    if (checked.changed.isNotEmpty || dartChanged) {
       final store = KnowledgeStore(projectRoot, clock: _clock);
       final clearing = Stopwatch()..start();
       try {
         await store.locked(() async {
           final now = store.readState().state;
-          if (now != null &&
-              canonicalJson(now.toJson()) == canonicalJson(checked.toJson())) {
+          if (now == null) return;
+          // The change list is emptied only when no writer came between;
+          // the unverified files are merged into whatever is there now.
+          final unchanged =
+              canonicalJson(now.toJson()) == canonicalJson(checked.toJson());
+          final next = now.copyWith(
+            changed: unchanged ? const [] : now.changed,
+            dartFiles: scan.hashes,
+            dartStamps: scan.stamps,
+            unverified: unverifiedAfterRefresh(now, scan.hashes),
+          );
+          // The scan's time is written only with something else: on its own
+          // it would rewrite `state.json` at every refresh.
+          if (canonicalJson(next.toJson()) != canonicalJson(now.toJson())) {
             await store.writeState(
-              KnowledgeState(
-                formatVersion: now.formatVersion,
-                appsteinVersion: now.appsteinVersion,
-                lastSync: now.lastSync,
-                files: now.files,
-                sources: now.sources,
-                written: now.written,
-                changed: const [],
-              ),
+              next.copyWith(dartScannedAt: scan.at.toIso8601String()),
             );
           }
         }, timeout: lockTimeout);
       } on KnowledgeLockTimeout {
         // Nothing is stale, so a hook mustn't fail over a busy lock. The
         // writer holding it is writing a new state.json anyway, which the
-        // check above would no longer match; the list is emptied by a later
-        // detect.
+        // check above would no longer match; the list is emptied, and the
+        // changed Dart files are found again, by a later detect: they are
+        // compared with the hashes `state.json` holds.
       }
       timings.add('change list clear', clearing.elapsed);
     }
@@ -292,21 +342,22 @@ final class KnowledgeSync {
         flutterVersion: platform.sdk.flutterVersion,
       ),
     );
+    final mapInputs = timings.time(
+      'map inputs',
+      () => readMapInputs(
+        projectRoot,
+        workspaceRoot: packages.workspaceRoot,
+        flutterVersion: platform.sdk.flutterVersion,
+        flutterRoot: platform.location.root,
+        packs: packs,
+        appsteinVersion: appsteinVersion,
+        environment: environment,
+      ),
+    );
     return _Prepared(
       platform: platform,
       packages: packages,
-      mapInputs: timings.time(
-        'map inputs',
-        () => readMapInputs(
-          projectRoot,
-          workspaceRoot: packages.workspaceRoot,
-          flutterVersion: platform.sdk.flutterVersion,
-          flutterRoot: platform.location.root,
-          packs: packs,
-          appsteinVersion: appsteinVersion,
-          environment: environment,
-        ),
-      ),
+      mapInputs: mapInputs,
       native: timings.time(
         'native config',
         () => _native(projectRoot, platform),
@@ -321,6 +372,7 @@ final class KnowledgeSync {
   Future<SyncReport> _rebuild(
     String projectRoot,
     _Prepared prepared, {
+    required DartFileScan dartFiles,
     required SyncTimings timings,
     required bool retryFailure,
     String? dartSdkPath,
@@ -379,6 +431,14 @@ final class KnowledgeSync {
     final asked = Stopwatch()..start();
     final (files, saveError) = await store.locked(() async {
       timings.add('lock wait', asked.elapsed);
+      // Read again under the lock: a `verify` run may have changed the
+      // unverified files since [previous] was read. With no state to read
+      // (a first sync, a deleted or unreadable `state.json`), every Dart
+      // file is unverified.
+      final unverified = unverifiedAfterRefresh(
+        store.readState().state,
+        dartFiles.hashes,
+      );
       final files = await timings.timeAsync(
         'knowledge write',
         () => store.writeAll(
@@ -394,8 +454,11 @@ final class KnowledgeSync {
           sdkVersion: platform.sdk.flutterVersion,
           sources: sources,
           changed: changed,
+          dartFiles: dartFiles,
+          unverified: unverified,
         ),
       );
+      // Read by the next scan, so it reads only the files that changed.
       // After the knowledge, inside the lock, so two syncs never write the
       // same temporary file. The cache only makes the next sync faster, so
       // failing to save it is a warning.

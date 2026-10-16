@@ -11,6 +11,8 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_engine/ios.dart';
 import 'package:appstein_engine/official_mvvm.dart';
 
+import '../../support/scripted_code_analysis.dart';
+
 Future<void> main(List<String> arguments) async {
   final [projectRoot, flutterRoot, dartSdk] = arguments;
   final held = HeldAnalyzerCache();
@@ -19,6 +21,8 @@ Future<void> main(List<String> arguments) async {
     projectRoot: projectRoot,
     appsteinVersion: '0.1.0-dev',
     dartSdkPath: dartSdk,
+    // The analysis server has its own tests; this one is about the channel.
+    codeAnalysis: ScriptedCodeAnalysis().scope,
     syncFor: () => KnowledgeSync(
       environment: HostEnvironment(
         os: HostOs.current,

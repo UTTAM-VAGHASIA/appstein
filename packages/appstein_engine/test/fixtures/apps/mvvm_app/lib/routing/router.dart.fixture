@@ -49,10 +49,7 @@ GoRouter router(Dependencies dependencies) => GoRouter(
             ),
           ),
           routes: [
-            GoRoute(
-              path: ':id',
-              redirect: (context, state) => Routes.booking,
-            ),
+            GoRoute(path: ':id', redirect: (context, state) => Routes.booking),
           ],
         ),
         GoRoute(
@@ -88,10 +85,7 @@ GoRouter router(Dependencies dependencies) => GoRouter(
         ),
       ],
     ),
-    GoRoute(
-      path: '/about',
-      builder: (context, state) => const Text('About'),
-    ),
+    GoRoute(path: '/about', builder: (context, state) => const Text('About')),
   ],
 );
 

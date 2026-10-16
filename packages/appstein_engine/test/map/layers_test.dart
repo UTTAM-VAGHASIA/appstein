@@ -6,9 +6,12 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fixture_app.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   // official_mvvm's shape, written out here so this test doesn't depend on
   // the pack (Task 9).
   final rules = LayerRules.fromJson({

@@ -26,6 +26,8 @@ final class VerifyResult {
     this.suppressed = 0,
     this.activeSuppressions = 0,
     this.notRun = const [],
+    this.notices = const [],
+    this.applied = const [],
   });
 
   /// Reads a result from its JSON form.
@@ -44,21 +46,65 @@ final class VerifyResult {
         for (final entry in fields.objects('notRun'))
           CheckNotRun(id: entry.string('id'), reason: entry.string('reason')),
       ],
+      // Absent in a result with nothing to tell, and in every result
+      // written before the field existed.
+      notices: json.containsKey('notices') ? fields.strings('notices') : [],
+      // Absent in every result written before the field existed.
+      applied: json.containsKey('applied') ? fields.strings('applied') : [],
     );
   }
+
+  /// This result with [more] added to its [notices].
+  VerifyResult withNotices(List<String> more) => more.isEmpty
+      ? this
+      : VerifyResult(
+          findings: findings,
+          suppressed: suppressed,
+          activeSuppressions: activeSuppressions,
+          notRun: notRun,
+          notices: [...notices, ...more],
+          applied: applied,
+        );
+
+  /// This result with [files] as its [applied] files.
+  VerifyResult withApplied(List<String> files) => VerifyResult(
+    findings: findings,
+    suppressed: suppressed,
+    activeSuppressions: activeSuppressions,
+    notRun: notRun,
+    notices: notices,
+    applied: files,
+  );
+
+  /// Each file `--apply` (or the tool's `apply`) rewrote before the checks
+  /// ran, from the project folder with `/`, sorted (spec §9.2, §9.3): an
+  /// agent reads them again before it edits them. Empty without `--apply`,
+  /// and when it rewrote nothing.
+  final List<String> applied;
 
   /// The findings that were not suppressed.
   final List<Finding> findings;
 
-  /// How many findings a suppression hid (spec §9.7).
+  /// How many findings a suppression hid (spec §9.7): an entry of
+  /// `appstein.yaml` or an `// appstein:ignore` comment in a Dart file.
   final int suppressed;
 
-  /// How many suppressions of `appstein.yaml` hid at least one of them. One
-  /// broad suppression can hide many findings, so both numbers are given.
+  /// How many suppressions, entries of `appstein.yaml` and comments in Dart
+  /// files together, hid at least one of them. One broad suppression can hide
+  /// many findings, so both numbers are given.
   final int activeSuppressions;
 
   /// The checks of the chosen mode that did not run.
   final List<CheckNotRun> notRun;
+
+  /// What the reader must be told that is no finding about the project,
+  /// one plain line each: today, a process that may be an analysis server
+  /// Appstein started and did not end, because it could not confirm the
+  /// process is its own, with the command to end it by hand. They never
+  /// change the counts or the exit code. The JSON form has `notices` only
+  /// when there are any, so a reader that doesn't know the field is not
+  /// affected.
+  final List<String> notices;
 
   /// The number of error findings. Any error blocks "done".
   int get errors => _count(Severity.error);
@@ -80,6 +126,8 @@ final class VerifyResult {
     'suppressed': suppressed,
     'activeSuppressions': activeSuppressions,
     'notRun': [for (final entry in notRun) entry.toJson()],
+    if (notices.isNotEmpty) 'notices': notices,
+    'applied': applied,
   };
 }
 

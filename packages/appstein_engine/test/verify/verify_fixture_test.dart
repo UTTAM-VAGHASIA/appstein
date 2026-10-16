@@ -9,8 +9,11 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
+import '../support/scripted_code_analysis.dart';
 import 'support/verify_support.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
@@ -48,6 +51,8 @@ final class _CheckPack implements Pack {
 }
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   group('checksFor', () {
     test('lists the engine\'s checks, then each pack\'s with its pack', () {
       final first = FakeCheck(['a.one']);
@@ -64,6 +69,15 @@ void main() {
           ('decision.drift', null),
           ('memory.lessons_long', null),
           ('verify.test_required', null),
+          ('dart.error', null),
+          ('dart.plugin_failed', null),
+          ('dart.deprecated', null),
+          ('dart.unreadable', null),
+          ('dart.warning', null),
+          ('dart.lint', null),
+          ('dart.unformatted', null),
+          ('dart.fix_pending', null),
+          ('test.failed', null),
           ('a.one', 'a'),
           ('b.one', 'b'),
         ],
@@ -124,12 +138,24 @@ void main() {
       app = copyFixtureApp();
     });
 
-    KnowledgeSync sync({String? flutterRoot}) => knowledgeSync(
-      flutterRoot: flutterRoot ?? sdk,
-      runner: FakeProcessRunner(),
-      packs: _packs,
-      packageSkills: false,
-    );
+    // The app's tests pass: what `test.failed` reports is in
+    // `test_failed_check_test.dart`.
+    KnowledgeSync sync({String? flutterRoot}) {
+      final runner = FakeProcessRunner();
+      scriptFlutterTest(runner, sdk);
+      return knowledgeSync(
+        flutterRoot: flutterRoot ?? sdk,
+        runner: runner,
+        packs: _packs,
+        packageSkills: false,
+      );
+    }
+
+    // Without a Flutter SDK the tests can't be run either, which is Appstein
+    // failing and not a finding (`test_failed_check_test.dart`). The tests
+    // here are about the map checks, so their app has no test to run.
+    void noTests() =>
+        Directory(p.join(app, 'test')).deleteSync(recursive: true);
 
     Future<VerifyResult> verify({
       VerifyMode mode = VerifyMode.full,
@@ -142,6 +168,8 @@ void main() {
       sync: sync(flutterRoot: flutterRoot),
       mode: mode,
       checks: checksFor(_packs),
+      // The runs with a real analysis server are in `verify_dart_test.dart`.
+      codeAnalysis: ScriptedCodeAnalysis(),
       dartSdkPath: testDartSdk,
     );
 
@@ -217,6 +245,7 @@ void main() {
       expect(ids(fresh), contains('decision.drift'));
 
       // The same map files are still on disk, but can't be refreshed.
+      noTests();
       final stale = await verify(flutterRoot: p.join(app, 'no such sdk'));
       expect(ids(stale), ['knowledge.stale']);
       expect(
@@ -234,6 +263,7 @@ void main() {
       File(p.join(app, '.appstein', 'memory', 'lessons.md'))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('- one lesson\n' * 201);
+      noTests();
 
       final result = await verify(flutterRoot: p.join(app, 'no such sdk'));
       expect(ids(result), [

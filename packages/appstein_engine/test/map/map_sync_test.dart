@@ -3,6 +3,7 @@ import 'package:appstein_engine/official_mvvm.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import '../support/temp.dart';
@@ -48,6 +49,8 @@ final class _SecondPack implements Pack {
 }
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   test('two extractors writing the same map file is a StateError', () async {
     final app = copyFixtureApp();
     final sync = MapSync(

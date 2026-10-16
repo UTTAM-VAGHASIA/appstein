@@ -1,0 +1,24 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":50792,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"{root}/test/crash_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading {root}/test/crash_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"suite":{"id":2,"platform":"vm","path":"{root}/test/real_failure_test.dart"},"type":"suite","time":9}
+{"test":{"id":3,"name":"loading {root}/test/real_failure_test.dart","suiteID":2,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":9}
+{"count":2,"time":9,"type":"allSuites"}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":11236}
+{"group":{"id":4,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":11240}
+{"test":{"id":5,"name":"before the crash","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":6,"column":3,"url":"{rootUri}/test/crash_test.dart"},"type":"testStart","time":11243}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":11288}
+{"test":{"id":6,"name":"ends its process","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/crash_test.dart"},"type":"testStart","time":11290}
+{"testID":6,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":11328}
+{"test":{"id":7,"name":"after the crash","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":12,"column":3,"url":"{rootUri}/test/crash_test.dart"},"type":"testStart","time":11368}
+{"testID":7,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":11369}
+{"testID":3,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":11556}
+{"group":{"id":8,"suiteID":2,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":11556}
+{"test":{"id":9,"name":"fails for real","suiteID":2,"groupIDs":[8],"metadata":{"skip":false,"skipReason":null},"line":4,"column":3,"url":"{rootUri}/test/real_failure_test.dart"},"type":"testStart","time":11556}
+{"testID":9,"error":"Expected: <2>\n  Actual: <1>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\real_failure_test.dart 5:5                     main.<fn>\n","isFailure":true,"type":"error","time":11617}
+{"testID":9,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":11618}
+{"success":false,"type":"done","time":11652}

@@ -1,0 +1,110 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":3272,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"{root}/test/compile_error_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading {root}/test/compile_error_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"suite":{"id":2,"platform":"vm","path":"{root}/test/setup_all_test.dart"},"type":"suite","time":7}
+{"suite":{"id":4,"platform":"vm","path":"{root}/test/sub dir/deep/space path_test.dart"},"type":"suite","time":8}
+{"suite":{"id":6,"platform":"vm","path":"{root}/test/tear_down_all_test.dart"},"type":"suite","time":9}
+{"suite":{"id":8,"platform":"vm","path":"{root}/test/top_level_throw_test.dart"},"type":"suite","time":9}
+{"test":{"id":9,"name":"loading {root}/test/top_level_throw_test.dart","suiteID":8,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":9}
+{"suite":{"id":10,"platform":"vm","path":"{root}/test/unit/many1_test.dart"},"type":"suite","time":9}
+{"suite":{"id":12,"platform":"vm","path":"{root}/test/unit/many2_test.dart"},"type":"suite","time":10}
+{"suite":{"id":14,"platform":"vm","path":"{root}/test/unit/many3_test.dart"},"type":"suite","time":11}
+{"count":12,"time":12,"type":"allSuites"}
+{"testID":1,"error":"Failed to load \"{root}/test/compile_error_test.dart\":\nCompilation failed for testPath={root}/test/compile_error_test.dart: test/compile_error_test.dart:5:5: Error: Method not found: 'undefinedThing'.\n    undefinedThing();\n    ^^^^^^^^^^^^^^\n.","stackTrace":"","isFailure":false,"type":"error","time":10426}
+{"testID":1,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":10429}
+{"suite":{"id":16,"platform":"vm","path":"{root}/test/unit/many4_test.dart"},"type":"suite","time":10431}
+{"testID":1,"error":"Error: The Dart compiler exited unexpectedly.","stackTrace":"package:flutter_tools/src/base/common.dart 34:3  throwToolExit\npackage:flutter_tools/src/compile.dart 1024:11   DefaultResidentCompiler._compile.<fn>\ndart:async/zone_root.dart 48:47                  _rootRunUnary\ndart:async/zone.dart 816:35                      _CustomZone.runUnary\ndart:async/future_impl.dart 948:45               Future._propagateToListeners.handleValueCallback\ndart:async/future_impl.dart 977:13               Future._propagateToListeners\ndart:async/future_impl.dart 862:9                Future._propagateToListeners\ndart:async/future_impl.dart 720:5                Future._completeWithValue\ndart:async/future_impl.dart 804:7                Future._asyncCompleteWithValue.<fn>\ndart:async/zone_root.dart 35:13                  _rootRun\ndart:async/zone.dart 810:35                      _CustomZone.run\ndart:async/zone.dart 702:7                       _CustomZone.runGuarded\ndart:async/zone.dart 743:23                      _CustomZone.bindCallbackGuarded.<fn>\ndart:async/schedule_microtask.dart 40:35         _microtaskLoop\ndart:async/schedule_microtask.dart 49:5          _startMicrotaskLoop\ndart:isolate-patch/isolate_patch.dart 127:13     _runPendingImmediateCallback\ndart:isolate-patch/isolate_patch.dart 193:5      _RawReceivePort._handleMessage\n","isFailure":false,"type":"error","time":10464}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"group":{"id":18,"suiteID":2,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":20961}
+{"group":{"id":19,"suiteID":2,"parentID":18,"name":"outer","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":4,"column":3,"url":"{rootUri}/test/setup_all_test.dart"},"type":"group","time":20962}
+{"test":{"id":20,"name":"outer (setUpAll)","suiteID":2,"groupIDs":[18,19],"metadata":{"skip":false,"skipReason":null},"line":5,"column":5,"url":"{rootUri}/test/setup_all_test.dart"},"type":"testStart","time":20963}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"testID":20,"error":"Bad state: setUpAll broke","stackTrace":"test\\setup_all_test.dart 6:7  main.<fn>.<fn>\n","isFailure":false,"type":"error","time":21030}
+{"testID":20,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":21030}
+{"suite":{"id":22,"platform":"vm","path":"{root}/test/unit/many5_test.dart"},"type":"suite","time":21069}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"group":{"id":24,"suiteID":4,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":21245}
+{"test":{"id":25,"name":"plain in spaced","suiteID":4,"groupIDs":[24],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":"unparsed"},"type":"testStart","time":21246}
+{"testID":25,"error":"Expected: <6>\n  Actual: <5>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\sub                                            dir\\deep\\space path_test.dart 6:5          main.<fn>\n","isFailure":true,"type":"error","time":21304}
+{"testID":25,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":21305}
+{"test":{"id":26,"name":"widget in spaced","suiteID":4,"groupIDs":[24],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart"},"type":"testStart","time":21306}
+{"group":{"id":27,"suiteID":6,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":21327}
+{"test":{"id":29,"name":"(tearDownAll)","suiteID":6,"groupIDs":[27],"metadata":{"skip":false,"skipReason":null},"line":4,"column":3,"url":"{rootUri}/test/tear_down_all_test.dart"},"type":"testStart","time":21355}
+{"testID":29,"error":"Bad state: tearDownAll broke","stackTrace":"test\\tear_down_all_test.dart 5:5  main.<fn>\n","isFailure":false,"type":"error","time":21392}
+{"testID":29,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":21394}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"suite":{"id":30,"platform":"vm","path":"{root}/test/unit/many6_test.dart"},"type":"suite","time":21426}
+{"testID":9,"error":"Failed to load \"{root}/test/top_level_throw_test.dart\": Bad state: main threw before declaring","stackTrace":"test\\top_level_throw_test.dart 4:3  main\n","isFailure":false,"type":"error","time":21478}
+{"testID":9,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":21480}
+{"suite":{"id":32,"platform":"vm","path":"{root}/test/unit/nested_test.dart"},"type":"suite","time":21480}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"group":{"id":34,"suiteID":10,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":21,"line":null,"column":null,"url":null},"type":"group","time":21722}
+{"testID":26,"messageType":"print","message":"══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════\nThe following TestFailure was thrown running a test:\nExpected: exactly one matching candidate\n  Actual: _TextWidgetFinder:<Found 0 widgets with text \"x\": []>\n   Which: means none were found but one was expected\n\nWhen the exception was thrown, this was the stack:\n#4      main.<anonymous closure> ({rootUri}/test/sub%20dir/deep/space%20path_test.dart:10:5)\n<asynchronous suspension>\n#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)\n<asynchronous suspension>\n#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)\n<asynchronous suspension>\n<asynchronous suspension>\n(elided one frame from package:stack_trace)\n\nThis was caught by the test expectation on the following line:\n  {rootUri}/test/sub%20dir/deep/space%20path_test.dart line 10\nThe test description was:\n  widget in spaced\n════════════════════════════════════════════════════════════════════════════════════════════════════","type":"print","time":21725}
+{"testID":26,"error":"Test failed. See exception logs above.\nThe test description was: widget in spaced","stackTrace":"","isFailure":false,"type":"error","time":21735}
+{"testID":26,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":21735}
+{"group":{"id":36,"suiteID":4,"parentID":24,"name":"g","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":"unparsed"},"type":"group","time":21736}
+{"test":{"id":37,"name":"g layout overflow","suiteID":4,"groupIDs":[24,36],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart"},"type":"testStart","time":21736}
+{"testID":37,"messageType":"print","message":"══╡ EXCEPTION CAUGHT BY RENDERING LIBRARY ╞═════════════════════════════════════════════════════════\nThe following assertion was thrown during layout:\nA RenderFlex overflowed by 490 pixels on the right.\n\nThe relevant error-causing widget was:\n  Row\n  Row:{rootUri}/test/sub%20dir/deep/space%20path_test.dart:16:57\n\nThe overflowing RenderFlex has an orientation of Axis.horizontal.\nThe edge of the RenderFlex that is overflowing has been marked in the rendering with a yellow and\nblack striped pattern. This is usually caused by the contents being too big for the RenderFlex.\nConsider applying a flex factor (e.g. using an Expanded widget) to force the children of the\nRenderFlex to fit within the available space instead of being sized to their natural size.\nThis is considered an error condition because it indicates that there is content that cannot be\nseen. If the content is legitimately bigger than the available space, consider clipping it with a\nClipRect widget before putting it in the flex, or using a scrollable container rather than a Flex,\nlike a ListView.\nThe specific RenderFlex in question is: RenderFlex#7317f relayoutBoundary=up2 OVERFLOWING:\n  creator: Row ← SizedBox ← Center ← Directionality ← _FocusInheritedScope ←\n    _FocusScopeWithExternalFocusNode ← _FocusInheritedScope ← Focus ← FocusTraversalGroup ← MediaQuery\n    ← _MediaQueryFromView ← _PipelineOwnerScope ← ⋯\n  parentData: <none> (can use size)\n  constraints: BoxConstraints(w=10.0, 0.0<=h<=600.0)\n  size: Size(10.0, 5.0)\n  direction: horizontal\n  mainAxisAlignment: start\n  mainAxisSize: max\n  crossAxisAlignment: center\n  textDirection: ltr\n  verticalDirection: down\n  spacing: 0.0\n◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤\n════════════════════════════════════════════════════════════════════════════════════════════════════","type":"print","time":21815}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"testID":37,"error":"Test failed. See exception logs above.\nThe test description was: layout overflow","stackTrace":"","isFailure":false,"type":"error","time":21837}
+{"testID":37,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":21837}
+{"group":{"id":42,"suiteID":12,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":21,"line":null,"column":null,"url":null},"type":"group","time":21895}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"group":{"id":58,"suiteID":14,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":21,"line":null,"column":null,"url":null},"type":"group","time":22113}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null}}]
+{"test":{"id":80,"name":"m1 fails","suiteID":10,"groupIDs":[34],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/unit/many1_test.dart"},"type":"testStart","time":22305}
+{"group":{"id":85,"suiteID":16,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":21,"line":null,"column":null,"url":null},"type":"group","time":22350}
+{"testID":80,"error":"Expected: <0>\n  Actual: <1>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\many1_test.dart 11:5                      main.<fn>\n","isFailure":true,"type":"error","time":22374}
+{"testID":80,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":22374}
+{"test":{"id":98,"name":"m2 fails","suiteID":12,"groupIDs":[42],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/unit/many2_test.dart"},"type":"testStart","time":22460}
+{"group":{"id":102,"suiteID":22,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":21,"line":null,"column":null,"url":null},"type":"group","time":22505}
+{"testID":98,"error":"Expected: <0>\n  Actual: <2>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\many2_test.dart 11:5                      main.<fn>\n","isFailure":true,"type":"error","time":22525}
+{"testID":98,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":22526}
+{"group":{"id":118,"suiteID":30,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":21,"line":null,"column":null,"url":null},"type":"group","time":22640}
+{"test":{"id":121,"name":"m3 fails","suiteID":14,"groupIDs":[58],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/unit/many3_test.dart"},"type":"testStart","time":22651}
+{"testID":121,"error":"Expected: <0>\n  Actual: <3>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\many3_test.dart 11:5                      main.<fn>\n","isFailure":true,"type":"error","time":22721}
+{"testID":121,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":22721}
+{"group":{"id":144,"suiteID":32,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":11,"line":null,"column":null,"url":null},"type":"group","time":22852}
+{"group":{"id":145,"suiteID":32,"parentID":144,"name":"alpha","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":4,"column":3,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"group","time":22852}
+{"group":{"id":146,"suiteID":32,"parentID":145,"name":"alpha beta","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":5,"column":5,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"group","time":22852}
+{"group":{"id":147,"suiteID":32,"parentID":146,"name":"alpha beta gamma","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":6,"column":7,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"group","time":22852}
+{"test":{"id":148,"name":"alpha beta gamma deep fails","suiteID":32,"groupIDs":[144,145,146,147],"metadata":{"skip":false,"skipReason":null},"line":7,"column":9,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"testStart","time":22852}
+{"testID":148,"error":"Expected: <2>\n  Actual: <1>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\nested_test.dart 8:11                     main.<fn>.<fn>.<fn>.<fn>\n","isFailure":true,"type":"error","time":22900}
+{"testID":148,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":22900}
+{"testID":155,"messageType":"skip","message":"Skip: not now","type":"print","time":22902}
+{"test":{"id":156,"name":"two failures","suiteID":32,"groupIDs":[144],"metadata":{"skip":false,"skipReason":null},"line":16,"column":3,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"testStart","time":22902}
+{"test":{"id":157,"name":"m4 fails","suiteID":16,"groupIDs":[85],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/unit/many4_test.dart"},"type":"testStart","time":22904}
+{"testID":156,"error":"Expected: 'b'\n  Actual: 'a'\n   Which: is different.\n          Expected: b\n            Actual: a\n                    ^\n           Differ at offset 0\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\nested_test.dart 18:5                     main.<fn>\n","isFailure":true,"type":"error","time":22939}
+{"testID":156,"error":"Expected: completes to a value that <2>\n  Actual: <Instance of 'Future<int>'>\n   Which: emitted <1>\n","stackTrace":"package:matcher                                    expectLater\npackage:flutter_test/src/widget_tester.dart 507:8  expectLater\ntest\\unit\\nested_test.dart 17:5                    main.<fn>\n","isFailure":true,"type":"error","time":22940}
+{"testID":156,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":22941}
+{"test":{"id":161,"name":"fails after done","suiteID":32,"groupIDs":[144],"metadata":{"skip":false,"skipReason":null},"line":20,"column":3,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"testStart","time":22941}
+{"testID":161,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":22947}
+{"testID":157,"error":"Expected: <0>\n  Actual: <4>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\many4_test.dart 11:5                      main.<fn>\n","isFailure":true,"type":"error","time":22973}
+{"testID":157,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":22973}
+{"testID":161,"error":"Bad state: late failure","stackTrace":"test\\unit\\nested_test.dart 22:7  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async                       new Future.delayed\ntest\\unit\\nested_test.dart 21:5  main.<fn>\n","isFailure":false,"type":"error","time":23021}
+{"testID":161,"error":"This test failed after it had already completed.\nMake sure to use a matching library which informs the test runner\nof pending async work.","stackTrace":"test\\unit\\nested_test.dart 22:7  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async                       new Future.delayed\ntest\\unit\\nested_test.dart 21:5  main.<fn>\n","isFailure":false,"type":"error","time":23022}
+{"test":{"id":170,"name":"m5 fails","suiteID":22,"groupIDs":[102],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/unit/many5_test.dart"},"type":"testStart","time":23038}
+{"testID":170,"error":"Expected: <0>\n  Actual: <5>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\many5_test.dart 11:5                      main.<fn>\n","isFailure":true,"type":"error","time":23107}
+{"testID":170,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":23108}
+{"test":{"id":176,"name":"m6 fails","suiteID":30,"groupIDs":[118],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"{rootUri}/test/unit/many6_test.dart"},"type":"testStart","time":23186}
+{"testID":176,"error":"Expected: <0>\n  Actual: <6>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\ntest\\unit\\many6_test.dart 11:5                      main.<fn>\n","isFailure":true,"type":"error","time":23248}
+{"testID":176,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":23248}
+{"test":{"id":177,"name":"prints a lot then fails","suiteID":32,"groupIDs":[144],"metadata":{"skip":false,"skipReason":null},"line":28,"column":3,"url":"{rootUri}/test/unit/nested_test.dart"},"type":"testStart","time":23354}
+{"testID":177,"messageType":"print","message":"line 0 of noise xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","type":"print","time":23406}
+{"testID":177,"messageType":"print","message":"line 1 of noise xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","type":"print","time":23406}
+{"testID":177,"messageType":"print","message":"line 2 of noise xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","type":"print","time":23407}
+{"testID":177,"messageType":"print","message":"line 1202 of noise xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","

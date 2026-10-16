@@ -2,9 +2,11 @@ import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:args/command_runner.dart';
 
+import 'analysis_guard_command.dart';
 import 'exit_codes.dart';
 import 'packs.dart';
 import 'project_option.dart';
+import 'verify_command.dart';
 import 'version.dart';
 
 /// `appstein mcp`: serves Appstein's MCP tools over stdio until the agent
@@ -15,6 +17,11 @@ import 'version.dart';
 /// once, and an invalid one marks replies stale instead of stopping the
 /// server. Package skills are left to `appstein sync`, and the analyzer
 /// cache stays in memory between calls.
+///
+/// The `verify` tool answers from **warm analysis** ([keptCodeAnalysis]):
+/// the first `verify` call starts the project's analysis server, which then
+/// stays between calls, is stopped after ten minutes without one, and is
+/// stopped when this command ends. Starting the command starts none.
 final class McpCommand extends Command<int> {
   /// Creates the command. [channel] gives the connection to serve: stdin
   /// and stdout, or a test's channel.
@@ -23,7 +30,19 @@ final class McpCommand extends Command<int> {
     required this.err,
     required this.environment,
     required this.channel,
+    this.codeAnalysis,
+    this.dartSdkPath,
   });
+
+  /// Gives each `verify` call its code analysis. When null, the command
+  /// keeps one analysis server for the project ([keptCodeAnalysis]) and
+  /// stops it when it ends. Only tests set it.
+  final CodeAnalysisScope? codeAnalysis;
+
+  /// Where the analysis reads `dart:` libraries from, and whose `dart` runs
+  /// the analysis server, instead of the Flutter SDK's own Dart SDK. Only
+  /// tests set it.
+  final String? dartSdkPath;
 
   /// Where `appstein help mcp` writes its usage. A user-invoked help request
   /// only: while serving, stdout belongs to the protocol and nothing else is
@@ -64,20 +83,70 @@ final class McpCommand extends Command<int> {
         );
       return ExitCodes.appsteinFailed;
     }
-    final server = AppsteinMcpServer(
-      channel(),
-      projectRoot: projectRoot,
-      syncFor: mcpSyncFactory(
+    // Nothing is started here: the first `verify` call starts the server.
+    final kept = codeAnalysis == null
+        ? keptCodeAnalysis(
+            projectRoot: projectRoot,
+            environment: environment,
+            dartSdkPath: dartSdkPath,
+          )
+        : null;
+    try {
+      final server = AppsteinMcpServer(
+        channel(),
         projectRoot: projectRoot,
-        environment: environment,
-        held: HeldAnalyzerCache(),
-      ),
-      appsteinVersion: appsteinVersion,
-    );
-    await server.done;
+        syncFor: mcpSyncFactory(
+          projectRoot: projectRoot,
+          environment: environment,
+          held: HeldAnalyzerCache(),
+        ),
+        codeAnalysis: codeAnalysis ?? kept!.use,
+        appsteinVersion: appsteinVersion,
+        dartSdkPath: dartSdkPath,
+      );
+      await server.done;
+    } finally {
+      // The orderly end. When this process is killed instead, the guard
+      // ends the analysis server (decision record 0001).
+      await kept?.close();
+      // No call is left to tell it in: what the stop could not end, and
+      // could not show to be its own, is said on stderr.
+      kept?.server.leftProcesses().forEach(err.writeln);
+    }
     return ExitCodes.ok;
   }
 }
+
+/// The code analysis of `appstein mcp`: one analysis server for the project
+/// at [projectRoot], of the SDK the project uses and behind the guard
+/// ([analysisGuardCommand]), kept between `verify` calls. Nothing is
+/// started until a call asks, and the server is stopped when it was idle
+/// for `analysisIdleStop`. The caller passes its `use` as the server's code
+/// analysis and closes it when the MCP server is done.
+///
+/// A terminal run uses [terminalCodeAnalysis] instead, which gives each run
+/// a server of its own. Both ask the same `AnalysisServer`, so the tool and
+/// a terminal run give the same findings.
+///
+/// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests. The
+/// server's cache folder is the one [environment] names
+/// (`analysisServerEnvironment`).
+KeptAnalysisServer<AnalysisServer> keptCodeAnalysis({
+  required String projectRoot,
+  required HostEnvironment environment,
+  String? dartSdkPath,
+}) => KeptAnalysisServer(
+  AnalysisServer(
+    projectRoot: projectRoot,
+    guardCommand: analysisGuardCommand(),
+    dartExecutable: () => projectDartExecutable(
+      environment,
+      projectRoot,
+      dartSdkPath: dartSdkPath,
+    ),
+    environment: analysisServerEnvironment(environment),
+  ),
+);
 
 /// The factory `appstein mcp` gives its server: each call builds a
 /// [KnowledgeSync] from the `appstein.yaml` as it is now (an invalid file

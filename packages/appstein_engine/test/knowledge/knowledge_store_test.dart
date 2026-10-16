@@ -395,13 +395,29 @@ void main() {
       final target = File(p.join(project, 'target.json'))
         ..writeAsStringSync('old');
       final reader = target.openSync();
-      Timer(const Duration(milliseconds: 200), reader.closeSync);
+      // When the handle was closed, on a stopwatch started just before the
+      // call (read before the close, so it is never later than the close).
+      final watch = Stopwatch()..start();
+      var closedAt = Duration.zero;
+      Timer(const Duration(milliseconds: 200), () {
+        closedAt = watch.elapsed;
+        reader.closeSync();
+      });
       final timings = <ReplaceTiming>[];
       await replaceFile(target.path, 'new', onTimed: timings.add);
-      expect(timings.single.retries, greaterThan(0));
+      final timing = timings.single;
+      expect(timing.retries, greaterThan(0));
+      expect(closedAt, greaterThan(Duration.zero), reason: 'the handle closed');
+      // `replaceFile` writes and flushes the temporary file before it starts
+      // timing the rename, so how much of the wait the rename itself reports
+      // depends on how long that write took (a slow disk or a virus scan can
+      // eat most of it). The rename cannot succeed before the handle is
+      // closed, so the write and the rename together reach at least that far
+      // (a millisecond's grace for the order the two clocks were started in).
       expect(
-        timings.single.rename >= const Duration(milliseconds: 150),
-        isTrue,
+        timing.write + timing.rename + const Duration(milliseconds: 1),
+        greaterThanOrEqualTo(closedAt),
+        reason: 'write ${timing.write}, rename ${timing.rename}',
       );
     }, testOn: 'windows');
 

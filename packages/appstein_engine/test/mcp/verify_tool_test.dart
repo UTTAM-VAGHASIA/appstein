@@ -33,6 +33,20 @@ void main() {
     });
   });
 
+  test('notices are in the result, which still matches the schema, and in '
+      'the sentence', () {
+    const notice = 'Process 7 (dart.exe) may be an analysis server.';
+    final reply = answer(
+      const VerifyResult(findings: []).withNotices(const [notice]),
+    );
+    expect(reply.result['notices'], [notice]);
+    expectMatchesSchema(toolOutputSchema(ToolSchemas.verifyResult), {
+      ...reply.result,
+      'freshness': const FreshnessReport.current().toJson(),
+    });
+    expect(reply.summary, 'Full verify: 0 errors, 0 warnings, 0 info. $notice');
+  });
+
   test('the output schema keeps the counts as `summary`', () {
     final schema = toolOutputSchema(ToolSchemas.verifyResult);
     final summary = (schema['properties']! as Map)['summary']! as Map;
@@ -44,13 +58,49 @@ void main() {
     );
   });
 
-  test('the input is a scope: fast or full', () {
+  test('the input is a scope: fast or full, and optional files that the '
+      'schema says are for a fast run', () {
     expectMatchesSchema(ToolSchemas.verifyInput, {'scope': 'fast'});
     expectMatchesSchema(ToolSchemas.verifyInput, {'scope': 'full'});
+    expectMatchesSchema(ToolSchemas.verifyInput, {
+      'scope': 'fast',
+      'files': ['lib/a.dart', 'lib/my file.dart'],
+    });
+    final files =
+        (ToolSchemas.verifyInput['properties']! as Map)['files']! as Map;
+    expect(
+      files['description'],
+      allOf(
+        contains('`scope: fast` only'),
+        contains('outside the project'),
+        contains('project root'),
+      ),
+    );
+    expectMatchesSchema(ToolSchemas.verifyInput, {
+      'scope': 'full',
+      'apply': true,
+    });
+    final apply =
+        (ToolSchemas.verifyInput['properties']! as Map)['apply']! as Map;
+    expect(
+      apply['description'],
+      allOf(
+        contains('`scope: full` only'),
+        contains('`applied`'),
+        contains('read those again'),
+        contains('`scope: fast` is refused'),
+      ),
+    );
     for (final bad in [
       <String, Object?>{},
       {'scope': 'all'},
       {'scope': 3},
+      {'scope': 'fast', 'files': 'lib/a.dart'},
+      {
+        'scope': 'fast',
+        'files': [3],
+      },
+      {'scope': 'full', 'apply': 'yes'},
     ]) {
       expect(
         Schema.fromMap(ToolSchemas.verifyInput).validate(bad),
@@ -58,6 +108,35 @@ void main() {
         reason: '$bad',
       );
     }
+  });
+
+  test('the files apply rewrote are in `applied`, which the schema requires '
+      'and describes, and the sentence starts by naming them', () {
+    final reply = answer(
+      const VerifyResult(
+        findings: [],
+      ).withApplied(const ['lib/a.dart', 'lib/b.dart']),
+    );
+    expect(reply.result['applied'], ['lib/a.dart', 'lib/b.dart']);
+    expectMatchesSchema(toolOutputSchema(ToolSchemas.verifyResult), {
+      ...reply.result,
+      'freshness': const FreshnessReport.current().toJson(),
+    });
+    expect(
+      reply.summary,
+      '`apply` rewrote 2 files (lib/a.dart, lib/b.dart): read them again '
+      'before you edit them. Full verify: 0 errors, 0 warnings, 0 info.',
+    );
+    final schema = toolOutputSchema(ToolSchemas.verifyResult);
+    expect(schema['required'], contains('applied'));
+    expect(
+      ((schema['properties']! as Map)['applied']! as Map)['description'],
+      contains('Read these files again'),
+    );
+    // Without apply the list is there, empty, and the sentence says nothing.
+    final plain = answer(const VerifyResult(findings: []));
+    expect(plain.result['applied'], isEmpty);
+    expect(plain.summary, 'Full verify: 0 errors, 0 warnings, 0 info.');
   });
 
   group('the sentence', () {

@@ -1,8 +1,7 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
-import 'package:glob/glob.dart';
-import 'package:path/path.dart' as p;
 
 import '../decisions/decision_file.dart';
+import '../decisions/decision_path.dart';
 import '../decisions/decision_store.dart';
 import '../knowledge/knowledge_lock.dart';
 import '../knowledge/knowledge_write_exception.dart';
@@ -170,27 +169,30 @@ List<String> _list(Object? value, String name) => switch (value) {
   _ => throw DecisionRefused('`$name` is a list of strings.'),
 };
 
-/// [raw] as a path pattern from the project folder, with `/` separators.
+/// [raw] as a path pattern from the project folder, with `/` separators. A
+/// `\` stays where it escapes `[`, `]`, `{` or `}`; when that reading is not
+/// a valid glob but the one with only separators is, that one is stored
+/// ([decisionPathReadings]).
 String _path(String raw) {
-  var path = raw.trim().replaceAll(r'\', '/');
-  if (path.isEmpty) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) {
     throw const DecisionRefused('A path in `paths` is empty.');
   }
-  if (path.startsWith('/') || RegExp('^[A-Za-z]:').hasMatch(path)) {
-    throw DecisionRefused('`$raw` is an absolute path. $_fromProject');
+  final readings = decisionPathReadings(trimmed);
+  // Every reading is checked, so no way of reading it can leave the project.
+  for (final reading in readings) {
+    final path = reading.pattern;
+    if (path.startsWith('/') || RegExp('^[A-Za-z]:').hasMatch(path)) {
+      throw DecisionRefused('`$raw` is an absolute path. $_fromProject');
+    }
+    if (path.split('/').contains('..')) {
+      throw DecisionRefused('`$raw` leaves the project folder. $_fromProject');
+    }
   }
-  while (path.startsWith('./')) {
-    path = path.substring(2);
+  for (final reading in readings) {
+    if (reading.valid) return reading.pattern;
   }
-  if (path.split('/').contains('..')) {
-    throw DecisionRefused('`$raw` leaves the project folder. $_fromProject');
-  }
-  try {
-    Glob(path, context: p.posix);
-  } on FormatException catch (error) {
-    throw DecisionRefused(
-      '`$raw` is not a valid path pattern (${error.message}).',
-    );
-  }
-  return path;
+  throw DecisionRefused(
+    '`$raw` is not a valid path pattern (${readings.first.problem}).',
+  );
 }

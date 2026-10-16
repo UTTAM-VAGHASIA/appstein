@@ -9,12 +9,19 @@ String _count(int count, String one, String many) =>
 /// The `verify` tool's answer (spec §8): [result] as `appstein verify
 /// --format json` prints it, and a sentence with the counts for [mode] that
 /// says what did not run, what is suppressed, and that errors block the
-/// task.
+/// task. When `apply` rewrote files, the sentence starts by naming them and
+/// telling the agent to read them again.
 ///
 /// The result has a `summary` of its own (the counts, spec §9.3), so the
 /// sentence is in the reply's text only.
 ToolAnswer verifyAnswer(VerifyResult result, {required VerifyMode mode}) {
   final sentences = [
+    // First: files the agent read before may now differ from what it holds.
+    if (result.applied.isNotEmpty)
+      '`apply` rewrote ${_count(result.applied.length, 'file', 'files')} '
+          '(${result.applied.join(', ')}): read '
+          '${result.applied.length == 1 ? 'it' : 'them'} again before you '
+          'edit ${result.applied.length == 1 ? 'it' : 'them'}.',
     '${mode == VerifyMode.fast ? 'Fast' : 'Full'} verify: '
         '${_count(result.errors, 'error', 'errors')}, '
         '${_count(result.warnings, 'warning', 'warnings')}, '
@@ -27,6 +34,8 @@ ToolAnswer verifyAnswer(VerifyResult result, {required VerifyMode mode}) {
     if (result.errors > 0)
       'Fix the ${result.errors == 1 ? 'error' : 'errors'} before the task '
           'is done.',
+    // Not findings: what the reader must be told all the same.
+    ...result.notices,
   ];
   return ToolReply(result.toJson(), sentences.join(' '));
 }

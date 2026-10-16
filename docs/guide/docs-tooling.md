@@ -124,6 +124,8 @@ Run both from the repo root.
 5. **Generated sections are up to date.**
 6. **Progress** ([`progress.dart`](../../tool/src/progress.dart) and [`progress_check.dart`](../../tool/src/progress_check.dart)): `progress.yaml` is valid and agrees with the plans, the slice folders and spec §18, and the visual page's progress sections are up to date. See [Progress](#progress).
 
+[`suite_run.dart`](../../tool/src/suite_run.dart) is not part of the guide check: it judges each step of `tool/test_all.dart` (see [testing](testing.md#run-everything-before-a-commit)). Neither are the five helpers of `tool/measure_sync.dart`, [`mcp_session.dart`](../../tool/src/mcp_session.dart), [`process_memory.dart`](../../tool/src/process_memory.dart), [`warm_measurement.dart`](../../tool/src/warm_measurement.dart), [`warm_verify.dart`](../../tool/src/warm_verify.dart) and [`large_build.dart`](../../tool/src/large_build.dart): they are described in [ci](ci.md#measure), and each has a test in the root `test/` folder.
+
 Every check reads Markdown through [`markdown.dart`](../../tool/src/markdown.dart), which tracks code fences and picks out links to files. Anything inside a fence (a link, a path, a covers comment, a marker) is an example and is skipped.
 
 Exit codes, for both tools:
@@ -265,7 +267,7 @@ What each block does:
 - `fvm dart run tool/install_hooks.dart --remove` takes our blocks out and leaves graphify's. `graphify hook uninstall` removes graphify's.
 - Re-run the installer whenever `tool/src/hooks.dart` or `.graphifyrc` changes. It is safe to run again: unchanged hooks are reported as `up to date`.
 
-**The graph page's node limit.** graphify draws each node in `graphify-out/graph.html` only up to 5,000 nodes. Above that it draws one circle per community instead. This repo's graph passed 5,000 nodes in slice 1b.4, so [`.graphifyrc`](../../.graphifyrc) at the repo root raises the limit with `viz_node_limit=10000`. `graphify hook install` bakes that value into graphify's hooks as `GRAPHIFY_VIZ_NODE_LIMIT`. Our merge and rebase blocks replay `post-checkout`, so they use it too. To redraw the page by hand, run `graphify export html --node-limit 10000`.
+**The graph page's node limit.** graphify draws each node in `graphify-out/graph.html` only up to 5,000 nodes. Above that it draws one circle per community instead. This repo's graph passed 5,000 nodes in slice 1b.4 and 10,000 in slice 1d.2, so [`.graphifyrc`](../../.graphifyrc) at the repo root raises the limit with `viz_node_limit=15000`. `graphify hook install` bakes that value into graphify's hooks as `GRAPHIFY_VIZ_NODE_LIMIT`. Our merge and rebase blocks replay `post-checkout`, so they use it too. To redraw the page by hand, run `graphify export html --node-limit 15000`.
 
 **The cost.** graphify rebuilds in the background, so it doesn't slow a commit. The docs check does: it takes a few seconds (about 2.7 s on the development machine) after each commit. That cost is why doc comments are read as text, not with the analyzer. The graph check adds about half a second after a commit, merge or rebase. A branch switch, merge or rebase also starts the background repair, which takes about 0.2 s in the foreground. It then runs one more code rebuild after graphify's, about 3 seconds on the development machine, in the background.
 

@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../knowledge/support/sync_harness.dart';
+import '../../support/analyzer_warm_up.dart';
 import '../../support/fixture_app.dart';
 import '../support/verify_support.dart';
 
@@ -16,6 +17,8 @@ const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
 const _check = TestRequiredCheck();
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   test('it is `verify.test_required`, in full mode, and reads the map', () {
     expect(_check.ids, ['verify.test_required']);
     expect(_check.mode, VerifyMode.full);

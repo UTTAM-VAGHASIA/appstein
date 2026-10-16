@@ -8,12 +8,15 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fixture_app.dart';
 import '../support/temp.dart';
 
 Uint8List bytes(String text) => Uint8List.fromList(text.codeUnits);
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String path;
 
   setUp(() {

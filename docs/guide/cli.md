@@ -25,9 +25,10 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`runner.dart`](../../packages/appstein_cli/lib/src/runner.dart) | `runAppstein`, the command runner and `reportCrash` |
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
-| [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command and `mcpSyncFactory` |
+| [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command, `mcpSyncFactory` and `keptCodeAnalysis` |
 | [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) | The `docs` command and `formatDocs` |
-| [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `formatVerify` and `verifyExitCode` |
+| [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `terminalCodeAnalysis`, `formatVerify` and `verifyExitCode` |
+| [`analysis_guard_command.dart`](../../packages/appstein_cli/lib/src/analysis_guard_command.dart) | The hidden `analysis-server-guard` command, and `analysisGuardCommand` (with `guardCommandFrom`), which says how this process starts it (see [verify](verify.md#the-guard)) |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |
@@ -43,12 +44,16 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 
 **`runAppstein` returns a code instead of exiting.** It takes the arguments plus optional output sinks and fakes, and returns an `int`. Tests call it in-process, with `StringBuffer`s for the output and a made-up environment, so no subprocess is needed (see [testing](testing.md)).
 
+**It returns only once the analysis servers' clean-ups have ended.** A stopped analysis server's half-written cache files are deleted after the stop returned, so `verify` prints its result first (see [verify](verify.md#stopping)). In a `finally`, `runAppstein` waits for `analysisCleanUpsDone`, so the command returns, and the process ends, only after the deletion.
+
 **Every failure becomes exit code 3.** `runAppstein` wraps everything, including building the runner, in one `try`:
 
 | Caught | What is printed (to stderr) | Exit code |
 |---|---|---|
 | `UsageException` (a bad option, an unknown command, a bad `--project`) | The message, a blank line, then the usage text | 3 |
 | `ConfigException` | `Invalid appstein.yaml: ` and the error | 3 |
+| `CodeAnalysisException` (the analysis server of `verify` could not answer) | The reason, then ``Run `appstein doctor` to check your setup.`` No stack trace: it is a broken setup, not a bug to report | 3 |
+| `TestRunException` (the project's tests could not be run at all by a full `verify`: no Flutter SDK, or `flutter test` could not be started; a `flutter test` that started and gave no result is a `test.failed` finding with exit 1; see [verify](verify.md#the-tests)) | The reason, then ``Run `appstein doctor` to check your setup.`` No stack trace, for the same reason | 3 |
 | `VerifyCheckError` (a check of `verify` threw) | `reportCrash`, with the check's name in the message and the trace of where the check threw | 3 |
 | Anything else | `reportCrash`: "Appstein failed unexpectedly", a hint to run `appstein doctor`, and the stack trace | 3 |
 
@@ -174,7 +179,9 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 
 1. **Finds the project** with `resolveProjectRoot`. There is no fallback: with no `pubspec.yaml` at or above the working folder, it prints two lines to stderr (what is missing, and to start it inside the project or pass `--project`) and exits **3**.
 2. **Builds the server.** `mcpSyncFactory` returns a function that builds a new `KnowledgeSync` for every call. Each time it reads `appstein.yaml` with `loadConfig` (so an edited config takes effect at once, and an invalid one makes the replies `stale` instead of stopping the server), turns it into packs with `packsFor`, and sets two things that differ from `appstein sync`: `packageSkills: false`, and one `HeldAnalyzerCache` shared by every call.
-3. **Waits** for the server to finish (`server.done`), then exits 0.
+3. **Waits** for the server to finish (`server.done`), closes the kept analysis server, then exits 0.
+
+**The code analysis is kept.** `keptCodeAnalysis` builds a `KeptAnalysisServer` for the project, with the guard command, the project's own `dart`, and the analysis server's cache folder when the machine names one (`analysisServerEnvironment`, as `terminalCodeAnalysis` for `verify` does; the tests give their servers folders of their own this way), and the server gets its `use` as its code analysis. Nothing is started by that: the first `verify` call starts the analysis server, later calls share it, and it is stopped after 10 minutes without one (see [verify](verify.md#a-kept-server-warm-analysis)). The command closes it in a `finally` when the MCP server is done, so the analysis server and its guard have ended before the command returns. When the command's process is killed instead, the guard ends the analysis server.
 
 **stdout belongs to the protocol.** The channel is made from the process's stdin and stdout (`stdioMcpChannel`). The command writes nothing else there, because the agent would try to read it as a message. `runAppstein` takes an `mcpChannel` for tests, so they run the command in-process with a fake connection.
 
@@ -202,16 +209,18 @@ A refusal is exit 1, not 3: the project has something to fix (fetch the packages
 
 `appstein verify` checks the project against its knowledge and prints the findings. What a run does, and every check, is in [verify](verify.md); [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) only starts it and prints.
 
-1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`.
-2. **Finds the project and loads `appstein.yaml`**, as `docs` does: no project, or an invalid file, exits **3**.
-3. **Calls `runVerify`** with the project's packs, `checksFor(packs)` and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`.
-4. **Prints the result to stdout**, as `formatVerify` or as indented JSON, and exits with `verifyExitCode`: **1** when a finding is an error, else **0**.
+1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`. `--files <paths>` (comma-separated, or the option repeated; a folder stands for the Dart files under it) adds files to the [unverified files](verify.md#the-unverified-files); without `--fast` it is a usage error, exit **3**, since the default is a full run. `--apply` (full runs only) fixes and formats the project before the checks ([`--apply`](verify.md#--apply)); with `--fast` it is a usage error, exit **3**, and nothing is rewritten.
+2. **Finds the project and loads `appstein.yaml`**, as `docs` does: no project, or an invalid file, exits **3**. The `--files` paths are then resolved against the project root (`resolveVerifyFiles`), not the folder `verify` runs in; a path outside the project is a usage error, exit **3**.
+3. **Calls `runVerify`** with the project's packs, `checksFor(packs)`, the `--files` paths and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`. The call is wrapped in `terminalCodeAnalysis`: the run gets an analysis server of its own, started behind the guard when a check first asks and stopped when the run ends, normally or with an error (see [verify](verify.md#the-analysis-server)). With `--apply`, `applyToProject` runs first, inside the same scope and on the same server, so the refresh `runVerify` starts with and its reading are of the rewritten files; the files it wrote are added to the result (`withApplied`).
+4. **Prints the result to stdout**, as `formatVerify` (which starts with the files `--apply` rewrote, when there are any) or as indented JSON (whose `applied` lists them, empty without `--apply`), and exits with `verifyExitCode`: **1** when a finding is an error, else **0**.
 
-Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3.
+Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3. An analysis server that can't answer isn't either: `runAppstein` prints the `CodeAnalysisException`'s reason and exits 3. Tests that can't be run at all (`TestRunException`: no Flutter SDK, or `flutter test` could not be started) are handled the same way. A `flutter test` that started and ended with a failing exit code without naming a failing test, a run that was stopped at its time limit, and a run whose output ended early are findings (`test.failed`), so they go to stdout and exit 1.
 
-`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`.
+`runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`. It also takes `dartSdkPath` (for `verify` and `mcp`), the Dart SDK the analysis reads `dart:` libraries from and whose `dart` runs the analysis server, and `codeAnalysis`, which replaces the analysis server for `verify` and for the `verify` tool of `mcp`.
 
-The CLI's own tests can't build a project map (their fake Flutter SDK has no Dart SDK), so every run there reports `knowledge.stale`. Runs on a whole project are in the engine's [`verify_fixture_test.dart`](../../packages/appstein_engine/test/verify/verify_fixture_test.dart), and with the compiled binary in [`tool/measure_sync.dart`](../../tool/measure_sync.dart) (see [ci](ci.md)).
+**The guard mode.** `appstein analysis-server-guard` followed by a `dart` executable is the guard of an analysis server: Appstein starts it, and the help doesn't list it. What it does and how it is started are in [verify](verify.md#the-guard).
+
+The CLI's own tests use a fake Flutter SDK, which has no Dart SDK, so a run that isn't given one can't build a project map and reports `knowledge.stale`. It couldn't start an analysis server either, so the tests' `run` helper passes `ScriptedCodeAnalysis().scope` unless a test asks for the real server. One test does, with `dartSdkPath: testDartSdk`: it runs the whole path (the command, the guard started as `dart bin/appstein.dart analysis-server-guard`, the server) on a project with a compile error and without it, and checks with [`child_processes.dart`](../../packages/appstein_cli/test/support/child_processes.dart) that no process is left. A test that needs the map passes `dartSdkPath: testDartSdk` (the Dart SDK running the tests; [`dart_sdk.dart`](../../packages/appstein_cli/test/support/dart_sdk.dart)). `verify_command_test.dart` does this for a small healthy project (fresh packages, default config, its docs rendered first with the engine's `runDocs`, which `appstein docs` uses) and sees exit 0 with the summary line alone, in text and in JSON. Runs on the fixture app are in the engine's [`verify_fixture_test.dart`](../../packages/appstein_engine/test/verify/verify_fixture_test.dart), and with the compiled binary in [`tool/measure_sync.dart`](../../tool/measure_sync.dart) (see [ci](ci.md)).
 
 ## Help text
 
@@ -287,11 +296,13 @@ $ appstein help verify
 Check the project against its knowledge (fast or full).
 
 Usage: appstein verify [arguments]
--h, --help      Print this usage information.
-    --fast      Run only the fast checks, as after every change.
-    --full      Run every check, as before a task is done (the default).
-    --format    How the findings are printed.
-                [text (default), json]
+-h, --help             Print this usage information.
+    --fast             Run only the fast checks, as after every change.
+    --full             Run every check, as before a task is done (the default).
+    --format           How the findings are printed.
+                       [text (default), json]
+    --files=<paths>    With --fast: add these files to the unverified files, for this run and after it. Paths are from the project root, or absolute inside the project; a folder stands for its Dart files. Separate them with commas, or repeat the option.
+    --apply            With a full run: first apply the fixes `dart fix` would apply and format the whole project (generated files left out), then check. Names each file it rewrote. Without it, verify writes no project file.
 
 Run "appstein help" to see global options.
 ```

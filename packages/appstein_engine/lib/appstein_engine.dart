@@ -1,11 +1,18 @@
 /// The Appstein engine: everything the CLI does, with no command-line code.
 library;
 
+export 'src/analysis/analysis_cache.dart';
+export 'src/analysis/analysis_guard.dart';
+export 'src/analysis/analysis_server.dart';
+export 'src/analysis/code_analysis.dart';
+export 'src/analysis/kept_analysis_server.dart';
+export 'src/analysis/process_identity.dart';
 export 'src/android/android_sdk_locator.dart';
 export 'src/android/flutter_settings.dart';
 export 'src/android/java_locator.dart';
 export 'src/config/config_loader.dart';
 export 'src/decisions/decision_file.dart';
+export 'src/decisions/decision_path.dart';
 export 'src/decisions/decision_store.dart';
 export 'src/delta/delta_collector.dart';
 export 'src/delta/delta_document.dart';
@@ -43,6 +50,7 @@ export 'src/host/process_runner.dart';
 export 'src/index/index_document.dart';
 export 'src/index/index_sources.dart';
 export 'src/knowledge/canonical_json.dart';
+export 'src/knowledge/dart_files.dart';
 export 'src/knowledge/freshness.dart';
 export 'src/knowledge/generated_file.dart';
 export 'src/knowledge/input_hash.dart';
@@ -102,13 +110,35 @@ export 'src/toolchain/gradle_utils_parser.dart';
 export 'src/toolchain/toolchain_files.dart';
 export 'src/toolchain/toolchain_reader.dart';
 export 'src/toolchain/xcode_template_parser.dart';
+export 'src/verify/checks/dart_deprecated_check.dart' show DartDeprecatedCheck;
+export 'src/verify/checks/dart_error_check.dart';
+export 'src/verify/checks/dart_fix_pending_check.dart';
+export 'src/verify/checks/dart_level_checks.dart';
+export 'src/verify/checks/dart_unformatted_check.dart';
+export 'src/verify/checks/dart_unreadable_check.dart';
 export 'src/verify/checks/decisions_check.dart';
 export 'src/verify/checks/docs_stale_check.dart';
 export 'src/verify/checks/lessons_long_check.dart';
 export 'src/verify/checks/paths_exist_check.dart';
+export 'src/verify/checks/plugin_failed_check.dart';
+export 'src/verify/checks/test_failed_check.dart';
 export 'src/verify/checks/test_required_check.dart';
+export 'src/verify/apply.dart';
 export 'src/verify/decision_check.dart';
+export 'src/verify/deprecation_ignores.dart'
+    show
+        DeprecationIgnore,
+        deprecatedUseCodes,
+        deprecationIgnoresIn,
+        deprecationSwitchesIn,
+        isDeprecatedUseCode,
+        readDeprecationIgnores;
 export 'src/verify/engine_checks.dart';
+export 'src/verify/formatting.dart'
+    show FormatReading, formatBudgetFast, formatBudgetFull;
+export 'src/verify/suppression_comments.dart' show SuppressionComment;
 export 'src/verify/suppressions.dart';
+export 'src/verify/test_run.dart';
+export 'src/verify/unverified_files.dart';
 export 'src/verify/verify_check.dart';
 export 'src/verify/verify_run.dart';

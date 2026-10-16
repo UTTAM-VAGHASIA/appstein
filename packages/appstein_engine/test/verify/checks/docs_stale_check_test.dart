@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../knowledge/support/sync_harness.dart';
+import '../../support/analyzer_warm_up.dart';
 import '../../support/fake_process_runner.dart';
 import '../../support/fixture_app.dart';
 import '../support/verify_support.dart';
@@ -31,6 +32,8 @@ const _pages = [
 ];
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
 

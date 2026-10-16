@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:appstein_engine/android.dart';
@@ -12,21 +13,35 @@ import 'package:test/test.dart';
 
 import '../knowledge/support/hold_lock.dart';
 import '../knowledge/support/sync_harness.dart';
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
+import '../support/flutter_test_output.dart';
+import '../support/scripted_code_analysis.dart';
 import 'support/mcp_client.dart';
 import 'support/mcp_support.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late String app;
   late FakeProcessRunner runner;
   late KnowledgeSync Function() syncFor;
+  late ScriptedCodeAnalysis analysis;
+
+  /// Waited for before a `verify` call gets its code analysis, as a kept
+  /// analysis server makes a call wait while it is being stopped.
+  Future<void> Function()? entering;
 
   setUp(() {
+    entering = null;
+    analysis = ScriptedCodeAnalysis();
     sdk = fakeFlutter();
     app = copyFixtureApp();
     runner = FakeProcessRunner();
+    // The app's tests pass, where a full `verify` runs them.
+    scriptFlutterTest(runner, sdk);
     syncFor = () => knowledgeSync(
       flutterRoot: sdk,
       runner: runner,
@@ -41,6 +56,10 @@ void main() {
       controller.local,
       projectRoot: app,
       syncFor: () => syncFor(),
+      codeAnalysis: <T>(body) async {
+        await entering?.call();
+        return analysis.scope(body);
+      },
       appsteinVersion: '0.1.0-dev',
       dartSdkPath: testDartSdk,
       clock: () => DateTime(2026, 10, 6, 23, 59),
@@ -435,6 +454,550 @@ void main() {
       expect(VerifyResult.fromJson(json).warnings, 14);
     });
 
+    test('an analysis server that can\'t answer is an error reply with the '
+        'reason and `appstein doctor`, and the server keeps '
+        'running', () async {
+      analysis.failure = const CodeAnalysisException(
+        'its analysis was not done within 180 s',
+      );
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'fast'});
+      expect(failed.isError, isTrue);
+      expect(
+        textOf(failed),
+        startsWith(
+          'The Dart analysis server could not answer: its analysis was not '
+          'done within 180 s. Run `appstein doctor` to see what is wrong.',
+        ),
+      );
+      expect(textOf(failed), isNot(contains('..')));
+
+      // The next call is answered, by `verify` too once the analysis can.
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+      analysis
+        ..failure = null
+        ..found = const [
+          CodeDiagnostic(
+            file: 'lib/main.dart',
+            line: 1,
+            code: 'some_code',
+            message: 'Wrong.',
+            level: DiagnosticLevel.error,
+          ),
+        ];
+      final json = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(ids(json), ['dart.error']);
+    });
+
+    test('a // appstein:ignore comment hides a finding, and the reply counts '
+        'it with the appstein.yaml entries', () async {
+      File(p.join(app, 'lib', 'commented.dart')).writeAsStringSync(
+        'int a = 1; // appstein:ignore dart.error — accepted\n'
+        'int b = 1; // appstein:ignore dart.error\n',
+      );
+      File(p.join(app, 'appstein.yaml')).writeAsStringSync(
+        'appstein: 1\n'
+        'suppressions:\n'
+        '  - id: dart.error\n'
+        '    path: lib/legacy\n'
+        '    reason: rewritten next month\n',
+      );
+      analysis
+        ..analyzedFiles = const ['lib/commented.dart']
+        ..found = const [
+          CodeDiagnostic(
+            file: 'lib/commented.dart',
+            line: 1,
+            code: 'some_code',
+            message: 'Wrong.',
+            level: DiagnosticLevel.error,
+          ),
+          CodeDiagnostic(
+            file: 'lib/legacy/old.dart',
+            line: 3,
+            code: 'some_code',
+            message: 'Old.',
+            level: DiagnosticLevel.error,
+          ),
+          CodeDiagnostic(
+            file: 'lib/commented.dart',
+            line: 2,
+            code: 'some_code',
+            message: 'Still wrong.',
+            level: DiagnosticLevel.error,
+          ),
+        ];
+      final server = await serve();
+      final result = await call(server, 'verify', {'scope': 'fast'});
+      final json = structured(result);
+      expect(ids(json), ['dart.error', 'suppression.no_reason']);
+      expect(
+        [
+          for (final finding in json['findings']! as List)
+            (finding as Map)['line'],
+        ],
+        [2, 2],
+      );
+      expect(json['suppressed'], 2);
+      expect(json['activeSuppressions'], 2);
+      expect(textOf(result), contains('2 findings are suppressed.'));
+    });
+
+    test('`files` adds files for a fast run, with the same rules as '
+        '--files: a full run or a path outside the project is an error '
+        'reply', () async {
+      CodeDiagnostic warning(String file) => CodeDiagnostic(
+        file: file,
+        line: 1,
+        code: 'unused_import',
+        message: 'Unused.',
+        level: DiagnosticLevel.warning,
+      );
+      analysis.found = [warning('lib/a.dart'), warning('lib/b.dart')];
+      final server = await serve();
+      final full = await call(server, 'verify', {
+        'scope': 'full',
+        'files': ['lib/a.dart'],
+      });
+      expect(full.isError, isTrue);
+      expect(textOf(full), startsWith('`files` works with `scope: fast` only'));
+      final outside = await call(server, 'verify', {
+        'scope': 'fast',
+        'files': ['../a.dart'],
+      });
+      expect(outside.isError, isTrue);
+      expect(
+        textOf(outside),
+        startsWith('The path `../a.dart` given to `files` is outside the '),
+      );
+      final json = structured(
+        await call(server, 'verify', {
+          'scope': 'fast',
+          'files': ['lib/a.dart'],
+        }),
+      );
+      expect(
+        [
+          for (final finding in json['findings']! as List)
+            if ((finding as Map)['id'] == 'dart.warning') finding['file'],
+        ],
+        ['lib/a.dart'],
+      );
+    });
+
+    test('`apply` with the full scope rewrites the files before the '
+        'knowledge is refreshed, names them in `applied` and tells the agent '
+        'to read them again; with the fast scope, or with input that is '
+        'refused, nothing is rewritten', () async {
+      final main = File(p.join(app, 'lib', 'main.dart'));
+      analysis.onApply = (_) async {
+        main.writeAsStringSync('${main.readAsStringSync()}// Fixed.\n');
+        return ['lib/main.dart'];
+      };
+      final server = await serve();
+      // Synced once, so the next refresh says what changed.
+      await call(server, 'overview');
+
+      final fast = await call(server, 'verify', {
+        'scope': 'fast',
+        'apply': true,
+      });
+      expect(fast.isError, isTrue);
+      expect(textOf(fast), startsWith('`apply` works with `scope: full` only'));
+      final wrong = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': 'yes',
+      });
+      // The input schema refuses it before the tool runs.
+      expect(wrong.isError, isTrue);
+      expect(textOf(wrong), contains('["apply"]'));
+      final withFiles = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': true,
+        'files': ['lib/a.dart'],
+      });
+      expect(withFiles.isError, isTrue);
+      expect(analysis.events, isNot(contains('applyFixesAndFormat')));
+
+      final plain = structured(
+        await call(server, 'verify', {'scope': 'full', 'apply': false}),
+      );
+      expect(plain['applied'], isEmpty);
+      expect(analysis.events, isNot(contains('applyFixesAndFormat')));
+
+      analysis.leftAlone = {
+        'lib/linked/x.dart':
+            'it is outside the project once links are followed',
+      };
+      final result = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': true,
+      });
+      final json = structured(result);
+      expect(json['applied'], ['lib/main.dart']);
+      // The refresh came after the rewrite: it saw the file change.
+      expect((json['freshness']! as Map)['changed'], contains('lib/main.dart'));
+      expect(
+        textOf(result),
+        startsWith(
+          '`apply` rewrote 1 file (lib/main.dart): read it again before you '
+          'edit it. Full verify: ',
+        ),
+      );
+      // A file it left as it was is told, as a notice and in the text.
+      const notice =
+          'Applying fixes and formatting left `lib/linked/x.dart` as it was: '
+          'it is outside the project once links are followed. What it needs '
+          'is still reported.';
+      expect(json['notices'], [notice]);
+      expect(textOf(result), contains(notice));
+      expect(
+        analysis.events.where((event) => event == 'applyFixesAndFormat'),
+        hasLength(1),
+      );
+      expect(VerifyResult.fromJson(json).applied, ['lib/main.dart']);
+    });
+
+    test('an analysis server that fails while `apply` rewrites is an error '
+        'reply with the reason and `appstein doctor`', () async {
+      analysis.applyFailure = const CodeAnalysisException('it ended by itself');
+      final server = await serve();
+      final failed = await call(server, 'verify', {
+        'scope': 'full',
+        'apply': true,
+      });
+      expect(failed.isError, isTrue);
+      expect(
+        textOf(failed),
+        startsWith(
+          'The Dart analysis server could not answer: it ended by itself. '
+          'Run `appstein doctor`',
+        ),
+      );
+    });
+
+    test('the other tools never wait for the analysis server: they are '
+        'answered while a verify call waits for its reading', () async {
+      final asked = Completer<void>();
+      final answer = Completer<void>();
+      analysis.onAsked = () {
+        if (!asked.isCompleted) asked.complete();
+        return answer.future;
+      };
+      final server = await serve();
+      await call(server, 'overview');
+      var verified = false;
+      final verify = call(server, 'verify', {
+        'scope': 'fast',
+      }).whenComplete(() => verified = true);
+      await asked.future;
+
+      // A read tool, a write tool and a read tool again, all answered.
+      final overview = structured(await call(server, 'overview'));
+      expect(overview['freshness'], {'state': 'current'});
+      final written = structured(
+        await call(server, 'memory_write', {
+          'kind': 'lesson',
+          'text': 'Other tools answer while verify waits.',
+        }),
+      );
+      expect(written['added'], isTrue);
+      structured(await call(server, 'where_is', {'query': 'login screen'}));
+      expect(verified, isFalse);
+      expect(analysis.asked, 1);
+
+      answer.complete();
+      expect(structured(await verify)['findings'], isEmpty);
+    });
+
+    test('the other tools never wait for a verify call that is waiting to '
+        'get its code analysis, as it does while an idle analysis server is '
+        'being stopped', () async {
+      final waiting = Completer<void>();
+      final enter = Completer<void>();
+      entering = () {
+        if (!waiting.isCompleted) waiting.complete();
+        return enter.future;
+      };
+      final server = await serve();
+      var verified = false;
+      final verify = call(server, 'verify', {
+        'scope': 'fast',
+      }).whenComplete(() => verified = true);
+      await waiting.future;
+
+      structured(await call(server, 'overview'));
+      structured(await call(server, 'where_is', {'query': 'login screen'}));
+      expect(verified, isFalse);
+      expect(analysis.asked, 0);
+
+      enter.complete();
+      expect(structured(await verify)['findings'], isEmpty);
+    });
+
+    test('a verify call that can\'t get its code analysis at all, as when '
+        'the kept server was closed, is an error reply that says so, without '
+        'asking for a bug report', () async {
+      entering = () => throw const CodeAnalysisException(
+        'it was closed, because Appstein is stopping',
+      );
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'fast'});
+      expect(failed.isError, isTrue);
+      expect(
+        textOf(failed),
+        'The Dart analysis server could not answer: it was closed, because '
+        'Appstein is stopping. Run `appstein doctor` to see what is wrong.',
+      );
+      entering = null;
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+    });
+
+    test('what the code analysis must tell beside its reading (a process '
+        'Appstein could not stop) is in the reply: in `notices` and in the '
+        'text, and gone from the next reply when it no longer holds', () async {
+      const notice =
+          'Process 4711 (dart.exe) may be an analysis server that Appstein '
+          'started and could not stop. Appstein could not confirm that the '
+          'process is its own, so it did not end it. To end it by hand: '
+          '`taskkill /PID 4711 /FI "IMAGENAME eq dart.exe" /F`';
+      analysis.notices = const [notice];
+      final server = await serve();
+      final tools = {
+        for (final tool in (await server.listTools()).tools) tool.name: tool,
+      };
+      final told = await call(server, 'verify', {'scope': 'fast'});
+      final json = structured(told);
+      expect(json['notices'], [notice]);
+      expect(json['summary'], {'errors': 0, 'warnings': 0, 'info': 0});
+      expect(textOf(told), contains(notice));
+      expectMatchesSchema(
+        tools['verify']!.outputSchema! as Map<String, Object?>,
+        json,
+      );
+
+      analysis.notices = const [];
+      final quiet = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(quiet.containsKey('notices'), isFalse);
+    });
+
+    test('a verify call that arrives while another is being answered waits: '
+        'the analysis is never asked by two calls at once, and each call '
+        'takes its own reading', () async {
+      var asking = 0;
+      var most = 0;
+      final gates = <Completer<void>>[];
+      analysis.onAsked = () async {
+        asking++;
+        if (asking > most) most = asking;
+        final gate = Completer<void>();
+        gates.add(gate);
+        await gate.future;
+        asking--;
+      };
+      final server = await serve();
+      final calls = [
+        for (var i = 0; i < 3; i++) call(server, 'verify', {'scope': 'fast'}),
+      ];
+      for (var answered = 0; answered < 3; answered++) {
+        // Until the next call asks; the others wait behind it.
+        while (gates.length <= answered) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(gates, hasLength(answered + 1));
+        expect(asking, 1);
+        gates[answered].complete();
+      }
+      for (final result in await Future.wait(calls)) {
+        expect(structured(result)['findings'], isEmpty);
+      }
+      expect(most, 1);
+      expect(analysis.asked, 3);
+    });
+
+    test('a verify call that fails while it waits for its reading gives the '
+        'turn back: the next calls are answered', () async {
+      analysis.onAsked = () async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        throw StateError('the analysis broke');
+      };
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'fast'});
+      expect(failed.isError, isTrue);
+      expect(textOf(failed), startsWith('Appstein failed to answer: '));
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+      analysis.onAsked = null;
+      expect(
+        structured(await call(server, 'verify', {'scope': 'fast'}))['findings'],
+        isEmpty,
+      );
+    });
+
+    test('the time limit of a formatting question is on the analysis, not on '
+        'the wait for the calls\' turn: a call that holds the turn longer '
+        'than the budget changes no answer, and the run never goes on while '
+        'it holds the turn', () async {
+      File(p.join(app, 'lib', 'a.dart')).writeAsStringSync('int a( )=>1;\n');
+      analysis = ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+        ..unformatted = {'lib/a.dart'};
+      final server = await serve();
+      await call(server, 'overview');
+      final log = <String>[];
+
+      // The question is answered at the moment another call holds the turn
+      // the verify call gave up: the question starts another call, and is
+      // answered when that call's turn starts (its sync is the first thing
+      // it does with the turn), so the answer comes within the question's
+      // time whatever the machine's load. The other call then holds the turn
+      // for more than the question's time and its grace together: its sync
+      // waits for a command that takes 3 s.
+      var armed = false;
+      var holds = false;
+      final holding = Completer<void>();
+      final originalSync = syncFor;
+      syncFor = () {
+        if (armed && !holds) {
+          holds = true;
+          log.add('other holds the turn');
+          holding.complete();
+        }
+        return originalSync();
+      };
+      var delayed = false;
+      runner.onRun = (_) async {
+        if (!armed || delayed) return;
+        delayed = true;
+        await Future<void>.delayed(
+          formatBudgetFast + questionGrace + const Duration(seconds: 1),
+        );
+        log.add('other lets go');
+      };
+      late Future<CallToolResult> other;
+      analysis.onFormatAsked = () {
+        armed = true;
+        File(
+          p.join(app, 'pubspec.yaml'),
+        ).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 5)));
+        other = call(
+          server,
+          'overview',
+        ).whenComplete(() => log.add('other done'));
+        return holding.future;
+      };
+      final verify = call(server, 'verify', {
+        'scope': 'fast',
+        'files': ['lib/a.dart'],
+      }).whenComplete(() => log.add('verify done'));
+      final json = structured(await verify);
+      await other;
+
+      // The run took the turn back only when the other call had finished.
+      expect(log, [
+        'other holds the turn',
+        'other lets go',
+        'other done',
+        'verify done',
+      ]);
+      expect(
+        [
+          for (final finding in json['findings']! as List)
+            (finding as Map)['id'],
+        ],
+        ['dart.unformatted'],
+      );
+      expect(json['notRun'], anyOf(isNull, isEmpty));
+    });
+
+    test('a server that fails while it answers the formatting question is '
+        'an error reply with the reason and `appstein doctor`, like one that '
+        'fails while it reads, and the server keeps running', () async {
+      File(p.join(app, 'lib', 'a.dart')).writeAsStringSync('int a( )=>1;\n');
+      analysis = ScriptedCodeAnalysis(analyzedFiles: ['lib/a.dart'])
+        ..formatFailure = const CodeAnalysisException('it ended by itself');
+      final server = await serve();
+      final failed = await call(server, 'verify', {
+        'scope': 'fast',
+        'files': ['lib/a.dart'],
+      });
+      expect(failed.isError, isTrue);
+      expect(failed.structuredContent, isNull);
+      expect(
+        textOf(failed),
+        startsWith(
+          'The Dart analysis server could not answer: it ended by itself. '
+          'Run `appstein doctor` to see what is wrong.',
+        ),
+      );
+      expect((await call(server, 'overview')).isError, isNot(isTrue));
+      analysis.formatFailure = null;
+      expect([
+        for (final finding
+            in structured(
+                  await call(server, 'verify', {
+                    'scope': 'fast',
+                    'files': ['lib/a.dart'],
+                  }),
+                )['findings']!
+                as List)
+          (finding as Map)['id'],
+      ], isEmpty);
+    });
+
+    test('tests that can\'t be run are an error reply with the reason and '
+        '`appstein doctor`, not a bug to report, and the server keeps '
+        'running', () async {
+      // `flutter test` "can't be started": nothing is scripted for it.
+      runner = FakeProcessRunner();
+      final server = await serve();
+      final failed = await call(server, 'verify', {'scope': 'full'});
+      expect(failed.isError, isTrue);
+      expect(failed.structuredContent, isNull);
+      expect(
+        textOf(failed),
+        allOf(
+          startsWith(
+            'The project\'s tests could not be run: `flutter test` could not '
+            'be started with ',
+          ),
+          contains('). Run `appstein doctor` to see what is wrong.'),
+          isNot(contains('report it')),
+        ),
+      );
+      // A fast run never runs them, so it answers.
+      final json = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(json['findings'], isEmpty);
+    });
+
+    test('full: a failing test is a test.failed finding in the '
+        'reply', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(exitCode: 1, stdout: flutterTestOutput('failing', app)),
+      );
+      final server = await serve();
+      final json = structured(await call(server, 'verify', {'scope': 'full'}));
+      final failed = [
+        for (final finding in json['findings']! as List)
+          if ((finding as Map)['id'] == 'test.failed') finding,
+      ];
+      expect(failed, hasLength(7));
+      expect(failed.last, {
+        'id': 'test.failed',
+        'severity': 'error',
+        'file': 'test/widgets/failing_test.dart',
+        'line': 28,
+        'message':
+            'The test `widget throws` failed: The following ArgumentError '
+            'was thrown running a test: Invalid argument(s): bad widget',
+        'fixHint':
+            'Run `flutter test test/widgets/failing_test.dart` to see the '
+            'whole failure.',
+      });
+      expect((json['summary']! as Map)['errors'], 7);
+    });
+
     test('fast: no full check runs', () async {
       final server = await serve();
       final result = await call(server, 'verify', {'scope': 'fast'});
@@ -486,6 +1049,9 @@ void main() {
 
     test('knowledge that cannot be refreshed is a finding, not an error '
         'reply; the sync is built once', () async {
+      // Without a Flutter SDK the app's tests could not be run either, which
+      // is an error reply (below): this app has none.
+      Directory(p.join(app, 'test')).deleteSync(recursive: true);
       var syncs = 0;
       syncFor = () {
         syncs++;

@@ -9,11 +9,14 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import 'support/sync_harness.dart';
 
 void main() {
+  setUpAll(warmUpAnalyzer);
+
   late String sdk;
   late FakeProcessRunner runner;
   late String app;
@@ -328,6 +331,218 @@ void main() {
         contains('the last sync was made by Appstein 0.1.0-dev'),
       );
     });
+  });
+
+  // Slice 1d.2: a file joins the unverified files when the refresh sees its
+  // content changed, for every Dart file the analysis server covers.
+  group('the unverified files', () {
+    /// As a `verify` run that found no error would leave them: none.
+    Future<void> verified() async {
+      final store = KnowledgeStore(app);
+      final now = store.readState().state!;
+      await store.locked(
+        () => store.writeState(now.copyWith(unverified: const [])),
+      );
+    }
+
+    setUp(() async {
+      await full();
+      await detect(); // Empties the change list.
+    });
+
+    test('the first sync records every Dart file of the project, the map\'s '
+        'and the others, and every one is unverified: nothing counts as '
+        'verified before it was checked', () async {
+      expect(
+        state().dartFiles,
+        containsPair(
+          'lib/main.dart',
+          sha256Hex(fileOf('lib/main.dart').readAsBytesSync()),
+        ),
+      );
+      expect(
+        state().dartFiles!.keys.where((file) => file.contains(r'\')),
+        isEmpty,
+      );
+      expect(state().unverified, state().dartFiles!.keys.toList()..sort());
+      expect(state().unverified, contains('lib/main.dart'));
+    });
+
+    for (final (what, spoil) in <(String, void Function(File))>[
+      ('deleted', (file) => file.deleteSync()),
+      ('that can\'t be read', (file) => file.writeAsStringSync('{not json')),
+    ]) {
+      test('a state.json $what: the rebuild makes every Dart file '
+          'unverified', () async {
+        await verified();
+        expect(state().unverified, isEmpty);
+        spoil(fileOf('.appstein/state.json'));
+        final report = await detect();
+        expect(report.current, isFalse);
+        expect(state().unverified, state().dartFiles!.keys.toList()..sort());
+        expect(state().unverified, isNotEmpty);
+      });
+    }
+
+    test('a Dart file behind a link to a folder (a junction on Windows) is '
+        'hashed by its path through the link, and an edit there joins; a '
+        'link back to a folder above is not followed round', () async {
+      final shared = p.join(p.dirname(app), 'shared');
+      File(p.join(shared, 's.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('/// S.\nclass S {}\n');
+      Link(p.join(app, 'lib', 'linked')).createSync(shared);
+      Link(p.join(app, 'lib', 'loop')).createSync(p.join(app, 'lib'));
+      await detect();
+      await verified();
+      expect(state().dartFiles, contains('lib/linked/s.dart'));
+      // `lib/loop` leads back into `lib`, which the walk is inside: the real
+      // server skips it too (checked on Windows with a junction).
+      expect(
+        state().dartFiles!.keys.where((file) => file.startsWith('lib/loop/')),
+        isEmpty,
+      );
+      File(
+        p.join(shared, 's.dart'),
+      ).writeAsStringSync('\n/// T.\nclass T {}\n', mode: FileMode.append);
+      await detect();
+      expect(state().unverified, ['lib/linked/s.dart']);
+    });
+
+    test('what analysis_options.yaml excludes is left out, as the server '
+        'leaves it out; build/ and ios/Pods/, which the server analyzes, are '
+        'not', () async {
+      write('gen/skip.dart', 'void main() {}\n');
+      write('lib/generated/skip.dart', 'void main() {}\n');
+      write('lib/one.g.dart', 'void main() {}\n');
+      write('build/gen/kept.dart', 'void main() {}\n');
+      write('ios/Pods/x/kept.dart', 'void main() {}\n');
+      write(
+        'analysis_options.yaml',
+        'analyzer:\n  exclude:\n    - gen/**\n    - lib/generated/**\n'
+            '    - "**/*.g.dart"\n',
+      );
+      await detect();
+      final files = state().dartFiles!.keys;
+      expect(
+        files,
+        containsAll(['build/gen/kept.dart', 'ios/Pods/x/kept.dart']),
+      );
+      expect(
+        files,
+        isNot(
+          anyOf(
+            contains('gen/skip.dart'),
+            contains('lib/generated/skip.dart'),
+            contains('lib/one.g.dart'),
+          ),
+        ),
+      );
+    });
+
+    test('a file renamed in letter case only is one entry, by its new '
+        'name', () async {
+      write('lib/case_name.dart', 'void main() {}\n');
+      await detect();
+      await verified();
+      fileOf(
+        'lib/case_name.dart',
+      ).renameSync(p.join(app, 'lib', 'Case_Name.dart'));
+      await detect();
+      expect(state().unverified, ['lib/Case_Name.dart']);
+    }, testOn: 'windows || mac-os');
+
+    test('a Dart file outside the map\'s folders that changes joins them, '
+        'though nothing is rebuilt', () async {
+      await verified();
+      write('bin/tool.dart', 'void main() {}\n');
+      write('integration_test/app_test.dart', 'void main() {}\n');
+      var report = await detect();
+      expect(report.current, isTrue);
+      expect(state().unverified, [
+        'bin/tool.dart',
+        'integration_test/app_test.dart',
+      ]);
+      // Folders whose name starts with a dot are not the analysis's.
+      write('.hidden/skip.dart', 'void main() {}\n');
+      report = await detect();
+      expect(report.current, isTrue);
+      expect(state().unverified, hasLength(2));
+    });
+
+    test('an edit to lib/ and to a test joins them; they stay through later '
+        'refreshes, and a deleted file joins too', () async {
+      await verified();
+      fileOf('lib/main.dart').writeAsStringSync(
+        '\n/// Late.\nclass Late {}\n',
+        mode: FileMode.append,
+      );
+      await detect();
+      expect(state().unverified, ['lib/main.dart']);
+      final testFile = Directory(p.join(app, 'test'))
+          .listSync(recursive: true)
+          .whereType<File>()
+          .firstWhere((file) => file.path.endsWith('_test.dart'));
+      final testPath = p.split(p.relative(testFile.path, from: app)).join('/');
+      testFile.deleteSync();
+      await detect();
+      await detect();
+      expect(state().unverified, ['lib/main.dart', testPath]..sort());
+      expect(state().dartFiles, isNot(contains(testPath)));
+      // A full sync keeps them as well.
+      await full();
+      expect(state().unverified, ['lib/main.dart', testPath]..sort());
+    });
+
+    test('a state.json written before slice 1d.2 is read like a missing one, '
+        'without an error: every Dart file is unverified', () async {
+      final json =
+          jsonDecode(fileOf('.appstein/state.json').readAsStringSync())
+                as Map<String, Object?>
+            ..remove('dartFiles')
+            ..remove('unverified')
+            ..remove('dartStamps')
+            ..remove('dartScannedAt');
+      fileOf('.appstein/state.json').writeAsStringSync(jsonEncode(json));
+      final report = await detect();
+      expect(report.current, isTrue);
+      expect(state().dartFiles, contains('lib/main.dart'));
+      expect(state().unverified, state().dartFiles!.keys.toList()..sort());
+    });
+
+    test('the scan keeps the time and size of each file it read, and a '
+        'later refresh does not change the state for an unchanged '
+        'project', () async {
+      write('bin/tool.dart', 'void main() {}\n');
+      await detect();
+      expect(state().dartStamps, contains('bin/tool.dart'));
+      expect(state().dartScannedAt, isNotNull);
+      // The map's inputs are hashed by the map: no stamp of their own.
+      expect(state().dartStamps, isNot(contains('lib/main.dart')));
+      final before = fileOf('.appstein/state.json').readAsStringSync();
+      await detect();
+      expect(fileOf('.appstein/state.json').readAsStringSync(), before);
+    });
+
+    test(
+      'with a busy lock the change is not lost: a later detect finds it',
+      () async {
+        await verified();
+        write('bin/tool.dart', 'void main() {}\n');
+        final lock = await KnowledgeLock.acquire(p.join(app, '.appstein'));
+        addTearDown(lock.release);
+        final report = await knowledgeSync(
+          flutterRoot: sdk,
+          runner: runner,
+          lockTimeout: const Duration(milliseconds: 200),
+        ).detect(app, dartSdkPath: testDartSdk);
+        expect(report.current, isTrue);
+        expect(state().unverified, isEmpty);
+        lock.release();
+        await detect();
+        expect(state().unverified, ['bin/tool.dart']);
+      },
+    );
   });
 
   group('knowledge and state.json that disagree', () {

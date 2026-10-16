@@ -13,12 +13,15 @@ This adds a check to `appstein verify`, or a check a decision record can name. R
 3. **Write the tests first, with a passing and a failing fixture.** Every check has both (spec §16): a project where it reports nothing, and one where it reports the finding. Assert the whole finding: ID, severity, file, line, message and fix hint.
    - A check that reads the map: use `contextFor` from [`verify_support.dart`](../../../packages/appstein_engine/test/verify/support/verify_support.dart) on a copy of the fixture app, with all three packs.
    - A check that doesn't: build a `VerifyContext` over a temp folder.
+   - A check that reads the code analysis: give `runVerify` a `ScriptedCodeAnalysis` (in the tests' support folder) with the diagnostics the test needs, and add one passing and one failing case on the fixture app with a real server to `verify_dart_test.dart`, where a group shares one server.
    - Watch the test fail on behaviour, not only on a compile error: write the class with an empty `run` first.
 
 4. **Implement `VerifyCheck`** ([source](../../../packages/appstein_engine/lib/src/verify/verify_check.dart)):
    - `ids`: every ID it can report. Reporting another one makes the run fail.
    - `mode`: `fast` only when it stays quick on a large project; fast verify has 5 seconds in total (spec §9.1).
    - `needsMap`: true when it reads `.appstein/map/` or the SDK facts. It is then skipped, and named as not run, while the knowledge is stale. A check that reads the map for only a part of its work keeps `needsMap` false, asks `context.mapProblem` before that part, and calls `context.skipped(id)` when it leaves the part out. Never read a map file without asking: old files stay on disk after a failed refresh.
+   - A check that judges the code analysis's reading, or does anything slow, implements `GatheringCheck`: `gather` runs before the knowledge lock and asks the `VerifyGathering` (`gathering.code()` for the reading), and `run` reads the answer from the context (`context.code`). It never asks the analysis server itself, never starts or stops it, and lets a `CodeAnalysisException` pass: that is the server failing, not the check. Reading `context.code` without gathering it throws.
+   - A check that decides not to do its work for a reason of its own calls `context.notRun(id, reason)`, with the reason in words that follow the ID and a colon, and returns nothing. `test.failed` does this while the code has analyzer errors. Never skip silently.
    - `run`: read only the `VerifyContext`. Never write a project file. Return findings in a fixed order. Throw only for a bug: a problem with the project is a finding.
    - Write each message as one true sentence about the project, and each fix hint as something the reader can do. Then run the real command and read both.
 

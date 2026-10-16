@@ -554,6 +554,24 @@ abstract final class ToolSchemas {
         description:
             '`fast` after a change; `full` before you say the task is done.',
       ),
+      'files': jsonList(
+        jsonString(),
+        description:
+            'With `scope: fast` only: files you changed, added to the '
+            'unverified files for this run and after it, so their warnings '
+            'and lints are reported. Paths from the project root, or '
+            'absolute inside the project; a folder stands for its Dart files; '
+            'a deleted file or one that is not Dart is accepted. A path outside the project, or `files` with '
+            '`scope: full`, is refused.',
+      ),
+      'apply': jsonBoolean(
+        description:
+            'With `scope: full` only: first apply the fixes `dart fix` would '
+            'apply and format the whole project (generated files left out), '
+            'then check. This rewrites files: the result names each one in '
+            '`applied`, and you must read those again before you edit them. '
+            '`apply` with `scope: fast` is refused.',
+      ),
     },
     required: ['scope'],
   );
@@ -597,10 +615,14 @@ abstract final class ToolSchemas {
         required: ['errors', 'warnings', 'info'],
       ),
       'suppressed': jsonInteger(
-        description: 'How many findings a suppression in appstein.yaml hid.',
+        description:
+            'How many findings a suppression hid: an entry in appstein.yaml '
+            'or an `// appstein:ignore` comment in a Dart file.',
       ),
       'activeSuppressions': jsonInteger(
-        description: 'How many suppressions hid at least one finding.',
+        description:
+            'How many suppressions (entries and comments) hid at least one '
+            'finding.',
       ),
       'notRun': jsonList(
         jsonObject(
@@ -609,6 +631,20 @@ abstract final class ToolSchemas {
         ),
         description: 'The checks that could not run, and why.',
       ),
+      'notices': jsonList(
+        jsonString(),
+        description:
+            'What you must be told that is no finding about the project, '
+            'such as a process Appstein could not stop, with the command '
+            'to end it by hand. Absent when there is nothing to tell.',
+      ),
+      'applied': jsonList(
+        jsonString(),
+        description:
+            'Each file `apply` rewrote before the checks ran, from the '
+            'project folder. Read these files again before you edit them. '
+            'Empty without `apply`, and when it rewrote nothing.',
+      ),
     },
     required: [
       'findings',
@@ -616,6 +652,7 @@ abstract final class ToolSchemas {
       'suppressed',
       'activeSuppressions',
       'notRun',
+      'applied',
     ],
   );
 }

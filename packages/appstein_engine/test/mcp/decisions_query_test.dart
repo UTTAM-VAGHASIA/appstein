@@ -186,6 +186,33 @@ void main() {
     );
   });
 
+  test('a path with a backslash is read both ways: an escape, or a '
+      'separator', () {
+    // Block items: inside a flow list or double quotes YAML needs `\\[`.
+    File(p.join(root, '.appstein', 'decisions', '0008-escapes.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(
+        '---\n'
+        'title: Escapes\n'
+        'status: accepted\n'
+        'date: 2026-10-01\n'
+        'paths:\n'
+        r'  - lib/a\[1\].dart'
+        '\n'
+        r'  - lib\{ui,data}\x.dart'
+        '\n'
+        '---\n'
+        'Why: because.\n',
+      );
+    for (final topic in ['lib/a[1].dart', 'lib/ui/x.dart', 'lib/data/x.dart']) {
+      final reply = ask(topic);
+      expect(numbers(reply), ['0008'], reason: topic);
+      expect(reply.result['problems'], isEmpty, reason: topic);
+    }
+    // Escaped, `[1]` is no character class.
+    expect(numbers(ask('lib/a1.dart')), isEmpty);
+  });
+
   test('a path pattern that is not a valid glob never matches and is '
       'named', () {
     handDecision(root, '0005-bad.md', paths: ['"lib/{a"']);

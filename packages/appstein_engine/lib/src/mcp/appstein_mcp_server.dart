@@ -6,6 +6,7 @@ import 'package:dart_mcp/server.dart';
 import 'package:dart_mcp/stdio.dart';
 import 'package:stream_channel/stream_channel.dart';
 
+import '../analysis/code_analysis.dart';
 import '../config/config_loader.dart';
 import '../knowledge/knowledge_lock.dart';
 import '../knowledge/knowledge_refresh.dart';
@@ -21,7 +22,10 @@ import 'memory_tools.dart';
 import 'record_decision.dart';
 import 'route_query.dart';
 import 'tool_answer.dart';
+import '../verify/apply.dart';
 import '../verify/engine_checks.dart';
+import '../verify/test_run.dart';
+import '../verify/unverified_files.dart';
 import '../verify/verify_check.dart';
 import '../verify/verify_run.dart';
 import 'toolchain_report.dart';
@@ -41,6 +45,113 @@ McpChannel stdioMcpChannel(
 
 const _doctor = 'Run `appstein doctor` to see what is wrong.';
 
+/// A turn that one caller holds at a time; the others wait in the order
+/// they asked.
+final class _Turn {
+  Future<void> _last = Future.value();
+  Completer<void>? _held;
+
+  /// Completes when the turn is this caller's, after everyone who asked
+  /// before. The caller must [give] it back.
+  Future<void> take() {
+    final before = _last;
+    final mine = Completer<void>();
+    _last = mine.future;
+    return before.then<void>((_) {
+      _held = mine;
+    });
+  }
+
+  /// Gives the turn to the next caller. Only its holder calls this.
+  void give() => _held!.complete();
+
+  /// Runs [action] holding the turn, and gives it back when [action] ends,
+  /// normally or with an error.
+  Future<T> hold<T>(Future<T> Function() action) async {
+    await take();
+    try {
+      return await action();
+    } finally {
+      give();
+    }
+  }
+}
+
+/// The code analysis of a `verify` call that holds [_turn]: it gives the
+/// turn back while the analysis is asked, and takes it again before the
+/// run goes on.
+final class _OutOfTurn implements CodeAnalysis {
+  _OutOfTurn(this._analysis, this._turn);
+
+  final CodeAnalysis _analysis;
+  final _Turn _turn;
+
+  @override
+  Future<CodeReading> read() => _outOfTurn(_analysis.read);
+
+  // The time limit of a question is held on the question itself, inside the
+  // out-of-turn part: the wait to take the turn back is another call's, may
+  // be long, and is no part of what the analysis took. A limit around both
+  // would give up on an answer the analysis had given, and let the run on
+  // while another call still holds the turn.
+  @override
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) => _outOfTurn(
+    () => _analysis.canDartFix(diagnostic, within: within).timeout(within),
+  );
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) => _outOfTurn(
+    () => _analysis
+        .formatChanges(files, within: within)
+        .timeout(
+          within + questionGrace,
+          onTimeout: () => const FormatAnswers(),
+        ),
+  );
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) => _outOfTurn(
+    () => _analysis
+        .pendingFixes(within: within)
+        .timeout(
+          // Past the analysis's own limit: a server that does not answer an
+          // overlay is given up there, and that failure is the answer.
+          fixQuestionLimit(within) + questionGrace,
+          onTimeout: () => const PendingFixes(
+            unfinished: 'the analysis server did not answer in time',
+          ),
+        ),
+  );
+
+  // No limit around it here: the files it writes must be in its answer. The
+  // analysis holds `within`, a limit per request and one on the whole call.
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) => _outOfTurn(
+    () => _analysis.applyFixesAndFormat(
+      leaveUnformatted: leaveUnformatted,
+      within: within,
+    ),
+  );
+
+  Future<T> _outOfTurn<T>(Future<T> Function() ask) async {
+    _turn.give();
+    try {
+      return await ask();
+    } finally {
+      await _turn.take();
+    }
+  }
+}
+
 /// Appstein's MCP server (spec §8): read tools over the project's
 /// knowledge, each answered from fresh knowledge, the two tools that write
 /// its decisions and memory, and `verify`. [clock] gives the date those
@@ -49,16 +160,20 @@ const _doctor = 'Run `appstein doctor` to see what is wrong.';
 /// Before each answer it syncs as `appstein sync --detect` does, with
 /// [syncFor]'s `KnowledgeSync` (the CLI builds one from `appstein.yaml` on
 /// every call, with package skills off and a held analyzer cache). Calls
-/// are answered one at a time. A sync that fails leaves the reply marked
+/// are answered one at a time, with one exception: while a `verify` call
+/// waits for the analysis server, calls of the other tools are answered,
+/// and a second `verify` call waits. A sync that fails leaves the reply marked
 /// `stale`, from the files on disk; with no file to answer from, the reply
 /// is an error. Nothing is ever written to stdout but protocol messages.
 final class AppsteinMcpServer extends MCPServer with ToolsSupport {
-  /// Serves the project at [projectRoot] over [channel]. [dartSdkPath]
-  /// overrides where `dart:` libraries are read from, for tests.
+  /// Serves the project at [projectRoot] over [channel]. [codeAnalysis]
+  /// gives each `verify` call its code analysis. [dartSdkPath] overrides
+  /// where `dart:` libraries are read from, for tests.
   AppsteinMcpServer(
     super.channel, {
     required this.projectRoot,
     required this.syncFor,
+    required this.codeAnalysis,
     required String appsteinVersion,
     this.dartSdkPath,
     DateTime Function()? clock,
@@ -251,13 +366,34 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
             'Check the project against its knowledge and get findings, each '
             'with its file, line and a fix hint. `scope: fast` after a '
             'change; `scope: full` before you say the task is done. An '
-            'error blocks "done"; warnings and info are reported only.',
+            'error blocks "done"; warnings and info are reported only. '
+            '`apply: true` with `scope: full` first applies `dart fix` and '
+            'formats the project, and lists the files it rewrote in '
+            '`applied`: read them again before you edit them.',
         inputSchema: ObjectSchema.fromMap(ToolSchemas.verifyInput),
         outputSchema: ObjectSchema.fromMap(
           toolOutputSchema(ToolSchemas.verifyResult),
         ),
       ),
-      (request) => _oneAtATime(() => _verify(request.arguments ?? const {})),
+      (request) => _verifyCalls.hold(() async {
+        try {
+          // The code analysis is entered before the calls' turn is taken:
+          // entering may wait (an idle analysis server that is being
+          // stopped), and no other tool waits for that.
+          return await codeAnalysis(
+            (analysis) => _oneAtATime(
+              () => _verify(request.arguments ?? const {}, analysis),
+            ),
+          );
+        } on CodeAnalysisException catch (error) {
+          // The analysis could not be entered at all. No refresh ran, so
+          // the reply states no freshness.
+          return CallToolResult(
+            isError: true,
+            content: [TextContent(text: '$error $_doctor')],
+          );
+        }
+      }),
     );
   }
 
@@ -267,12 +403,25 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// The sync to run before each answer; called once per answer.
   final KnowledgeSync Function() syncFor;
 
+  /// Gives each `verify` call the project's code analysis, and decides how
+  /// long its analysis server lives. `appstein mcp` passes
+  /// `KeptAnalysisServer.use`, which keeps one server between the calls;
+  /// whoever made that object closes it when this server is done.
+  final CodeAnalysisScope codeAnalysis;
+
   /// Where `dart:` libraries are read from; null for the Flutter SDK's.
   final String? dartSdkPath;
 
   final DateTime Function() _clock;
 
-  Future<void> _last = Future.value();
+  /// The turn every call answers in: one call at a time.
+  final _calls = _Turn();
+
+  /// The turn of the `verify` calls. A `verify` call gives [_calls] back
+  /// while it waits for the analysis server, so that the other tools are
+  /// answered meanwhile; this one it keeps, so a second `verify` call waits
+  /// for the first.
+  final _verifyCalls = _Turn();
 
   /// Today's date on this machine, as decision records and lessons write
   /// it: `2026-10-06`.
@@ -341,11 +490,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   );
 
   /// Runs [action] after every call before it finished.
-  Future<T> _oneAtATime<T>(Future<T> Function() action) {
-    final result = _last.then((_) => action());
-    _last = result.then<void>((_) {}, onError: (Object _) {});
-    return result;
-  }
+  Future<T> _oneAtATime<T>(Future<T> Function() action) => _calls.hold(action);
 
   Future<CallToolResult> _call(
     CallToolRequest request,
@@ -377,27 +522,115 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// the refresh `verify` needs, so the knowledge is refreshed once: stale
   /// knowledge is the finding `knowledge.stale` in a normal reply, not an
   /// error reply. `appstein.yaml` is read for every call, as the sync's is.
-  Future<CallToolResult> _verify(Map<String, Object?> arguments) async {
+  ///
+  /// It runs in the calls' turn like every tool, and gives the turn back
+  /// for as long as the run waits for the code analysis: an analysis server
+  /// can take a minute to start, and no other tool waits for it. A call of
+  /// another tool that is answered meanwhile may refresh the knowledge;
+  /// this run then judges that newer knowledge, and its reply still states
+  /// the freshness its own refresh found.
+  ///
+  /// With `apply: true` (full scope only), the project is fixed and
+  /// formatted first (`applyToProject`), before the refresh, so the refresh
+  /// and the reading are of the rewritten files, as in `appstein verify
+  /// --apply`. Everything the call asks is checked before that, so a refusal
+  /// never follows a rewrite; a failure after it still names the files it
+  /// rewrote. `apply` with the fast scope is refused.
+  ///
+  /// [analysis] is the call's code analysis, which the caller has entered
+  /// (`codeAnalysis`) before it took the calls' turn.
+  Future<CallToolResult> _verify(
+    Map<String, Object?> arguments,
+    CodeAnalysis analysis,
+  ) async {
+    final mode = arguments['scope'] == 'fast'
+        ? VerifyMode.fast
+        : VerifyMode.full;
+    // What the call asks is checked before anything is rewritten: a refusal
+    // after `apply` would leave files rewritten that no result names. The
+    // refusal is sent after the refresh, with the freshness it found.
+    String? refusal;
+    var files = const <String>[];
+    var config = const AppsteinConfig();
+    final apply = arguments['apply'];
+    try {
+      config = loadConfig(projectRoot) ?? const AppsteinConfig();
+    } on ConfigException catch (error) {
+      final problem = '$error'.replaceFirst(RegExp(r'\.$'), '');
+      refusal =
+          'The checks could not run: appstein.yaml is invalid: $problem. '
+          'Fix it, then call `verify` again.';
+    }
+    if (refusal == null && apply is! bool?) {
+      refusal =
+          '`apply` must be true or false. Call `verify` again with '
+          '`apply: true`, or without it.';
+    }
+    if (refusal == null && apply == true && mode == VerifyMode.fast) {
+      // Files are never rewritten in the middle of an agent's work.
+      refusal =
+          '`apply` works with `scope: full` only: a fast run never rewrites '
+          'files. Call `verify` again with `scope: full`, or without '
+          '`apply`.';
+    }
+    if (refusal == null) {
+      switch (arguments['files']) {
+        case null:
+          break;
+        case final List<Object?> given when given.every((f) => f is String):
+          if (mode != VerifyMode.fast) {
+            refusal =
+                '`files` works with `scope: fast` only: a full run checks '
+                'every file. Call `verify` again without `files`, or with '
+                '`scope: fast`.';
+            break;
+          }
+          try {
+            files = resolveVerifyFiles(projectRoot, given.cast<String>());
+          } on VerifyFilesException catch (error) {
+            final message = error.message.replaceAll('--files', '`files`');
+            refusal =
+                '$message Call `verify` again with paths inside the project.';
+          }
+        default:
+          refusal =
+              '`files` must be a list of paths. Call `verify` again with a '
+              'list.';
+      }
+    }
+    final codeAnalysis = _OutOfTurn(analysis, _calls);
+    // `apply` rewrites the files before the knowledge is brought up to date,
+    // as `appstein verify --apply` does: the refresh and the reading that
+    // follow are of the rewritten files.
+    var applied = const <String>[];
+    var leftAlone = const <String>[];
+    if (refusal == null && apply == true) {
+      try {
+        final changes = await applyToProject(
+          codeAnalysis,
+          projectRoot: projectRoot,
+        );
+        applied = changes.written;
+        leftAlone = changes.notices;
+      } on CodeAnalysisException catch (error) {
+        refusal = '$error $_doctor';
+      }
+    }
     KnowledgeSync? sync;
     final freshness = await _freshen(built: (built) => sync = built);
+    // A refusal after `apply` rewrote files still names them.
+    String rewritten(String message) => applied.isEmpty
+        ? message
+        : '$message `apply` rewrote ${applied.join(', ')} before that: read '
+              '${applied.length == 1 ? 'it' : 'them'} again before you edit '
+              '${applied.length == 1 ? 'it' : 'them'}.';
+    if (refusal case final message?) return _refuse(message, freshness);
     try {
       final using = sync;
       // Without a sync there are no packs, so no list of checks.
-      if (using == null) return _refuse('The checks could not run.', freshness);
-      final AppsteinConfig config;
-      try {
-        config = loadConfig(projectRoot) ?? const AppsteinConfig();
-      } on ConfigException catch (error) {
-        final problem = '$error'.replaceFirst(RegExp(r'\.$'), '');
-        return _refuse(
-          'The checks could not run: appstein.yaml is invalid: $problem. '
-          'Fix it, then call `verify` again.',
-          freshness,
-        );
+      if (using == null) {
+        return _refuse(rewritten('The checks could not run.'), freshness);
       }
-      final mode = arguments['scope'] == 'fast'
-          ? VerifyMode.fast
-          : VerifyMode.full;
       final result = await runVerify(
         projectRoot: projectRoot,
         config: config,
@@ -405,21 +638,34 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
         sync: using,
         mode: mode,
         checks: checksFor(using.packs),
+        codeAnalysis: codeAnalysis,
         refreshed: KnowledgeRefresh.fromFreshness(freshness),
         dartSdkPath: dartSdkPath,
+        files: files,
       );
-      return switch (verifyAnswer(result, mode: mode)) {
+      return switch (verifyAnswer(
+        result.withApplied(applied).withNotices(leftAlone),
+        mode: mode,
+      )) {
         ToolReply(result: final json, :final summary) => _reply(
           json,
           summary,
           freshness,
         ),
-        ToolRefusal(:final message) => _refuse(message, freshness),
+        ToolRefusal(:final message) => _refuse(rewritten(message), freshness),
       };
+    } on CodeAnalysisException catch (error) {
+      // A broken setup, not a bug to report; the server keeps running.
+      return _refuse(rewritten('$error $_doctor'), freshness);
+    } on TestRunException catch (error) {
+      // The project's tests could not be run: a broken setup as well.
+      return _refuse(rewritten('$error $_doctor'), freshness);
     } on Object catch (error) {
       return _refuse(
-        'Appstein failed to answer: $error. $_doctor If this keeps '
-        'happening, please report it.',
+        rewritten(
+          'Appstein failed to answer: $error. $_doctor If this keeps '
+          'happening, please report it.',
+        ),
         freshness,
       );
     }
