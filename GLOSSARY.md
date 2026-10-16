@@ -21,3 +21,7 @@ _Avoid_: changed files, dirty files, pending files
 **Warm analysis**:
 Analysis of the project's Dart code by an analyzer that is already running and has the project loaded, as opposed to one started for the question.
 _Avoid_: hot analysis, cached analysis
+
+**Analysis host**:
+The one background process per project that keeps the project's analysis server running and answers the code questions of every session, hook and tool that works on the project.
+_Avoid_: daemon, broker, analysis service

@@ -806,7 +806,8 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         </li>
         <li class="pg-item pg-next" id="pg-1d-7">
           <p class="pg-title"><b>1d.7</b> Hook mode and fast verify in 5 s <span class="tag info">Next</span></p>
-          <p class="pg-summary"><code>--hook claude</code> with its exit code, the hook's route to the running <code>appstein mcp</code>, one analysis server per project shared by every session, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route.</p>
+          <p class="pg-summary"><code>--hook claude</code> with its exit codes, one analysis host per project that every session, hook and tool shares, the loop guard, the <code>fast_timeout_seconds</code> cap, and fast verify measured against 5 s from the hook's start to its end.</p>
+          <p class="pg-meta"><a href="../slices/1d7-hook-mode/spec.md">Spec</a></p>
         </li>
         <li class="pg-item pg-planned" id="pg-1d-3">
           <p class="pg-title"><b>1d.3</b> Lint rules <span class="tag neutral">Planned</span></p>
@@ -936,7 +937,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 16l1-4 8-8 3 3-8 8z"/><path d="M11 6l3 3"/></svg></div>
           <div class="when">After every change</div>
           <h3>Fast check</h3>
-          <div class="cmd"><code>sync --detect</code><code>verify --fast</code></div>
+          <div class="cmd"><code>verify --fast --hook claude</code></div>
           <p>Only reports. Never rewrites a file mid-session. Target under 5 s.</p>
         </div>
         <div class="step">
@@ -950,14 +951,16 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <div class="node"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 10.5l3 3 7-7"/></svg></div>
           <div class="when">Agent says “done”</div>
           <h3>Full check</h3>
-          <div class="cmd"><code>dart fix --apply + format</code><code>appstein docs</code><code>verify --full</code></div>
+          <div class="cmd"><code>verify --full --apply --hook claude</code></div>
+          <p>One command: fix and format, render the human docs, then every check.</p>
           <p>Errors block the finish. After the same errors block 3 times in a row, it stops blocking and shows them to you.</p>
         </div>
       </div>
       <details class="more">
         <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg>Details</summary>
         <div class="more-body">
-          <p><b>Bash changes are caught too.</b> <code>--detect</code> compares content hashes with <code>state.json</code>, so <code>flutter pub add</code> is checked like an edit. When nothing the knowledge reads changed, it stops there; otherwise it rebuilds with the analyzer cache in <code>.dart_tool/appstein/</code>.</p>
+          <p><b>Bash changes are caught too.</b> <code>verify</code> first compares content hashes with <code>state.json</code>, as <code>sync --detect</code> does, so <code>flutter pub add</code> is checked like an edit. When nothing Appstein reads changed since the session's last check, it stops there and says nothing; otherwise it rebuilds with the analyzer cache in <code>.dart_tool/appstein/</code>.</p>
+          <p><b>One warm analyzer per project.</b> The code checks ask the project's analysis host, a background process every session, hook and tool shares. It ends itself after 10 idle minutes.</p>
           <p><b>Dependencies changed?</b> The same hook runs the package gate and re-runs <code>dart run skills@ get</code> for package skills.</p>
           <p><b>Why fixes wait for Stop:</b> rewriting a file the agent just read makes its next edit fail.</p>
           <p><b>No SessionStart hook (Codex):</b> <code>AGENTS.md</code> says to call <code>overview</code> first, which syncs if knowledge is missing or stale.</p>
@@ -1110,7 +1113,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5l-3 4 3 4M12 5l3 4-3 4"/></svg>Code</h3><ul><li><b>Analyzer errors</b> and deprecated use, anywhere in the project</li><li><b>Warnings, lints and format</b> on the unverified files</li><li>An <code>// ignore:</code> can’t hide deprecated use</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="12" height="12" rx="3"/><path d="M6 9h6"/></svg>Lints</h3><ul><li><b>appstein_lints</b> rules, run inside the analyzer</li><li>Layer rules from the stack pack</li></ul></div>
       <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h10M4 12h10"/><circle cx="7" cy="6" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>Packages</h3><ul><li>Package gate, if dependencies changed</li><li>Package skills refreshed</li></ul></div>
-      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b> on a running <code>appstein mcp</code>, which keeps the analyzer warm</li></ul></div>
+      <div class="card vcol"><h3><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 3v4l3 2"/><circle cx="9" cy="9" r="6"/></svg>Knowledge</h3><ul><li>Incremental map refresh</li><li>Staleness check</li><li><b>Under 5 s</b>, from the hook's start to its end, with the project's analysis host keeping the analyzer warm</li></ul></div>
     </div>
 
     <div class="vpanel" id="v-full" role="tabpanel" aria-labelledby="tab-full">
@@ -1149,7 +1152,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div><b>0</b><p>No errors</p></div>
       <div><b>1</b><p>Errors found (CLI and CI)</p></div>
       <div><b>2</b><p>Errors in Claude hook mode: block and feed back</p></div>
-      <div><b>3</b><p>Appstein itself failed: doesn’t block; says to run <code>doctor</code></p></div>
+      <div><b>3</b><p>Appstein itself failed. In hook mode it exits 0 instead: never blocks, tells you to run <code>doctor</code> and the agent that its edit is unchecked</p></div>
     </div>
 
     <details class="more">
@@ -1214,7 +1217,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <span><code>doctor</code>environment check</span>
     </div>
     <div class="perf">
-      <div><b>&lt; 5 s</b><span>fast verify, on a running <code>appstein mcp</code></span></div>
+      <div><b>&lt; 5 s</b><span>fast verify, from the hook's start to its end</span></div>
       <div><b>&lt; 2 s</b><span>incremental sync, 200 files</span></div>
       <div><b>&lt; 1 s</b><span>MCP answers</span></div>
       <div><b>&lt; 200 ms</b><span>hook start-up (AOT)</span></div>
@@ -1245,7 +1248,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <ul>
           <li><span>Official plugin</span><span>Google’s <code>flutter/agent-plugins</code> at a pinned version; broken official skills overridden</span></li>
           <li><span>MCP</span><span><code>appstein mcp</code>. The official plugin’s Dart MCP server is reused; Appstein adds one only as a fallback</span></li>
-          <li><span>Hooks</span><span>SessionStart → sync · PostToolUse → fast check · Stop → docs + full check</span></li>
+          <li><span>Hooks</span><span>SessionStart → sync · PostToolUse → fast check · Stop → fix, format, docs + full check, in one command</span></li>
           <li><span>CLAUDE.md</span><span>Pointer to INDEX.md and the key workflow rules</span></li>
         </ul>
       </div>
@@ -1436,7 +1439,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
         <p class="muted small" style="margin:10px 0 0;max-width:34ch"><b>Settled in 1a:</b> Flutter 3.44+ is the minimum supported version. Cold analysis is too slow, so fast verify uses warm analysis. <b>Measured for 1d.2:</b> warm analysis answers about 0.1 s after an edit; a run from the terminal starts its own analyzer and has no time limit.</p>
       </div>
       <div class="checklist">
-        <div>The hook’s route to warm analysis keeps fast verify under 5 s <span class="tag neutral">1d.7</span></div>
+        <div>The hook, through the project’s analysis host, keeps fast verify under 5 s <span class="tag neutral">1d.7</span></div>
         <div>Codex hooks, blocking and MCP config location <span class="tag neutral">1e</span></div>
         <div>Project-level enabling of the official Claude Code plugin <span class="tag neutral">1e</span></div>
         <div>No duplicate Dart MCP server <span class="tag neutral">1e</span></div>

@@ -62,7 +62,7 @@ What the measurement found:
 With the plugin, one `appstein mcp` would hold about 2.3 GB for the 200-file app: 0.8 GB for the map's analyzer, 0.6 GB for the analysis server and 0.8 GB for the plugin's second analysis inside it. Appstein is meant to run beside several agent sessions at once (design §18, M4), so a cost per session is multiplied. The owner decided this direction on 2026-10-12; none of its three steps was measured when it was decided:
 
 1. **Slice 1d.2:** the server is started by the first check that needs it, not when `appstein mcp` starts, and is stopped when it has not been asked anything for a while. A session that never verifies holds no server.
-2. **Slice 1d.7:** one server per project, shared by every session that works on it, reached the way the hook reaches the running process.
+2. **Slice 1d.7:** one server per project, shared by every session that works on it, reached the way the hook reaches the running process. Decided in decision record 0002: an analysis host per project, reached over a local socket.
 3. **Slice 1d.3:** Appstein's lint rules run on the analyzer the map already has, and the plugin stays out of the server verify uses. That removes the second analysis: about 0.8 GB and 11 s of the start.
 
 ## Consequences

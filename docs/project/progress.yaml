@@ -198,8 +198,9 @@ milestones:
             finished: 2026-10-16
           - id: 1d.7
             title: Hook mode and fast verify in 5 s
-            summary: "`--hook claude` with its exit code, the hook's route to the running `appstein mcp`, one analysis server per project shared by every session, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route."
+            summary: "`--hook claude` with its exit codes, one analysis host per project that every session, hook and tool shares, the loop guard, the `fast_timeout_seconds` cap, and fast verify measured against 5 s from the hook's start to its end."
             status: next
+            spec: 1d7-hook-mode
           - id: 1d.3
             title: Lint rules
             summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`, run for verify on the analyzer the map already has, so the plugin leaves the analysis server; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.
