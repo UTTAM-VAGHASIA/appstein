@@ -40,6 +40,67 @@ Future<List<_Running>> _processes() async {
   ];
 }
 
+/// The real process runner, keeping what its last run printed.
+final class _Recording implements ProcessRunner {
+  RunResult? last;
+
+  @override
+  Future<RunResult> run(
+    String executable,
+    List<String> arguments, {
+    Duration timeout = const Duration(seconds: 20),
+    Map<String, String>? environment,
+    String? workingDirectory,
+  }) async => last = await const SystemProcessRunner().run(
+    executable,
+    arguments,
+    timeout: timeout,
+    environment: environment,
+    workingDirectory: workingDirectory,
+  );
+}
+
+/// The last [count] events in [stdout], each cut at 400 characters, with
+/// the paths of [app], of the Flutter SDK at [flutter] and of the home
+/// folder written as `{app}`, `{flutter}` and `~`: a failing CI run shows
+/// the real sequence, and no path outside the temp project.
+String _lastEvents(
+  String stdout, {
+  required String app,
+  required String flutter,
+  int count = 30,
+}) {
+  final home =
+      Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+  String plain(String line) {
+    for (final (path, name) in [
+      (app, '{app}'),
+      (flutter, '{flutter}'),
+      if (home != null && home.length > 3) (home, '~'),
+    ]) {
+      final slashed = path.replaceAll(r'\', '/');
+      for (final form in {
+        Uri.file(path).toString(),
+        Uri.decodeFull(Uri.file(path).toString()),
+        slashed,
+        path,
+        path.replaceAll(r'\', r'\\'),
+      }) {
+        line = line.replaceAll(form, name);
+      }
+    }
+    return line.length > 400 ? '${line.substring(0, 400)}…' : line;
+  }
+
+  final events = [
+    for (final line in stdout.split('\n'))
+      if (line.trimLeft().startsWith('{')) plain(line.trim()),
+  ];
+  return events
+      .skip(events.length > count ? events.length - count : 0)
+      .join('\n');
+}
+
 // The real `flutter test` of this machine's Flutter SDK (slice 1d.2). The
 // scripted tests in `test/verify/` use output copied from the first run
 // here, so this test is also what keeps that copy true.
@@ -192,10 +253,11 @@ void main() {
 
     const limit = Duration(seconds: 75);
     final watch = Stopwatch()..start();
+    final recording = _Recording();
     final running = runProjectTests(
       projectRoot: app,
       environment: using(root),
-      runner: const SystemProcessRunner(),
+      runner: recording,
       timeout: limit,
     );
     while (!sign.existsSync() || sign.readAsStringSync().isEmpty) {
@@ -246,7 +308,18 @@ void main() {
 
     final tests = await running;
     final stoppedAfter = watch.elapsed;
-    expect((tests.ran, tests.timedOut), (true, true));
+    // What `flutter test` printed last, so a failing CI run shows the real
+    // sequence of events.
+    final printed = _lastEvents(
+      recording.last?.stdout ?? '',
+      app: app,
+      flutter: root,
+    );
+    expect(
+      (tests.ran, tests.timedOut),
+      (true, true),
+      reason: 'The last events:\n$printed',
+    );
     expect(
       tests.failures,
       isEmpty,
@@ -255,12 +328,14 @@ void main() {
         for (final failure in tests.failures)
           '${failure.file}:${failure.line} '
               '${failure.test ?? '(loading)'}: ${failure.details}',
+        'The last events:',
+        printed,
       ].join('\n'),
     );
     // What the run had printed is kept: it names the test that never ended.
     expect(tests.running, [
       (file: 'test/hanging_test.dart', test: 'never ends'),
-    ]);
+    ], reason: 'The last events:\n$printed');
     expect(stoppedAfter, greaterThanOrEqualTo(limit));
 
     final gone = await goneWithin([

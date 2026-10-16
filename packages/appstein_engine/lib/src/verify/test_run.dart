@@ -254,11 +254,14 @@ bool hasTestFiles(String projectRoot) {
 /// were printed: every `testDone` with `error` (with or without an error
 /// before it), `testDone` of hidden tests, the start and end of setUpAll
 /// and tearDownAll tests (test_core runs a tearDownAll after the stop),
-/// `print` events, and the end of the run. A test the block tells as done
-/// with `error` is among `running`, and is a failure only if it told an
-/// error; a setUpAll or tearDownAll in it is never among `running`. Every
-/// other `testDone` with `error` and no error before it is a failure whose
-/// process ended.
+/// `print` events, an `error` on a step the output had already told as done
+/// and hidden (a file's loading test, a setUpAll or a tearDownAll that
+/// passed), and the end of the run. Such an error is the stop's
+/// and is not a failure; any other `error` ends the block. A test the block
+/// tells as done with `error` is among `running`, and is a failure only if
+/// it told an error; a setUpAll or tearDownAll in it is never among
+/// `running`. Every other `testDone` with `error` and no error before it is
+/// a failure whose process ended.
 ({
   List<TestFailure> failures,
   bool passed,
@@ -287,6 +290,20 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
       } when name.endsWith('(setUpAll)') || name.endsWith('(tearDownAll)'))
         id,
   };
+  // Where the output first told each hidden step as done: a file's loading
+  // test, a setUpAll or a tearDownAll that passed (`package:test` reports
+  // them with `countSuccess: false`, so their `testDone` says `hidden`). One
+  // that failed is not hidden: its `testDone` says `"hidden":false`.
+  final hiddenDoneAt = <int, int>{};
+  for (final (index, event) in events.indexed) {
+    if (event case {
+      'type': 'testDone',
+      'testID': final int id,
+      'hidden': true,
+    }) {
+      hiddenDoneAt.putIfAbsent(id, () => index);
+    }
+  }
   // Where what the stop printed starts: nothing, unless the run was stopped.
   var stop = events.length;
   while (stopped &&
@@ -301,6 +318,12 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
         // flutter_test's leak tracking is turned on.
         {'type': 'testStart', 'test': {'id': final int id}} ||
         {'type': 'testDone', 'testID': final int id} => hidden.contains(id),
+        // On macOS the stop can give a step that was done long before an
+        // error ("Bad state: Cannot close sink while adding stream."). Only
+        // when the output itself told that step as done and hidden before
+        // the error.
+        {'type': 'error', 'testID': final int id} =>
+          (hiddenDoneAt[id] ?? stop) < stop - 1,
         _ => false,
       }) {
     stop--;
@@ -331,6 +354,9 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
       }:
         tests[id] = test;
         open.add(id);
+      case {'type': 'error'} when index >= stop:
+        // The stop's error on a hidden step that was already done.
+        break;
       case {
         'type': 'error',
         'testID': final int id,

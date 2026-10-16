@@ -593,6 +593,136 @@ void main() {
       expect(tests.running, bothOpen());
     });
 
+    /// The error the stop gave the loading test [id] on macOS (CI run
+    /// 38885267342, the integration test's reason line).
+    String stopErrorOn(int id) =>
+        '{"testID":$id,"error":"Bad state: Cannot close sink while adding '
+        'stream.","stackTrace":"","isFailure":false,"type":"error",'
+        '"time":75015}';
+
+    test('macOS: an error the stop gives a loading test that was done is '
+        'part of the stop, not a failure', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: [
+            failingRun(),
+            closedByStop(19),
+            closedByStop(9),
+            // `loading …/failing_test.dart` and `loading …/spaced_test.dart`,
+            // each told as done (hidden) before.
+            stopErrorOn(7),
+            stopErrorOn(3),
+            doneAfterStop,
+          ].join('\n'),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(tests.timedOut, isTrue);
+      expect(names(tests), [
+        null,
+        'counter next adds two',
+        'counter next throws',
+      ]);
+      expect(tests.running, bothOpen());
+    });
+
+    test('the same error on a loading test whose end the output never told '
+        'is a failure of its file, in a stopped run', () async {
+      // Up to before `loading …/spaced_test.dart` (3) was told as done.
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: [failingRun(19), stopErrorOn(3), doneAfterStop].join('\n'),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(tests.timedOut, isTrue);
+      expect(told(tests).last, (
+        'test/my folder/spaced_test.dart',
+        null,
+        null,
+        'Bad state: Cannot close sink while adding stream.',
+      ));
+    });
+
+    test('the same error before its loading test was told as done is a '
+        'failure of its file, in a stopped run', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: [
+            failingRun(19),
+            stopErrorOn(3),
+            '{"testID":3,"result":"success","skipped":false,"hidden":true,'
+                '"type":"testDone","time":75013}',
+            doneAfterStop,
+          ].join('\n'),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(tests.timedOut, isTrue);
+      expect(told(tests).last, (
+        'test/my folder/spaced_test.dart',
+        null,
+        null,
+        'Bad state: Cannot close sink while adding stream.',
+      ));
+    });
+
+    test('a file that failed to load, printed last before the stop, is a '
+        'failure and is not named as running', () async {
+      // The real output's load failure: an error, `testDone` with `error`
+      // and `"hidden":false`, then a second error, all on `loading
+      // …/broken_test.dart` (1).
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(stdout: failingRun(13), stderr: ''),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(tests.timedOut, isTrue);
+      expect([
+        for (final failure in told(tests)) failure.$1,
+      ], contains('test/broken_test.dart'));
+      expect([
+        for (final running in tests.running) running.file,
+      ], isNot(contains('test/broken_test.dart')));
+    });
+
+    test('the same error on a done loading test is a failure of its file in '
+        'a run that was not stopped', () async {
+      final lines = flutterTestOutput('passing', app).trimRight().split('\n');
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(
+          exitCode: 1,
+          stdout: [
+            ...lines.take(lines.length - 1),
+            stopErrorOn(1),
+            '{"success":false,"type":"done","time":2754}',
+          ].join('\n'),
+        ),
+      );
+      final tests = await run();
+      expect(tests.timedOut, isFalse);
+      expect(told(tests), [
+        (
+          'test/passing_test.dart',
+          null,
+          null,
+          'Bad state: Cannot close sink while adding stream.',
+        ),
+      ]);
+    });
+
     test('a test that starts after a test was done with `error` ends the '
         'stop\'s lines: that one is a test whose process ended', () async {
       scriptFlutterTest(
