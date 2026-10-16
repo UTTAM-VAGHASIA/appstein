@@ -191,7 +191,11 @@ Future<TestRun> runProjectTests({
       '(${_plain(result.stderr)})',
     );
   }
-  final output = _readEvents(result.stdout, projectRoot);
+  final output = _readEvents(
+    result.stdout,
+    projectRoot,
+    stopped: result.timedOut,
+  );
   // What it had printed when it was stopped is kept: a run that did not
   // finish is never told as one in which no other test failed.
   if (result.timedOut) {
@@ -238,6 +242,21 @@ bool _hasTestFiles(String projectRoot) {
 ///
 /// `done` is whether the end of the run was told, `started` whether any test
 /// was, and `running` the tests started and not yet done.
+///
+/// `package:test` tells a test as done with `error`, and no error event
+/// before it, in two cases: its test process ended while it ran (a crash, or
+/// a test that calls `exit`), and it was still running when the run was
+/// [stopped] by a signal `flutter test` handles (SIGTERM, on Linux and
+/// macOS). The lines can't be told apart. In a [stopped] run, the last
+/// events printed are the stop's block, however long before the stop they
+/// were printed: every `testDone` with `error` (with or without an error
+/// before it), `testDone` of hidden tests, the start and end of setUpAll
+/// and tearDownAll tests (test_core runs a tearDownAll after the stop),
+/// `print` events, and the end of the run. A test the block tells as done
+/// with `error` is among `running`, and is a failure only if it told an
+/// error; a setUpAll or tearDownAll in it is never among `running`. Every
+/// other `testDone` with `error` and no error before it is a failure whose
+/// process ended.
 ({
   List<TestFailure> failures,
   bool passed,
@@ -245,7 +264,46 @@ bool _hasTestFiles(String projectRoot) {
   bool started,
   List<RunningTest> running,
 })
-_readEvents(String output, String projectRoot) {
+_readEvents(String output, String projectRoot, {required bool stopped}) {
+  final events = <Map<String, Object?>>[];
+  for (final line in const LineSplitter().convert(output)) {
+    if (!line.startsWith('{')) continue;
+    final Object? event;
+    try {
+      event = jsonDecode(line);
+    } on FormatException {
+      continue;
+    }
+    if (event is Map<String, Object?>) events.add(event);
+  }
+  // The setUpAll and tearDownAll tests, which `package:test` hides.
+  final hidden = <int>{
+    for (final event in events)
+      if (event case {
+        'type': 'testStart',
+        'test': {'id': final int id, 'name': final String name},
+      } when name.endsWith('(setUpAll)') || name.endsWith('(tearDownAll)'))
+        id,
+  };
+  // Where what the stop printed starts: nothing, unless the run was stopped.
+  var stop = events.length;
+  while (stopped &&
+      stop > 0 &&
+      switch (events[stop - 1]) {
+        {'type': 'testDone', 'result': 'error'} ||
+        {'type': 'testDone', 'hidden': true} ||
+        {'type': 'done'} ||
+        {'type': 'print'} => true,
+        // test_core runs a group's tearDownAll even after it has closed
+        // the tests; a file has one when its author wrote one, or when
+        // flutter_test's leak tracking is turned on.
+        {'type': 'testStart', 'test': {'id': final int id}} ||
+        {'type': 'testDone', 'testID': final int id} => hidden.contains(id),
+        _ => false,
+      }) {
+    stop--;
+  }
+
   final suites = <int, String>{};
   // In the order the tests were started.
   final tests = <int, Map<String, Object?>>{};
@@ -255,16 +313,10 @@ _readEvents(String output, String projectRoot) {
   final errors = <int, String>{};
   final framework = <int, String>{};
   final failed = <int>{};
+  // Done with `error` and no error: their test process ended.
+  final ended = <int>{};
   var passed = false;
-  for (final line in const LineSplitter().convert(output)) {
-    if (!line.startsWith('{')) continue;
-    final Object? event;
-    try {
-      event = jsonDecode(line);
-    } on FormatException {
-      continue;
-    }
-    if (event is! Map<String, Object?>) continue;
+  for (final (index, event) in events.indexed) {
     switch (event) {
       case {
         'type': 'suite',
@@ -293,6 +345,20 @@ _readEvents(String output, String projectRoot) {
           when message.contains(_exceptionSign) && !errors.containsKey(id):
         // The first block the test printed before its error.
         framework.putIfAbsent(id, () => message);
+      case {'type': 'testDone', 'testID': final int id, 'result': 'error'}
+          when index >= stop && !hidden.contains(id):
+        // Closed by the stop while it was running: it stays open. A test
+        // that had told an error is a failure too.
+        break;
+      case {'type': 'testDone', 'testID': final int id} when index >= stop:
+        // A setUpAll or tearDownAll the stop ran or closed, or a test it
+        // told as hidden: done, and a failure only if it told an error.
+        open.remove(id);
+      case {'type': 'testDone', 'testID': final int id, 'result': 'error'}
+          when !errors.containsKey(id):
+        open.remove(id);
+        failed.add(id);
+        ended.add(id);
       case {
         'type': 'testDone',
         'testID': final int id,
@@ -321,7 +387,8 @@ _readEvents(String output, String projectRoot) {
       ));
     }
     if (!failed.contains(id)) continue;
-    var details = errors[id] ?? 'It did not pass.';
+    var details =
+        errors[id] ?? (ended.contains(id) ? _endedDetails : 'It did not pass.');
     if (details.startsWith(_seeAbove)) details = framework[id] ?? details;
     failures.add(
       TestFailure(
@@ -348,6 +415,10 @@ _readEvents(String output, String projectRoot) {
 /// overflow, and others.
 const _exceptionSign = 'EXCEPTION CAUGHT BY ';
 const _seeAbove = 'Test failed. See exception logs above.';
+
+/// The details of a test whose test process ended before it finished.
+const _endedDetails =
+    'Its test process ended before the test finished (a crash or `exit`).';
 
 /// [path] from the project at [root], with `/`; [path] itself when it is
 /// outside.
@@ -425,7 +496,12 @@ const _maxLength = 600;
 String _lastLines(String text, int count) {
   final lines = [
     for (final line in const LineSplitter().convert(text))
-      if (line.trim().isNotEmpty && !line.startsWith('{')) line.trim(),
+      // Events, and the `[{"event":"test.startedProcess",…}]` line Flutter
+      // prints for each test process, are not words.
+      if (line.trim().isNotEmpty &&
+          !line.startsWith('{') &&
+          !line.startsWith('[{'))
+        line.trim(),
   ];
   return _plain(
     lines.skip(lines.length > count ? lines.length - count : 0).join(' '),

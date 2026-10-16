@@ -9,6 +9,10 @@ import '../support/fake_process_runner.dart';
 import '../support/flutter_test_output.dart';
 import '../support/temp.dart';
 
+/// The details of a test whose test process ended before it finished.
+const _ended =
+    'Its test process ended before the test finished (a crash or `exit`).';
+
 // `runProjectTests` with a scripted process runner (slice 1d.2, seam 3).
 // The scripted output is what Flutter 3.47.5 really printed; see
 // `flutterTestOutput`.
@@ -304,6 +308,256 @@ void main() {
       expect(runner.timeouts, [const Duration(seconds: 2)]);
     });
 
+    // On Linux and macOS the stop is a SIGTERM, which `flutter test` handles:
+    // `package:test` closes the tests still running, and its JSON reporter
+    // tells each one it closed as done with `error`, with no error event
+    // before it (test_core 0.6.18, `JsonReporter._normalizeTestResult`: "if
+    // test is still active, it was probably cancelled"). The end of the run
+    // may follow, as a failure, or never be printed: the tool's own SIGTERM
+    // handler exits at the same time. These lines are written from that
+    // source, not copied from a run: no Linux run has been recorded.
+    String stoppedOnPosix(
+      String printed, {
+      List<int> closed = const [9, 19],
+      String before = '',
+      bool done = true,
+    }) => [
+      printed,
+      if (before.isNotEmpty) before,
+      for (final id in closed)
+        '{"testID":$id,"result":"error","skipped":false,"hidden":false,'
+            '"type":"testDone","time":75012}',
+      if (done) '{"success":false,"type":"done","time":75020}',
+      '',
+    ].join('\n');
+
+    /// The first [count] lines of the real run of the whole fixture app.
+    String failingRun([int count = 40]) =>
+        flutterTestOutput('failing', app).split('\n').take(count).join('\n');
+
+    test('a run stopped by a signal it handles: the tests the stop closed '
+        'are told as running, never as failing tests', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(stdout: stoppedOnPosix(failingRun()), stderr: ''),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect((tests.ran, tests.timedOut), (true, true));
+      expect(names(tests), [
+        null,
+        'counter next adds two',
+        'counter next throws',
+      ]);
+      // `counter next throws` was done with `error` before the stop, and
+      // other tests started after it: it is a failure, not running.
+      expect(tests.running, [
+        (
+          file: 'test/my folder/spaced_test.dart',
+          test: 'in a folder with a space',
+        ),
+        (file: 'test/widgets/failing_test.dart', test: 'shows other text'),
+      ]);
+    });
+
+    test('a test that had told an error and was still running at the stop '
+        'is a failing test, and is named as running too', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: stoppedOnPosix(
+            failingRun(),
+            before:
+                '{"testID":19,"error":"Bad state: broke, then hung",'
+                '"stackTrace":"","isFailure":false,"type":"error",'
+                '"time":40000}',
+            done: false,
+          ),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(tests.timedOut, isTrue);
+      expect(told(tests).last, (
+        'test/widgets/failing_test.dart',
+        18,
+        'shows other text',
+        'Bad state: broke, then hung',
+      ));
+      expect(names(tests), [
+        null,
+        'counter next adds two',
+        'counter next throws',
+        'shows other text',
+      ]);
+      expect(tests.running, [
+        (
+          file: 'test/my folder/spaced_test.dart',
+          test: 'in a folder with a space',
+        ),
+        (file: 'test/widgets/failing_test.dart', test: 'shows other text'),
+      ]);
+    });
+
+    test('stopped on Windows, a test that had told an error and was still '
+        'running is a failing test, and is named as running too', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout:
+              '${failingRun()}\n'
+              '{"testID":19,"error":"Bad state: broke, then hung",'
+              '"stackTrace":"","isFailure":false,"type":"error",'
+              '"time":40000}\n',
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(names(tests).last, 'shows other text');
+      expect(tests.running.last, (
+        file: 'test/widgets/failing_test.dart',
+        test: 'shows other text',
+      ));
+    });
+
+    /// A test done with `error` by the stop, as the reporter tells it.
+    String closedByStop(int id) =>
+        '{"testID":$id,"result":"error","skipped":false,"hidden":false,'
+        '"type":"testDone","time":75012}';
+
+    /// The end of the run after a stop.
+    const doneAfterStop = '{"success":false,"type":"done","time":75020}';
+
+    List<RunningTest> bothOpen() => [
+      (
+        file: 'test/my folder/spaced_test.dart',
+        test: 'in a folder with a space',
+      ),
+      (file: 'test/widgets/failing_test.dart', test: 'shows other text'),
+    ];
+
+    test(
+      'the stop runs the tearDownAll of a file whose test it closed: '
+      'that hidden test is passed over, and never named as running',
+      () async {
+        // test_core runs a group's tearDownAll even after the engine is
+        // closed (engine.dart, `_runGroup`). A file has one when its author
+        // wrote one, or when flutter_test's leak tracking is turned on. The
+        // stop closes it too.
+        scriptFlutterTest(
+          runner,
+          sdk,
+          RunResult.timedOut(
+            stdout: [
+              failingRun(),
+              closedByStop(19),
+              '{"test":{"id":20,"name":"(tearDownAll)","suiteID":6,'
+                  '"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},'
+                  '"line":null,"column":null,"url":null},"type":"testStart",'
+                  '"time":75013}',
+              closedByStop(20),
+              '{"test":{"id":21,"name":"counter (setUpAll)","suiteID":6,'
+                  '"groupIDs":[14,15],"metadata":{"skip":false,'
+                  '"skipReason":null},"line":null,"column":null,"url":null},'
+                  '"type":"testStart","time":75014}',
+              '{"testID":21,"result":"success","skipped":false,"hidden":true,'
+                  '"type":"testDone","time":75014}',
+              closedByStop(9),
+              doneAfterStop,
+            ].join('\n'),
+            stderr: '',
+          ),
+        );
+        final tests = await run(timeout: const Duration(seconds: 2));
+        expect(names(tests), [
+          null,
+          'counter next adds two',
+          'counter next throws',
+        ]);
+        expect(tests.running, bothOpen());
+      },
+    );
+
+    test('a print from a test still running in another file, between the '
+        'stop\'s lines, is passed over', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: [
+            failingRun(),
+            closedByStop(19),
+            '{"testID":9,"messageType":"print","message":"still going",'
+                '"type":"print","time":75013}',
+            closedByStop(9),
+            doneAfterStop,
+          ].join('\n'),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(names(tests), [
+        null,
+        'counter next adds two',
+        'counter next throws',
+      ]);
+      expect(tests.running, bothOpen());
+    });
+
+    test('a test that starts after a test was done with `error` ends the '
+        'stop\'s lines: that one is a test whose process ended', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: [
+            failingRun(),
+            closedByStop(19),
+            '{"test":{"id":20,"name":"shows yet more text","suiteID":6,'
+                '"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},'
+                '"line":null,"column":null,"url":null},"type":"testStart",'
+                '"time":75013}',
+          ].join('\n'),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(names(tests).last, 'shows other text');
+      expect(tests.running.last, (
+        file: 'test/widgets/failing_test.dart',
+        test: 'shows yet more text',
+      ));
+    });
+
+    test('a test whose process ended well before the stop is still a '
+        'failing test in a stopped run', () async {
+      // The real run with a test that calls `exit`, up to the start of the
+      // last test, which then never ends.
+      final printed = flutterTestOutput(
+        'crash',
+        app,
+      ).split('\n').take(21).join('\n');
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult.timedOut(
+          stdout: stoppedOnPosix(printed, closed: [9]),
+          stderr: '',
+        ),
+      );
+      final tests = await run(timeout: const Duration(seconds: 2));
+      expect(tests.timedOut, isTrue);
+      expect(told(tests), [
+        ('test/crash_test.dart', 9, 'ends its process', _ended),
+        ('test/crash_test.dart', 12, 'after the crash', _ended),
+      ]);
+      expect(tests.running, [
+        (file: 'test/real_failure_test.dart', test: 'fails for real'),
+      ]);
+    });
+
     test('the first 300 KB of a real run of 22 failures, whose output '
         'ends in the middle of a line: the 16 failures it had told, the '
         'test that was open, and not a finished run', () async {
@@ -360,6 +614,55 @@ void main() {
         expect(tests.running, [(file: 'test/passing_test.dart', test: null)]);
       },
     );
+  });
+
+  // A real run of Flutter 3.47.5 on Windows: a test calls `exit(0)`. Its
+  // test process ends, and `package:test` tells that test, and every later
+  // test of the same file, as done with `error` and no error event before.
+  group('a test whose process ends before it finishes', () {
+    test('alone: each such test is a failing test that says its process '
+        'ended, in a finished run', () async {
+      final crash = flutterTestOutput('crash', app)
+          .split('\n')
+          .where(
+            (line) => !line.contains('"testID":9') && !line.contains('"id":9,'),
+          )
+          .join('\n');
+      scriptFlutterTest(runner, sdk, RunResult(exitCode: 1, stdout: crash));
+      final tests = await run();
+      expect(
+        (tests.timedOut, tests.cutShort, tests.unexplained),
+        (false, false, false),
+      );
+      expect(told(tests), [
+        ('test/crash_test.dart', 9, 'ends its process', _ended),
+        ('test/crash_test.dart', 12, 'after the crash', _ended),
+      ]);
+      expect(tests.running, isEmpty);
+    });
+
+    test('with a real failure in another file: both are told', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(exitCode: 1, stdout: flutterTestOutput('crash', app)),
+      );
+      final tests = await run();
+      expect(
+        (tests.timedOut, tests.cutShort, tests.unexplained),
+        (false, false, false),
+      );
+      expect(told(tests), [
+        ('test/crash_test.dart', 9, 'ends its process', _ended),
+        ('test/crash_test.dart', 12, 'after the crash', _ended),
+        (
+          'test/real_failure_test.dart',
+          4,
+          'fails for real',
+          'Expected: <2> Actual: <1>',
+        ),
+      ]);
+    });
   });
 
   group('nothing to run, so `flutter test` is not started', () {
@@ -459,6 +762,23 @@ void main() {
       final tests = await run();
       expect((tests.unexplained, tests.exitCode), (true, 0));
       expect(tests.said, 'Downloading the engine');
+    });
+
+    test('its last words leave out the lines Flutter prints for each test '
+        'process it starts', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        const RunResult(
+          exitCode: 1,
+          stdout:
+              'Something went wrong.\n'
+              '[{"event":"test.startedProcess","params":'
+              '{"vmServiceUri":null}}]\n',
+        ),
+      );
+      final tests = await run();
+      expect(tests.said, 'Something went wrong');
     });
   });
 

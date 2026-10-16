@@ -21,6 +21,9 @@ const flutterTestArguments = ['test', '--machine', '--no-pub'];
 /// overflow). `truncated` is the first 300 KB of a real run of 22 failures
 /// in 12 files, which ends in the middle of a line, without the events of
 /// the tests that passed and all but the first three lines one test printed.
+/// `crash` is a run of two files of another project: in `crash_test.dart` a
+/// test calls `exit(0)`, so it and the test after it end with its process,
+/// and `real_failure_test.dart` has one failing expectation.
 String flutterTestOutput(String name, String project) =>
     File(p.join(p.dirname(fixtureAppsDir), 'flutter_test', '$name.jsonl'))
         .readAsStringSync()

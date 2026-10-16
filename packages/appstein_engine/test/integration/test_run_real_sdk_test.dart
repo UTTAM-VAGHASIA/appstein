@@ -247,7 +247,16 @@ void main() {
     final tests = await running;
     final stoppedAfter = watch.elapsed;
     expect((tests.ran, tests.timedOut), (true, true));
-    expect(tests.failures, isEmpty);
+    expect(
+      tests.failures,
+      isEmpty,
+      // What the run read as failures, so a failing CI run shows the event.
+      reason: [
+        for (final failure in tests.failures)
+          '${failure.file}:${failure.line} '
+              '${failure.test ?? '(loading)'}: ${failure.details}',
+      ].join('\n'),
+    );
     // What the run had printed is kept: it names the test that never ended.
     expect(tests.running, [
       (file: 'test/hanging_test.dart', test: 'never ends'),
