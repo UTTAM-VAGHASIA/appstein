@@ -9,13 +9,17 @@ import 'support/analysis_support.dart';
 // `lookUpProcess` on real processes this test starts: the one way Appstein
 // tells a process it started from a later one with the same ID.
 void main() {
-  /// A process of this test's own that waits until its input closes.
+  /// A process of this test's own that waits until its input closes. It is
+  /// returned once its Dart code runs: on Linux and macOS a `dart <script>`
+  /// process execs `dartvm` in the same process ID, so an identity taken
+  /// before that differs from one taken after it (the macOS failure of CI
+  /// run 38721583522; see [untilItsDartRuns]).
   Future<Process> waiter() async {
     final process = await Process.start(Platform.resolvedExecutable, [
       analysisSupportFile('silent_guard.dart'),
     ]);
     process.stdout.drain<void>().ignore();
-    process.stderr.drain<void>().ignore();
+    final running = untilItsDartRuns(process);
     addTearDown(() async {
       await process.stdin.close();
       await process.exitCode.timeout(
@@ -26,6 +30,7 @@ void main() {
         },
       );
     });
+    await running;
     return process;
   }
 

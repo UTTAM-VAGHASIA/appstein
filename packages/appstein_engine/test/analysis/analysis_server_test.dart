@@ -1452,13 +1452,17 @@ int one() => 1;
     group('a process is ended by its ID only when it is shown to be the '
         'one the guard named', () {
       /// A process of this test's own, which a scripted guard names as its
-      /// server. It waits until its input closes.
+      /// server. It waits until its input closes. It is returned once its
+      /// Dart code runs: on Linux and macOS a `dart <script>` process execs
+      /// `dartvm` in the same process ID, so an identity taken before that
+      /// differs from one taken after it (the macOS failure of CI run
+      /// 38721583522; see [untilItsDartRuns]).
       Future<Process> bystander() async {
         final process = await Process.start(Platform.resolvedExecutable, [
           analysisSupportFile('silent_guard.dart'),
         ]);
         process.stdout.drain<void>().ignore();
-        process.stderr.drain<void>().ignore();
+        final running = untilItsDartRuns(process);
         addTearDown(() async {
           await process.stdin.close();
           await process.exitCode.timeout(
@@ -1469,6 +1473,7 @@ int one() => 1;
             },
           );
         });
+        await running;
         return process;
       }
 

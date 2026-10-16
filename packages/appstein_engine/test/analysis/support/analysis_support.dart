@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:appstein_engine/appstein_engine.dart';
+// The engine's `TestFailure` is a failed test of the project `verify` runs.
+import 'package:appstein_engine/appstein_engine.dart' hide TestFailure;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -52,6 +54,45 @@ ProcessIdentity? identityOf(int id) => switch (lookUpProcess(id)) {
   ProcessRunning(:final identity) => identity,
   _ => null,
 };
+
+/// Waits until [process], a `dart <script>` that writes on stderr first
+/// thing (`silent_guard.dart`), has written its first line there, and
+/// drains the rest. Fails the test, rather than hanging, when the process
+/// ends without one or none comes [within].
+///
+/// A test takes a process's identity only after this. On Linux and macOS a
+/// `dart <script>` process execs the SDK's `dartvm` in the same process,
+/// keeping the ID and the start, and `ps` names it `dart` before the exec
+/// and `dartvm` after it. An identity taken a moment after the start could
+/// so differ from one taken later: that was the macOS failure of CI run
+/// 38721583522. Once the script has written, its Dart code runs, so the
+/// exec is behind it.
+Future<void> untilItsDartRuns(
+  Process process, {
+  Duration within = const Duration(seconds: 30),
+}) {
+  final running = Completer<void>();
+  process.stderr.listen(
+    (_) {
+      if (!running.isCompleted) running.complete();
+    },
+    onDone: () {
+      if (running.isCompleted) return;
+      running.completeError(
+        TestFailure(
+          'process ${process.pid} ended without writing on stderr, so its '
+          'Dart code never ran',
+        ),
+      );
+    },
+  );
+  return running.future.timeout(
+    within,
+    onTimeout: () => throw TestFailure(
+      'process ${process.pid} wrote nothing on stderr within $within',
+    ),
+  );
+}
 
 /// Deletes the file [relative] (with `/`) of the project [app]. On Windows
 /// a file can't be deleted in the moment another process reads it, and an
