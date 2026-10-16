@@ -1391,6 +1391,217 @@ void main() {}
     });
   });
 
+  // The passing case of `dart.warning` and `dart.lint` (design §18): a full
+  // run with lints switched on, where one file has a warning and a lint and
+  // another has neither.
+  group('a file free of warnings and lints beside one that has both', () {
+    late String app;
+    late AnalysisServer server;
+
+    const clean = 'lib/clean.dart';
+    const dirty = 'lib/dirty.dart';
+
+    setUpAll(() {
+      app = copyFixtureApp();
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        'linter:\n  rules:\n    - prefer_single_quotes\n'
+            '    - unnecessary_new\n',
+      );
+      // Written the way both lints ask for.
+      writeProjectFile(app, clean, '''
+/// A box.
+class Box {
+  /// Makes one.
+  Box();
+}
+
+/// Says a word and makes a box.
+String clean() {
+  final box = Box();
+  return 'clean' + box.toString();
+}
+''');
+      writeProjectFile(app, dirty, '''
+import 'dart:math';
+
+/// Breaks the quote lint, and imports what it doesn't use.
+String dirty() => "dirty";
+''');
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test('a full run reports the warning and the lint of the one file and '
+        'nothing for the other, and the checks ran', () async {
+      final result = await verify(app, server);
+      expect(
+        [
+          for (final finding in result.findings)
+            if (finding.id == 'dart.warning' || finding.id == 'dart.lint')
+              (
+                finding.id,
+                finding.severity,
+                finding.file,
+                RegExp(r'\(`(\w+)`\)$').firstMatch(finding.message)![1],
+              ),
+        ],
+        unorderedEquals([
+          ('dart.warning', Severity.warning, dirty, 'unused_import'),
+          ('dart.lint', Severity.info, dirty, 'prefer_single_quotes'),
+        ]),
+      );
+      expect(
+        result.findings.where((finding) => finding.file == clean),
+        isEmpty,
+      );
+      expect([
+        for (final check in result.notRun) check.id,
+      ], isNot(anyOf(contains('dart.warning'), contains('dart.lint'))));
+    });
+  });
+
+  // The passing case of `dart.fix_pending` (design §18): a project with a
+  // warning that no fix exists for. Its check runs, finds nothing to fix, and
+  // is not named as not run.
+  group('a project with a warning that dart fix has no fix for', () {
+    late String app;
+    late AnalysisServer server;
+
+    const stuck = 'lib/stuck.dart';
+
+    setUpAll(() {
+      app = copyFixtureApp();
+      writeProjectFile(app, stuck, '''
+/// Has code after a return: dead code, a warning with no fix.
+int early() {
+  return 1;
+  return 2;
+}
+''');
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    test(
+      'a full run reports the warning and no dart.fix_pending, and the '
+      'check ran: its passes finished, and the real dart fix agrees',
+      () async {
+        final result = await verify(app, server);
+        final warnings = [
+          for (final finding in result.findings)
+            if (finding.id == 'dart.warning') finding,
+        ];
+        expect([for (final finding in warnings) finding.file], [stuck]);
+        expect(warnings.single.message, endsWith(' (`dead_code`)'));
+        expect([
+          for (final finding in result.findings)
+            if (finding.id == 'dart.fix_pending') finding.file,
+        ], isEmpty);
+        expect([
+          for (final check in result.notRun) check.id,
+        ], isNot(contains('dart.fix_pending')));
+
+        // The server was asked and answered: its passes ended (`unfinished` is
+        // null), and none of them found a fix (`passes` counts those that did).
+        final pending = await server.pendingFixes(within: fixBudgetFull);
+        expect(pending.unfinished, isNull);
+        expect(pending.passes, 0);
+        expect(
+          [
+            for (final byCode in pending.counts.values) ...byCode.values,
+          ].where((count) => count > 0),
+          isEmpty,
+        );
+
+        final real = await Process.run(
+          testDart,
+          ['fix', '--dry-run', '.'],
+          workingDirectory: app,
+          environment: testAnalysisEnvironment(),
+          stdoutEncoding: utf8,
+          stderrEncoding: utf8,
+        );
+        expect(real.exitCode, 0, reason: '${real.stdout}${real.stderr}');
+        expect('${real.stdout}', contains('Nothing to fix'));
+      },
+    );
+  });
+
+  // `dart.plugin_failed` against a real server (design §18): the scripted
+  // cases are in `verify_run_test.dart`. A plugin whose package is nowhere
+  // fails without a network.
+  group('an app whose options name a plugin that can\'t be loaded', () {
+    late String app;
+    late AnalysisServer server;
+
+    const ghost = 'plugins:\n  ghost_plugin:\n    path: ../no such plugin\n';
+
+    setUpAll(() {
+      app = copyFixtureApp();
+      writeProjectFile(app, 'analysis_options.yaml', ghost);
+      writeProjectFile(
+        app,
+        'lib/broken.dart',
+        '/// Wrong on purpose.\nint wrong() => \'text\';\n',
+      );
+      server = realAnalysisServer(app);
+    });
+
+    tearDownAll(() => server.stop());
+
+    for (final mode in VerifyMode.values) {
+      test('${mode.name}: the failure is a dart.plugin_failed error of the '
+          'project, beside the errors of its code', () async {
+        final result = await verify(app, server, mode: mode);
+        final failed = [
+          for (final finding in result.findings)
+            if (finding.id == 'dart.plugin_failed') finding,
+        ];
+        expect(failed, hasLength(1));
+        expect(failed.single.severity, Severity.error);
+        expect(failed.single.file, isNull);
+        expect(failed.single.message, contains('ghost_plugin'));
+        expect(failed.single.message, isNot(contains('\n')));
+        expect(failed.single.fixHint, contains('analysis_options.yaml'));
+        expect(
+          [
+            for (final finding in result.findings)
+              if (finding.id == 'dart.error') finding.file,
+          ],
+          ['lib/broken.dart'],
+        );
+        expect(result.errors, greaterThanOrEqualTo(2));
+        expect([
+          for (final check in result.notRun) check.id,
+        ], isNot(contains('dart.plugin_failed')));
+      });
+    }
+
+    test('once the entry is gone from the options, nothing is reported for '
+        'the check', () async {
+      writeProjectFile(
+        app,
+        'analysis_options.yaml',
+        'analyzer:\n  errors:\n    unused_import: error\n',
+      );
+      final result = await verify(app, server);
+      expect([
+        for (final finding in result.findings) finding.id,
+      ], isNot(contains('dart.plugin_failed')));
+      expect(
+        [
+          for (final finding in result.findings)
+            if (finding.id == 'dart.error') finding.file,
+        ],
+        ['lib/broken.dart'],
+      );
+    });
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
   // `dart fix` can migrate a use when the package that deprecated the API
   // describes the migration in its `fix_data.yaml`.
   group('deprecated use with and without a data-driven fix', () {
