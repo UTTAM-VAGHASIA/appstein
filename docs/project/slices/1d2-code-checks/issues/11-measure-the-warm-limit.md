@@ -4,13 +4,13 @@
 
 **Blocked by:** 04, 06.
 
-Status: claimed
+Status: resolved
 
 - [x] The measurement tool starts the compiled `appstein mcp` on the 200-file app, waits until warm analysis is ready, edits one file, calls the `verify` tool with the fast scope, and takes the median of three. 5 s or more fails the run, with a message giving the measured time (the design's "< 5 s"; owner, 2026-10-15).
 - [x] The edit in the measurement introduces a real error, and the measurement fails if the reply doesn't report it, so a fast answer that missed the change can't pass.
 - [x] The terminal `appstein verify --fast` and the terminal full run are timed and recorded with no limit; the old 5 s limit on the terminal fast run is removed.
 - [x] The analysis server's start-up time and its memory are recorded with them.
-- [ ] CI runs the measurement on Linux, macOS and Windows, and the numbers of one green run on each are written into the slice's spec beside the interview's numbers. (Numbers written from run 38721583522, whose measurement jobs passed but which failed elsewhere; this box waits for a fully green run, after the fixes to the process identity and the test stop, and the numbers are written again from it if they changed.)
+- [x] CI runs the measurement on Linux, macOS and Windows, and the numbers of one green run on each are written into the slice's spec beside the interview's numbers. (Written again from run 38895467551 of 2026-10-16, fully green after its macOS measurement job was rerun with the owner's yes.)
 - [x] If the warm fast run exceeds 5 s on any of the three, work stops and the owner is asked: the design's limit is not changed to fit.
 - [x] The guide page that describes the measurements is updated; the guide check passes.
 
@@ -53,3 +53,10 @@ Status: claimed
 - **The tool now** gives the server a cache folder of its own and records both a cold and a warm time for the terminal runs (owner, 2026-10-15). Warm means after warm-up runs until the cache stops growing, at most 15, and the row says when the cap was hit. A memory sample counts only when it saw the guard and a Dart server; a run never seen is run again, then fails. This was reviewed three times and committed in `ebde68e`, with a last check that caught Linux's `dart:<script>` process names before any CI run.
 - **Second CI run (38721583522).** All three measurement jobs passed; the numbers are in the slice spec's Further Notes. Warm fast `verify` took 1.00 s on Linux, 0.97 s on macOS and 1.30 s on Windows. The run failed elsewhere, in two older tests that had never run on those systems (a macOS process-identity test from ticket 04, a Linux test-time-limit test from ticket 10). They are being fixed separately; neither touches the measurement.
 - **Found by the measurement, for the owner:** each end of the analysis server left half-written files in the machine's shared Dart cache; ticket 13 cleans them up. On Windows a terminal `verify` stays slow for 15 or more runs on a new machine, while Linux and macOS warm up in five.
+
+**2026-10-16: the fully green run, and resolved.**
+
+- **Run 38895467551** (the branch at `f742fff`) passed every job. Its macOS measurement job first missed the older `sync --detect` limit (2.4 s after a view-model edit, against 2 s), on a push that changed nothing `sync` runs. It was the second miss in three runs. The owner chose to rerun that job alone, and it passed (1.08 s). The slow attempt was slower in everything, so the miss was the runner's. The owner then decided that a `sync --detect` row that misses is measured once more and fails only if both miss; if it still misses, `sync` is made faster (slice notes).
+- **Warm fast `verify`:** 1.19 s on Linux, 0.90 s on macOS, 1.72 s on Windows, all under the 5 s limit. The rest is in the slice spec's Further Notes, which now cite this run.
+- **What changed since run 38721583522:** the terminal cold runs took longer (Linux 8.8 → 12.2 s fast). Linux's cache stopped growing after 3 runs and macOS's after 8, where both took 5 before. Windows still hit the cap of 15. No run left a half-written file, which is ticket 13's clean-up.
+- **Windows' warm rows are not of a warm cache.** The tool printed that the warm-up stopped at the cap with the cache still growing. The spec now marks the Windows warm cells, and says the `appstein mcp` rows use the same cache. The 5 s limit is not affected, since a cache still filling can only slow the call, and it passed. The cap of 15 is the owner's (2026-10-15). A fully warm Windows cache is not measured; it stays with the known limit "a terminal `verify` on a new Windows machine stays slow for 15 or more runs".

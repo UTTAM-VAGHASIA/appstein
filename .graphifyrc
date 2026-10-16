@@ -3,5 +3,6 @@
 #
 # graphify draws single nodes in graph.html only up to 5,000 nodes and shows
 # a community summary above that. This repo's graph passed 5,000 nodes in
-# slice 1b.4, so the limit is raised to keep the full view.
-viz_node_limit=10000
+# slice 1b.4, so the limit is raised to keep the full view; it passed 10,000
+# in slice 1d.2, so the limit is 15,000 since then.
+viz_node_limit=15000

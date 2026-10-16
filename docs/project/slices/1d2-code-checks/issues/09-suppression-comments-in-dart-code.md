@@ -4,7 +4,7 @@
 
 **Blocked by:** 05.
 
-Status: claimed
+Status: resolved
 
 - [x] `// appstein:ignore <check-id> — <reason>` at the end of a line of code hides that check's findings on that line. Alone on a line, it hides them on the next line of code.
 - [x] `// appstein:ignore-file <check-id> — <reason>` anywhere before the file's first declaration hides that check's findings in the file. After the first declaration it hides nothing and is reported as unused.

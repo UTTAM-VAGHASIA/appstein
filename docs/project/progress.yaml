@@ -192,12 +192,14 @@ milestones:
           - id: 1d.2
             title: Code checks
             summary: "The analyze, format, fix and test checks, answered by an analysis server that `appstein mcp` keeps running, with the unverified files, `--files`, `--apply` and the Dart suppression comments."
-            status: next
+            status: done
             spec: 1d2-code-checks
+            pr: 11
+            finished: 2026-10-16
           - id: 1d.7
             title: Hook mode and fast verify in 5 s
             summary: "`--hook claude` with its exit code, the hook's route to the running `appstein mcp`, one analysis server per project shared by every session, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route."
-            status: planned
+            status: next
           - id: 1d.3
             title: Lint rules
             summary: The five remaining M1 rules in `appstein_lints`, including `document_public_classes`, run for verify on the analyzer the map already has, so the plugin leaves the analysis server; the stack knowledge in the `feature` and `route` tools and in `INDEX.md` moves into the stack pack.

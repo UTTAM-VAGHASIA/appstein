@@ -607,7 +607,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div class="meta">
 <!-- generated:progress-status -->
 
-<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d.2</b> Code checks</a>
+<a class="pill pg-status" href="#progress"><span class="dot" aria-hidden="true"></span>Building M1 · next: <b>1d.7</b> Hook mode and fast verify in 5 s</a>
 
 <!-- /generated:progress-status -->
         <span class="pill"><span class="dot"></span>Approved by the owner</span>
@@ -676,7 +676,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
     <a class="pg-seg pg-done" href="#pg-1a" style="--fill:100%"><b>1a</b><span>Workspace, CLI, doctor and CI</span><i>1 of 1 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1b" style="--fill:100%"><b>1b</b><span>Knowledge layers 1–2</span><i>8 of 8 done</i></a>
     <a class="pg-seg pg-done" href="#pg-1c" style="--fill:100%"><b>1c</b><span>MCP server</span><i>5 of 5 done</i></a>
-    <a class="pg-seg pg-underway" href="#pg-1d" style="--fill:14%"><b>1d</b><span>Verifier</span><i>1 of 7 done</i></a>
+    <a class="pg-seg pg-underway" href="#pg-1d" style="--fill:29%"><b>1d</b><span>Verifier</span><i>2 of 7 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1e" style="--fill:0%"><b>1e</b><span>create + integrate</span><i>0 of 1 done</i></a>
     <a class="pg-seg pg-planned" href="#pg-1f" style="--fill:0%"><b>1f</b><span>upgrade, skills, benchmark</span><i>0 of 1 done</i></a>
   </div>
@@ -799,13 +799,13 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
           <p class="pg-summary"><code>appstein verify</code> with the check interface, findings output, exit codes, suppressions and the <code>verify</code> MCP tool, plus the checks that only read files Appstein already has: <code>knowledge.stale</code>, <code>docs.stale</code>, the decision checks and <code>verify.test_required</code>.</p>
           <p class="pg-meta"><time datetime="2026-10-06">6 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/9">PR #9</a> · <a href="../plans/2026-10-06-slice-1d1-verify-core.md">Plan</a></p>
         </li>
-        <li class="pg-item pg-next" id="pg-1d-2">
-          <p class="pg-title"><b>1d.2</b> Code checks <span class="tag info">Next</span></p>
+        <li class="pg-item pg-done" id="pg-1d-2">
+          <p class="pg-title"><b>1d.2</b> Code checks <span class="tag ok">Done</span></p>
           <p class="pg-summary">The analyze, format, fix and test checks, answered by an analysis server that <code>appstein mcp</code> keeps running, with the unverified files, <code>--files</code>, <code>--apply</code> and the Dart suppression comments.</p>
-          <p class="pg-meta"><a href="../slices/1d2-code-checks/spec.md">Spec</a></p>
+          <p class="pg-meta"><time datetime="2026-10-16">16 Oct 2026</time> · <a href="https://github.com/UTTAM-VAGHASIA/appstein/pull/11">PR #11</a> · <a href="../slices/1d2-code-checks/spec.md">Spec</a></p>
         </li>
-        <li class="pg-item pg-planned" id="pg-1d-7">
-          <p class="pg-title"><b>1d.7</b> Hook mode and fast verify in 5 s <span class="tag neutral">Planned</span></p>
+        <li class="pg-item pg-next" id="pg-1d-7">
+          <p class="pg-title"><b>1d.7</b> Hook mode and fast verify in 5 s <span class="tag info">Next</span></p>
           <p class="pg-summary"><code>--hook claude</code> with its exit code, the hook's route to the running <code>appstein mcp</code>, one analysis server per project shared by every session, the loop guard, what a hook does when that process isn't running, and fast verify measured against 5 s on that route.</p>
         </li>
         <li class="pg-item pg-planned" id="pg-1d-3">

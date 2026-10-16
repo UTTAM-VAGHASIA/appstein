@@ -16,7 +16,7 @@ The Dart tools that could answer are too slow to ask after every change. A cold 
 
 `appstein verify` gains the code checks: analyzer errors, deprecated use, analyzer warnings and lints, formatting, pending fixes and the project's tests.
 
-`appstein mcp` keeps a Dart analysis server running, so the `verify` tool answers from **warm analysis**: the server itself answers about 0.1 s after an edit, and the whole fast `verify` call, most of it the knowledge refresh, took 1.0 to 1.3 s in CI (ticket 11; the numbers are in Further Notes). A fast run reports errors and deprecated use anywhere in the project, and the smaller findings only on the **unverified files**. A **full run** covers everything and runs the tests.
+`appstein mcp` keeps a Dart analysis server running, so the `verify` tool answers from **warm analysis**: the server itself answers about 0.1 s after an edit, and the whole fast `verify` call, most of it the knowledge refresh, took 0.9 to 1.7 s in CI (ticket 11; the numbers are in Further Notes). A fast run reports errors and deprecated use anywhere in the project, and the smaller findings only on the **unverified files**. A **full run** covers everything and runs the tests.
 
 `verify` still never changes a project file unless it is asked to: a new `--apply` flag makes a full run fix and format the project first. A person can hide a finding in Dart code with a visible comment that needs a reason.
 
@@ -259,20 +259,24 @@ A good test here states what a person or an agent sees: given this project, thes
 
 The rows marked "ticket 02" were measured again with `tool/measure_analysis_server.dart`, which waits for the plugin's diagnostics before it calls a server ready. The interview's 7.6 s and 0.56 GB for LSP were taken when the server said it was done, about 10 s before the plugin had finished.
 
-**The 5 s limit where an agent meets it** (ticket 11, `tool/measure_sync.dart` in CI run 38721583522 of 2026-10-15, whose three measurement jobs passed; GitHub's runners, the 200-file app without the plugin, median of three):
+**The 5 s limit where an agent meets it** (ticket 11, `tool/measure_sync.dart` in CI run 38895467551 of 2026-10-16, fully green; Linux and Windows from its first attempt, macOS from the rerun of its measurement job; GitHub's runners, the 200-file app without the plugin and with no `analysis_options.yaml`, median of three):
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| **Warm fast `verify` on a running `appstein mcp`, after an edit that adds an error** (limit: under 5 s) | **1.00 s** | **0.97 s** | **1.30 s** |
-| of which the knowledge refresh / `verify` after it | 0.94 s / 0.06 s | 0.82 s / 0.09 s | 1.22 s / 0.12 s |
-| First `verify` call: the analysis server starts, is ready, and reads | 0.73 s | 1.16 s | 3.40 s |
-| Memory of `appstein mcp`, its guard and the server, ready / after the calls | 0.31 / 0.54 GB | 0.34 / 0.59 GB | 0.58 / 0.80 GB |
-| Terminal `verify --fast`, cold / warm analysis cache (no limit) | 8.8 s / 0.77 s | 8.3 s / 1.17 s | 9.7 s / 3.7 s |
-| Terminal `verify` (full), cold / warm analysis cache (no limit) | 11.8 s / 1.31 s | 11.7 s / 1.81 s | 13.1 s / 8.6 s |
-| Runs until the cache stopped growing | 5 | 5 | still growing after 15 (the cap) |
-| Most memory of a terminal fast / full run, warm cache | 0.30 / 0.40 GB | 0.28 / 0.40 GB | 0.61 / 0.88 GB |
+| **Warm fast `verify` on a running `appstein mcp`, after an edit that adds an error** (limit: under 5 s) | **1.19 s** | **0.90 s** | **1.72 s** |
+| of which the knowledge refresh / `verify` after it | 1.14 s / 0.10 s | 0.83 s / 0.08 s | 1.66 s / 0.22 s |
+| First `verify` call: the analysis server starts, is ready, and reads, on the warm cache of the terminal rows | 1.21 s | 1.23 s | 4.08 s |
+| Memory of `appstein mcp`, its guard and the server, ready / after the calls | 0.31 / 0.56 GB | 0.34 / 0.58 GB | 0.64 / 0.86 GB |
+| Terminal `verify --fast`, cold / warm analysis cache (no limit) | 12.2 s / 1.29 s | 10.8 s / 1.33 s | 13.6 s / 4.09 s\* |
+| Terminal `verify` (full), cold / warm analysis cache (no limit) | 16.2 s / 2.13 s | 13.6 s / 2.14 s | 19.1 s / 9.66 s\* |
+| Runs until the cache stopped growing | 3 | 8 | still growing after 15 (the cap) |
+| Most memory of a terminal fast / full run, warm cache | 0.30 / 0.44 GB | 0.27 / 0.40 GB | 0.58 / 0.90 GB |
 
-The cold column is a first run on a machine whose analysis cache is empty, as on a new CI runner or a new developer's machine; the warm column is a developer's repeated runs. On Windows the cache never stopped growing within 15 runs. Each terminal run ends its server before it has saved all it worked out, which is the likely reason, but not a proven one: Linux and macOS end it the same way and their caches stopped growing after five runs. Ticket 13 removes the half-written files the ends leave behind; the slow warm-up on Windows stays a known limit. The development machine, loaded by other test runs, gave 1.6 to 1.9 s for the warm fast call.
+\* **Not a warm cache.** On Windows the warm-up stopped at its cap of 15 runs with the cache still growing (the last runs took about 10.7 s each and still added 118–443 entries), and the tool printed that the warm rows may not be warm. The Windows warm terminal times, and the `appstein mcp` rows, which use the same cache, are of a cache still filling, not of a warm one: a fully warm Windows cache is not measured. The 5 s limit is not affected by this: a cache still filling can only make the warm fast `verify` slower, and it passed at 1.72 s.
+
+The cold column is a first run on a machine whose analysis cache is empty, as on a new CI runner or a new developer's machine; the warm column is a developer's repeated runs. On Windows the cache never stopped growing within 15 runs. Each terminal run ends its server before it has saved all it worked out, which is the likely reason, but not a proven one: Linux and macOS end it the same way and their caches stopped growing after three and eight runs. Since ticket 13 no run left a half-written file (0 after each of the warm-up runs on all three); the slow warm-up on Windows stays a known limit. The development machine, loaded by other test runs, gave 1.6 to 1.9 s for the warm fast call.
+
+An earlier run (38721583522, 2026-10-15), before the closing fixes, gave 1.00 s, 0.97 s and 1.30 s for the warm fast call.
 
 Not measured: a 1,000-file app for `verify`, a fix for a removed API, a test file that fails to compile. In the measurement every pending `fix_data` migration also showed as `deprecated_member_use` on the same line, and `dart fix --dry-run` printed no line numbers.
 

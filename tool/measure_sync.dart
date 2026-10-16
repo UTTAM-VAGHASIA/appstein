@@ -10,6 +10,7 @@ import 'package:appstein_engine/src/analysis/disk_look.dart'
     show DiskLook, unchangingFolders;
 import 'package:path/path.dart' as p;
 
+import 'src/held_detect.dart';
 import 'src/large_build.dart';
 import 'src/mcp_session.dart';
 import 'src/process_memory.dart';
@@ -25,7 +26,15 @@ import 'src/warm_verify.dart';
 ///   view model, and after one edit of the router: each under 2 s, as the
 ///   median of three runs (three different edits), because a CI machine's
 ///   speed varies by about 2x from run to run. The table shows the three
-///   times beside the median;
+///   times beside the median. A row whose median is 2 s or more is measured
+///   once more, on every system: three fresh runs (three new edits for the
+///   edit rows, each with a change to rebuild, under the same correctness
+///   checks), and it misses only when the second median is also 2 s or more
+///   (owner, 2026-10-16: a slow CI runner made one median miss that the
+///   rerun passed). The table then shows both attempts, the second marked as
+///   the one that counted, and a miss names both medians. The second table
+///   keeps the first attempt's median run. The 1,000-file rows are never held
+///   and never measured again (`measureHeldDetect`);
 /// - each MCP tool's answer on that app, from fresh knowledge, in one
 ///   `appstein mcp` process: under 1 s, as the median of three;
 /// - `appstein docs` on that app, from fresh knowledge: writing every page,
@@ -118,6 +127,8 @@ Future<void> main(List<String> args) async {
     final columns = <int, Map<String, Duration>>{};
     // The three runs behind each median row, in the order they ran.
     final spreads = <int, Map<String, List<Duration>>>{};
+    // The three detect rows, with their second measurement when they had one.
+    final detectRows = <int, Map<String, HeldDetect<_Run>>>{};
     // The runs whose steps the second table breaks down.
     final broken = <String, _Run>{};
     var missed = <String>[];
@@ -145,6 +156,7 @@ Future<void> main(List<String> args) async {
       // The docs and verify rows are measured on the 200-file app only.
       final column = columns[files];
       if (column == null || !column.containsKey(row)) return 'not measured';
+      if (detectRows[files]?[row] case final detect?) return detect.cell();
       final median = '${column[row]!.inMilliseconds} ms';
       final three = spreads[files]?[row];
       return three == null
@@ -216,7 +228,11 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
       // Each detect row is the median of three runs, as measure_analyze
       // takes the median of three: a CI machine's speed varies by about 2x
       // from run to run, and one slow run must not fail the target, while a
-      // real slowdown still moves the median.
+      // real slowdown still moves the median. A held row (the 200-file app)
+      // whose median is 2 s or more is measured once more, with three fresh
+      // runs and, for the edit rows, three new edits: it misses only when the
+      // second median misses too (owner, 2026-10-16: a slow CI runner made a
+      // median miss that the rerun passed). `measureHeldDetect` decides.
       final runs = spreads[files] = {};
       void record(String row, List<_Run> three) {
         final median = _median(three);
@@ -224,29 +240,54 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
         runs[row] = [for (final run in three) run.elapsed];
       }
 
+      final detects = detectRows[files] = {};
+      // Measures one detect row; false when a run was not valid, which the
+      // run has already reported (and set the exit code for).
+      Future<bool> detectRow(
+        String row,
+        String what,
+        Future<_Run?> Function(int index) one,
+      ) async {
+        final measured = await measureHeldDetect<_Run>(
+          run: one,
+          timeOf: (run) => run.elapsed,
+          retry: held,
+          onRetry: (first) => stderr.writeln(
+            '$what took ${first.inMilliseconds} ms, the median of three '
+            '(2 s or more): measuring it once more.',
+          ),
+        );
+        if (measured == null) return false;
+        times[row] = measured.counted;
+        detects[row] = measured;
+        return true;
+      }
+
       // The first detect empties the change list the full sync recorded;
       // the next ones are what a hook sees after a command that changed
       // nothing.
       await sync(const ['--detect']);
-      final unchanged = <_Run>[];
-      for (var i = 0; i < 3; i++) {
+      if (!await detectRow('unchanged', 'A detect with nothing changed', (
+        _,
+      ) async {
         final run = await sync(const ['--detect']);
         if (!run.stdout.startsWith('Knowledge is current')) {
           stderr.writeln(
             'A detect with nothing changed rebuilt:\n${run.stdout}',
           );
           exitCode = 1;
-          return;
+          return null;
         }
-        unchanged.add(run);
+        return run;
+      })) {
+        return;
       }
-      record('unchanged', unchanged);
 
-      // Three different edits of one view model, each followed by a detect.
+      // A different edit of one view model for each run (the indices 0 to 2,
+      // and 3 to 5 for a second measurement), each followed by a detect.
       const viewModel =
           'lib/ui/feature_5/view_models/feature_5_view_model.dart';
-      final edited = <_Run>[];
-      for (var i = 0; i < 3; i++) {
+      if (!await detectRow('viewModel', 'A detect after one edit', (i) async {
         _edit(
           p.join(app, viewModel),
           'int taps = 0;',
@@ -261,15 +302,19 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
             '${run.stdout}${run.stderr}',
           );
           exitCode = 1;
-          return;
+          return null;
         }
-        edited.add(run);
+        return run;
+      })) {
+        return;
       }
-      record('viewModel', edited);
-      broken['view model edit (median), $files'] = _median(edited);
+      // The first attempt's median run, which a miss is explained by.
+      broken['view model edit (median), $files'] =
+          detects['viewModel']!.firstMedianRun;
 
-      final router = <_Run>[];
-      for (var i = 0; i < 3; i++) {
+      // The router has a route '/feature-<i>' for each feature, 99 of them
+      // here, so the edits 0 to 5 each find theirs.
+      if (!await detectRow('router', 'A detect after a router edit', (i) async {
         _edit(
           p.join(app, 'lib', 'routing', 'router.dart'),
           "'/feature-$i'",
@@ -279,12 +324,14 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
         if (run.problem() case final problem?) {
           stderr.writeln('A detect after the router edit: $problem');
           exitCode = 1;
-          return;
+          return null;
         }
-        router.add(run);
+        return run;
+      })) {
+        return;
       }
-      record('router', router);
-      broken['router edit (median), $files'] = _median(router);
+      broken['router edit (median), $files'] =
+          detects['router']!.firstMedianRun;
 
       if (held) {
         // The knowledge is fresh after the last detect, so these measure
@@ -510,15 +557,9 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
           ?warmLimitMiss(medianOf(warm!.fast)),
           if (full.elapsed >= const Duration(seconds: 30))
             'a full sync took ${full.elapsed.inMilliseconds} ms (under 30 s)',
-          if (times['unchanged']! >= const Duration(seconds: 2))
-            'a detect with nothing changed took ${took('unchanged')}, the '
-                'median of three (under 2 s)',
-          if (times['viewModel']! >= const Duration(seconds: 2))
-            'a detect after one edit took ${took('viewModel')}, the median '
-                'of three (under 2 s)',
-          if (times['router']! >= const Duration(seconds: 2))
-            'a detect after a router edit took ${took('router')}, the '
-                'median of three (under 2 s)',
+          ?detects['unchanged']!.miss('a detect with nothing changed'),
+          ?detects['viewModel']!.miss('a detect after one edit'),
+          ?detects['router']!.miss('a detect after a router edit'),
           for (final MapEntry(key: tool, value: three) in mcp.entries)
             if ((three.toList()..sort())[1] >= const Duration(seconds: 1))
               'the MCP tool $tool took ${(three.toList()..sort())[1].inMilliseconds} ms, '
