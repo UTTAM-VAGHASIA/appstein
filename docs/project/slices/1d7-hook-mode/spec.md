@@ -97,7 +97,7 @@ Each project gets one **analysis host**: a small background process, the `appste
 
 | The run found | After an edit (fast run) | At "done" (full run) |
 |---|---|---|
-| Errors | exit 2; stderr lists the errors only, as the text output does, grouped by file with fix hint and knowledge reference | exit 2, the same |
+| Errors | exit 2; stderr lists the errors, and the checks that did not run, as the text output does, grouped by file with fix hint and knowledge reference | exit 2, the same |
 | More than 30 errors | the first 30, then "…and N more: call the `verify` tool for all" | the same |
 | Warnings and no error | exit 0; JSON context for the agent listing the warnings | exit 0; a JSON message for the developer listing them (context for the agent at Stop would keep it going) |
 | Only info findings, or nothing | exit 0, no output | exit 0, no output |

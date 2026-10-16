@@ -2,12 +2,16 @@ import 'dart:convert';
 
 import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
 import 'analysis_guard_command.dart';
 import 'exit_codes.dart';
+import 'failure.dart';
+import 'finding_text.dart';
 import 'packs.dart';
 import 'project_option.dart';
+import 'verify_hook.dart';
 import 'version.dart';
 
 /// Builds the checks of a project from its packs; `checksFor` by default.
@@ -45,6 +49,8 @@ final class VerifyCommand extends Command<int> {
     this.checks = checksFor,
     this.codeAnalysis,
     this.dartSdkPath,
+    this.hookInput,
+    this.hookAnswer,
   }) {
     argParser
       ..addFlag(
@@ -80,6 +86,17 @@ final class VerifyCommand extends Command<int> {
             'and format the whole project (generated files left out), then '
             'check. Names each file it rewrote. Without it, verify writes no '
             'project file.',
+      )
+      ..addOption(
+        'hook',
+        allowed: const ['claude', 'codex'],
+        allowedHelp: const {
+          'claude': 'Answer as a Claude Code hook (with --fast).',
+          'codex': 'Not available yet: Codex hooks come in a later release.',
+        },
+        help:
+            'Answer as the hook of an agent: read its input on stdin and '
+            'reply the way it reads hooks, with its own exit codes.',
       );
   }
 
@@ -105,6 +122,14 @@ final class VerifyCommand extends Command<int> {
   /// tests set it.
   final String? dartSdkPath;
 
+  /// Reads the hook's input, which an agent passes on stdin, when `--hook` is
+  /// given; by default stdin ([readStdinText]). Only tests set it.
+  final Future<String> Function()? hookInput;
+
+  /// The one answer a `--hook` run may give, shared with the failure handlers
+  /// of the run (`runAppstein` passes its own). By default a new one.
+  final HookAnswer? hookAnswer;
+
   @override
   String get name => 'verify';
 
@@ -121,7 +146,6 @@ final class VerifyCommand extends Command<int> {
     if (results.flag('fast') && results.flag('full')) {
       usageException('Pass --fast or --full, not both.');
     }
-    final given = results.multiOption('files');
     // The unverified files belong to fast runs: a full run checks every
     // file anyway.
     if (results.wasParsed('files') && !results.flag('fast')) {
@@ -130,24 +154,94 @@ final class VerifyCommand extends Command<int> {
         'checks every file.',
       );
     }
-    final apply = results.flag('apply');
     // Files are never rewritten in the middle of an agent's work.
-    if (apply && results.flag('fast')) {
+    if (results.flag('apply') && results.flag('fast')) {
       usageException(
         '--apply works with a full run only: run `appstein verify --apply` '
         'without --fast. A fast run never rewrites files.',
       );
     }
+    final hook = results.option('hook');
+    if (hook == 'codex') {
+      usageException(
+        '--hook codex is not available yet: Codex\'s hooks are checked in '
+        'slice 1e. Use --hook claude for Claude Code.',
+      );
+    }
+    if (hook != null) {
+      if (results.wasParsed('format')) {
+        usageException(
+          '--hook has its own output: don\'t pass --format with it.',
+        );
+      }
+      if (!results.flag('fast')) {
+        usageException(
+          '--hook claude works with a fast run only for now: pass --fast with '
+          'it (the hook after an edit).',
+        );
+      }
+      return _runAsHook(results);
+    }
+    // A run that can't start, a check that throws and an analysis server
+    // that can't answer are Appstein's failure: the runner tells it
+    // (`describeFailure`) and exits 3.
+    final result = await _check(results);
+    out.write(
+      results.option('format') == 'json'
+          ? '${const JsonEncoder.withIndent('  ').convert(result.toJson())}\n'
+          : formatVerify(result),
+    );
+    return verifyExitCode(result);
+  }
+
+  /// `--hook claude --fast`: reads the hook's input, runs the checks, and
+  /// answers the way Claude Code reads a PostToolUse hook
+  /// ([claudePostToolUseReply]). A failure of Appstein itself is told to the
+  /// agent and the developer with exit 0, and never blocks
+  /// ([answerHookFailure]), with the details on stderr; a usage error is
+  /// still exit 3. The reply goes through [hookAnswer], so a failure handler
+  /// that fires meanwhile and this command never both answer.
+  Future<int> _runAsHook(ArgResults results) async {
+    // The input is read first, as an agent sends it and closes the pipe.
+    // It is read and parsed (a missing or broken input is no session), and
+    // the session ID it gives is not used by anything yet.
+    try {
+      parseHookInput(await (hookInput ?? readStdinText)());
+    } on Object {
+      // Input that can't be read counts as no session.
+    }
+    final answer = hookAnswer ?? HookAnswer();
+    final HookReply reply;
+    try {
+      reply = claudePostToolUseReply(await _check(results));
+    } on UsageException {
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      return answerHookFailure(
+        out,
+        err,
+        describeFailure(error, stackTrace),
+        answer,
+      );
+    }
+    return answer.write(reply, out, err);
+  }
+
+  /// Brings the knowledge up to date, runs the checks and returns the result
+  /// as the terminal prints it. Throws [CannotStart] when there is no project
+  /// or its `appstein.yaml` is invalid, and what the run throws when Appstein
+  /// itself fails: the runner reports those and exits 3.
+  Future<VerifyResult> _check(ArgResults results) async {
+    final given = results.multiOption('files');
+    final apply = results.flag('apply');
     final projectRoot = resolveProjectRoot(globalResults, environment);
     if (projectRoot == null) {
-      err
-        ..writeln(
-          'appstein verify needs a Flutter project, but there is no '
-          'pubspec.yaml in ${environment.workingDirectory} or any folder '
-          'above it.',
-        )
-        ..writeln('Run it inside the project, or pass --project <path>.');
-      return ExitCodes.appsteinFailed;
+      throw CannotStart(
+        'appstein verify needs a Flutter project, but there is no '
+            'pubspec.yaml in ${environment.workingDirectory} or any folder '
+            'above it.',
+        'Run it inside the project, or pass --project <path>.',
+      );
     }
     final List<String> files;
     try {
@@ -159,10 +253,10 @@ final class VerifyCommand extends Command<int> {
     try {
       config = loadConfig(projectRoot) ?? const AppsteinConfig();
     } on ConfigException catch (error) {
-      err
-        ..writeln(error)
-        ..writeln('Fix appstein.yaml, then run `appstein verify` again.');
-      return ExitCodes.appsteinFailed;
+      throw CannotStart(
+        '$error',
+        'Fix appstein.yaml, then run `appstein verify` again.',
+      );
     }
     final packs = packsFor(config);
     // What the stop of the run's own analysis server could not end: known
@@ -218,13 +312,7 @@ final class VerifyCommand extends Command<int> {
       }
       return result.withApplied(changes.written).withNotices(changes.notices);
     });
-    final result = found.withNotices(left);
-    out.write(
-      results.option('format') == 'json'
-          ? '${const JsonEncoder.withIndent('  ').convert(result.toJson())}\n'
-          : formatVerify(result),
-    );
-    return verifyExitCode(result);
+    return found.withNotices(left);
   }
 }
 
@@ -287,21 +375,6 @@ String _count(int count, String one, String many) =>
 ///   Appstein could not stop, and the command to end it by hand;
 /// - one summary line, which is the whole output when nothing was found.
 String formatVerify(VerifyResult result) {
-  final groups = <String?, List<Finding>>{};
-  for (final finding in result.findings) {
-    (groups[finding.file] ??= []).add(finding);
-  }
-  bool hasError(String? file) =>
-      groups[file]!.any((finding) => finding.severity == Severity.error);
-  // The findings are sorted already (`sortFindings`): no file first, then
-  // by path. A stable split keeps that order inside each half.
-  final files = [
-    for (final file in groups.keys)
-      if (hasError(file)) file,
-    for (final file in groups.keys)
-      if (!hasError(file)) file,
-  ];
-
   final lines = <String>[
     // Before the findings: the agent must read these again before it edits
     // them.
@@ -314,20 +387,7 @@ String formatVerify(VerifyResult result) {
       '',
     ],
   ];
-  for (final file in files) {
-    lines.add(file ?? '(project)');
-    for (final finding in groups[file]!) {
-      final line = switch (finding.line) {
-        final line? => ' (line $line)',
-        null => '',
-      };
-      lines.add(
-        '  ${finding.severity.name} ${finding.id}$line: ${finding.message}',
-      );
-      if (finding.fixHint case final fix?) lines.add('    fix: $fix');
-    }
-    lines.add('');
-  }
+  lines.addAll(findingLines(orderedFindings(result.findings)));
   if (result.notRun.isNotEmpty) {
     lines
       ..add('Not run:')

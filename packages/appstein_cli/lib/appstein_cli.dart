@@ -11,4 +11,12 @@ export 'src/run_guarded.dart';
 export 'src/runner.dart';
 export 'src/sync_command.dart';
 export 'src/verify_command.dart';
+export 'src/verify_hook.dart'
+    show
+        HookInput,
+        HookReply,
+        claudeFailureReply,
+        claudePostToolUseReply,
+        parseHookInput,
+        readStdinText;
 export 'src/version.dart';

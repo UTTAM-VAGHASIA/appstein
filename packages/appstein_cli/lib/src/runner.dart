@@ -8,9 +8,11 @@ import 'analysis_guard_command.dart';
 import 'docs_command.dart';
 import 'doctor_command.dart';
 import 'exit_codes.dart';
+import 'failure.dart';
 import 'mcp_command.dart';
 import 'sync_command.dart';
 import 'verify_command.dart';
+import 'verify_hook.dart';
 import 'version.dart';
 
 /// Runs the `appstein` command line and returns the process exit code
@@ -28,6 +30,8 @@ import 'version.dart';
 /// from and run the analysis server with, where a fake Flutter SDK has
 /// none. [codeAnalysis] (also for tests) replaces the analysis server that
 /// `appstein verify` and the `verify` tool of `appstein mcp` would start.
+/// [hookInput] (also for tests) gives what `appstein verify --hook` reads on
+/// stdin.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -41,9 +45,13 @@ Future<int> runAppstein(
   VerifyChecks? verifyChecks,
   CodeAnalysisScope? codeAnalysis,
   String? dartSdkPath,
+  Future<String> Function()? hookInput,
 }) async {
   final output = out ?? stdout;
   final errors = err ?? stderr;
+  // The one answer a hook run may give: the process's own when `runGuarded`
+  // made one, so its failure handler and this run never both answer.
+  final answer = HookAnswer.current ?? HookAnswer();
   // Everything, including setup, runs inside the try, so no failure can
   // escape with the VM's own exit code.
   try {
@@ -68,6 +76,8 @@ Future<int> runAppstein(
           checks: verifyChecks ?? checksFor,
           codeAnalysis: codeAnalysis,
           dartSdkPath: dartSdkPath,
+          hookInput: hookInput,
+          hookAnswer: answer,
         ),
       )
       ..addCommand(
@@ -89,29 +99,17 @@ Future<int> runAppstein(
       ..writeln()
       ..writeln(error.usage);
     return ExitCodes.appsteinFailed;
-  } on ConfigException catch (error) {
-    errors.writeln('Invalid appstein.yaml: $error');
-    return ExitCodes.appsteinFailed;
-  } on CodeAnalysisException catch (error) {
-    // The analysis server could not answer: a broken setup, not a bug to
-    // report with a stack trace, and never "no errors" (spec §9.5).
-    errors
-      ..writeln(error)
-      ..writeln('Run `appstein doctor` to check your setup.');
-    return ExitCodes.appsteinFailed;
-  } on TestRunException catch (error) {
-    // The project's tests could not be run at all: a broken setup too, and
-    // never "no test failed" (spec §9.5).
-    errors
-      ..writeln(error)
-      ..writeln('Run `appstein doctor` to check your setup.');
-    return ExitCodes.appsteinFailed;
-  } on VerifyCheckError catch (error) {
-    // The message names the check, and the trace is where the check threw.
-    reportCrash(errors, error, error.stackTrace);
-    return ExitCodes.appsteinFailed;
   } catch (error, stackTrace) {
-    reportCrash(errors, error, stackTrace);
+    // Everything else is Appstein's failure, told in one set of words for the
+    // terminal and for a hook (`describeFailure`): an analysis server that
+    // could not answer or tests that could not be run are a broken setup,
+    // never "no errors" (spec §9.5), and a crash comes with its trace.
+    final failure = describeFailure(error, stackTrace);
+    // In a hook a failure never blocks the agent, wherever it happened.
+    if (isClaudeHookRun(arguments)) {
+      return answerHookFailure(output, errors, failure, answer);
+    }
+    failure.writeTo(errors);
     return ExitCodes.appsteinFailed;
   }
 }
@@ -119,15 +117,8 @@ Future<int> runAppstein(
 /// Prints the message for an unexpected failure of Appstein itself, with
 /// the details a bug report needs. The exit code for it is
 /// [ExitCodes.appsteinFailed].
-void reportCrash(StringSink errors, Object error, StackTrace stackTrace) {
-  errors
-    ..writeln('Appstein failed unexpectedly: $error')
-    ..writeln(
-      'Run `appstein doctor` to check your setup. If this keeps '
-      'happening, please report it with the details below.',
-    )
-    ..writeln(stackTrace);
-}
+void reportCrash(StringSink errors, Object error, StackTrace stackTrace) =>
+    unexpectedFailure(error, stackTrace).writeTo(errors);
 
 final class _AppsteinCommandRunner extends CommandRunner<int> {
   _AppsteinCommandRunner(this._out)

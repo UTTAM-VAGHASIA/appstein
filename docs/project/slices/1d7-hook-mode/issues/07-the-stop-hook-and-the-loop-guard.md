@@ -6,7 +6,7 @@
 
 Status: ready-for-agent
 
-- [ ] A full run in hook mode answers as a Stop hook: errors exit 2 with stderr as in ticket 05 (errors only, cut at 30); warnings and no error exit 0 with a JSON message for the developer listing them; only info or nothing exit 0 and no output; Appstein failing exits 0 with the developer's message only.
+- [ ] A full run in hook mode answers as a Stop hook: errors exit 2 with stderr as in ticket 05 (the errors, cut at 30, and the checks that did not run); warnings and no error exit 0 with a JSON message for the developer listing them; only info or nothing exit 0 and no output; Appstein failing exits 0 with the developer's message only.
 - [ ] The Stop input's "already continuing because of a Stop hook" flag is read; missing input counts as not continuing.
 - [ ] The loop guard counts, per session ID in the same record as ticket 06, how many times in a row the same set of (check ID, file, message) has blocked. Lines are left out: an error moved by an edit above it is the same error.
 - [ ] The count starts again when the set of errors changes, or when the input says the agent is not already continuing.

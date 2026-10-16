@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
+import 'support/healthy_project.dart';
 import 'support/scripted_code_analysis.dart';
 
 const _stale = Finding(
@@ -1249,67 +1250,7 @@ void main() {
     });
 
     group('on a healthy project', () {
-      setUp(() async {
-        // The project's packages count as fresh, so the knowledge can be
-        // built without `flutter pub get`. Its docs are rendered, as
-        // `appstein docs` does, so none is stale.
-        File(p.join(project, 'lib', 'main.dart'))
-          ..parent.createSync(recursive: true)
-          ..writeAsStringSync('void main() {}\n');
-        File(p.join(project, '.dart_tool', 'package_config.json'))
-          ..parent.createSync(recursive: true)
-          ..writeAsStringSync(
-            jsonEncode({
-              'configVersion': 2,
-              'packages': [
-                {
-                  'name': 'my_app',
-                  'rootUri': '../',
-                  'packageUri': 'lib/',
-                  'languageVersion': '3.12',
-                },
-              ],
-              'generator': 'pub',
-            }),
-          );
-        File(
-          p.join(project, '.dart_tool', 'version'),
-        ).writeAsStringSync('3.47.5');
-        File(
-          p.join(project, 'pubspec.lock'),
-        ).writeAsStringSync('packages: {}\n');
-        final now = DateTime.now();
-        File(
-          p.join(project, 'pubspec.yaml'),
-        ).setLastModifiedSync(now.subtract(const Duration(hours: 1)));
-        File(p.join(project, 'pubspec.lock')).setLastModifiedSync(now);
-        File(
-          p.join(project, '.dart_tool', 'package_config.json'),
-        ).setLastModifiedSync(now);
-
-        const config = AppsteinConfig();
-        final packs = packsFor(config);
-        final outcome = await runDocs(
-          projectRoot: project,
-          config: config,
-          packs: packs,
-          sync: KnowledgeSync(
-            environment: HostEnvironment(
-              os: HostOs.current,
-              variables: {'FLUTTER_ROOT': sdk},
-              workingDirectory: project,
-            ),
-            appsteinVersion: appsteinVersion,
-            packs: packs,
-            baseline: config.delta.baseline,
-            agents: config.integrations.agents,
-            packageSkills: false,
-          ),
-          check: false,
-          dartSdkPath: testDartSdk,
-        );
-        expect(outcome, isA<DocsDone>());
-      });
+      setUp(() => createHealthyProject(project: project, sdk: sdk));
 
       test('prints the summary alone, with exit 0', () async {
         expect(await run(['verify'], dartSdkPath: testDartSdk), ExitCodes.ok);

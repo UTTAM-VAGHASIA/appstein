@@ -20,14 +20,17 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | File | What it holds |
 |---|---|
 | [`bin/appstein.dart`](../../packages/appstein_cli/bin/appstein.dart) | `main`, which hands the arguments to `runGuarded` |
-| [`lib/appstein_cli.dart`](../../packages/appstein_cli/lib/appstein_cli.dart) | The barrel: it exports every file below except `doctor_command.dart` and `project_option.dart`. `bin/appstein.dart` and the repo's `tool/src/generators.dart` import it |
+| [`lib/appstein_cli.dart`](../../packages/appstein_cli/lib/appstein_cli.dart) | The barrel: it exports every file below except `doctor_command.dart`, `project_option.dart`, `failure.dart` and `finding_text.dart`, and from `verify_hook.dart` only the input, the reply and the two reply functions. `bin/appstein.dart` and the repo's `tool/src/generators.dart` import it |
 | [`run_guarded.dart`](../../packages/appstein_cli/lib/src/run_guarded.dart) | `runGuarded`: crash safety and the process exit code |
 | [`runner.dart`](../../packages/appstein_cli/lib/src/runner.dart) | `runAppstein`, the command runner and `reportCrash` |
 | [`doctor_command.dart`](../../packages/appstein_cli/lib/src/doctor_command.dart) | The `doctor` command |
 | [`sync_command.dart`](../../packages/appstein_cli/lib/src/sync_command.dart) | The `sync` command |
 | [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command, `mcpSyncFactory` and `keptCodeAnalysis` |
 | [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) | The `docs` command and `formatDocs` |
-| [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `terminalCodeAnalysis`, `formatVerify` and `verifyExitCode` |
+| [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `terminalCodeAnalysis`, `formatVerify` (with `findingLines`, which it shares with hook mode) and `verifyExitCode` |
+| [`verify_hook.dart`](../../packages/appstein_cli/lib/src/verify_hook.dart) | Hook mode of `verify`: `parseHookInput`, `readStdinText`, `isClaudeHookRun`, `claudePostToolUseReply`, `claudeFailureReply`, `answerHookFailure` and the `HookReply` they build |
+| [`finding_text.dart`](../../packages/appstein_cli/lib/src/finding_text.dart) | `orderedFindings` and `findingLines`: how findings are grouped by file, for `formatVerify` and the hook |
+| [`failure.dart`](../../packages/appstein_cli/lib/src/failure.dart) | `describeFailure`, `FailureDescription` and `CannotStart`: how Appstein's failure is worded, for the terminal and the hook |
 | [`analysis_guard_command.dart`](../../packages/appstein_cli/lib/src/analysis_guard_command.dart) | The hidden `analysis-server-guard` command, and `analysisGuardCommand` (with `guardCommandFrom`), which says how this process starts it (see [verify](verify.md#the-guard)) |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
@@ -209,12 +212,53 @@ A refusal is exit 1, not 3: the project has something to fix (fetch the packages
 
 `appstein verify` checks the project against its knowledge and prints the findings. What a run does, and every check, is in [verify](verify.md); [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) only starts it and prints.
 
-1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`. `--files <paths>` (comma-separated, or the option repeated; a folder stands for the Dart files under it) adds files to the [unverified files](verify.md#the-unverified-files); without `--fast` it is a usage error, exit **3**, since the default is a full run. `--apply` (full runs only) fixes and formats the project before the checks ([`--apply`](verify.md#--apply)); with `--fast` it is a usage error, exit **3**, and nothing is rewritten.
+1. **Reads the flags.** `--fast` runs the fast checks, `--full` (the default) runs them all; both together is a usage error. `--format` is `text` (the default) or `json`. `--files <paths>` (comma-separated, or the option repeated; a folder stands for the Dart files under it) adds files to the [unverified files](verify.md#the-unverified-files); without `--fast` it is a usage error, exit **3**, since the default is a full run. `--apply` (full runs only) fixes and formats the project before the checks ([`--apply`](verify.md#--apply)); with `--fast` it is a usage error, exit **3**, and nothing is rewritten. `--hook claude` (with `--fast`) makes the command answer as an agent's hook instead of a terminal: it reads the hook's input on stdin and replies with its own exit codes and output ([hook mode](#hook-mode---hook-claude) below); `--hook codex`, `--hook` with `--format` and `--hook` without `--fast` are usage errors, exit **3**.
 2. **Finds the project and loads `appstein.yaml`**, as `docs` does: no project, or an invalid file, exits **3**. The `--files` paths are then resolved against the project root (`resolveVerifyFiles`), not the folder `verify` runs in; a path outside the project is a usage error, exit **3**.
 3. **Calls `runVerify`** with the project's packs, `checksFor(packs)`, the `--files` paths and a `KnowledgeSync` built as `docs` builds it, with `packageSkills: false`. The call is wrapped in `terminalCodeAnalysis`: the run gets an analysis server of its own, started behind the guard when a check first asks and stopped when the run ends, normally or with an error (see [verify](verify.md#the-analysis-server)). With `--apply`, `applyToProject` runs first, inside the same scope and on the same server, so the refresh `runVerify` starts with and its reading are of the rewritten files; the files it wrote are added to the result (`withApplied`).
 4. **Prints the result to stdout**, as `formatVerify` (which starts with the files `--apply` rewrote, when there are any) or as indented JSON (whose `applied` lists them, empty without `--apply`), and exits with `verifyExitCode`: **1** when a finding is an error, else **0**.
 
 Findings are the command's answer, so they go to stdout in both formats, errors included. stderr is for Appstein's own failures. A check that throws isn't caught here: `runAppstein` reports the `VerifyCheckError` and exits 3. An analysis server that can't answer isn't either: `runAppstein` prints the `CodeAnalysisException`'s reason and exits 3. Tests that can't be run at all (`TestRunException`: no Flutter SDK, or `flutter test` could not be started) are handled the same way. A `flutter test` that started and ended with a failing exit code without naming a failing test, a run that was stopped at its time limit, and a run whose output ended early are findings (`test.failed`), so they go to stdout and exit 1.
+
+### Hook mode: `--hook claude`
+
+`appstein verify --fast --hook claude` is the command Claude Code's PostToolUse hook runs after every edit (spec §5.4, §9.5). [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) runs the same checks as without `--hook`, through the same `_check`; only what it reads and what it prints change, and those are in [`verify_hook.dart`](../../packages/appstein_cli/lib/src/verify_hook.dart). Hook mode answers the after-edit event (a fast run) so far; the Stop hook (`--full --hook claude`) is not built, and is refused. Three small files carry what hook mode shares with the terminal, so no file imports the other circularly: [`finding_text.dart`](../../packages/appstein_cli/lib/src/finding_text.dart) (`orderedFindings` and `findingLines`, the grouping of findings by file that `formatVerify` and the hook both print, grouped once), [`failure.dart`](../../packages/appstein_cli/lib/src/failure.dart) (`describeFailure`, `CannotStart` and `FailureDescription`: how Appstein's failure is worded, for the terminal and the hook alike) and [`exit_codes.dart`](../../packages/appstein_cli/lib/src/exit_codes.dart).
+
+**The flags.** `--hook codex` is a usage error, exit **3**, saying Codex's hooks are checked in slice 1e. `--hook` with `--format` is a usage error: hook mode has its own output. `--hook claude` without `--fast` is a usage error too, until the Stop hook is built. A usage error is the one failure that keeps exit 3 in hook mode, because it is raised before anything runs and a person fixes it once.
+
+**The input.** The hook's input is Claude Code's JSON on stdin. `readStdinText` reads it, for at most 2 s (`hookInputLimit`): Claude Code writes it and closes the pipe at once, and the limit only protects against a caller that never does, so the input is then taken as missing and the subscription is given up, which lets the process end. It is also empty when stdin is a terminal, closed or unreadable. `parseHookInput` takes the session's ID (`session_id`) and the event name (`hook_event_name`). Input that is empty, not JSON, not an object, or has a field that is not a non-empty string counts as no session, and the run **still checks**: nothing about the input can make a hook skip a check or fail. A leading byte order mark, which a Windows pipe may add, is ignored. The session ID is read and kept in `HookInput`, but nothing uses it yet: a hook run keeps no record per session. `runAppstein` takes `hookInput` for tests, a function that gives the text in place of stdin.
+
+**The answer.** `claudePostToolUseReply` turns the result into a `HookReply` (exit code, stdout, stderr), and `_runAsHook` writes it:
+
+| The run found | Exit | Output |
+|---|---|---|
+| Errors | **2** | stderr: the errors, grouped by file as the text output groups them (`findingLines`), each with its `fix:` line and a `knowledge:` line when it has a reference. At most 30 (`maxHookFindings`), then ``…and N more: call the `verify` tool for all``, then the checks that did not run (below). Stdout is empty, unless the run has notices (below) |
+| Warnings, no error | 0 | stdout: Claude Code's PostToolUse JSON, the warnings (same list, same cut) as the context for the agent |
+| Only info findings, or nothing | 0 | nothing at all |
+| Appstein failed (what is exit 3 in the terminal) | 0 | stdout: JSON with context telling the agent that verify could not run, why, and that its edit is unchecked, and a `systemMessage` telling the developer the same with "run `appstein doctor`". Stderr has the failure as the terminal prints it, a crash's trace included, for a bug report. Never exit 2 or 3 |
+
+Checks named as not run are said in the context, so silence never hides an unchecked edit: with only info findings or nothing the context is just that list; with warnings it follows them. At exit 2 the same list is appended to stderr, since stderr is the channel Claude Code's docs name as reaching the agent on that code ("shows stderr to Claude; the tool already ran"). The docs also say that a hook that exits 2 and prints valid JSON has its JSON fields read, which the notices rely on.
+
+**Notices.** The run's notices (an analysis server a stop could not end, and how to end it by hand) are no finding. They go to the developer as the JSON `systemMessage`, "Appstein note: …", with exit 0 or beside the errors of exit 2, and they are the whole output when there is nothing else to say.
+
+**The JSON** is the shape Claude Code documents for a PostToolUse hook, and a test pins it:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"},"systemMessage":"…"}
+```
+
+`additionalContext` is what the agent sees; `systemMessage` is the message shown to the developer, there for a failure and for notices. A warning after an edit goes to the agent only. Claude Code keeps at most 10,000 characters of any of these strings (`maxHookContextLength`); longer text is saved to a file and the agent gets a preview of it. So **no text of a hook passes the limit**: each finding's message and fix hint are cut at 1,500 characters and its ID, file and reference at 500, the list of checks not run at 2,500, a failure's reason at 4,000, the list of findings by length too (with the "…and N more" line), and the whole text a little under 10,000. A cut text ends with `…(cut)`, and a cut never falls between the two halves of a character outside the basic plane.
+
+**Appstein's failure.** In hook mode every failure is told as in the table instead of reaching exit 3, wherever in the process it happens:
+
+- inside the run, `_runAsHook` catches it (a project that can't be found or an invalid `appstein.yaml`, a `CodeAnalysisException`, a `TestRunException`, a check that threw, any other crash);
+- before the command runs (`runAppstein` building the environment, say), the runner's catch-all does, when the arguments name `verify --hook claude` (`isClaudeHookRun`);
+- in an error raised outside every future, `runGuarded` does the same for those arguments (it takes them from `bin/appstein.dart`).
+
+All three use `describeFailure`, so the words are the terminal's: `runAppstein` prints the same `FailureDescription` for a terminal run. The details (the reason, `appstein doctor`, and a crash's trace) go to stderr, which Claude Code keeps at exit 0 in its debug log only. A usage error keeps exit 3 in every case, since it is raised before anything runs. Claude Code shows the developer only the first line of stderr for an exit code other than 0 and 2, and the agent nothing, which is why the failure is exit 0 with JSON. The `finally` of `runAppstein` still stops the run's analysis server and waits for its clean-up.
+
+**One answer, ever.** `runGuarded`'s handler can fire while the command is still running (an unawaited future that throws), so a run could answer twice: two JSON documents on stdout, which Claude Code cannot parse, or a failure's exit 0 and then an exit 2 that never blocks. So every writer goes through one `HookAnswer` per run (`runGuarded` makes it and hands it on in the zone, `runAppstein` takes it from there and gives it to the command): `HookAnswer.write` writes the first reply whole, and that reply's exit code stands. A later writer sends nothing to stdout, and to stderr only the details of a failure, and not even those once the first reply was exit 2, because stderr is then what the agent reads and a late trace would push it past the limit. A test starts the command through `runGuarded` in a process of its own and has a crash escape both before and after the command answers: exit 2 with the errors alone, and exit 0 with one failure JSON, respectively.
+
+The hook's code checks take the terminal's route: the run starts an analysis server of its own and stops it. A shared analysis host and a cap on a fast run are later work of slice 1d.7.
 
 `runAppstein` takes `verifyChecks` for tests, which replaces the project's checks, as `doctorChecks` does for `doctor`. It also takes `dartSdkPath` (for `verify` and `mcp`), the Dart SDK the analysis reads `dart:` libraries from and whose `dart` runs the analysis server, and `codeAnalysis`, which replaces the analysis server for `verify` and for the `verify` tool of `mcp`.
 
@@ -303,6 +347,10 @@ Usage: appstein verify [arguments]
                        [text (default), json]
     --files=<paths>    With --fast: add these files to the unverified files, for this run and after it. Paths are from the project root, or absolute inside the project; a folder stands for its Dart files. Separate them with commas, or repeat the option.
     --apply            With a full run: first apply the fixes `dart fix` would apply and format the whole project (generated files left out), then check. Names each file it rewrote. Without it, verify writes no project file.
+    --hook             Answer as the hook of an agent: read its input on stdin and reply the way it reads hooks, with its own exit codes.
+
+          [claude]     Answer as a Claude Code hook (with --fast).
+          [codex]      Not available yet: Codex hooks come in a later release.
 
 Run "appstein help" to see global options.
 ```
@@ -317,10 +365,11 @@ Run "appstein help" to see global options.
 |---|---|---|
 | `0` | `ExitCodes.ok` | No errors. |
 | `1` | `ExitCodes.errorsFound` | Errors found. Used by the CLI and CI. |
+| `2` | `ExitCodes.hookBlocked` | Errors found in `--hook claude` mode: Claude Code shows stderr to the agent on this code. |
 | `3` | `ExitCodes.appsteinFailed` | Appstein itself failed: bad usage, a bad environment or a crash. |
 
 Defined in [exit_codes.dart](../../packages/appstein_cli/lib/src/exit_codes.dart).
 
 <!-- /generated:exit-codes -->
 
-[Spec §9.5](../project/specs/2026-09-29-appstein-design.md#95-exit-codes) defines the codes, including `2`, which later slices use for agent hook mode.
+[Spec §9.5](../project/specs/2026-09-29-appstein-design.md#95-exit-codes) defines the codes. `2` is used only by `verify --hook claude`, to block with the errors on stderr ([hook mode](#hook-mode---hook-claude)); in hook mode a failure of Appstein itself is exit `0` with JSON, never `3`.

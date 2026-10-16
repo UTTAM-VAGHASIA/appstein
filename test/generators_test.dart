@@ -45,6 +45,8 @@ void main() {
         '| `0` | `ExitCodes.ok` | No errors. |\n'
         '| `1` | `ExitCodes.errorsFound` | Errors found. Used by the CLI and '
         'CI. |\n'
+        '| `2` | `ExitCodes.hookBlocked` | Errors found in `--hook claude` '
+        'mode: Claude Code shows stderr to the agent on this code. |\n'
         '| `3` | `ExitCodes.appsteinFailed` | Appstein itself failed: bad '
         'usage, a bad environment or a crash. |',
       ),
