@@ -12,6 +12,14 @@ import 'src/suite_run.dart';
 /// [engineRuns] times, since a failure that depends on load shows in one
 /// run of several) and the repo tools' tests.
 ///
+/// The analyzer step's analysis server gets a cache folder of its own
+/// (`ANALYZER_STATE_LOCATION_OVERRIDE`): [testAllAnalysisCache], inside
+/// `.dart_tool/`, which git ignores. It is kept between runs, so the step
+/// starts warm, and the half-written files the last run's server left there
+/// are deleted at the start of each run. So the run leaves nothing in the
+/// cache the machine shares; the test suites give their servers folders of
+/// their own too.
+///
 /// `APPSTEIN_REQUIRE_GRAPHIFY=1` is set for the tests, as CI does, so the
 /// graph check's tests fail instead of skipping when graphify is missing:
 /// a skipped test proves nothing.
@@ -125,6 +133,15 @@ Future<void> main(List<String> arguments) async {
   for (final old in logs.listSync().whereType<File>()) {
     old.deleteSync();
   }
+  // `dart analyze` runs an analysis server, which keeps a cache on disk and
+  // leaves half-written files there when it ends. It gets a cache folder of
+  // its own in `.dart_tool/`, kept between runs so it starts warm, so this
+  // run leaves nothing in the cache the machine shares (ticket 13 of slice
+  // 1d.2), as the test suites do. What the last run's server left
+  // half-written there is deleted first.
+  final analyzeCache = Directory(testAllAnalysisCache)
+    ..createSync(recursive: true);
+  clearHalfWrittenFiles(analyzeCache.path);
   var stepNumber = 0;
   final failed = <String>[];
   for (final step in chosen) {
@@ -134,7 +151,11 @@ Future<void> main(List<String> arguments) async {
       dart,
       step.args,
       workingDirectory: step.folder,
-      environment: environment,
+      environment: {
+        ...environment,
+        if (step.name == 'analyze')
+          'ANALYZER_STATE_LOCATION_OVERRIDE': analyzeCache.absolute.path,
+      },
     );
     final output = '${result.stdout}\n${result.stderr}';
     // The whole output is kept, so a failure can be read afterwards even

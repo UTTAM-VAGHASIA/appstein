@@ -238,7 +238,8 @@ final class VerifyCommand extends Command<int> {
 /// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
 /// [onLeft] is told, after the server was stopped, each process the stop
 /// could not end because it could not be shown to be the run's own
-/// (`ownAnalysisServer`).
+/// (`ownAnalysisServer`). The server's cache folder is the one
+/// [environment] names (`analysisServerEnvironment`).
 CodeAnalysisScope terminalCodeAnalysis({
   required String projectRoot,
   required HostEnvironment environment,
@@ -249,6 +250,7 @@ CodeAnalysisScope terminalCodeAnalysis({
   guardCommand: analysisGuardCommand(),
   dartExecutable: () =>
       projectDartExecutable(environment, projectRoot, dartSdkPath: dartSdkPath),
+  environment: analysisServerEnvironment(environment),
   onLeft: onLeft,
 );
 

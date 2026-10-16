@@ -34,13 +34,54 @@ List<String> get testGuardCommand => [
 /// The real `dart` executable of the SDK that runs the tests.
 String get testDart => dartExecutableIn(testDartSdk);
 
+/// The environment that gives a test's analysis server a cache folder of
+/// its own ([analysisCacheVariable]), so the tests leave nothing in the
+/// cache the machine shares. Every test that starts an analysis server, or
+/// a guard (a scripted one names some process as its server, whose files a
+/// stop would delete), passes it.
+///
+/// The folder is deleted after the test, or after the group when this is
+/// called in `setUpAll`. A server that is still ending holds files in it on
+/// Windows, so the delete is tried again for a while.
+Map<String, String> testAnalysisEnvironment() {
+  final cache = Directory.systemTemp.createTempSync('appstein cache tëst ');
+  addTearDown(() async {
+    // A stop's clean-up may still be at work in the folder.
+    await analysisCleanUpsDone();
+    await deleteWhenFree(cache);
+  });
+  return {analysisCacheVariable: cache.path};
+}
+
+/// Deletes the folder [folder] and all in it, trying again for up to 10 s
+/// while a process that is ending still holds a file in it (Windows).
+Future<void> deleteWhenFree(Directory folder) async {
+  for (var attempt = 0; ; attempt++) {
+    try {
+      if (folder.existsSync()) folder.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt == 200) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+}
+
 /// A real analysis server for the project at [app], with the SDK that runs
-/// the tests. The caller stops it.
-AnalysisServer realAnalysisServer(String app) => AnalysisServer(
-  projectRoot: app,
-  guardCommand: testGuardCommand,
-  dartExecutable: () => testDart,
-);
+/// the tests and a cache folder of its own ([testAnalysisEnvironment]). The
+/// caller stops it; it is also stopped after the test (or the group, when
+/// made in `setUpAll`), before its cache folder is deleted.
+AnalysisServer realAnalysisServer(String app) {
+  final server = AnalysisServer(
+    projectRoot: app,
+    guardCommand: testGuardCommand,
+    dartExecutable: () => testDart,
+    environment: testAnalysisEnvironment(),
+  );
+  // Registered after the folder's delete, so it runs before it.
+  addTearDown(server.stop);
+  return server;
+}
 
 /// Writes [content] to the file [relative] (with `/`) of the project [app].
 void writeProjectFile(String app, String relative, String content) =>

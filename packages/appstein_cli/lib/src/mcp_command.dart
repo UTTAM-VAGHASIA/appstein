@@ -128,7 +128,9 @@ final class McpCommand extends Command<int> {
 /// a server of its own. Both ask the same `AnalysisServer`, so the tool and
 /// a terminal run give the same findings.
 ///
-/// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
+/// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests. The
+/// server's cache folder is the one [environment] names
+/// (`analysisServerEnvironment`).
 KeptAnalysisServer<AnalysisServer> keptCodeAnalysis({
   required String projectRoot,
   required HostEnvironment environment,
@@ -142,6 +144,7 @@ KeptAnalysisServer<AnalysisServer> keptCodeAnalysis({
       projectRoot,
       dartSdkPath: dartSdkPath,
     ),
+    environment: analysisServerEnvironment(environment),
   ),
 );
 

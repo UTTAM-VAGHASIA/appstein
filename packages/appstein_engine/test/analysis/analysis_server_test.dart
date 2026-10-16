@@ -347,6 +347,7 @@ int one() => 1;
         projectRoot: app,
         guardCommand: testGuardCommand,
         dartExecutable: () => testDart,
+        environment: testAnalysisEnvironment(),
       );
       late ({int guard, int server}) first;
       final answer = await scope((analysis) async {
@@ -394,6 +395,99 @@ int one() => 1;
       expect((kept as AnalysisServer).processes, isNull);
     });
 
+    // Ticket 13 of slice 1d.2. A killed server leaves files named
+    // `<entry>-temp-<its process ID>` in its cache; the test places such
+    // files while the server runs, since whether the kill itself catches a
+    // write in the middle is chance.
+    test('a terminal run\'s stop deletes the half-written files of its '
+        'server\'s ID from the server\'s own cache folder, and nothing '
+        'else', () async {
+      final environment = testAnalysisEnvironment();
+      final cache = environment[analysisCacheVariable]!;
+      final driver = Directory(p.join(cache, analysisDriverFolder))
+        ..createSync(recursive: true);
+      File write(String relative) =>
+          File(p.joinAll([driver.path, ...relative.split('/')]))
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('x');
+      // Placed before the server starts: a complete entry in its shard, and
+      // the half-written file of another process (this one, which runs).
+      final complete = write('0c/0c9ec3067b9dbc9efc4c2b9cd29aa1a6.unlinked2');
+      final others = write(
+        '0c9ec3067b9dbc9efc4c2b9cd29aa1a6.resolved2-temp-$pid',
+      );
+      // A folder outside the cache, which a link in it points to.
+      final outside = Directory(p.join(tempDir().path, 'outside'))
+        ..createSync();
+      final target = File(p.join(outside.path, 'kept.txt'))
+        ..writeAsStringSync('x');
+
+      late int serverId;
+      final kept = <File>[];
+      final ofTheServer = <File>[];
+      final scope = ownAnalysisServer(
+        projectRoot: app,
+        guardCommand: testGuardCommand,
+        dartExecutable: () => testDart,
+        environment: environment,
+      );
+      final watch = Stopwatch();
+      await scope((analysis) async {
+        await analysis.read();
+        serverId = (analysis as AnalysisServer).processes!.server;
+        expect(analysis.cacheFolder, p.normalize(cache));
+        ofTheServer.addAll([
+          write('11fc7d1a2b3c4d5e6f708192a3b4c5d6.unlinked2-temp-$serverId'),
+          write('3e2605a57214b14d8ac9620cf0141588.resolved2-temp-$serverId'),
+        ]);
+        kept.addAll([
+          // Other IDs that begin or end with the server's.
+          write('a1.unlinked2-temp-1$serverId'),
+          write('a2.unlinked2-temp-${serverId}0'),
+          // Another isolate's name, and a file below the folder.
+          write('a3.unlinked2-temp-$serverId-plugin'),
+          write('a4/a4.unlinked2-temp-$serverId'),
+        ]);
+        final link = Link(p.join(driver.path, 'a5.unlinked2-temp-$serverId'))
+          ..createSync(outside.path);
+        // The link alone, before the folders are deleted.
+        addTearDown(link.deleteSync);
+        watch.start();
+      });
+      watch.stop();
+      // The deletion goes on after the stop returned.
+      await analysisCleanUpsDone();
+
+      final left = [
+        for (final entry in driver.listSync(followLinks: false))
+          p.basename(entry.path),
+      ];
+      for (final file in ofTheServer) {
+        expect(file.existsSync(), isFalse, reason: file.path);
+      }
+      expect(left.where((name) => RegExp('-temp-$serverId\$').hasMatch(name)), [
+        'a5.unlinked2-temp-$serverId',
+      ], reason: 'only the link is left');
+      for (final file in [complete, others, ...kept, target]) {
+        expect(file.existsSync(), isTrue, reason: file.path);
+      }
+      expect(
+        Link(p.join(driver.path, 'a5.unlinked2-temp-$serverId')).existsSync(),
+        isTrue,
+      );
+      // The server used this folder: it wrote entries in their shards.
+      expect(
+        driver
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((file) => !file.path.contains('-temp-'))
+            .length,
+        greaterThan(1),
+      );
+      // The stop with its cleanup took no longer than a stop takes.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+    });
+
     test('a guard that is killed alone does not leave its server '
         'running', () async {
       final server = realAnalysisServer(app);
@@ -420,12 +514,13 @@ int one() => 1;
 
     test('when the process that started them is killed, the guard and the '
         'server are gone within a few seconds', () async {
+      // The holder's server inherits the holder's environment.
       final holder = await Process.start(Platform.resolvedExecutable, [
         analysisSupportFile('server_holder.dart'),
         app,
         testDart,
         analysisSupportFile('guard_main.dart'),
-      ]);
+      ], environment: testAnalysisEnvironment());
       final errors = StringBuffer();
       holder.stderr.transform(utf8.decoder).listen(errors.write);
       final ids = <int>[];
@@ -482,6 +577,7 @@ int one() => 1;
         projectRoot: app,
         guardCommand: testGuardCommand,
         dartExecutable: () => missing,
+        environment: testAnalysisEnvironment(),
       );
       addTearDown(server.stop);
       await expectLater(
@@ -527,6 +623,7 @@ int one() => 1;
         projectRoot: app,
         guardCommand: [p.join(app, 'no such appstein')],
         dartExecutable: () => testDart,
+        environment: testAnalysisEnvironment(),
       );
       addTearDown(server.stop);
       await expectLater(
@@ -550,6 +647,7 @@ int one() => 1;
           analysisSupportFile('silent_guard.dart'),
         ],
         dartExecutable: () => testDart,
+        environment: testAnalysisEnvironment(),
         readyTimeout: const Duration(seconds: 6),
       );
       addTearDown(server.stop);
@@ -662,6 +760,7 @@ int one() => 1;
           scenario,
         ],
         dartExecutable: () => testDart,
+        environment: testAnalysisEnvironment(),
       );
       addTearDown(server.stop);
       return server;
@@ -1053,6 +1152,7 @@ int one() => 1;
             'fixes-done@$log',
           ],
           dartExecutable: () => testDart,
+          environment: testAnalysisEnvironment(),
           // Between the reading's two whole reads of every file.
           afterLook: () async {
             if (!once) return;
@@ -1106,6 +1206,7 @@ int one() => 1;
             'fixes-done@$log',
           ],
           dartExecutable: () => testDart,
+          environment: testAnalysisEnvironment(),
           replaceText: replaceText,
           processLookup: processLookup,
         );
@@ -1492,6 +1593,7 @@ int one() => 1;
             'names:$named',
           ],
           dartExecutable: () => testDart,
+          environment: testAnalysisEnvironment(),
           processLookup: lookup,
         );
         addTearDown(server.stop);
@@ -1596,6 +1698,7 @@ int one() => 1;
             'deaf:${unknown.pid}',
           ],
           dartExecutable: () => testDart,
+          environment: testAnalysisEnvironment(),
           processLookup: lookup,
         );
         addTearDown(server.stop);
@@ -1673,6 +1776,7 @@ int one() => 1;
             'names:${unknown.pid}',
           ],
           dartExecutable: () => testDart,
+          environment: testAnalysisEnvironment(),
           processLookup: (id) {
             if (id != unknown.pid) return lookUpProcess(id);
             return asked++ == 0 ? const ProcessUnknown() : lookUpProcess(id);
@@ -1698,6 +1802,153 @@ int one() => 1;
           endsWith('`${endByHandCommand(unknown.pid, image: real.image)}`'),
         );
         expect(identityOf(unknown.pid), real, reason: 'it was ended');
+      });
+    });
+
+    // Ticket 13 of slice 1d.2: a stop deletes the server's half-written
+    // cache files only once nothing runs under the server's ID.
+    group('the half-written cache files of the server', () {
+      /// An ID no process here has, which a scripted guard names as its
+      /// server; the lookup decides what runs under it.
+      const named = 999993;
+      const identity = ProcessIdentity(id: named, start: 'then', image: 'dart');
+
+      /// Stops a server whose scripted guard named [named], after a reading,
+      /// with [seen] telling what runs under that ID each time it is asked.
+      /// Returns whether the half-written file of [named] is still there,
+      /// and that of another ID always is. [rightAfterStop] is told whether
+      /// the file was there when the stop returned, and how long it took.
+      Future<bool> leftAfterStop(
+        ProcessSeen Function(int asked) seen, {
+        void Function(bool there, Duration stop)? rightAfterStop,
+      }) async {
+        final environment = testAnalysisEnvironment();
+        final driver = Directory(
+          p.join(environment[analysisCacheVariable]!, analysisDriverFolder),
+        )..createSync(recursive: true);
+        final own = File(p.join(driver.path, 'a.unlinked2-temp-$named'))
+          ..writeAsStringSync('x');
+        final other = File(p.join(driver.path, 'b.unlinked2-temp-$pid'))
+          ..writeAsStringSync('x');
+        var asked = 0;
+        final server = AnalysisServer(
+          projectRoot: app,
+          guardCommand: [
+            Platform.resolvedExecutable,
+            analysisSupportFile('fake_server_guard.dart'),
+            'names:$named',
+          ],
+          dartExecutable: () => testDart,
+          environment: environment,
+          processLookup: (id) =>
+              id == named ? seen(asked++) : lookUpProcess(id),
+        );
+        addTearDown(server.stop);
+        await server.read();
+        final watch = Stopwatch()..start();
+        await server.stop();
+        rightAfterStop?.call(own.existsSync(), watch.elapsed);
+        await analysisCleanUpsDone();
+        expect(other.existsSync(), isTrue, reason: 'another ID\'s file');
+        return own.existsSync();
+      }
+
+      test('the stop returns before its clean-up has ended, which deletes '
+          'the file once nothing runs under the ID', () async {
+        // Counted from the clean-up's first question.
+        final sinceStop = Stopwatch();
+        late bool there;
+        late Duration stop;
+        expect(
+          await leftAfterStop(
+            // Still running for 1 s after the stop, then gone.
+            (asked) {
+              if (asked == 1) sinceStop.start();
+              return asked == 0 ||
+                      sinceStop.elapsed < const Duration(seconds: 1)
+                  ? const ProcessRunning(identity)
+                  : const ProcessGone();
+            },
+            rightAfterStop: (wasThere, took) {
+              there = wasThere;
+              stop = took;
+            },
+          ),
+          isFalse,
+        );
+        expect(there, isTrue, reason: 'deleted before the stop returned');
+        expect(stop, lessThan(const Duration(seconds: 1)));
+      });
+
+      test('who has the ID can\'t be told for a while, and then nothing runs '
+          'under it: its file is deleted', () async {
+        expect(
+          await leftAfterStop(
+            (asked) => asked == 0
+                ? const ProcessRunning(identity)
+                : asked < 20
+                ? const ProcessUnknown()
+                : const ProcessGone(),
+          ),
+          isFalse,
+        );
+      });
+
+      test('nothing runs under the ID: its file is deleted', () async {
+        expect(
+          await leftAfterStop(
+            (asked) => asked == 0
+                ? const ProcessRunning(identity)
+                : const ProcessGone(),
+          ),
+          isFalse,
+        );
+      });
+
+      test('the server still runs under it after the wait: nothing is '
+          'deleted, and the stop returns', () async {
+        final watch = Stopwatch()..start();
+        expect(
+          await leftAfterStop((_) => const ProcessRunning(identity)),
+          isTrue,
+        );
+        expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+      });
+
+      test('another process has the ID by now: nothing is deleted', () async {
+        expect(
+          await leftAfterStop(
+            (asked) => asked == 0
+                ? const ProcessRunning(identity)
+                : const ProcessRunning(
+                    ProcessIdentity(id: named, start: 'now', image: 'dart'),
+                  ),
+          ),
+          isTrue,
+        );
+      });
+
+      test('who has the ID can\'t be told: nothing is deleted', () async {
+        expect(
+          await leftAfterStop(
+            (asked) => asked == 0
+                ? const ProcessRunning(identity)
+                : const ProcessUnknown(),
+          ),
+          isTrue,
+        );
+      });
+
+      test('the server could not be told when it was named: nothing is '
+          'deleted while something runs under the ID', () async {
+        expect(
+          await leftAfterStop(
+            (asked) => asked == 0
+                ? const ProcessUnknown()
+                : const ProcessRunning(identity),
+          ),
+          isTrue,
+        );
       });
     });
 

@@ -1,3 +1,45 @@
+import 'dart:io';
+
+/// The analysis server cache of `tool/test_all.dart`'s analyzer step,
+/// from the repo root: inside `.dart_tool/`, which git ignores, and kept
+/// between runs, so `dart analyze` starts warm and still writes nothing in
+/// the cache the machine shares.
+const testAllAnalysisCache = '.dart_tool/test_all_analysis_cache';
+
+/// Deletes the half-written files analysis servers left in the cache folder
+/// [cache] (`<entry>-temp-<process ID>`, directly in its `.analysis-driver`
+/// folder), and returns how many. Only `tool/test_all.dart`'s own `dart
+/// analyze` uses that folder, and this runs at the start of a run, before
+/// that step, so every such file is from an earlier run's server, which has
+/// ended (two runs at once in one clone are not supported). Nothing else is
+/// touched, a link is never followed or deleted, and a file that can't be
+/// deleted, or a folder that is missing, is skipped.
+int clearHalfWrittenFiles(String cache) {
+  final folder = Directory('$cache${Platform.pathSeparator}.analysis-driver');
+  if (FileSystemEntity.typeSync(folder.path, followLinks: false) !=
+      FileSystemEntityType.directory) {
+    return 0;
+  }
+  var removed = 0;
+  try {
+    for (final entry in folder.listSync(followLinks: false)) {
+      final name = entry.path.split(RegExp(r'[\\/]')).last;
+      if (entry is! File || !_halfWritten.hasMatch(name)) continue;
+      try {
+        entry.deleteSync();
+        removed++;
+      } on FileSystemException {
+        // Held, or gone already: left as it is.
+      }
+    }
+  } on FileSystemException {
+    // The folder went away.
+  }
+  return removed;
+}
+
+final _halfWritten = RegExp(r'^.+-temp-\d+$');
+
 /// How one step of `tool/test_all.dart` ended, judged from its exit code
 /// and its output.
 final class SuiteVerdict {

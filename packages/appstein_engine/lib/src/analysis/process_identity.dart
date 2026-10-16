@@ -83,6 +83,32 @@ ProcessSeen lookUpProcess(int id) {
   }
 }
 
+/// Whether no process runs under the ID [id], or the one that does has
+/// ended completely. It never waits, and never throws (a failure is
+/// false).
+///
+/// [lookUpProcess] calls a process gone once it has an exit code. On
+/// Windows a killed process has one before it has finished ending: a file it
+/// was creating can still appear after that (ticket 13 of slice 1d.2). So
+/// on Windows this asks whether the process object is signaled
+/// (`WaitForSingleObject` with no wait), which it is only once the process
+/// has ended completely. Elsewhere it is [lookUpProcess] saying gone.
+bool processHasEnded(int id) {
+  try {
+    if (!Platform.isWindows) return lookUpProcess(id) is ProcessGone;
+    final handle = _openProcess(_synchronize, 0, id);
+    // No such process, or not this user's.
+    if (handle == 0) return true;
+    try {
+      return _waitForSingleObject(handle, 0) == _waitObject0;
+    } finally {
+      _closeHandle(handle);
+    }
+  } on Object {
+    return false;
+  }
+}
+
 /// The command a person can run to end the process with the ID [id] by
 /// hand. On Windows it ends it only while it still runs the program
 /// [image] (the file name is enough), when that is known. The Windows form
@@ -172,6 +198,11 @@ final _queryFullProcessImageName = _kernel32
         Pointer<Uint32> length,
       )
     >('QueryFullProcessImageNameW');
+final _waitForSingleObject = _kernel32
+    .lookupFunction<
+      Uint32 Function(IntPtr handle, Uint32 milliseconds),
+      int Function(int handle, int milliseconds)
+    >('WaitForSingleObject');
 final _localAlloc = _kernel32
     .lookupFunction<
       Pointer<Uint8> Function(Uint32 flags, IntPtr bytes),
@@ -186,6 +217,13 @@ final _localFree = _kernel32
 /// The least access that answers these questions; it is granted for a
 /// process of the same user, which every process Appstein starts is.
 const _queryLimitedInformation = 0x1000;
+
+/// The access right to wait on a process; granted, like the one above, for
+/// a process of the same user.
+const _synchronize = 0x00100000;
+
+/// What `WaitForSingleObject` gives when the process object is signaled.
+const _waitObject0 = 0;
 
 /// What `GetExitCodeProcess` gives for a process that has not ended.
 const _stillActive = 259;

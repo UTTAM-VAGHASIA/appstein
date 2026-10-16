@@ -28,6 +28,10 @@ import 'version.dart';
 /// from and run the analysis server with, where a fake Flutter SDK has
 /// none. [codeAnalysis] (also for tests) replaces the analysis server that
 /// `appstein verify` and the `verify` tool of `appstein mcp` would start.
+///
+/// It returns only after the clean-ups of the analysis servers the command
+/// stopped have ended (`analysisCleanUpsDone`), which run after the
+/// command has printed its result.
 Future<int> runAppstein(
   List<String> arguments, {
   StringSink? out,
@@ -113,6 +117,11 @@ Future<int> runAppstein(
   } catch (error, stackTrace) {
     reportCrash(errors, error, stackTrace);
     return ExitCodes.appsteinFailed;
+  } finally {
+    // A stopped analysis server's half-written cache files are deleted
+    // after the stop returned, so the result was printed first; the
+    // command returns, and the process ends, once they are.
+    await analysisCleanUpsDone();
   }
 }
 

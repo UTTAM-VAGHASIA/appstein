@@ -382,6 +382,7 @@ void main() {
           'never',
         ],
         dartExecutable: () => testDart,
+        environment: testAnalysisEnvironment(),
       ),
     );
     addTearDown(kept.close);

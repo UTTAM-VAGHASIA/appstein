@@ -83,6 +83,19 @@ void main() {
     expect(lookUpProcess(-1), isNot(isA<ProcessRunning>()));
   });
 
+  test('processHasEnded: not while a process runs, and once it has ended, '
+      'also while its handle is held; an ID nothing runs under has '
+      'ended', () async {
+    final running = await waiter();
+    expect(processHasEnded(running.pid), isFalse);
+    await running.stdin.close();
+    await running.exitCode;
+    // The `Process` object is still held here.
+    expect(processHasEnded(running.pid), isTrue);
+    expect(processHasEnded(0x7ffffff0), isTrue);
+    expect(processHasEnded(pid), isFalse);
+  });
+
   test('asked many times, it leaves nothing open', () async {
     final process = await waiter();
     for (var i = 0; i < 20000; i++) {

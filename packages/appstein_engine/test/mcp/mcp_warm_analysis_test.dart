@@ -160,6 +160,7 @@ int sidesOf(Shape shape) => shape.sides;
               projectRoot: app,
               guardCommand: testGuardCommand,
               dartExecutable: () => testDart,
+              environment: testAnalysisEnvironment(),
             )(
               (analysis) => runVerify(
                 projectRoot: app,
@@ -231,6 +232,7 @@ String second() => wrong();
         projectRoot: app,
         guardCommand: testGuardCommand,
         dartExecutable: () => dartPath,
+        environment: testAnalysisEnvironment(),
       ),
     );
     final server = await serve(kept);

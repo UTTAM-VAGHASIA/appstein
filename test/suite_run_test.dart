@@ -1,8 +1,62 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../tool/src/suite_run.dart';
+import 'support/temp_repo.dart';
 
 void main() {
+  group('clearHalfWrittenFiles', () {
+    test('deletes the -temp-<ID> files directly in .analysis-driver, and '
+        'nothing else', () {
+      final cache = tempFolder();
+      final driver = Directory(p.join(cache.path, '.analysis-driver'))
+        ..createSync();
+      void write(String relative) =>
+          File(p.joinAll([driver.path, ...relative.split('/')]))
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('x');
+      write('0c9e.unlinked2-temp-4242');
+      write('11fc.resolved2-temp-7');
+      write('0c/0c9e.unlinked2');
+      write('0c/0c9e.unlinked2-temp-4242');
+      write('c.unlinked2-temp-4242-plugin');
+      write('-temp-4242');
+      expect(clearHalfWrittenFiles(cache.path), 2);
+      expect(
+        [
+          for (final entry in driver.listSync(recursive: true))
+            p.relative(entry.path, from: driver.path).replaceAll(r'\', '/'),
+        ]..sort(),
+        [
+          '-temp-4242',
+          '0c',
+          '0c/0c9e.unlinked2',
+          '0c/0c9e.unlinked2-temp-4242',
+          'c.unlinked2-temp-4242-plugin',
+        ],
+      );
+    });
+
+    test('a cache without the folder, or no cache, is no error', () {
+      final cache = tempFolder();
+      expect(clearHalfWrittenFiles(cache.path), 0);
+      expect(clearHalfWrittenFiles(p.join(cache.path, 'no such')), 0);
+    });
+
+    test('the folder is inside .dart_tool, which git ignores', () {
+      expect(testAllAnalysisCache, startsWith('.dart_tool/'));
+      // The tests run from the repo root, as generators_test.dart assumes.
+      final ignored = gitResult(Directory.current, [
+        'check-ignore',
+        '-q',
+        '$testAllAnalysisCache/.analysis-driver/x',
+      ]);
+      expect(ignored.exitCode, 0, reason: '${ignored.stderr}');
+    });
+  });
+
   group('judgeTestRun', () {
     test('exit 0 and "All tests passed!" pass, with the counts', () {
       final verdict = judgeTestRun(

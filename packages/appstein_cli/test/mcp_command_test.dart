@@ -21,6 +21,7 @@ void main() {
   late StringBuffer err;
   late String project;
   late String sdk;
+  late String cache;
 
   setUp(() {
     out = StringBuffer();
@@ -33,11 +34,12 @@ void main() {
       p.join(project, 'pubspec.yaml'),
     ).writeAsStringSync('name: my_app\nenvironment:\n  sdk: ^3.12.0\n');
     sdk = createFakeFlutterSdk(p.join(work.path, 'flutter'));
+    cache = testAnalysisCache();
   });
 
   HostEnvironment machine({String? cwd}) => HostEnvironment(
     os: HostOs.current,
-    variables: {'FLUTTER_ROOT': sdk},
+    variables: {'FLUTTER_ROOT': sdk, analysisCacheVariable: cache},
     workingDirectory: cwd ?? project,
   );
 
@@ -227,6 +229,12 @@ void main() {
         }
         expect(await started(), isEmpty);
         expect(out.toString(), isEmpty);
+        // The server's cache is the folder the machine names, not the one
+        // the machine shares.
+        expect(
+          Directory(p.join(cache, analysisDriverFolder)).existsSync(),
+          isTrue,
+        );
       }),
       timeout: const Timeout(Duration(minutes: 10)),
     );
@@ -251,6 +259,7 @@ void main() {
         project,
         sdk,
         testDartSdk,
+        cache,
       ], workingDirectory: package);
       final recorded = <int>{process.pid};
       addTearDown(() async {

@@ -44,6 +44,8 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 
 **`runAppstein` returns a code instead of exiting.** It takes the arguments plus optional output sinks and fakes, and returns an `int`. Tests call it in-process, with `StringBuffer`s for the output and a made-up environment, so no subprocess is needed (see [testing](testing.md)).
 
+**It returns only once the analysis servers' clean-ups have ended.** A stopped analysis server's half-written cache files are deleted after the stop returned, so `verify` prints its result first (see [verify](verify.md#stopping)). In a `finally`, `runAppstein` waits for `analysisCleanUpsDone`, so the command returns, and the process ends, only after the deletion.
+
 **Every failure becomes exit code 3.** `runAppstein` wraps everything, including building the runner, in one `try`:
 
 | Caught | What is printed (to stderr) | Exit code |
@@ -179,7 +181,7 @@ How the files are written is in [knowledge-store](knowledge-store.md), and how t
 2. **Builds the server.** `mcpSyncFactory` returns a function that builds a new `KnowledgeSync` for every call. Each time it reads `appstein.yaml` with `loadConfig` (so an edited config takes effect at once, and an invalid one makes the replies `stale` instead of stopping the server), turns it into packs with `packsFor`, and sets two things that differ from `appstein sync`: `packageSkills: false`, and one `HeldAnalyzerCache` shared by every call.
 3. **Waits** for the server to finish (`server.done`), closes the kept analysis server, then exits 0.
 
-**The code analysis is kept.** `keptCodeAnalysis` builds a `KeptAnalysisServer` for the project, with the guard command and the project's own `dart`, and the server gets its `use` as its code analysis. Nothing is started by that: the first `verify` call starts the analysis server, later calls share it, and it is stopped after 10 minutes without one (see [verify](verify.md#a-kept-server-warm-analysis)). The command closes it in a `finally` when the MCP server is done, so the analysis server and its guard have ended before the command returns. When the command's process is killed instead, the guard ends the analysis server.
+**The code analysis is kept.** `keptCodeAnalysis` builds a `KeptAnalysisServer` for the project, with the guard command, the project's own `dart`, and the analysis server's cache folder when the machine names one (`analysisServerEnvironment`, as `terminalCodeAnalysis` for `verify` does; the tests give their servers folders of their own this way), and the server gets its `use` as its code analysis. Nothing is started by that: the first `verify` call starts the analysis server, later calls share it, and it is stopped after 10 minutes without one (see [verify](verify.md#a-kept-server-warm-analysis)). The command closes it in a `finally` when the MCP server is done, so the analysis server and its guard have ended before the command returns. When the command's process is killed instead, the guard ends the analysis server.
 
 **stdout belongs to the protocol.** The channel is made from the process's stdin and stdout (`stdioMcpChannel`). The command writes nothing else there, because the agent would try to read it as a message. `runAppstein` takes an `mcpChannel` for tests, so they run the command in-process with a fake connection.
 

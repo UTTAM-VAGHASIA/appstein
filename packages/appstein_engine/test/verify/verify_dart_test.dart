@@ -1119,6 +1119,7 @@ void uses() {
         projectRoot: app,
         guardCommand: testGuardCommand,
         dartExecutable: () => testDart,
+        environment: testAnalysisEnvironment(),
         afterLook: () async => afterLook?.call(),
       );
       await server.read();
@@ -2102,6 +2103,8 @@ class Remote {
         testDart,
         ['fix', '--dry-run', '.'],
         workingDirectory: project,
+        // `dart fix` runs an analysis server too.
+        environment: testAnalysisEnvironment(),
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
       );
@@ -2336,11 +2339,12 @@ void twoPasses() {
           ..parent.createSync(recursive: true)
           ..writeAsBytesSync(bytes);
       }
-      final fixed = await Process.run(testDart, [
-        'fix',
-        '--apply',
-        '.',
-      ], workingDirectory: twin);
+      final fixed = await Process.run(
+        testDart,
+        ['fix', '--apply', '.'],
+        workingDirectory: twin,
+        environment: testAnalysisEnvironment(),
+      );
       expect(fixed.exitCode, 0, reason: '${fixed.stdout}${fixed.stderr}');
       final toFormat = [
         for (final MapEntry(key: file, value: text) in dartTexts(twin).entries)
@@ -2460,11 +2464,12 @@ void start() {
           ..parent.createSync(recursive: true)
           ..writeAsBytesSync(bytes);
       }
-      final fixed = await Process.run(testDart, [
-        'fix',
-        '--apply',
-        '.',
-      ], workingDirectory: twin);
+      final fixed = await Process.run(
+        testDart,
+        ['fix', '--apply', '.'],
+        workingDirectory: twin,
+        environment: testAnalysisEnvironment(),
+      );
       expect(fixed.exitCode, 0, reason: '${fixed.stdout}${fixed.stderr}');
       final changes = await applyToProject(own, projectRoot: chained);
       expect(changes.written, contains(chain));

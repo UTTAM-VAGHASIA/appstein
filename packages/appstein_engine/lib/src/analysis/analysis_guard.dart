@@ -12,6 +12,10 @@ const analysisGuardSign = 'guarding ';
 /// words; a reader accepts it at the end of a line all the same.
 const analysisGuardEnded = 'guard ended';
 
+/// How long the guard waits, after it killed its server, for the system to
+/// say the server has ended.
+const _serverEndLimit = Duration(seconds: 2);
+
 /// The guard of a Dart analysis server (decision record 0001).
 ///
 /// A server that speaks the legacy analyzer protocol keeps running when the
@@ -23,7 +27,8 @@ const analysisGuardEnded = 'guard ended';
 /// - passes its stdin to the server and the server's output to its stdout,
 ///   byte for byte, and the server's stderr to its own;
 /// - kills the server when its stdin closes, which is what happens when the
-///   process that started the guard ends in any way;
+///   process that started the guard ends in any way, and ends once the
+///   system says the server has ended (at most 2 s later);
 /// - says [analysisGuardEnded] on stderr before it ends.
 ///
 /// It returns the guard's exit code: 0 after its input closed, the server's
@@ -61,7 +66,17 @@ Future<int> runAnalysisGuard(String dartExecutable) async {
   final errorLines = server.stderr.listen(stderr.add, onError: (Object _) {});
   void inputClosed() {
     server.kill(ProcessSignal.sigkill);
-    end(0);
+    // Ended once the system says the server has ended, not when it was
+    // told to: on Windows a killed process already has its exit code while
+    // a file it was creating is still being created, and that file is the
+    // half-written cache file a stop deletes (ticket 13 of slice 1d.2).
+    // The wait has a limit, so a server that never ends can't hold the
+    // guard; the stop then kills it by its ID.
+    unawaited(
+      server.exitCode
+          .timeout(_serverEndLimit, onTimeout: () => -1)
+          .then((_) => end(0)),
+    );
   }
 
   final incoming = stdin.listen(

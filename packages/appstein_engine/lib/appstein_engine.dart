@@ -1,6 +1,7 @@
 /// The Appstein engine: everything the CLI does, with no command-line code.
 library;
 
+export 'src/analysis/analysis_cache.dart';
 export 'src/analysis/analysis_guard.dart';
 export 'src/analysis/analysis_server.dart';
 export 'src/analysis/code_analysis.dart';

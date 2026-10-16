@@ -291,6 +291,7 @@ void main() {
     late Directory work;
     late String project;
     late String sdk;
+    late String cache;
 
     setUp(() {
       out = StringBuffer();
@@ -303,6 +304,7 @@ void main() {
         p.join(project, 'pubspec.yaml'),
       ).writeAsStringSync('name: my_app\nenvironment:\n  sdk: ^3.12.0\n');
       sdk = createFakeFlutterSdk(p.join(work.path, 'flutter'));
+      cache = testAnalysisCache();
     });
 
     Future<int> run(
@@ -326,7 +328,7 @@ void main() {
       err: err,
       environment: HostEnvironment(
         os: HostOs.current,
-        variables: {'FLUTTER_ROOT': sdk},
+        variables: {'FLUTTER_ROOT': sdk, analysisCacheVariable: cache},
         workingDirectory: workingDirectory ?? project,
       ),
       verifyChecks: verifyChecks,
@@ -1326,6 +1328,12 @@ void main() {
           expect(out.toString(), isNot(contains('Rewritten by --apply')));
           expect(out.toString(), isNot(contains(' dart.')));
           expect(out.toString(), startsWith('docs/app/'));
+          // The servers' cache is the folder the machine names, not the one
+          // the machine shares.
+          expect(
+            Directory(p.join(cache, analysisDriverFolder)).existsSync(),
+            isTrue,
+          );
           // Three runs, each starting a guard from source and a server.
         }),
         timeout: const Timeout(Duration(minutes: 10)),
@@ -1349,7 +1357,7 @@ void main() {
             projectRoot: project,
             environment: HostEnvironment(
               os: HostOs.current,
-              variables: {'FLUTTER_ROOT': sdk},
+              variables: {'FLUTTER_ROOT': sdk, analysisCacheVariable: cache},
               workingDirectory: project,
             ),
             dartSdkPath: testDartSdk,
