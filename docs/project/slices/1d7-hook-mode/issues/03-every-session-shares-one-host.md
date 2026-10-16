@@ -7,8 +7,8 @@
 Status: ready-for-agent
 
 - [ ] Two `appstein mcp` processes on one project, both calling `verify`, leave exactly one host and one analysis server running. Ending the first leaves the second's answers warm.
-- [ ] Clients that start a host at the same moment end with one host: binding the socket is exclusive, and the one that loses connects to the one that won.
-- [ ] A socket file whose connection is refused (a host that died) is deleted and a new host is started. On Windows the socket file is found by asking for the entry's type, since it is a reparse point.
+- [ ] Clients that start a host at the same moment end with one host: creating the address file is exclusive, and the one that loses waits for the winner's address and connects to it.
+- [ ] An address file whose host refuses the connection or has ended (a host that died) is deleted and a new host is started.
 - [ ] A client says its Appstein version when it connects. A host of another version is asked to stop and a new one is started; the client's answer comes from the new one.
 - [ ] A change of the project's SDK (for example `fvm use` to another version) restarts the host's server; the next answer comes from the new SDK.
 - [ ] The host answers one question at a time, in the order they arrive, across clients. A question asked during another client's pending-fix passes waits and never sees their temporary edits (tested with a full run's passes and a fast question from another client). A question whose client has gone away is dropped.

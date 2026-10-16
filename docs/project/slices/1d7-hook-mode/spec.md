@@ -62,8 +62,7 @@ Each project gets one **analysis host**: a small background process, the `appste
 27. As a developer, I want the analysis host to end by itself after 10 minutes with no questions, so that an idle project holds no memory.
 28. As a developer, I want a host from an older Appstein replaced after I upgrade, so that I never get answers from code I replaced.
 29. As a developer, I want the host to start again by itself after a crash, so that a dead host never blocks the next check.
-30. As a developer, I want the host's socket reachable only by my own user, so that nobody else on the machine can ask about my code.
-31. As a developer with a long project path, spaces included, I want the host to work, so that where my project lives doesn't matter.
+30. As a developer, I want the host to answer only programs that can read my own user's files, so that nobody else on the machine can ask about my code.31. As a developer with a long project path, spaces included, I want the host to work, so that where my project lives doesn't matter.
 32. As a developer, I want a terminal `appstein verify` to use a running host when there is one, so that I get warm answers too.
 33. As a CI maintainer, I want a terminal `appstein verify` never to start a host, so that a CI run leaves no process behind.
 34. As an agent, I want my session's `verify` tool calls answered by the same host the hooks use, so that the tool and the hooks never disagree.
@@ -129,23 +128,23 @@ Each project gets one **analysis host**: a small background process, the `appste
 **The analysis host (decision record 0002)**
 
 - A new hidden mode of the `appstein` binary, like the guard's. One host per project. It owns the guard and the analysis server, as `appstein mcp` did in 1d.2: the server is the project SDK's, started behind the guard, with the same restarts after a change to the analysis options, the package config or `pubspec.yaml`, the same start limit of 180 s and the same plugin and readiness rules.
-- **The socket.** A Unix domain socket on all three systems (Dart has them on Windows since 3.11; Appstein requires 3.12). Its file lives in a folder of the user's, outside the project: `%LOCALAPPDATA%\appstein\` on Windows, `$XDG_RUNTIME_DIR` or the temporary folder on Linux and macOS, readable by the user only. The name is a hash of the project root's full path, so a long project path can't pass the socket path limit (about 104 to 108 characters). No TCP, so no firewall question.
-- **What crosses the socket** is Appstein's own small protocol, defined in `appstein_protocol`, carrying the questions of the **code analysis** interface 1d.2 built (diagnostics, can this be fixed, pending fixes, would formatting change, apply fixes and formatting) and their answers. The checks don't change: a client of the host is one more implementation of that interface.
+- **The connection.** Loopback TCP on all three systems: the host listens on `127.0.0.1` only, on a port the system picks. It writes an **address file** (the port, a random secret, its process ID and its Appstein version) in a folder of the user's, outside the project: `%LOCALAPPDATA%\appstein\` on Windows, `$XDG_RUNTIME_DIR` or the temporary folder on Linux and macOS, readable by the user only. The file is named by a hash of the project root's full path and written whole or not at all. A client reads it and sends the secret first; the host closes a connection that doesn't, since every local program can reach a loopback port. Changed by the owner on 2026-10-17 from a Unix domain socket, which crashed Windows itself in its own driver on the owner's machine (decision record 0002). Whether Windows' firewall asks anything for a listener on `127.0.0.1` is checked on a real Windows machine first.
+- **What crosses the connection** is Appstein's own small protocol, defined in `appstein_protocol`, carrying the questions of the **code analysis** interface 1d.2 built (diagnostics, can this be fixed, pending fixes, would formatting change, apply fixes and formatting) and their answers. The checks don't change: a client of the host is one more implementation of that interface.
 - **Who starts it.** A fast hook run, a full hook run and the `verify` tool of `appstein mcp` start a host when none answers, as a detached process, and then wait for it. A terminal `appstein verify` (a person, CI) uses a host that answers but never starts one: without one it starts its own analysis server and stops it, as in 1d.2.
 - **When it ends.** After 10 minutes with no questions, as 1d.2's idle stop. It ends its server through the guard, so a killed host takes its server with it.
 - **One question at a time.** The host answers questions in the order they arrive, across sessions: a full run's pending-fix passes put edits that are not on disk into the server for 17 to 19 s, and no other client may see them. A fast run that arrives during another session's full run waits, and may reach the cap (accepted by the owner; written in the guide). A question whose client has gone away is dropped.
 - **Housekeeping.**
   - A client says its Appstein version when it connects. A host of another version is asked to stop, and a new one is started.
   - A change of the project's SDK (for example `fvm use`) restarts the host's server, as a change to the analysis options does.
-  - Two clients that start a host at once: binding the socket is exclusive, so the one that loses connects to the one that won.
-  - A socket file whose connection is refused is left by a host that died: it is deleted, and a host is started.
+  - Two clients that start a host at once: creating the address file is exclusive, so the one that loses waits for the winner's address and connects to it.
+  - An address file whose host refuses the connection or has ended is left by a host that died: it is deleted, and a host is started.
 - `--apply`'s fixes and formatting are written by the host's server, as by `appstein mcp`'s in 1d.2, with the same rules: atomic writes, files outside the project or changed since the reading left alone, and the files rewritten named in the result.
 - **No command stops a host** in this slice. The idle stop and the guard are enough; the developer guide says how to find and end one by hand. `appstein doctor` listing hosts is left for later.
 - **Memory.** Only the analysis server is shared. Each `appstein mcp` keeps its own map analyzer (about 0.8 GB). Moving it into the host too would save that per session, but reworks how the MCP tools keep the knowledge fresh: left for later (decision record 0002).
 
 **The hook runs `verify` itself**
 
-- A hook process runs `verify` in its own process, as a terminal run does: the knowledge refresh, the checks, the state. It asks the analysis host only for the code reading. Expected on the 200-file app: start-up under 0.2 s, the refresh as `sync --detect` after one edit (1.3 to 1.9 s on CI), and the reading through the socket (about 0.1 to 0.2 s): 2 to 2.5 s against 5 s.
+- A hook process runs `verify` in its own process, as a terminal run does: the knowledge refresh, the checks, the state. It asks the analysis host only for the code reading. Expected on the 200-file app: start-up under 0.2 s, the refresh as `sync --detect` after one edit (1.3 to 1.9 s on CI), and the reading through the host (about 0.1 to 0.2 s): 2 to 2.5 s against 5 s.
 - The knowledge lock and the unverified files work as in 1d.2: two processes running `verify` at once are kept in order by the lock.
 
 **The cap: `verify.fast_timeout_seconds` (§7, §15)**
@@ -169,20 +168,21 @@ Each project gets one **analysis host**: a small background process, the `appste
 
 ## Testing Decisions
 
-A good test here states what an agent, a developer or CI sees: given this project and this hook input, this exit code, this text on stderr, this JSON on stdout, this number of analysis servers running. It doesn't state how the host was asked or what crossed the socket. Each new piece is first written with an empty body, so its tests fail on behaviour, not at compile time (a lesson from 1d.1).
+A good test here states what an agent, a developer or CI sees: given this project and this hook input, this exit code, this text on stderr, this JSON on stdout, this number of analysis servers running. It doesn't state how the host was asked or what crossed the connection. Each new piece is first written with an empty body, so its tests fail on behaviour, not at compile time (a lesson from 1d.1).
 
 **Seams, highest first** (agreed with the owner, 2026-10-17)
 
 1. **The CLI, in process, with scripted hook input and the scripted code analysis** (the seam of the CLI tests and 1d.2's scripted stand-in). All of hook mode: exit 2 and 0, stderr and JSON for each row of the table above, the cut at 30, the warnings-only context, silence when nothing changed (per session), Appstein's failure as exit 0 with JSON, the loop guard across several Stop calls with one session ID, input that is missing or broken, `--hook codex` and `--hook` with `--format` refused, the cap naming unfinished checks, and `--apply` rendering the docs.
-2. **The code analysis interface, backed by a real analysis host.** No new seam: the host's client implements the interface the checks already use. Real processes on a fixture app: the first client starts the host and a second gets the same one (exactly one analysis server); a client of another version replaces it; a stale socket file is cleared; clients racing to start end with one host; the idle stop; a killed host takes its guard and server with it; one question at a time across clients; a long project path with spaces. The host's own socket protocol is tested only through this seam, never message by message.
+2. **The code analysis interface, backed by a real analysis host.** No new seam: the host's client implements the interface the checks already use. Real processes on a fixture app: the first client starts the host and a second gets the same one (exactly one analysis server); a client of another version replaces it; a stale address file is cleared; a connection without the secret is refused; clients racing to start end with one host; the idle stop; a killed host takes its guard and server with it; one question at a time across clients; a long project path with spaces. The host's own protocol is tested only through this seam, never message by message.
 3. **The guard**, as its tests do today: a killed parent leaves no `-temp-<pid>` file of its server.
 4. **The MCP server**, as its tool tests do: the `verify` tool answers through the host; a terminal run uses a running host and never starts one.
 5. **The compiled binary on the 200-file app**, in the existing measurement tool: the three rows above, and every line of real output read once by hand before the slice is called done.
 
 **Also tested**
 
-- No host, guard or analysis server is left running after a test, on Windows too. Each test gives its hosts their own socket folder and cache folder, as 1d.2's suites have their own cache folders.
-- Paths with spaces and letter case on Windows, for the socket's name and the project root.
+- No host, guard or analysis server is left running after a test, on Windows too. Each test gives its hosts their own address-file folder and cache folder, as 1d.2's suites have their own cache folders.
+- Paths with spaces and letter case on Windows, for the address file's name and the project root.
+- No test, probe or tool in this repo opens a Unix domain socket: on Windows build 26300 one crashed the machine (decision record 0002).
 
 ## Out of Scope
 
@@ -210,7 +210,7 @@ A good test here states what an agent, a developer or CI sees: given this projec
 **Facts this design rests on** (checked on 2026-10-17):
 
 - Claude Code hooks: exit 2 on PostToolUse shows stderr to the agent after the tool has run; on Stop it keeps the agent going with stderr as the reason. Any other non-zero code shows the developer the first line of stderr and nothing to the agent. Exit 0 with JSON can carry context for the agent (at most 10,000 characters) and a message for the developer. Hooks that match an event run side by side; the default timeout is 600 s; Stop receives whether the agent is already continuing because of a Stop hook, and Claude Code ends the turn after eight such continuations in a row.
-- Dart supports Unix domain sockets on Windows since 3.11 (stream sockets only; the socket file is a reparse point, so a check for it must ask for the entry's type, not whether a file exists).
+- Dart supports Unix domain sockets on Windows since 3.11, but on 2026-10-17 a compiled Dart program that connected to one and closed the connection crashed the owner's Windows (build 26300) twice, in Windows' own driver (`afunix.sys`, bugcheck 0xD1, fault `AfUnixTlConnectEndpointDisconnect`). So the host uses loopback TCP (decision record 0002).
 - An analysis server over stdio serves one client and ends when that connection closes; it has no mode for several clients.
 - The analysis cache is one folder per user on the machine, shared by every analysis server, with no lock; writes go to a temporary file named with the writer's process ID and are renamed into place.
 
