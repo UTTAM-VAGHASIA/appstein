@@ -264,7 +264,7 @@ This is [`applyToProject`](../../packages/appstein_engine/lib/src/verify/apply.d
 Known limits of `--apply`:
 
 - **A leftover new file in a folder no later `--apply` writes to stays.** A `.<name>.appstein-<process>.tmp` file left by a process killed mid-write is removed only by an `--apply` that rewrites a file in the same folder (`_removeStaleBesideFiles` looks in those folders only). In any other folder it stays until it is removed by hand.
-- **Formatting can move a trailing `// appstein:ignore` comment off the line it hides.** When the formatter wraps a long line, a comment at the end of it can end up on the statement's second line, and it then no longer hides the finding reported on the first (seen in an end-to-end run). A comment at the end of a statement already spread over several lines has the same problem. Put the comment on its own line above the statement instead. Whether a trailing comment should cover its whole statement is open, for the owner.
+- **Formatting can move a trailing `// appstein:ignore` comment off the line it hides.** When the formatter wraps a long line, a comment at the end of it can end up on the statement's second line, and it then no longer hides the finding reported on the first (seen in an end-to-end run). A comment at the end of a statement already spread over several lines has the same problem. Put the comment on its own line above the statement instead. The owner has decided that a trailing comment will cover the whole statement it ends (2026-10-16); until a later slice builds that, this limit stands.
 
 ### `dart.unreadable`
 

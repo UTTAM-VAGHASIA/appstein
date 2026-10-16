@@ -191,10 +191,15 @@ void main() {
       'project root all the same', () async {
     final linked = p.join(tempDir().path, 'linked app');
     Link(linked).createSync(app);
+    // A tool that follows links names files by the fully resolved location.
+    // The temp folder itself may not be in that form: on macOS it is under
+    // the `/var` link, and on a Windows runner it can be a short 8.3 name
+    // (`RUNNER~1`), so the scripted output takes the resolved one.
+    final real = Directory(app).resolveSymbolicLinksSync();
     scriptFlutterTest(
       runner,
       sdk,
-      RunResult(exitCode: 1, stdout: flutterTestOutput('failing', app)),
+      RunResult(exitCode: 1, stdout: flutterTestOutput('failing', real)),
     );
     final tests = await runProjectTests(
       projectRoot: linked,
@@ -223,7 +228,7 @@ void main() {
         'Expected: <3> Actual: <2>',
       )),
     );
-    final slashed = app.replaceAll(r'\', '/');
+    final slashed = real.replaceAll(r'\', '/');
     for (final failure in tests.failures) {
       expect(failure.details, isNot(contains(slashed)));
     }
