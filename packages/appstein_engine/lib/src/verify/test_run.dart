@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../host/file_links.dart';
 import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../sdk/sdk_detector.dart';
@@ -165,7 +166,7 @@ Future<TestRun> runProjectTests({
   required ProcessRunner runner,
   required Duration timeout,
 }) async {
-  if (!_hasTestFiles(projectRoot)) return const TestRun.none();
+  if (!hasTestFiles(projectRoot)) return const TestRun.none();
   final detection = SdkDetector(environment).detect(projectRoot: projectRoot);
   final location = detection.location;
   if (detection.info == null || location == null) {
@@ -220,9 +221,10 @@ Future<TestRun> runProjectTests({
   return TestRun.finished(output.failures);
 }
 
-/// Whether the project has a file `flutter test` would run: one under
-/// `test/` whose name ends in `_test.dart`, which is Flutter's own rule.
-bool _hasTestFiles(String projectRoot) {
+/// Whether the project at [projectRoot] has a file `flutter test` would
+/// run: one under `test/` whose name ends in `_test.dart`, which is
+/// Flutter's own rule. Without one, [runProjectTests] starts nothing.
+bool hasTestFiles(String projectRoot) {
   final folder = Directory(p.join(projectRoot, 'test'));
   try {
     for (final entity in folder.listSync(recursive: true)) {
@@ -373,6 +375,10 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
   }
 
   final root = p.normalize(p.absolute(projectRoot));
+  // Flutter names each test file by its real path: through a link to the
+  // project (macOS's temp folder `/var/…` is one to `/private/var/…`) that
+  // is not under [root] as Appstein was given it.
+  final real = realFolder(root);
   final failures = <TestFailure>[];
   final running = <RunningTest>[];
   for (final MapEntry(key: id, value: test) in tests.entries) {
@@ -382,7 +388,7 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
     final loading = suite != null && name == 'loading $suite';
     if (open.contains(id)) {
       running.add((
-        file: suite == null ? 'test' : _fromRoot(suite, root),
+        file: suite == null ? 'test' : _fromRoot(suite, root, real),
         test: loading ? null : name,
       ));
     }
@@ -392,10 +398,10 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
     if (details.startsWith(_seeAbove)) details = framework[id] ?? details;
     failures.add(
       TestFailure(
-        file: suite == null ? 'test' : _fromRoot(suite, root),
+        file: suite == null ? 'test' : _fromRoot(suite, root, real),
         line: loading || suite == null ? null : _line(test, suite),
         test: loading ? null : name,
-        details: _firstLines(details, root),
+        details: _firstLines(details, [root, ?real]),
       ),
     );
   }
@@ -420,14 +426,10 @@ const _seeAbove = 'Test failed. See exception logs above.';
 const _endedDetails =
     'Its test process ended before the test finished (a crash or `exit`).';
 
-/// [path] from the project at [root], with `/`; [path] itself when it is
-/// outside.
-String _fromRoot(String path, String root) {
-  final absolute = p.normalize(p.absolute(root, path));
-  return p.isWithin(root, absolute)
-      ? p.split(p.relative(absolute, from: root)).join('/')
-      : path;
-}
+/// [path] from the project at [root], or at its real location [real], with
+/// `/`; [path] itself when it is outside.
+String _fromRoot(String path, String root, String? real) =>
+    pathFromRoot(path, root, realRoot: real) ?? path;
 
 /// The line of [test] in the file [suite]: where the test is, or for a test
 /// a function of another file declares (as `testWidgets` does), where that
@@ -451,8 +453,9 @@ int? _line(Map<String, Object?> test, String suite) {
 
 /// The first paragraph of [text] on one line, without the lines that only
 /// draw (rules, and the `^^^` under a compile error) and without the
-/// project's own path, which the finding's file already gives.
-String _firstLines(String text, String root) {
+/// project's own path, which the finding's file already gives: each form of
+/// it in [roots] (the root, and its real location through a link).
+String _firstLines(String text, List<String> roots) {
   final lines = <String>[];
   for (final raw in const LineSplitter().convert(text)) {
     var line = raw.trim();
@@ -469,11 +472,7 @@ String _firstLines(String text, String root) {
     lines.add(line);
     if (lines.length == _maxLines) break;
   }
-  final slashed = root.replaceAll(r'\', '/');
-  var joined = lines
-      .join(' ')
-      .replaceAll('${Uri.file(root)}/', '')
-      .replaceAll('$slashed/', '');
+  var joined = withoutFolders(lines.join(' '), roots);
   if (joined.length > _maxLength) {
     joined = '${joined.substring(0, _maxLength)}…';
   }

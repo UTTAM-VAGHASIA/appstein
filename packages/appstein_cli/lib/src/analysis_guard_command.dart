@@ -51,21 +51,42 @@ final class AnalysisGuardCommand extends Command<int> {
 ///   to start. There the running `dart` starts `bin/appstein.dart` of this
 ///   package, with the same argument. It is the same command either way;
 ///   only how it is started differs, and from source it takes seconds
-///   longer.
+///   longer. The script is given the package configuration this process
+///   runs with (`--packages`): one installed with `dart pub global
+///   activate` lives in the pub cache, which has none beside it.
 List<String> analysisGuardCommand() {
-  final executable = Platform.resolvedExecutable;
   // A compiled binary has no package configuration to ask.
   Uri? library;
+  Uri? packageConfig;
   try {
     library = Isolate.resolvePackageUriSync(
       Uri.parse('package:appstein_cli/appstein_cli.dart'),
     );
+    packageConfig = Isolate.packageConfigSync;
   } on UnsupportedError {
     library = null;
   }
+  return guardCommandFrom(
+    executable: Platform.resolvedExecutable,
+    library: library,
+    packageConfig: packageConfig,
+  );
+}
+
+/// [analysisGuardCommand] from what the running Dart says: its
+/// [executable], where `package:appstein_cli/appstein_cli.dart` is
+/// ([library], null in a compiled binary) and the package configuration it
+/// runs with ([packageConfig], null when there is none).
+List<String> guardCommandFrom({
+  required String executable,
+  Uri? library,
+  Uri? packageConfig,
+}) {
   if (library == null) return [executable, analysisGuardCommandName];
   return [
     executable,
+    if (packageConfig != null && packageConfig.isScheme('file'))
+      '--packages=${packageConfig.toFilePath()}',
     p.join(p.dirname(p.dirname(library.toFilePath())), 'bin', 'appstein.dart'),
     analysisGuardCommandName,
   ];

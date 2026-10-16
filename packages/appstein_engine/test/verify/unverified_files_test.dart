@@ -47,6 +47,34 @@ void main() {
     ]);
   }, testOn: 'windows || mac-os');
 
+  // macOS's temp folder `/var/…` is a link to `/private/var/…`: a project
+  // reached through a link (a junction on Windows) can be named either way.
+  test('a project reached through a link: an absolute path by its real '
+      'location is inside it', () {
+    final linked = p.join(tempDir().path, 'linked app');
+    Link(linked).createSync(root);
+    final real = Directory(root).resolveSymbolicLinksSync();
+    expect(
+      resolveVerifyFiles(linked, [
+        p.join(real, 'lib', 'Home.dart'),
+        p.join(real, 'lib', 'ui', 'deep'),
+        p.join(linked, 'lib', 'ui', 'a.dart'),
+      ]),
+      ['lib/Home.dart', 'lib/ui/deep/b.dart', 'lib/ui/a.dart'],
+    );
+    expect(
+      () => resolveVerifyFiles(linked, [real]),
+      throwsA(
+        isA<VerifyFilesException>().having(
+          (error) => error.message,
+          'message',
+          'The path `$real` given to --files is the project folder itself. '
+              'Name files inside it.',
+        ),
+      ),
+    );
+  });
+
   test('a deleted file and a file that is not Dart are kept as given', () {
     expect(resolveVerifyFiles(root, ['lib/gone.dart', 'lib/ui/notes.txt']), [
       'lib/gone.dart',

@@ -56,8 +56,10 @@ String projectDartExecutable(
 /// project at [projectRoot], and stops it when the body ends, normally or
 /// with an error. This is what a terminal `appstein verify` does. The
 /// server is started only when the body first asks something. A question
-/// asked after the body has ended throws a [StateError]: it would start a
-/// server nobody stops.
+/// asked after the body has ended never starts a server nobody stops:
+/// `read` throws a [StateError], and `formatChanges`, `canDartFix`,
+/// `pendingFixes` and `applyFixesAndFormat` throw a
+/// [CodeAnalysisException].
 ///
 /// The arguments are [AnalysisServer.new]'s, and [onLeft]: called after the
 /// server was stopped, with a line for each process the stop could not end
@@ -565,7 +567,9 @@ final class AnalysisServer implements StoppableCodeAnalysis {
   }
 
   /// Stops the server as [stop] does, for good: a question asked afterwards
-  /// throws a [StateError] instead of starting a server nobody would stop.
+  /// never starts a server nobody would stop. [read] throws a [StateError],
+  /// and [formatChanges], [canDartFix], [pendingFixes] and
+  /// [applyFixesAndFormat] throw a [CodeAnalysisException].
   @override
   Future<void> close() {
     _closed = true;
@@ -698,8 +702,10 @@ String? permissionsToSet({required int besideMode, required int originalMode}) {
 ///   written completely** (a full disk, a quota), it is deleted and the
 ///   original is left untouched: a [FileSystemException] says so.
 /// - The new file is removed on every path. A process killed between the
-///   two steps leaves it behind; the next `--apply` removes it
-///   (`AnalysisServer.applyFixesAndFormat`).
+///   two steps leaves it behind. A later `--apply` that rewrites a file in
+///   the same folder removes it (`AnalysisServer.applyFixesAndFormat`); in
+///   a folder no later `--apply` rewrites a file in, it stays until removed
+///   by hand.
 ///
 /// [openBeside], [writeBeside] and [chmod] are for tests: the first makes
 /// the creation of the new file fail, the second makes its write fail part

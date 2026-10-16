@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:appstein_cli/appstein_cli.dart';
 import 'package:appstein_engine/appstein_engine.dart';
@@ -1196,15 +1197,54 @@ void main() {
       test('is started with the running dart and this package\'s entry '
           'script, where Appstein is not a compiled binary', () {
         final command = analysisGuardCommand();
-        expect(command, hasLength(3));
+        expect(command, hasLength(4));
         expect(command.first, Platform.resolvedExecutable);
-        expect(p.split(command[1]).sublist(p.split(command[1]).length - 3), [
+        // The package configuration of this run: a script in the pub cache
+        // (`dart pub global activate`) has none beside it.
+        expect(command[1], startsWith('--packages='));
+        final config = command[1].substring('--packages='.length);
+        expect(config, Isolate.packageConfigSync!.toFilePath());
+        expect(File(config).existsSync(), isTrue);
+        expect(p.split(command[2]).sublist(p.split(command[2]).length - 3), [
           'appstein_cli',
           'bin',
           'appstein.dart',
         ]);
-        expect(File(command[1]).existsSync(), isTrue);
+        expect(File(command[2]).existsSync(), isTrue);
         expect(command.last, analysisGuardCommandName);
+      });
+
+      test('the command from what the running Dart says: a compiled binary '
+          'starts itself, a script is started with its package '
+          'configuration when there is one', () {
+        final dart = p.join('sdk', 'bin', 'dart');
+        final library = Uri.file(
+          p.absolute('cache', 'appstein_cli-1.0.0', 'lib', 'appstein_cli.dart'),
+        );
+        final script = p.absolute(
+          'cache',
+          'appstein_cli-1.0.0',
+          'bin',
+          'appstein.dart',
+        );
+        final config = p.absolute('global', 'package_config.json');
+        expect(guardCommandFrom(executable: dart), [
+          dart,
+          analysisGuardCommandName,
+        ]);
+        expect(
+          guardCommandFrom(
+            executable: dart,
+            library: library,
+            packageConfig: Uri.file(config),
+          ),
+          [dart, '--packages=$config', script, analysisGuardCommandName],
+        );
+        expect(guardCommandFrom(executable: dart, library: library), [
+          dart,
+          script,
+          analysisGuardCommandName,
+        ]);
       });
     });
 

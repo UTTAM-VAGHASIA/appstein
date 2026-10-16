@@ -1,6 +1,7 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../../analysis/code_analysis.dart';
+import '../deprecation_ignores.dart';
 import '../test_run.dart';
 import '../verify_check.dart';
 
@@ -25,9 +26,14 @@ import '../verify_check.dart';
 ///   error that `verify.severity` lowered or a suppression hid still stops
 ///   the tests. When none of those errors is left as an error in the
 ///   result, the tests that were not run are one error on the project too
-///   ([following]), so hidden errors never give a green run.
-/// - **A project with no test file** gives nothing, and is not named: that
-///   is `verify.test_required`'s finding.
+///   ([following]), so hidden errors never give a green run. Each error is
+///   looked for among the findings of the check that reports it:
+///   `dart.error`, or `dart.deprecated` for a deprecated use that
+///   `analysis_options.yaml` raised to an error. The fix hint names those
+///   checks.
+/// - **A project with no test file** gives nothing, and is not named, also
+///   while the code has analyzer errors, hidden or not: no test was kept
+///   from running. That is `verify.test_required`'s finding.
 ///
 /// The tests run while gathering, before the knowledge lock is taken, since
 /// they can take minutes (`VerifyGathering.tests`). Tests that can't be run
@@ -51,9 +57,33 @@ final class TestFailedCheck implements GatheringCheck, FollowingCheck {
   @override
   bool get needsMap => false;
 
-  static int _errors(CodeReading reading) => reading.diagnostics
-      .where((diagnostic) => diagnostic.level == DiagnosticLevel.error)
-      .length;
+  static int _errors(CodeReading reading) => _errorDiagnostics(reading).length;
+
+  static Iterable<CodeDiagnostic> _errorDiagnostics(CodeReading reading) =>
+      reading.diagnostics.where(
+        (diagnostic) => diagnostic.level == DiagnosticLevel.error,
+      );
+
+  /// The check that reports the analyzer error [diagnostic]: `dart.error`,
+  /// or `dart.deprecated` for a deprecated use raised to an error, which
+  /// `dart.error` leaves to it.
+  static String _owner(CodeDiagnostic diagnostic) =>
+      isDeprecatedUseCode(diagnostic.code) ? 'dart.deprecated' : 'dart.error';
+
+  /// Whether [diagnostic] is among [kept] as an error of the check that
+  /// reports it, with the place and message that check gives it.
+  static bool _shown(CodeDiagnostic diagnostic, List<Finding> kept) {
+    final id = _owner(diagnostic);
+    final message = '${diagnostic.message} (`${diagnostic.code}`)';
+    return kept.any(
+      (finding) =>
+          finding.id == id &&
+          finding.severity == Severity.error &&
+          finding.file == diagnostic.file &&
+          finding.line == diagnostic.line &&
+          finding.message == message,
+    );
+  }
 
   @override
   Future<void> gather(VerifyGathering gathering) async {
@@ -64,6 +94,8 @@ final class TestFailedCheck implements GatheringCheck, FollowingCheck {
   @override
   Future<List<Finding>> run(VerifyContext context) async {
     if (_errors(context.code) > 0) {
+      // With nothing to test, nothing was kept from running.
+      if (!hasTestFiles(context.projectRoot)) return const [];
       context.notRun(_id, 'the code has analyzer errors');
       return const [];
     }
@@ -122,16 +154,22 @@ final class TestFailedCheck implements GatheringCheck, FollowingCheck {
 
   @override
   List<Finding> following(VerifyContext context, List<Finding> kept) {
-    final errors = _errors(context.code);
-    if (errors == 0) return const [];
-    // The reading's errors are the `dart.error` findings: while one is still
-    // an error, the result is not green. Otherwise every one was lowered or
-    // suppressed, and the tests that were not run must not look like passed.
-    final shown = kept.any(
-      (finding) =>
-          finding.id == 'dart.error' && finding.severity == Severity.error,
-    );
-    if (shown) return const [];
+    final diagnostics = _errorDiagnostics(context.code).toList();
+    final errors = diagnostics.length;
+    if (errors == 0 || !hasTestFiles(context.projectRoot)) return const [];
+    // The reading's errors are `dart.error` findings, and `dart.deprecated`
+    // ones for a deprecated use raised to an error: while one is still an
+    // error, the result is not green. Otherwise every one was lowered or
+    // suppressed (or its check is not in the run), and the tests that were
+    // not run must not look like passed.
+    if (diagnostics.any((diagnostic) => _shown(diagnostic, kept))) {
+      return const [];
+    }
+    final owners = [
+      for (final id in const ['dart.error', 'dart.deprecated'])
+        if (diagnostics.any((diagnostic) => _owner(diagnostic) == id)) id,
+    ];
+    final both = owners.length > 1;
     return [
       Finding(
         id: _id,
@@ -142,8 +180,10 @@ final class TestFailedCheck implements GatheringCheck, FollowingCheck {
             'error: a suppression or `verify.severity` hides '
             '${errors == 1 ? 'it' : 'them'}.',
         fixHint:
-            'Remove the suppression or the `verify.severity` entry for '
-            '`dart.error`, fix the errors, then run `appstein verify` again.',
+            'Remove the ${both ? 'suppressions' : 'suppression'} or the '
+            '`verify.severity` ${both ? 'entries' : 'entry'} for '
+            '${owners.map((id) => '`$id`').join(' and ')}, fix the errors, '
+            'then run `appstein verify` again.',
       ),
     ];
   }

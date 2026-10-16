@@ -377,6 +377,101 @@ void main() {
       expect(result.suppressed, 1);
     });
 
+    // `deprecated_member_use: error` in `analysis_options.yaml`: the use is
+    // an analyzer error, which `dart.deprecated` reports, not `dart.error`.
+    const deprecatedError = CodeDiagnostic(
+      file: 'lib/old.dart',
+      line: 4,
+      code: 'deprecated_member_use',
+      message: "'old' is deprecated and shouldn't be used.",
+      level: DiagnosticLevel.error,
+    );
+    const allThree = [
+      DartErrorCheck(),
+      DartDeprecatedCheck(),
+      TestFailedCheck(),
+    ];
+
+    test('a deprecated use raised to an error and reported by dart.deprecated '
+        'keeps the tests unrun, with no test.failed finding', () async {
+      analysis.found = const [deprecatedError];
+      final result = await verify(checks: allThree);
+      expect(testRuns(), 0);
+      expect(
+        [for (final finding in result.findings) (finding.id, finding.file)],
+        [('dart.deprecated', 'lib/old.dart')],
+      );
+      expect([for (final entry in result.notRun) entry.id], ['test.failed']);
+    });
+
+    test('a hidden dart.error with a deprecated use still reported as an '
+        'error: no test.failed finding', () async {
+      analysis.found = const [_analyzerError, deprecatedError];
+      final result = await verify(
+        checks: allThree,
+        config: const AppsteinConfig(suppressions: [hidden]),
+      );
+      expect(
+        [for (final finding in result.findings) finding.id],
+        ['dart.deprecated'],
+      );
+    });
+
+    test('a deprecated use raised to an error that a suppression hides: the '
+        'finding, and its hint names dart.deprecated', () async {
+      analysis.found = const [deprecatedError];
+      final result = await verify(
+        checks: allThree,
+        config: const AppsteinConfig(
+          suppressions: [
+            SuppressionEntry(
+              id: 'dart.deprecated',
+              path: 'lib/old.dart',
+              reason: 'Migrating next week.',
+              line: 3,
+            ),
+          ],
+        ),
+      );
+      final finding = result.findings.single;
+      expect(finding.id, 'test.failed');
+      expect(
+        finding.fixHint,
+        'Remove the suppression or the `verify.severity` entry for '
+        '`dart.deprecated`, fix the errors, then run `appstein verify` again.',
+      );
+    });
+
+    test('errors of both checks hidden: the hint names both', () async {
+      analysis.found = const [_analyzerError, deprecatedError];
+      final result = await verify(
+        checks: allThree,
+        config: const AppsteinConfig(
+          verify: VerifyConfig(
+            severity: {
+              'dart.error': Severity.warning,
+              'dart.deprecated': Severity.info,
+            },
+          ),
+        ),
+      );
+      final finding = result.findings.firstWhere(
+        (finding) => finding.id == 'test.failed',
+      );
+      expect(
+        finding.message,
+        'The tests were not run, because the code has 2 analyzer errors and '
+        'none is reported as an error: a suppression or `verify.severity` '
+        'hides them.',
+      );
+      expect(
+        finding.fixHint,
+        'Remove the suppressions or the `verify.severity` entries for '
+        '`dart.error` and `dart.deprecated`, fix the errors, then run '
+        '`appstein verify` again.',
+      );
+    });
+
     test('it counts without the dart.error check in the run: no finding of '
         'the errors is left as an error', () async {
       final result = await verify();
@@ -483,6 +578,47 @@ void main() {
       final result = await verify();
       expect(result.findings, isEmpty);
       expect(result.notRun, isEmpty);
+      expect(testRuns(), 0);
+    });
+
+    test('no test folder and an analyzer error: the error alone, and the '
+        'check is not named as not run', () async {
+      Directory(p.join(app, 'test')).deleteSync(recursive: true);
+      analysis.found = const [_analyzerError];
+      final result = await verify(
+        checks: const [DartErrorCheck(), TestFailedCheck()],
+      );
+      expect(
+        [for (final finding in result.findings) finding.id],
+        ['dart.error'],
+      );
+      expect(result.notRun, isEmpty);
+      expect(testRuns(), 0);
+    });
+
+    test('no test file and a hidden analyzer error: no test.failed finding '
+        'about hidden errors, and nothing named as not run', () async {
+      Directory(p.join(app, 'test')).deleteSync(recursive: true);
+      File(p.join(app, 'test', 'helpers.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('void help() {}\n');
+      analysis.found = const [_analyzerError];
+      final result = await verify(
+        checks: const [DartErrorCheck(), TestFailedCheck()],
+        config: const AppsteinConfig(
+          suppressions: [
+            SuppressionEntry(
+              id: 'dart.error',
+              path: 'lib/main.dart',
+              reason: 'Hidden on purpose.',
+              line: 3,
+            ),
+          ],
+        ),
+      );
+      expect(result.findings, isEmpty);
+      expect(result.notRun, isEmpty);
+      expect(result.suppressed, 1);
       expect(testRuns(), 0);
     });
   });

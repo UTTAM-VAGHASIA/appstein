@@ -2,8 +2,8 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 
 import '../verify_check.dart';
 
-/// The ID of the finding for an analyzer plugin that failed. It is
-/// provisional until the owner confirms it, and written nowhere else.
+/// The ID of the finding for an analyzer plugin that failed, written nowhere
+/// else.
 const pluginFailedId = 'dart.plugin_failed';
 
 /// `dart.plugin_failed`: an analyzer plugin named in `analysis_options.yaml`

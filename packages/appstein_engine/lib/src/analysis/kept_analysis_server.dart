@@ -53,18 +53,17 @@ final class KeptAnalysisServer<S extends StoppableCodeAnalysis> {
   /// is left running when [body] ends, and the idle time starts again.
   ///
   /// Throws a [CodeAnalysisException] when this was closed before the
-  /// use's turn came.
+  /// use's turn came. A use already under way when [close] comes keeps
+  /// going, and each question it asks afterwards fails with the same
+  /// [CodeAnalysisException]: an analysis that can't answer, never the
+  /// server's `StateError` for a question after its owner closed it.
   Future<T> use<T>(Future<T> Function(CodeAnalysis analysis) body) =>
       _inTurn(() async {
-        if (_closed) {
-          throw const CodeAnalysisException(
-            'it was closed, because Appstein is stopping',
-          );
-        }
+        if (_closed) throw _closedError;
         _idle?.cancel();
         _idle = null;
         try {
-          return await body(server);
+          return await body(_InUse(server, () => _closed));
         } finally {
           if (!_closed) _idle = newTimer(idleStop, _stopIdle);
         }
@@ -97,4 +96,58 @@ final class KeptAnalysisServer<S extends StoppableCodeAnalysis> {
     // An idle stop that had begun, and the uses that lost to this.
     await _last;
   }
+}
+
+/// Why a use that loses to [KeptAnalysisServer.close] fails.
+const _closedError = CodeAnalysisException(
+  'it was closed, because Appstein is stopping',
+);
+
+/// The server as one use asks it: once its owner has closed it, a question
+/// that fails fails with [_closedError].
+final class _InUse implements CodeAnalysis {
+  _InUse(this._server, this._closed);
+
+  final CodeAnalysis _server;
+  final bool Function() _closed;
+
+  Future<T> _ask<T>(Future<T> Function() question) async {
+    if (_closed()) throw _closedError;
+    try {
+      return await question();
+    } on Object {
+      if (_closed()) throw _closedError;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<CodeReading> read() => _ask(_server.read);
+
+  @override
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) => _ask(() => _server.canDartFix(diagnostic, within: within));
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) => _ask(() => _server.formatChanges(files, within: within));
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) =>
+      _ask(() => _server.pendingFixes(within: within));
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) => _ask(
+    () => _server.applyFixesAndFormat(
+      leaveUnformatted: leaveUnformatted,
+      within: within,
+    ),
+  );
 }

@@ -28,7 +28,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 | [`mcp_command.dart`](../../packages/appstein_cli/lib/src/mcp_command.dart) | The `mcp` command, `mcpSyncFactory` and `keptCodeAnalysis` |
 | [`docs_command.dart`](../../packages/appstein_cli/lib/src/docs_command.dart) | The `docs` command and `formatDocs` |
 | [`verify_command.dart`](../../packages/appstein_cli/lib/src/verify_command.dart) | The `verify` command, `terminalCodeAnalysis`, `formatVerify` and `verifyExitCode` |
-| [`analysis_guard_command.dart`](../../packages/appstein_cli/lib/src/analysis_guard_command.dart) | The hidden `analysis-server-guard` command and `analysisGuardCommand`, which says how this process starts it (see [verify](verify.md#the-guard)) |
+| [`analysis_guard_command.dart`](../../packages/appstein_cli/lib/src/analysis_guard_command.dart) | The hidden `analysis-server-guard` command, and `analysisGuardCommand` (with `guardCommandFrom`), which says how this process starts it (see [verify](verify.md#the-guard)) |
 | [`project_option.dart`](../../packages/appstein_cli/lib/src/project_option.dart) | `resolveProjectRoot`, for `--project` |
 | [`packs.dart`](../../packages/appstein_cli/lib/src/packs.dart) | `packsFor`: the packs a project's `appstein.yaml` names |
 | [`doctor_printer.dart`](../../packages/appstein_cli/lib/src/doctor_printer.dart) | `formatDoctorReport` |

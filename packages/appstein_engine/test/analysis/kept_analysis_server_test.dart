@@ -100,7 +100,11 @@ final class _Server implements StoppableCodeAnalysis {
   Future<FormatAnswers> formatChanges(
     List<String> files, {
     required Duration within,
-  }) async => const FormatAnswers();
+  }) async {
+    // As the real server: every question but `read` fails so once closed.
+    if (closed) throw const CodeAnalysisException('it was stopped');
+    return const FormatAnswers();
+  }
 
   @override
   Future<void> stop() async {
@@ -356,6 +360,49 @@ void main() {
       expect(timers.waiting, isEmpty);
     });
 
+    // `appstein mcp` closes the kept server while a `verify` call may be in
+    // its use; the call catches what its questions throw.
+    test('a use already under way when the close comes: each question it '
+        'asks then fails as an analysis that can\'t answer, with the same '
+        'reason, never as a bug', () async {
+      await read();
+      final closeCame = Completer<void>();
+      final asked = kept.use((analysis) async {
+        await closeCame.future;
+        final failures = <Object>[];
+        for (final question in <Future<Object?> Function()>[
+          analysis.read,
+          () => analysis.formatChanges(const [
+            'lib/main.dart',
+          ], within: const Duration(seconds: 1)),
+        ]) {
+          try {
+            await question();
+          } on Object catch (error) {
+            failures.add(error);
+          }
+        }
+        return failures;
+      });
+      await settle();
+      final closing = kept.close();
+      closeCame.complete();
+      final failures = await asked;
+      await closing;
+      expect(failures, hasLength(2));
+      for (final failure in failures) {
+        expect(
+          failure,
+          isA<CodeAnalysisException>().having(
+            (error) => '$error',
+            'text',
+            'The Dart analysis server could not answer: it was closed, '
+                'because Appstein is stopping.',
+          ),
+        );
+      }
+    });
+
     test('close while a use waits for the server to start: the use fails, '
         'and close returns when the use has ended', () async {
       server.starting = Completer();
@@ -387,13 +434,14 @@ void main() {
     );
     addTearDown(kept.close);
     final waiting = kept.use((analysis) => analysis.read());
+    // The use was under way when the close came: it says why it failed.
     final failed = expectLater(
       waiting,
       throwsA(
         isA<CodeAnalysisException>().having(
           (error) => error.reason,
           'reason',
-          'it was stopped',
+          'it was closed, because Appstein is stopping',
         ),
       ),
     );

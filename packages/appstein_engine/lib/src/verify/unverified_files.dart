@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 
+import '../host/file_links.dart';
 import '../knowledge/dart_files.dart';
 
 /// The unverified files of one `verify` run (slice 1d.2, spec §9.1): the
@@ -59,7 +60,10 @@ final class VerifyFilesException implements Exception {
 ///
 /// - A relative path is taken from the project root, not from the folder
 ///   `verify` runs in: an agent names the files of the project.
-/// - An absolute path is accepted when it is inside the project.
+/// - An absolute path is accepted when it is inside the project, also by
+///   the project's real location when [projectRoot] is reached through a
+///   link or a junction (macOS's temp folder `/var/…` is a link to
+///   `/private/var/…`).
 /// - A path that isn't a Dart file, or no longer exists, is accepted: a
 ///   deleted file is a change too.
 /// - A folder stands for the Dart files under it (folders whose name starts
@@ -73,6 +77,8 @@ final class VerifyFilesException implements Exception {
 List<String> resolveVerifyFiles(String projectRoot, Iterable<String> paths) {
   final root = p.normalize(p.absolute(projectRoot));
   final found = <String>[];
+  // The root's real location, looked up once, at the first path outside.
+  (String?,)? real;
   void add(String relative) {
     if (!found.any((file) => UnverifiedFiles.same(file, relative))) {
       found.add(relative);
@@ -86,9 +92,19 @@ List<String> resolveVerifyFiles(String projectRoot, Iterable<String> paths) {
         'the project root or as an absolute path inside it.',
       );
     }
-    final absolute = p.normalize(
-      p.isAbsolute(path) ? path : p.join(root, path),
-    );
+    var absolute = p.normalize(p.isAbsolute(path) ? path : p.join(root, path));
+    // A path by the root's real location, when the root is reached through
+    // a link, is taken as the same path under the root.
+    if (!p.isWithin(root, absolute) && !p.equals(root, absolute)) {
+      real ??= (realFolder(root),);
+      if (real.$1 case final realRoot?) {
+        if (p.equals(realRoot, absolute)) {
+          absolute = root;
+        } else if (p.isWithin(realRoot, absolute)) {
+          absolute = p.join(root, p.relative(absolute, from: realRoot));
+        }
+      }
+    }
     if (!p.isWithin(root, absolute)) {
       throw VerifyFilesException(
         p.equals(root, absolute)

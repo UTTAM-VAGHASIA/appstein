@@ -2,15 +2,21 @@ import 'dart:io';
 
 import 'src/suite_run.dart';
 
-/// Runs every check this repo has before a commit, and exits 1 when any
-/// of them failed. A step passes only when its exit code and its output
-/// agree (`judgeTestRun`), so a failure can never read as green.
+/// Runs the checks a commit needs on this machine, and exits 1 when any of
+/// them failed. A step passes only when its exit code and its output agree
+/// (`judgeTestRun`), so a failure can never read as green.
 ///
 /// The steps, in order: the format check, the analyzer with infos fatal,
 /// the generated docs (`gen_docs --check`), the developer guide check
 /// against `main`, then the test suites of every package (the engine's
 /// [engineRuns] times, since a failure that depends on load shows in one
 /// run of several) and the repo tools' tests.
+///
+/// It does not run everything CI runs. Left to CI, and to the close of a
+/// slice: the engine's tests tagged `integration` (they use the real
+/// machine, and a plain `dart test` skips them), `dependency_validator`,
+/// `dart doc --dry-run`, the scan for byte order marks, the build of the
+/// compiled binary with `tool/startup_check.dart`, and the `measure` jobs.
 ///
 /// The analyzer step's analysis server gets a cache folder of its own
 /// (`ANALYZER_STATE_LOCATION_OVERRIDE`): [testAllAnalysisCache], inside

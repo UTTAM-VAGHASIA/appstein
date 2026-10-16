@@ -184,6 +184,88 @@ void main() {
     });
   });
 
+  // macOS's temp folder `/var/…` is a link to `/private/var/…`, and Flutter
+  // names each test file by its real path. A link to the project (a junction
+  // on Windows) stands in for it here.
+  test('a project reached through a link: its test files are named from the '
+      'project root all the same', () async {
+    final linked = p.join(tempDir().path, 'linked app');
+    Link(linked).createSync(app);
+    scriptFlutterTest(
+      runner,
+      sdk,
+      RunResult(exitCode: 1, stdout: flutterTestOutput('failing', app)),
+    );
+    final tests = await runProjectTests(
+      projectRoot: linked,
+      environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
+      runner: runner,
+      timeout: const Duration(seconds: 600),
+    );
+    expect(
+      [for (final failure in tests.failures) failure.file],
+      [
+        'test/broken_test.dart',
+        'test/my folder/spaced_test.dart',
+        'test/widgets/failing_test.dart',
+        'test/widgets/failing_test.dart',
+        'test/widgets/failing_test.dart',
+        'test/my folder/spaced_test.dart',
+        'test/widgets/failing_test.dart',
+      ],
+    );
+    expect(
+      told(tests),
+      contains((
+        'test/widgets/failing_test.dart',
+        8,
+        'counter next adds two',
+        'Expected: <3> Actual: <2>',
+      )),
+    );
+    final slashed = app.replaceAll(r'\', '/');
+    for (final failure in tests.failures) {
+      expect(failure.details, isNot(contains(slashed)));
+    }
+  });
+
+  // On macOS the link's path is the end of the real one: `/var/…/app` is
+  // `/private/var/…/app`. Taking the root out of the details before its real
+  // form left `/private` behind.
+  test('a link whose path is a part of the project\'s real path: the files '
+      'and the details lose the whole path', () async {
+    final tmp = Directory(tempDir().path).resolveSymbolicLinksSync();
+    final linked = p.join(tmp, 'a', 'app');
+    final real = '${p.join(tmp, 'p')}$linked';
+    Directory(p.dirname(real)).createSync(recursive: true);
+    Directory(app).renameSync(real);
+    Directory(p.dirname(linked)).createSync(recursive: true);
+    Link(linked).createSync(real);
+    scriptFlutterTest(
+      runner,
+      sdk,
+      RunResult(exitCode: 1, stdout: flutterTestOutput('failing', real)),
+    );
+    final tests = await runProjectTests(
+      projectRoot: linked,
+      environment: fakeEnvironment({'FLUTTER_ROOT': sdk}),
+      runner: runner,
+      timeout: const Duration(seconds: 600),
+    );
+    expect(told(tests).first, (
+      'test/broken_test.dart',
+      null,
+      null,
+      'Compilation failed for testPath=test/broken_test.dart: '
+          'test/broken_test.dart:6:12: Error: Method not found: '
+          '\'nextt\'. expect(nextt(1), 2);',
+    ));
+    for (final failure in tests.failures) {
+      expect(failure.file, startsWith('test/'));
+      expect(failure.details, isNot(contains(tmp)));
+    }
+  }, testOn: '!windows');
+
   // A real run of a file whose `main()` throws: Flutter prints the reason on
   // the same line as `Failed to load "<path>":` (for a compile error it comes
   // on the lines after it).
