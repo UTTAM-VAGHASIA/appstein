@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:appstein_engine/appstein_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -20,8 +19,6 @@ String get testDartSdk => p.dirname(p.dirname(Platform.resolvedExecutable));
 String testAnalysisCache() {
   final cache = Directory.systemTemp.createTempSync('appstein cache tëst ');
   addTearDown(() async {
-    // A stop's clean-up may still be at work in the folder.
-    await analysisCleanUpsDone();
     for (var attempt = 0; ; attempt++) {
       try {
         if (cache.existsSync()) cache.deleteSync(recursive: true);

@@ -37,19 +37,15 @@ String get testDart => dartExecutableIn(testDartSdk);
 /// The environment that gives a test's analysis server a cache folder of
 /// its own ([analysisCacheVariable]), so the tests leave nothing in the
 /// cache the machine shares. Every test that starts an analysis server, or
-/// a guard (a scripted one names some process as its server, whose files a
-/// stop would delete), passes it.
+/// a guard (the real guard deletes its server's half-written files there),
+/// passes it.
 ///
 /// The folder is deleted after the test, or after the group when this is
 /// called in `setUpAll`. A server that is still ending holds files in it on
 /// Windows, so the delete is tried again for a while.
 Map<String, String> testAnalysisEnvironment() {
   final cache = Directory.systemTemp.createTempSync('appstein cache tëst ');
-  addTearDown(() async {
-    // A stop's clean-up may still be at work in the folder.
-    await analysisCleanUpsDone();
-    await deleteWhenFree(cache);
-  });
+  addTearDown(() => deleteWhenFree(cache));
   return {analysisCacheVariable: cache.path};
 }
 

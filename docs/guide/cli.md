@@ -44,7 +44,7 @@ It holds no logic of its own. The engine does the work, so later the MCP server 
 
 **`runAppstein` returns a code instead of exiting.** It takes the arguments plus optional output sinks and fakes, and returns an `int`. Tests call it in-process, with `StringBuffer`s for the output and a made-up environment, so no subprocess is needed (see [testing](testing.md)).
 
-**It returns only once the analysis servers' clean-ups have ended.** A stopped analysis server's half-written cache files are deleted after the stop returned, so `verify` prints its result first (see [verify](verify.md#stopping)). In a `finally`, `runAppstein` waits for `analysisCleanUpsDone`, so the command returns, and the process ends, only after the deletion.
+**It returns only once the analysis servers' clean-ups have ended.** A stopped analysis server's half-written cache files are deleted by its guard before the guard ends, and a stop returns when the guard has ended, so the command returns, and the process ends, only after the deletion (see [verify](verify.md#stopping)). `runAppstein` has nothing of its own to wait for.
 
 **Every failure becomes exit code 3.** `runAppstein` wraps everything, including building the runner, in one `try`:
 

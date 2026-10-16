@@ -234,18 +234,6 @@ final class AnalysisServer implements StoppableCodeAnalysis {
   /// their own here.
   final Map<String, String> environment;
 
-  /// The cache folder the server uses ([analysisCacheFolder]), as the
-  /// environment it is started with sets it: where a stop deletes the files
-  /// the server left half-written. Null when it keeps none, or it can't be
-  /// told.
-  late final String? cacheFolder = analysisCacheFolder(
-    HostEnvironment(
-      os: HostOs.current,
-      variables: {...Platform.environment, ...environment},
-      workingDirectory: Directory.current.path,
-    ),
-  );
-
   /// How long a question waits for the server's analysis to be done.
   final Duration readyTimeout;
 
@@ -550,12 +538,10 @@ final class AnalysisServer implements StoppableCodeAnalysis {
   }
 
   /// Stops the server and its guard, and returns when both have ended. The
-  /// server is killed, which leaves half-written files in its cache. Their
-  /// deletion (only this server's, once it is shown to be gone:
-  /// [cacheFolder], [removeHalfWrittenFiles]) runs **after** this returns:
-  /// a caller that deletes the cache folder, or exits, first awaits
-  /// [analysisCleanUpsDone]. It does nothing when no server is running, and
-  /// never throws. A question
+  /// server is killed, which leaves half-written files in its cache. The
+  /// guard deletes them (only this server's, once it is shown to be gone:
+  /// [runAnalysisGuard]) before it ends, so they are gone when this returns.
+  /// It does nothing when no server is running, and never throws. A question
   /// asked afterwards starts a new server; a question that is waiting fails
   /// with a [CodeAnalysisException].
   @override
@@ -928,9 +914,6 @@ final class _Session {
     _unchanging = unchangingFolders(dart, Platform.environment);
     _seen = await DiskLook.of(_root, unchanging: _unchanging);
     if (_stopping) throw _failure!;
-    // Told now, from the folder the guard starts in: a relative cache
-    // folder is the server's from there.
-    _owner.cacheFolder;
     final Process process;
     try {
       process = await Process.start(
@@ -2087,9 +2070,9 @@ final class _Session {
     _waiting.clear();
   }
 
-  /// Ends the server and the guard, returns once both have ended, and
-  /// starts the deletion of what the kill left half-written in the server's
-  /// cache, which goes on after it returns.
+  /// Ends the server and the guard, and returns once both have ended. The
+  /// guard deletes what the kill left half-written in the server's cache
+  /// before it ends ([runAnalysisGuard]), so it is done when this returns.
   ///
   /// - **The server is killed.** Closing the guard's input makes the guard
   ///   kill the server at once, and end once the server has ended. The
@@ -2097,7 +2080,7 @@ final class _Session {
   ///   review, it had not answered
   ///   `server.shutdown` within 250 ms, and it took about 4 s to end by
   ///   itself, so the request only made every stop slower. When both are
-  ///   still there 5 s later, they are killed: the process this session
+  ///   still there [analysisStopWait] later, they are killed: the process this session
   ///   holds directly, and the guard and the server by their IDs when each
   ///   is shown to be the one it started ([_endById]).
   /// - **What a kill leaves.** The server writes each cache entry to a file
@@ -2108,20 +2091,18 @@ final class _Session {
   ///   began. The kill also ends the server before it has saved all it
   ///   worked out, so a later server starts less warm; that is known and
   ///   kept (the owner, 2026-10-15).
-  /// - **What is cleaned up.** Once nothing runs under the server's ID any
-  ///   more, and the process has ended completely ([processHasEnded]), the
-  ///   files of that ID are deleted from its cache folder
-  ///   ([AnalysisServer.cacheFolder], [removeHalfWrittenFiles]). The ID is
-  ///   the one the guard named: the server writes in its own process, shown
-  ///   with a real run. Nothing is deleted when the server can't be shown
-  ///   to have ended within [_serverEndWait] (it runs still, or who has its
-  ///   ID can't be told), when another process has the ID by now, or when
-  ///   the guard never named the server.
-  /// - **After the stop returns.** Listing a cache folder that holds many
-  ///   files takes a while (0.2 to 1 s for 64,000), so the deletion is not
-  ///   waited for here: a terminal run prints its result first, and
-  ///   [analysisCleanUpsDone] completes once it is done. `runAppstein`
-  ///   waits for it before it returns.
+  /// - **Who cleans up.** The guard does, not this process, which may be the
+  ///   one that was killed: once the server has ended and nothing runs
+  ///   under its ID any more, the guard deletes the files of that ID from
+  ///   the server's cache folder ([runAnalysisGuard],
+  ///   [removeHalfWrittenFiles]), and only then ends. So the wait for the
+  ///   guard's end above is the wait for the clean-up, and a terminal run
+  ///   that returns after its stop has left none. Listing a cache folder
+  ///   that holds many files takes a while (0.2 to 1 s for 64,000). The
+  ///   guard ends within [analysisGuardEndBudget], which is below
+  ///   [analysisStopWait], so the kill after that wait never catches a
+  ///   guard at work. When the guard is killed before it has cleaned up,
+  ///   or its server is not shown to be gone, the files stay.
   ///
   /// Every end of a server comes here: a terminal run's, `appstein mcp`'s
   /// idle stop and close, a server replaced after a settings change, and
@@ -2138,7 +2119,7 @@ final class _Session {
     if (process == null) return;
     Future<bool> ended() => process.exitCode
         .then((_) => true)
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+        .timeout(analysisStopWait, onTimeout: () => false);
 
     process.stdin.close().ignore();
     {
@@ -2155,49 +2136,6 @@ final class _Session {
     await _endOrphan();
     for (final subscription in _listening) {
       await subscription.cancel();
-    }
-    trackCleanUp(_removeHalfWritten());
-  }
-
-  /// How long a clean-up waits, after the guard has ended, for the server
-  /// to be gone before it deletes the server's half-written files. The
-  /// guard ends once its server has, so this is mostly for the rare stops
-  /// where the guard did not: milliseconds as a rule.
-  static const _serverEndWait = Duration(seconds: 2);
-
-  /// Deletes the files the server left half-written in its cache folder,
-  /// once nothing runs under its ID ([stop]).
-  Future<void> _removeHalfWritten() async {
-    final folder = _owner.cacheFolder;
-    final named = processes;
-    if (folder == null || named == null) return;
-    if (!await _serverGone(named.server)) return;
-    await removeHalfWrittenFiles(folder, named.server);
-  }
-
-  /// Whether the server with the ID [id] has ended completely, asked every
-  /// 10 ms for up to [_serverEndWait]:
-  /// - **gone**, and ended completely ([processHasEnded]): yes. On Windows a
-  ///   killed process has its exit code (so the lookup says gone) before it
-  ///   has finished ending, and a file it was creating can still appear;
-  /// - the server the guard named still runs under the ID, or who has the
-  ///   ID can't be told, or it is gone but still ending: it is asked again;
-  /// - another process has the ID, or none was recorded for the server:
-  ///   no, at once. A new process with the server's ID may be another
-  ///   analysis server writing files with that ID.
-  Future<bool> _serverGone(int id) async {
-    final waited = Stopwatch()..start();
-    while (true) {
-      switch (_owner.processLookup(id)) {
-        case ProcessGone() when processHasEnded(id):
-          return true;
-        case ProcessRunning(identity: final now)
-            when _serverIdentity == null || now != _serverIdentity:
-          return false;
-        case ProcessGone() || ProcessRunning() || ProcessUnknown():
-          if (waited.elapsed > _serverEndWait) return false;
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
     }
   }
 }

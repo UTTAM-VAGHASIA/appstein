@@ -63,29 +63,6 @@ Map<String, String> analysisServerEnvironment(HostEnvironment host) => {
   analysisCacheVariable: ?host.variable(analysisCacheVariable),
 };
 
-/// The clean-ups of stopped servers that have not ended yet, in this
-/// isolate ([trackCleanUp]).
-final _cleanUps = <Future<void>>{};
-
-/// Notes [cleanUp], the deletion of a stopped server's half-written files,
-/// which runs after the stop returned, so [analysisCleanUpsDone] can wait
-/// for it. It never fails.
-void trackCleanUp(Future<void> cleanUp) {
-  final tracked = cleanUp.catchError((Object _) {});
-  _cleanUps.add(tracked);
-  unawaited(tracked.whenComplete(() => _cleanUps.remove(tracked)));
-}
-
-/// Completes once every clean-up a stop started in this isolate has ended,
-/// those started meanwhile included. A stop returns before its clean-up
-/// has ended, so a terminal run prints its result first; `runAppstein`
-/// waits for this before it returns, and so before the process ends.
-Future<void> analysisCleanUpsDone() async {
-  while (_cleanUps.isNotEmpty) {
-    await Future.wait([..._cleanUps]);
-  }
-}
-
 /// The name of a half-written cache file: the name of the entry, `-temp-`
 /// and the ID of the process that was writing it (the analyzer's
 /// `FileByteStore`, which writes each entry to such a file beside the
@@ -103,9 +80,10 @@ final _halfWritten = RegExp(r'^.+-temp-(\d+)$');
 /// itself a link is left alone.
 ///
 /// **The caller makes sure the server has ended**: a running server is still
-/// writing such files. The cache is shared by every analysis server of the
-/// user (the IDE's, `dart analyze`'s, other Appsteins'), which is why the
-/// process ID must match.
+/// writing such files. (The caller is the server's guard, `runAnalysisGuard`.)
+/// The cache is shared by every analysis server of the user (the IDE's,
+/// `dart analyze`'s, other Appsteins'), which is why the process ID must
+/// match.
 ///
 /// It never throws: a missing folder, a file already gone or one that can't
 /// be deleted (another process holds it) is skipped.
