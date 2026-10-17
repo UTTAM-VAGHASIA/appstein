@@ -20,6 +20,8 @@ import 'package:analyzer/src/ignore_comments/ignore_info.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import '../knowledge/check_inputs.dart'
+    show enclosingOptionsPath, includedOptionsPath, optionsFileName;
 import 'suppression_comments.dart';
 
 /// The two names the analyzer accepts under `analyzer: errors:` of an
@@ -398,7 +400,7 @@ Future<SourceComments> readSourceComments(
   Future<String?> Function(String path) readSource = _read,
   CompilationUnit Function(String content) parseSource = _parseDart,
 }) async {
-  bool isOptions(String file) => p.url.basename(file) == _optionsName;
+  bool isOptions(String file) => p.url.basename(file) == optionsFileName;
   final sources = [
     for (final file in files.toSet())
       if (isOptions(file) ||
@@ -410,7 +412,7 @@ Future<SourceComments> readSourceComments(
   // The options files the analyzer applies, read: the walk through their
   // `include:` starts from each.
   final applied = <(String, String)>[];
-  final enclosing = await _enclosingOptions(projectRoot);
+  final enclosing = enclosingOptionsPath(projectRoot);
   if (enclosing != null) {
     final content = await _read(enclosing);
     if (content != null) {
@@ -569,7 +571,7 @@ final class _IncludeWalker {
     chain.add(key);
     final result = <String, (String, _Setting)>{};
     for (final include in options.includes) {
-      final target = _includedPath(path, include);
+      final target = includedOptionsPath(path, include);
       if (target != null) result.addAll(await _merge(target, chain));
     }
     chain.remove(key);
@@ -580,46 +582,6 @@ final class _IncludeWalker {
   }
 }
 
-/// The path of the file the `include:` text [include] names in the options
-/// file at [includingPath]; null when it names no local file.
-///
-/// The analyzer reads the text as a URI and resolves it against the
-/// including file: a path is relative to that file's folder (with `/` or, on
-/// Windows, `\`, and `%20` for a space), a `file:` URI is that file, and a
-/// `package:` URI is a file of a package, which is not followed here. A text
-/// with any other scheme, such as `C:/dir/x.yaml` (the analyzer reads the
-/// drive letter as a scheme), names no file.
-String? _includedPath(String includingPath, String include) {
-  final uri = Uri.tryParse(include.trim());
-  if (uri == null || include.trim().isEmpty) return null;
-  final resolved = Uri.file(p.absolute(includingPath)).resolveUri(uri);
-  if (!resolved.isScheme('file')) return null;
-  try {
-    return resolved.toFilePath();
-  } on UnsupportedError {
-    return null;
-  }
-}
-
-/// The path of the nearest `analysis_options.yaml` in a folder above
-/// [projectRoot] that the analyzer applies to it; null when the root has an
-/// options file of its own (the analyzer then looks no further), or none
-/// above it does. Compared with `dart analyze` of the pinned SDK on
-/// 2026-10-14: the nearest file wins, with or without a `pubspec.yaml` in
-/// between.
-Future<String?> _enclosingOptions(String projectRoot) async {
-  var folder = p.normalize(p.absolute(projectRoot));
-  if (await File(p.join(folder, _optionsName)).exists()) return null;
-  while (true) {
-    final parent = p.dirname(folder);
-    if (parent == folder) return null;
-    folder = parent;
-    final candidate = p.join(folder, _optionsName);
-    if (await File(candidate).exists()) return candidate;
-  }
-}
-
-const _optionsName = 'analysis_options.yaml';
 const _notDart = {'.yaml', '.yml', '.xml'};
 
 /// How many files are open at a time.

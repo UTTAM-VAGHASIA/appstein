@@ -66,7 +66,13 @@ Future<DartFileScan> readDartFileHashes(
   final at = (now ?? DateTime.now()).toUtc();
   final hashes = <String, String>{};
   final stamps = <String, String>{};
-  final scan = DartFileScan(hashes: hashes, stamps: stamps, at: at);
+  final optionsFiles = <String>[];
+  final scan = DartFileScan(
+    hashes: hashes,
+    stamps: stamps,
+    at: at,
+    optionsFiles: optionsFiles,
+  );
   final String rootResolved;
   try {
     rootResolved = Directory(root).resolveSymbolicLinksSync();
@@ -134,6 +140,11 @@ Future<DartFileScan> readDartFileHashes(
         }
         isFile = type == FileSystemEntityType.file;
       }
+      // Found in the walk the scan does anyway, so the fingerprint needs no
+      // second one.
+      if (isFile && name == 'analysis_options.yaml') {
+        optionsFiles.add(relative);
+      }
       if (isFile && name.endsWith('.dart')) {
         if (excluded.any((glob) => glob.matches(relative))) continue;
         if (known['project:$relative'] case final hash?) {
@@ -170,7 +181,12 @@ Future<DartFileScan> readDartFileHashes(
 /// `state.json` keeps as `dartFiles`, `dartStamps` and `dartScannedAt`.
 final class DartFileScan {
   /// Creates a scan.
-  DartFileScan({required this.hashes, required this.stamps, required this.at});
+  DartFileScan({
+    required this.hashes,
+    required this.stamps,
+    required this.at,
+    this.optionsFiles = const [],
+  });
 
   /// The scan `state` recorded; null when it recorded none (a state written
   /// before the stamps were kept), and then every file is read.
@@ -193,6 +209,11 @@ final class DartFileScan {
 
   /// When the scan began, in UTC.
   final DateTime at;
+
+  /// Every `analysis_options.yaml` the walk met, by its path from the project
+  /// root with `/`, in the order of the walk. Not kept in `state.json`: the
+  /// hook's fingerprint hashes them (`checkInputDigests`).
+  final List<String> optionsFiles;
 
   /// How many files this scan read to hash them.
   int get read => _read;

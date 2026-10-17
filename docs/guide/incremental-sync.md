@@ -3,6 +3,7 @@ packages/appstein_engine/lib/src/map/analyzer_cache.dart
 packages/appstein_engine/lib/src/map/map_inputs.dart
 packages/appstein_engine/lib/src/knowledge/freshness.dart
 packages/appstein_engine/lib/src/knowledge/sync_timings.dart
+packages/appstein_engine/lib/src/knowledge/check_inputs.dart
 -->
 
 # Incremental sync
@@ -64,6 +65,8 @@ Then it computes **every output's input hash** and compares it with the one in `
 | `<file> is missing` | a file in `written` is not on disk |
 
 A reason means a rebuild. A hand-edited or deleted file, a damaged `state.json` and a sync that was killed before it wrote `state.json` all end here: `--detect` never says "current" for knowledge that disagrees with `state.json`.
+
+**`KnowledgeSync.fingerprint`** (slice 1d.7) is the same cheap steps and the Dart scan, answering a different question: "did anything the knowledge reads change since I last looked?", for a moment in time, not against `state.json`. It hashes the map's inputs (`pubspec.yaml` and `pubspec.lock` among them), the Dart scan, every platform file's input hash, the native config's, the files `INDEX.md` reads and the files only the checks read ([`check_inputs.dart`](../../packages/appstein_engine/lib/src/knowledge/check_inputs.dart): `appstein.yaml`, `.dart_tool/package_config.json`, and every `analysis_options.yaml` of the project with the local files it `include:`s, which the Dart scan finds in its own walk, and, for a project with none of its own, the one in a folder above it that the analyzer applies instead, found by `enclosingOptionsPath`, the lookup `dart.deprecated` uses too) into one string, and writes nothing, so it doesn't use up the change list that `detect` hands to `verify --fast`. The after-edit hook keeps it per session ([verify](verify.md#nothing-changed-means-no-output)): another session's `detect` can use up the shared state before this session's hook looks, and only a record of its own can't be used up.
 
 A rebuild rebuilds everything, `map/native.json` and `INDEX.md` too. Both cost under 15 ms and the store already skips writing a file whose bytes would be the same, so a separate "only my own inputs changed" path would add code and gain nothing you could measure.
 

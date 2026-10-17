@@ -35,6 +35,89 @@ final class _Reports implements VerifyCheck {
   Future<List<Finding>> run(VerifyContext context) async => findings;
 }
 
+/// A fast check that finds nothing and counts how often it ran: a run that
+/// stayed silent ran no check.
+final class _Counting implements VerifyCheck {
+  /// How often the check ran.
+  int runs = 0;
+
+  @override
+  List<String> get ids => const ['x.count'];
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    runs++;
+    return const [];
+  }
+}
+
+/// A fast check that finds nothing and, the first time it runs, rewrites
+/// [file] with [text]: the project changes while the checks run.
+final class _EditsWhileRunning implements VerifyCheck {
+  _EditsWhileRunning(this.file, this.text);
+
+  final File file;
+  final String text;
+
+  /// How often the check ran.
+  int runs = 0;
+
+  @override
+  List<String> get ids => const ['x.edits'];
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    if (runs++ == 0) file.writeAsStringSync(text);
+    return const [];
+  }
+}
+
+/// A fast check that reports an error in each unverified Dart file whose text
+/// has `BROKEN` in it, and counts how often it ran.
+final class _FindsBroken implements VerifyCheck {
+  /// How often the check ran.
+  int runs = 0;
+
+  @override
+  List<String> get ids => const ['x.broken'];
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    runs++;
+    return [
+      for (final file in context.unverified.files)
+        if (File(
+          p.joinAll([context.projectRoot, ...file.split('/')]),
+        ).readAsStringSync().contains('BROKEN'))
+          Finding(
+            id: 'x.broken',
+            severity: Severity.error,
+            file: file,
+            line: 1,
+            message: 'The file has BROKEN in it.',
+          ),
+    ];
+  }
+}
+
 /// A check that throws, as a broken check of a pack would.
 final class _Throws implements VerifyCheck {
   const _Throws();
@@ -138,10 +221,15 @@ void main() {
       await createHealthyProject(project: project, sdk: sdk);
     });
 
+    var nextSessionNumber = 0;
+
     /// Runs `appstein verify --fast --hook claude` (plus [extra]) with the
-    /// hook input [input], and the fast checks [checks] when given.
+    /// hook input [input], and the fast checks [checks] when given. Without
+    /// an [input] every call is a new session's first run, which always
+    /// checks: a run of a session that has run before, with nothing changed,
+    /// is silent (the tests of that pass the input).
     Future<int> hook({
-      String input = _claudeInput,
+      String? input,
       List<String> extra = const [],
       List<VerifyCheck>? checks,
       ScriptedCodeAnalysis? analysis,
@@ -163,7 +251,14 @@ void main() {
       verifyChecks: checks == null
           ? null
           : (_) => [for (final check in checks) (check: check, pack: null)],
-      hookInput: readInput ?? () async => input,
+      hookInput:
+          readInput ??
+          () async =>
+              input ??
+              _claudeInput.replaceFirst(
+                'abc123',
+                'new-session-${++nextSessionNumber}',
+              ),
     );
 
     Map<String, Object?> stdoutJson() =>
@@ -562,6 +657,507 @@ void main() {
         );
         expect(context(), contains('warning x.warn (line 2)'));
         expect(context(), contains('x.slow: the analysis server is starting'));
+      });
+    });
+
+    group('nothing changed means no output', () {
+      String sessionInput(String id) =>
+          '{"session_id":"$id","hook_event_name":"PostToolUse"}';
+
+      File fileOf(String relative) =>
+          File(p.joinAll([project, ...relative.split('/')]));
+
+      void write(String relative, String text) => fileOf(relative)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(text);
+
+      /// Edits `pubspec.yaml` but keeps the packages fresh, as if `flutter pub
+      /// get` had run after it.
+      void editPubspec() {
+        final pubspec = fileOf('pubspec.yaml');
+        pubspec.writeAsStringSync('${pubspec.readAsStringSync()}# edited\n');
+        pubspec.setLastModifiedSync(
+          DateTime.now().subtract(const Duration(hours: 1)),
+        );
+      }
+
+      /// What another session's `appstein mcp` does before each tool call: it
+      /// refreshes the shared knowledge (`sync --detect`).
+      Future<SyncReport> refreshAsAnotherSession() {
+        const config = AppsteinConfig();
+        return KnowledgeSync(
+          environment: HostEnvironment(
+            os: HostOs.current,
+            variables: {'FLUTTER_ROOT': sdk},
+            workingDirectory: project,
+          ),
+          appsteinVersion: appsteinVersion,
+          packs: packsFor(config),
+          baseline: config.delta.baseline,
+          agents: config.integrations.agents,
+          packageSkills: false,
+        ).detect(project, dartSdkPath: testDartSdk);
+      }
+
+      KnowledgeState state() => KnowledgeState.fromJson(
+        jsonDecode(fileOf('.appstein/state.json').readAsStringSync())
+            as Map<String, Object?>,
+      );
+
+      Directory records() => Directory(p.join(project, '.appstein'));
+
+      test(
+        'a session\'s first run checks; the next, with nothing changed '
+        '(`ls`, `git status`), exits 0 with no output and runs no check',
+        () async {
+          final check = _Counting();
+          expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+          expect(check.runs, 1);
+
+          for (var i = 0; i < 3; i++) {
+            out.clear();
+            err.clear();
+            expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+            expect(out.toString(), isEmpty);
+            expect(err.toString(), isEmpty);
+          }
+          expect(check.runs, 1, reason: 'a silent run runs no check');
+        },
+      );
+
+      test('a silent run asks the analysis for nothing and writes no file '
+          'of the knowledge', () async {
+        final analysis = ScriptedCodeAnalysis();
+        await hook(input: sessionInput('a'), analysis: analysis);
+        final asked = analysis.asked;
+        final stateBefore = fileOf('.appstein/state.json').readAsStringSync();
+        final files = {
+          for (final f in records().listSync(recursive: true).whereType<File>())
+            f.path: f.lastModifiedSync(),
+        };
+        expect(await hook(input: sessionInput('a'), analysis: analysis), 0);
+        expect(analysis.asked, asked);
+        expect(fileOf('.appstein/state.json').readAsStringSync(), stateBefore);
+        expect({
+          for (final f in records().listSync(recursive: true).whereType<File>())
+            f.path: f.lastModifiedSync(),
+        }, files);
+      });
+
+      test('another session\'s first run checks, though this one already '
+          'did: the comparison is per session', () async {
+        final check = _Counting();
+        await hook(input: sessionInput('a'), checks: [check]);
+        await hook(input: sessionInput('b'), checks: [check]);
+        expect(check.runs, 2);
+        // Now both are silent.
+        await hook(input: sessionInput('a'), checks: [check]);
+        await hook(input: sessionInput('b'), checks: [check]);
+        expect(check.runs, 2);
+      });
+
+      test(
+        'a run with no session always checks, and keeps no record',
+        () async {
+          final check = _Counting();
+          var runs = 0;
+          for (final input in ['', 'not json', '{}', '{"session_id": 5}']) {
+            for (var i = 0; i < 2; i++) {
+              expect(await hook(input: input, checks: [check]), 0);
+              runs += 1;
+              expect(check.runs, runs, reason: 'input "$input", run $i');
+            }
+          }
+          expect(
+            Directory(
+              p.join(project, '.appstein', 'hook-sessions'),
+            ).existsSync(),
+            isFalse,
+          );
+        },
+      );
+
+      /// Edits the project with [edit] and runs session `a`'s hook: it checks
+      /// when [checked], else it is silent. Run again it is quiet either way.
+      Future<void> expectAfter(
+        _Counting check,
+        String what,
+        void Function() edit, {
+        required bool checked,
+      }) async {
+        final before = check.runs;
+        edit();
+        out.clear();
+        err.clear();
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, before + (checked ? 1 : 0), reason: what);
+        // The check ran once for the edit; run again and it is quiet.
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, before + (checked ? 1 : 0), reason: '$what, again');
+      }
+
+      test('an edit to a file Appstein does not read gives no output; an edit '
+          'to a Dart file, pubspec.yaml or another file the knowledge reads '
+          'gives a check', () async {
+        final check = _Counting();
+        await hook(input: sessionInput('a'), checks: [check]);
+        expect(check.runs, 1);
+
+        await expectAfter(
+          check,
+          'README.md',
+          () => write('README.md', '# My app\n'),
+          checked: false,
+        );
+        await expectAfter(
+          check,
+          'an asset',
+          () => write('assets/logo.txt', 'logo'),
+          checked: false,
+        );
+        await expectAfter(
+          check,
+          'lib/main.dart',
+          () => write('lib/main.dart', 'void main() { print(1); }\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a new Dart file in lib/',
+          () => write('lib/extra.dart', '/// E.\nclass E {}\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a Dart file outside the map\'s folders',
+          () => write('bin/tool.dart', 'void main() {}\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a test',
+          () => write('test/main_test.dart', 'void main() {}\n'),
+          checked: true,
+        );
+        await expectAfter(check, 'pubspec.yaml', editPubspec, checked: true);
+        await expectAfter(
+          check,
+          'analysis_options.yaml',
+          () => write('analysis_options.yaml', 'linter:\n  rules: []\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a Dart file deleted',
+          () => fileOf('bin/tool.dart').deleteSync(),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a decision record',
+          () => write(
+            '.appstein/decisions/0001-state.md',
+            '# State\n\nStatus: accepted\n',
+          ),
+          checked: true,
+        );
+      });
+
+      test('an edit to a file only the checks read gives a check: '
+          'appstein.yaml (a suppression removed, a severity raised), an '
+          'analysis_options.yaml below the root or above the project, a file an options file '
+          'includes, pubspec.lock and the package configuration', () async {
+        final check = _Counting();
+        await hook(input: sessionInput('a'), checks: [check]);
+        expect(check.runs, 1);
+
+        await expectAfter(
+          check,
+          'a suppression added',
+          () => write(
+            'appstein.yaml',
+            'appstein: 1\n'
+                'suppressions:\n'
+                '  - id: x.count\n'
+                '    path: lib/main.dart\n'
+                '    reason: Known.\n',
+          ),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'the suppression removed',
+          () => write('appstein.yaml', 'appstein: 1\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a severity raised',
+          () => write(
+            'appstein.yaml',
+            'appstein: 1\nverify:\n  severity:\n    x.count: error\n',
+          ),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'a nested analysis_options.yaml',
+          () => write('lib/ui/analysis_options.yaml', 'linter:\n  rules: []\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'the nested analysis_options.yaml edited',
+          () => write(
+            'lib/ui/analysis_options.yaml',
+            'linter:\n  rules: [unused_import]\n',
+          ),
+          checked: true,
+        );
+        // The analyzer applies the file above the project to a project with
+        // no options file of its own, which this one has not yet.
+        final above = File(p.join(work.path, 'analysis_options.yaml'));
+        await expectAfter(
+          check,
+          'an analysis_options.yaml in the folder above the project',
+          () => above.writeAsStringSync('linter:\n  rules: []\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'the one above the project edited',
+          () => above.writeAsStringSync('linter:\n  rules: [unused_import]\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'the one above the project gone',
+          above.deleteSync,
+          checked: true,
+        );
+        await expectAfter(check, 'a file the root options include', () {
+          write('shared/base.yaml', 'linter:\n  rules: []\n');
+          write('analysis_options.yaml', 'include: shared/base.yaml\n');
+        }, checked: true);
+        await expectAfter(
+          check,
+          'the included file edited',
+          () =>
+              write('shared/base.yaml', 'linter:\n  rules: [unused_import]\n'),
+          checked: true,
+        );
+        await expectAfter(
+          check,
+          'pubspec.lock',
+          () => write('pubspec.lock', 'packages: {}\n# edited\n'),
+          checked: true,
+        );
+        await expectAfter(check, 'the package configuration', () {
+          final config = fileOf('.dart_tool/package_config.json');
+          write(
+            '.dart_tool/package_config.json',
+            '${config.readAsStringSync()}\n',
+          );
+        }, checked: true);
+      });
+
+      test('files that change while the checks run, and change back, are '
+          'not taken for checked: nothing is saved, so the next run '
+          'checks', () async {
+        final original = fileOf('lib/main.dart').readAsStringSync();
+        final check = _EditsWhileRunning(
+          fileOf('lib/main.dart'),
+          'void main() { print("changed during the check"); }\n',
+        );
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, 1);
+        expect(
+          Directory(p.join(project, '.appstein', 'hook-sessions')).existsSync(),
+          isFalse,
+          reason: 'no record was saved',
+        );
+
+        // The agent undoes the change: the project is as it was when the run
+        // began, and was never checked as it is now.
+        write('lib/main.dart', original);
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, 2, reason: 'not silent');
+
+        // That run changed nothing meanwhile, so now it is quiet.
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, 2);
+      });
+
+      test('it is judged against this session\'s own last run, not against '
+          'the shared state: session A edits a file, session B\'s refresh '
+          'uses up the change, then A\'s hook still checks and reports A\'s '
+          'error', () async {
+        final check = _FindsBroken();
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(await hook(input: sessionInput('b'), checks: [check]), 0);
+        expect(check.runs, 2);
+
+        // Session A edits a file and breaks it.
+        write('lib/main.dart', 'void main() { BROKEN }\n');
+
+        // Session B's `appstein mcp` refreshes the knowledge before a tool
+        // call. It sees the change, so for the shared state nothing is new
+        // any more.
+        final refresh = await refreshAsAnotherSession();
+        expect(refresh.current, isFalse, reason: 'B saw the edit');
+        expect(state().unverified, contains('lib/main.dart'));
+        // B's next call finds nothing changed against the state, and uses
+        // up the change list.
+        expect(
+          (await refreshAsAnotherSession()).current,
+          isTrue,
+          reason: 'a second refresh finds nothing changed against the state',
+        );
+        expect(state().changed, isEmpty);
+
+        // A's hook still checks, and reports A's error.
+        out.clear();
+        err.clear();
+        expect(await hook(input: sessionInput('a'), checks: [check]), 2);
+        expect(check.runs, 3);
+        expect(err.toString(), contains('lib/main.dart'));
+        expect(err.toString(), contains('BROKEN'));
+
+        // B's hook also checks: B has not run since the edit either.
+        expect(await hook(input: sessionInput('b'), checks: [check]), 2);
+        expect(check.runs, 4);
+      });
+
+      test('errors already reported stay in the unverified files, and a '
+          'silent run never lets a file leave them', () async {
+        const error = CodeDiagnostic(
+          file: 'lib/main.dart',
+          line: 1,
+          code: 'undefined_method',
+          message: 'Broken.',
+          level: DiagnosticLevel.error,
+        );
+        final analysis = ScriptedCodeAnalysis(
+          found: const [error],
+          analyzedFiles: const ['lib/main.dart'],
+        );
+        expect(
+          await hook(input: sessionInput('a'), analysis: analysis),
+          2,
+          reason: '$err',
+        );
+        expect(err.toString(), contains('lib/main.dart'));
+        expect(state().unverified, contains('lib/main.dart'));
+        final stateBefore = fileOf('.appstein/state.json').readAsStringSync();
+
+        // Nothing changed: silent, though the error is still there. It stays
+        // for the Stop hook.
+        out.clear();
+        err.clear();
+        expect(await hook(input: sessionInput('a'), analysis: analysis), 0);
+        expect(out.toString(), isEmpty);
+        expect(err.toString(), isEmpty);
+        expect(state().unverified, contains('lib/main.dart'));
+        expect(fileOf('.appstein/state.json').readAsStringSync(), stateBefore);
+
+        // The agent fixes the file: a check, which lets it leave.
+        write('lib/main.dart', 'void main() { print(2); }\n');
+        analysis.found = const [];
+        expect(await hook(input: sessionInput('a'), analysis: analysis), 0);
+        expect(state().unverified, isNot(contains('lib/main.dart')));
+      });
+
+      test(
+        'a run that failed is no run completed: the next run checks',
+        () async {
+          final check = _Counting();
+          // Appstein fails: the edit is unchecked.
+          expect(
+            await hook(
+              input: sessionInput('a'),
+              analysis: ScriptedCodeAnalysis(
+                failure: const CodeAnalysisException('it did not answer'),
+              ),
+            ),
+            0,
+          );
+          expect(out.toString(), contains('unchecked'));
+
+          out.clear();
+          err.clear();
+          expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+          expect(check.runs, 1, reason: 'not silent after a failed run');
+
+          // A check that throws is the same.
+          expect(
+            await hook(input: sessionInput('c'), checks: const [_Throws()]),
+            0,
+          );
+          out.clear();
+          expect(await hook(input: sessionInput('c'), checks: [check]), 0);
+          expect(check.runs, 2);
+        },
+      );
+
+      test('a run that names checks as not run is no run completed: the '
+          'next run checks again and says them again', () async {
+        final notRunning = _NotRunCheck(
+          'x.slow',
+          'the analysis server is starting',
+        );
+        for (var i = 0; i < 3; i++) {
+          out.clear();
+          err.clear();
+          expect(await hook(input: sessionInput('a'), checks: [notRunning]), 0);
+          expect(
+            context(),
+            contains('x.slow: the analysis server is starting'),
+            reason: 'run $i',
+          );
+        }
+      });
+
+      test('a run with errors is a completed run: the next, with nothing '
+          'changed, is silent', () async {
+        final check = _Reports(
+          [_finding('x.err', Severity.error, 'lib/a.dart')],
+          ids: const ['x.err'],
+        );
+        expect(await hook(input: sessionInput('a'), checks: [check]), 2);
+        out.clear();
+        err.clear();
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(out.toString(), isEmpty);
+        expect(err.toString(), isEmpty);
+      });
+
+      test('--files asks for a check: it is never silent', () async {
+        final check = _Counting();
+        await hook(input: sessionInput('a'), checks: [check]);
+        expect(
+          await hook(
+            input: sessionInput('a'),
+            checks: [check],
+            extra: ['--files', 'lib/main.dart'],
+          ),
+          0,
+        );
+        expect(check.runs, 2);
+      });
+
+      test('a record that is damaged is no record: the run checks', () async {
+        final check = _Counting();
+        await hook(input: sessionInput('a'), checks: [check]);
+        final folder = Directory(
+          p.join(project, '.appstein', 'hook-sessions', 'records'),
+        );
+        final record = folder.listSync().whereType<File>().single;
+        record.writeAsStringSync('{ not json');
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, 2);
+        // And it is whole again.
+        expect(await hook(input: sessionInput('a'), checks: [check]), 0);
+        expect(check.runs, 2);
       });
     });
 

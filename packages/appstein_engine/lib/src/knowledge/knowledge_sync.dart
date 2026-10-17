@@ -20,6 +20,7 @@ import '../packs/pack.dart';
 import '../sdk/sdk_detector.dart';
 import '../skills/package_skills.dart';
 import 'canonical_json.dart';
+import 'check_inputs.dart';
 import 'dart_files.dart';
 import 'freshness.dart';
 import 'generated_file.dart';
@@ -303,6 +304,59 @@ final class KnowledgeSync {
     );
   }
 
+  /// A hash of everything the knowledge reads in the project at
+  /// [projectRoot], without writing anything (slice 1d.7, spec "Nothing
+  /// changed means no output"): the same for two moments exactly when no file
+  /// the knowledge reads changed between them. It is made of
+  /// - the map's inputs: each file's hash, and the map's own input hash
+  ///   (the Flutter version, the packs, this Appstein's version);
+  /// - the hash of every Dart file the analysis server covers, those the map
+  ///   doesn't read included (`bin/`, `tool/`, …);
+  /// - the input hash of each platform file, and of the native config;
+  /// - the project files `INDEX.md` reads (the decisions, the current work);
+  /// - the other files a check's findings depend on ([checkInputDigests]):
+  ///   `appstein.yaml` (suppressions, `verify.severity`), every
+  ///   `analysis_options.yaml` in the project with the local files they
+  ///   include, and the package configuration (`.dart_tool/package_config.json`;
+  ///   `pubspec.lock` is a map input).
+  ///
+  /// It costs the cheap steps of a sync plus one scan of the Dart files,
+  /// which reads only the files whose time or size changed since the scan in
+  /// `state.json`. It does not use up `state.json`'s change list and does not
+  /// add to the unverified files: it compares moments, whoever refreshed the
+  /// shared state in between. Throws `SyncException` when no usable SDK is
+  /// found.
+  Future<String> fingerprint(String projectRoot, {SdkDetection? sdk}) async {
+    final timings = SyncTimings();
+    final prepared = _prepare(projectRoot, sdk: sdk, timings: timings);
+    final scan = await _dartFiles(
+      projectRoot,
+      prepared,
+      timings,
+      previous: KnowledgeStore(projectRoot).readState().state,
+    );
+    return inputHashOfDigests(
+      {
+        'map': prepared.mapInputs.inputHash,
+        for (final MapEntry(:key, :value) in prepared.mapInputs.sources.entries)
+          'source:$key': value,
+        for (final MapEntry(:key, :value) in scan.hashes.entries)
+          'dart:$key': value,
+        for (final MapEntry(:key, :value) in prepared.fileHashes.entries)
+          'file:$key': value,
+        for (final MapEntry(:key, :value) in prepared.sources.inputs.entries)
+          'index:$key': value == null ? null : sha256Hex(value),
+        ...checkInputDigests(
+          projectRoot,
+          workspaceRoot: prepared.packages.workspaceRoot,
+          optionsFiles: scan.optionsFiles,
+        ),
+      },
+      appsteinVersion: appsteinVersion,
+      formatVersion: knowledgeFormatVersion,
+    );
+  }
+
   /// Whether the `.appstein/` of the project at [projectRoot] holds what a
   /// sync would write now, without analyzing or writing anything.
   ///
@@ -574,8 +628,7 @@ final class KnowledgeSync {
     // the packs, which are part of that hash.
     final mapHash = prepared.mapInputs.inputHash;
     final expected = <String, String>{
-      for (final file in platform.files) file.path: file.inputHash,
-      if (prepared.native.file case final file?) file.path: file.inputHash,
+      ...prepared.fileHashes,
       for (final path in state.files.keys)
         if (path.startsWith('map/') && path != MapFiles.native) path: mapHash,
       deltaPath: _deltaHash(platform.sdk, mapHash),
@@ -797,4 +850,12 @@ final class _Prepared {
   final MapInputs mapInputs;
   final NativeBuild native;
   final IndexSources sources;
+
+  /// The input hash of each file the cheap steps already build, by path: the
+  /// platform layer's files and the native config. What a sync would write
+  /// for them, without analyzing anything.
+  Map<String, String> get fileHashes => {
+    for (final file in platform.files) file.path: file.inputHash,
+    if (native.file case final file?) file.path: file.inputHash,
+  };
 }

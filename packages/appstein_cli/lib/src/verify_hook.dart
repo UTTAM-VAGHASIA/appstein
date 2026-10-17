@@ -279,6 +279,24 @@ HookReply claudePostToolUseReply(VerifyResult result) {
   );
 }
 
+/// Whether a hook run completed its checks, so that the next run with nothing
+/// changed may stay silent (spec §9.1): none of its checks is named as not
+/// run (an analysis server that was still starting, a part cut short by a cap),
+/// and it reports neither `knowledge.stale` (the knowledge could not be
+/// brought up to date) nor `dart.plugin_failed` (a plugin's rules were not
+/// checked). It is not the rule by which `verify` lets no file leave the
+/// unverified files (the engine's `partial`): that one looks at those two
+/// findings before the suppressions are applied and only at a code check named
+/// as not run, while this one looks at the result, after the suppressions, and
+/// at every check named as not run. Errors found do not make a run
+/// incomplete: they are reported, and stay in the unverified files.
+bool hookRunCompleted(VerifyResult result) =>
+    result.notRun.isEmpty &&
+    !result.findings.any(
+      (finding) =>
+          finding.id == 'knowledge.stale' || finding.id == 'dart.plugin_failed',
+    );
+
 /// The reply when Appstein itself failed with [reason] (what is exit 3 in the
 /// terminal): exit 0 so the agent is never blocked by it, a context telling
 /// the agent its edit is unchecked and why, and a message telling the

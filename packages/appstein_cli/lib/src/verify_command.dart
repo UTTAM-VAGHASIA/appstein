@@ -188,7 +188,7 @@ final class VerifyCommand extends Command<int> {
     // A run that can't start, a check that throws and an analysis server
     // that can't answer are Appstein's failure: the runner tells it
     // (`describeFailure`) and exits 3.
-    final result = await _check(results);
+    final result = await _check(results, _setUp(results));
     out.write(
       results.option('format') == 'json'
           ? '${const JsonEncoder.withIndent('  ').convert(result.toJson())}\n'
@@ -204,19 +204,50 @@ final class VerifyCommand extends Command<int> {
   /// ([answerHookFailure]), with the details on stderr; a usage error is
   /// still exit 3. The reply goes through [hookAnswer], so a failure handler
   /// that fires meanwhile and this command never both answer.
+  ///
+  /// **Nothing changed means no output** (spec §9.1, slice 1d.7): when the
+  /// input names a session, the run first takes the fingerprint of everything
+  /// the knowledge and the checks read ([KnowledgeSync.fingerprint], one hash
+  /// scan). If it equals the fingerprint of this session's last completed
+  /// hook run ([HookSessions]), nothing Appstein reads has changed since the
+  /// session last heard from it, and the run exits 0 with no output, runs no
+  /// check and writes no file. The comparison is with the session's own
+  /// record, not with `state.json`: another session's refresh uses up the
+  /// shared change list, and would hide this session's edit.
+  ///
+  /// The fingerprint taken at the start is saved after the reply was written,
+  /// and only for a run that completed its checks ([hookRunCompleted]): one
+  /// that failed, or named a check as not run, saves nothing, so the next run
+  /// asks again. It is taken again after the reply and saved only if it is
+  /// the same: files that changed while the checks ran, and may have changed
+  /// back, were not checked as they are now, so nothing is saved and the next
+  /// run checks (`_SilenceGate`). A run with no session (missing or
+  /// unreadable input), and a run given `--files`, always checks.
   Future<int> _runAsHook(ArgResults results) async {
-    // The input is read first, as an agent sends it and closes the pipe.
-    // It is read and parsed (a missing or broken input is no session), and
-    // the session ID it gives is not used by anything yet.
+    // The input is read first, as an agent sends it and closes the pipe. A
+    // missing or broken input is no session.
+    var input = const HookInput();
     try {
-      parseHookInput(await (hookInput ?? readStdinText)());
+      input = parseHookInput(await (hookInput ?? readStdinText)());
     } on Object {
       // Input that can't be read counts as no session.
     }
     final answer = hookAnswer ?? HookAnswer();
+    late final _SilenceGate gate;
     final HookReply reply;
+    final VerifyResult result;
     try {
-      reply = claudePostToolUseReply(await _check(results));
+      final setup = _setUp(results);
+      gate = _SilenceGate(
+        input.sessionId,
+        sync: setup.sync,
+        projectRoot: setup.projectRoot,
+      );
+      if (await gate.nothingChanged(filesGiven: setup.files.isNotEmpty)) {
+        return answer.write(const HookReply(exitCode: ExitCodes.ok), out, err);
+      }
+      result = await _check(results, setup);
+      reply = claudePostToolUseReply(result);
     } on UsageException {
       rethrow;
     } on Object catch (error, stackTrace) {
@@ -227,16 +258,22 @@ final class VerifyCommand extends Command<int> {
         answer,
       );
     }
-    return answer.write(reply, out, err);
+    // A failure handler that spoke first has the only answer: the run did not
+    // complete as far as Claude Code is concerned.
+    final spokenFor = answer.answered;
+    final exitCode = answer.write(reply, out, err);
+    // After the reply, so a hook killed in between is checked again.
+    if (!spokenFor && hookRunCompleted(result)) await gate.save();
+    return exitCode;
   }
 
-  /// Brings the knowledge up to date, runs the checks and returns the result
-  /// as the terminal prints it. Throws [CannotStart] when there is no project
-  /// or its `appstein.yaml` is invalid, and what the run throws when Appstein
-  /// itself fails: the runner reports those and exits 3.
-  Future<VerifyResult> _check(ArgResults results) async {
+  /// What a run needs before it checks: the project, the files it was given,
+  /// its configuration and packs, and the knowledge sync. Throws
+  /// [CannotStart] when there is no project or its `appstein.yaml` is
+  /// invalid, and a usage error for a path given to `--files` that can't be
+  /// taken.
+  _RunSetup _setUp(ArgResults results) {
     final given = results.multiOption('files');
-    final apply = results.flag('apply');
     final projectRoot = resolveProjectRoot(globalResults, environment);
     if (projectRoot == null) {
       throw CannotStart(
@@ -262,6 +299,31 @@ final class VerifyCommand extends Command<int> {
       );
     }
     final packs = packsFor(config);
+    // Package skills start a process and write agent folders, which belongs
+    // to `appstein sync`.
+    final sync = KnowledgeSync(
+      environment: environment,
+      appsteinVersion: appsteinVersion,
+      packs: packs,
+      baseline: config.delta.baseline,
+      agents: config.integrations.agents,
+      packageSkills: false,
+    );
+    return (
+      projectRoot: projectRoot,
+      files: files,
+      config: config,
+      packs: packs,
+      sync: sync,
+    );
+  }
+
+  /// Brings the knowledge up to date, runs the checks and returns the result
+  /// as the terminal prints it. Throws what the run throws when Appstein
+  /// itself fails: the runner reports those and exits 3.
+  Future<VerifyResult> _check(ArgResults results, _RunSetup setup) async {
+    final apply = results.flag('apply');
+    final (:projectRoot, :files, :config, :packs, :sync) = setup;
     // What the stop of the run's own analysis server could not end: known
     // only after the run, and printed with its result.
     final left = <String>[];
@@ -277,16 +339,6 @@ final class VerifyCommand extends Command<int> {
     // Appstein's failure: the runner reports the `VerifyCheckError` or the
     // `CodeAnalysisException` and exits 3. The server is stopped either
     // way, by the scope.
-    // Package skills start a process and write agent folders, which belongs
-    // to `appstein sync`.
-    final sync = KnowledgeSync(
-      environment: environment,
-      appsteinVersion: appsteinVersion,
-      packs: packs,
-      baseline: config.delta.baseline,
-      agents: config.integrations.agents,
-      packageSkills: false,
-    );
     final found = await analysis((codeAnalysis) async {
       // `--apply` rewrites the files first: the refresh and the reading that
       // follow are of the rewritten files.
@@ -332,6 +384,78 @@ final class VerifyCommand extends Command<int> {
       }
     });
     return found.withNotices(left);
+  }
+}
+
+/// What a `verify` run needs before it checks (`_setUp`).
+typedef _RunSetup = ({
+  String projectRoot,
+  List<String> files,
+  AppsteinConfig config,
+  List<Pack> packs,
+  KnowledgeSync sync,
+});
+
+/// A hook run's memory of its session: whether the run may stay silent, and
+/// the saving of what the run saw (slice 1d.7, "Nothing changed means no
+/// output"). A run with no session gets a gate that is never silent and
+/// saves nothing.
+final class _SilenceGate {
+  _SilenceGate(
+    String? sessionId, {
+    required this._sync,
+    required this._projectRoot,
+  }) : _session = sessionId == null
+           ? null
+           : (id: sessionId, records: HookSessions(_projectRoot));
+
+  final ({String id, HookSessions records})? _session;
+  final KnowledgeSync _sync;
+  final String _projectRoot;
+
+  /// The fingerprint taken before the checks; null when there is none.
+  String? _before;
+
+  /// Whether nothing the checks read changed since this session's last
+  /// completed run: the fingerprint is taken, and equals the session's
+  /// record. It is taken for a run given files too ([filesGiven]), which
+  /// always checks, so that the run can save it.
+  Future<bool> nothingChanged({required bool filesGiven}) async {
+    final session = _session;
+    if (session == null) return false;
+    final before = _before = await _fingerprint();
+    return before != null &&
+        !filesGiven &&
+        session.records.read(session.id) == before;
+  }
+
+  /// Saves the fingerprint taken before the checks, if the files are still
+  /// as they were then: a second fingerprint, taken now, must equal it. Files
+  /// that changed while the checks ran, and perhaps changed back, were not
+  /// checked in the state they are in now, so nothing is saved and the next
+  /// run checks. A record that can't be written is not an error: it only
+  /// saves the next run's work.
+  Future<void> save() async {
+    final session = _session;
+    final before = _before;
+    if (session == null || before == null) return;
+    if (await _fingerprint() != before) return;
+    try {
+      await session.records.saveFingerprint(session.id, before);
+    } on Object {
+      // The record only saves the next run's work.
+    }
+  }
+
+  /// The fingerprint of what the checks read, or null when it can't be taken
+  /// (no Flutter SDK, say): the run then checks, and reports what is wrong as
+  /// it always does.
+  Future<String?> _fingerprint() async {
+    try {
+      return await _sync.fingerprint(_projectRoot);
+    } on Object {
+      return null;
+    }
   }
 }
 

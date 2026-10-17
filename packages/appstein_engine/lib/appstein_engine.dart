@@ -138,6 +138,7 @@ export 'src/verify/deprecation_ignores.dart'
 export 'src/verify/engine_checks.dart';
 export 'src/verify/formatting.dart'
     show FormatReading, formatBudgetFast, formatBudgetFull;
+export 'src/verify/hook_sessions.dart';
 export 'src/verify/suppression_comments.dart' show SuppressionComment;
 export 'src/verify/suppressions.dart';
 export 'src/verify/test_run.dart';
