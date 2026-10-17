@@ -30,8 +30,10 @@ typedef VerifyChecks =
 /// and `--files` with a full run, are usage errors.
 ///
 /// `--apply` (full runs only) first applies the fixes `dart fix` would apply
-/// and formats the project (`applyToProject`), then refreshes the knowledge
-/// and runs every check; the result names each file it rewrote. With
+/// and formats the project (`applyToProject`), then refreshes the knowledge,
+/// renders the human docs into the docs folder when `docs.enabled` is on
+/// (`renderDocsForApply`, the code of `appstein docs`), and runs every check;
+/// the result names each file it rewrote and each docs page it wrote. With
 /// `--fast` it is a usage error.
 ///
 /// Exit codes (spec §9.5): 0 when no finding is an error; 1 when one is; 3
@@ -83,9 +85,10 @@ final class VerifyCommand extends Command<int> {
         negatable: false,
         help:
             'With a full run: first apply the fixes `dart fix` would apply '
-            'and format the whole project (generated files left out), then '
-            'check. Names each file it rewrote. Without it, verify writes no '
-            'project file.',
+            'and format the whole project (generated files left out), render '
+            'the human docs when docs.enabled is on, then check. Names each '
+            'file it rewrote and each docs page it wrote. Without it, verify '
+            'writes no project file.',
       )
       ..addOption(
         'hook',
@@ -274,43 +277,59 @@ final class VerifyCommand extends Command<int> {
     // Appstein's failure: the runner reports the `VerifyCheckError` or the
     // `CodeAnalysisException` and exits 3. The server is stopped either
     // way, by the scope.
+    // Package skills start a process and write agent folders, which belongs
+    // to `appstein sync`.
+    final sync = KnowledgeSync(
+      environment: environment,
+      appsteinVersion: appsteinVersion,
+      packs: packs,
+      baseline: config.delta.baseline,
+      agents: config.integrations.agents,
+      packageSkills: false,
+    );
     final found = await analysis((codeAnalysis) async {
       // `--apply` rewrites the files first: the refresh and the reading that
       // follow are of the rewritten files.
       final changes = apply
           ? await applyToProject(codeAnalysis, projectRoot: projectRoot)
           : const AppliedChanges();
-      final VerifyResult result;
+      // Every file `--apply` wrote, named in the result: the fixed and
+      // formatted files, then the human docs pages.
+      final written = [...changes.written];
+      final notices = [...changes.notices];
       try {
-        result = await runVerify(
+        // Then the human docs, once the knowledge is up to date with the
+        // rewritten files: the code of `appstein docs`. A page it can't
+        // render is left alone, and the run's `docs.stale` reports it.
+        if (apply) {
+          final docs = await renderDocsForApply(
+            projectRoot: projectRoot,
+            config: config,
+            packs: packs,
+            sync: sync,
+            dartSdkPath: dartSdkPath,
+          );
+          written.addAll(docs.written);
+          notices.addAll(docs.notices);
+        }
+        final result = await runVerify(
           projectRoot: projectRoot,
           config: config,
           packs: packs,
-          // Package skills start a process and write agent folders, which
-          // belongs to `appstein sync`.
-          sync: KnowledgeSync(
-            environment: environment,
-            appsteinVersion: appsteinVersion,
-            packs: packs,
-            baseline: config.delta.baseline,
-            agents: config.integrations.agents,
-            packageSkills: false,
-          ),
+          sync: sync,
           mode: results.flag('fast') ? VerifyMode.fast : VerifyMode.full,
           checks: checks(packs),
           codeAnalysis: codeAnalysis,
           dartSdkPath: dartSdkPath,
           files: files,
         );
+        return result.withApplied(written).withNotices(notices);
       } on Object {
         // The run failed after `--apply` had rewritten files: they are named
         // before the failure is reported (exit 3), so none goes unread.
-        if (changes.written.isNotEmpty) {
-          err.writeln(rewrittenBeforeFailure(changes.written));
-        }
+        if (written.isNotEmpty) err.writeln(rewrittenBeforeFailure(written));
         rethrow;
       }
-      return result.withApplied(changes.written).withNotices(changes.notices);
     });
     return found.withNotices(left);
   }

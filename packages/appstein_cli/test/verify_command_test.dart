@@ -1261,6 +1261,218 @@ void main() {
         );
       });
 
+      group('--apply renders the human docs', () {
+        const readme = 'README.md';
+
+        String docsFile(String path) =>
+            p.joinAll([project, 'docs', 'app', ...path.split('/')]);
+
+        /// Every file of the docs folder with its bytes.
+        Map<String, String> docsFolder() => {
+          for (final entity in Directory(
+            docsFile(''),
+          ).listSync(recursive: true))
+            if (entity is File)
+              p.relative(entity.path, from: project): entity.readAsStringSync(),
+        };
+
+        /// A scripted `dart fix` that writes a new Dart file, which puts the
+        /// human docs behind. [readmeWhenFixing] gets the README as it was
+        /// when the fix ran.
+        ScriptedCodeAnalysis fixThatWritesAFile({
+          void Function(String readme)? readmeWhenFixing,
+        }) => ScriptedCodeAnalysis()
+          ..onApply = (_) async {
+            readmeWhenFixing?.call(File(docsFile(readme)).readAsStringSync());
+            File(
+              p.join(project, 'lib', 'fixed.dart'),
+            ).writeAsStringSync('/// Fixed.\nint fixed() => 1;\n');
+            return ['lib/fixed.dart'];
+          };
+
+        Future<Map<String, Object?>> applyJson(
+          ScriptedCodeAnalysis analysis,
+        ) async {
+          out.clear();
+          await run(
+            ['verify', '--apply', '--format', 'json'],
+            analysis: analysis,
+            dartSdkPath: testDartSdk,
+          );
+          return jsonDecode(out.toString()) as Map<String, Object?>;
+        }
+
+        List<Object?> ids(Map<String, Object?> json) => [
+          for (final finding in json['findings']! as List)
+            (finding as Map)['id'],
+        ];
+
+        Future<bool> docsStale() async {
+          const config = AppsteinConfig();
+          final packs = packsFor(config);
+          final outcome = await runDocs(
+            projectRoot: project,
+            config: config,
+            packs: packs,
+            sync: KnowledgeSync(
+              environment: HostEnvironment(
+                os: HostOs.current,
+                variables: {'FLUTTER_ROOT': sdk},
+                workingDirectory: project,
+              ),
+              appsteinVersion: appsteinVersion,
+              packs: packs,
+              baseline: config.delta.baseline,
+              agents: config.integrations.agents,
+              packageSkills: false,
+            ),
+            check: true,
+            dartSdkPath: testDartSdk,
+          );
+          return (outcome as DocsDone).stale;
+        }
+
+        test('renders the pages that are behind after the fixes, names '
+            'each page written in `applied`, and the same run finds nothing '
+            'stale', () async {
+          String? readmeAtFix;
+          final analysis = fixThatWritesAFile(
+            readmeWhenFixing: (text) => readmeAtFix = text,
+          );
+          final before = docsFolder();
+
+          final json = await applyJson(analysis);
+
+          // The fix ran first: the pages were not touched before it.
+          expect(
+            readmeAtFix,
+            before['docs${p.separator}app${p.separator}$readme'],
+          );
+          final applied = (json['applied']! as List).cast<String>();
+          expect(applied.first, 'lib/fixed.dart');
+          expect(applied.length, greaterThan(1));
+          expect(applied.skip(1), everyElement(startsWith('docs/app/')));
+          expect(applied.skip(1).toList(), [...applied.skip(1)]..sort());
+          // The pages written are the pages that changed, no other.
+          final after = docsFolder();
+          expect({
+            for (final key in after.keys)
+              if (after[key] != before[key]) key.replaceAll(p.separator, '/'),
+          }, applied.skip(1).toSet());
+          expect(ids(json), isNot(contains('docs.stale')));
+          expect(await docsStale(), isFalse);
+          expect(err.toString(), isEmpty);
+        });
+
+        test('the text lists the pages with the files it rewrote, before '
+            'the findings', () async {
+          await run(
+            ['verify', '--apply'],
+            analysis: fixThatWritesAFile(),
+            dartSdkPath: testDartSdk,
+          );
+          expect(
+            out.toString(),
+            startsWith(
+              'Rewritten by --apply (read these files again before you edit '
+              'them):\n'
+              '  lib/fixed.dart\n'
+              '  docs/app/',
+            ),
+          );
+          expect(out.toString(), isNot(contains('docs.stale')));
+        });
+
+        test('a page that did not change is not listed: the run after it '
+            'lists none', () async {
+          await applyJson(fixThatWritesAFile());
+          final settled = docsFolder();
+          final json = await applyJson(ScriptedCodeAnalysis());
+          expect(json['applied'], isEmpty);
+          expect(docsFolder(), settled);
+        });
+
+        test('with docs.enabled false nothing is rendered and nothing is '
+            'listed', () async {
+          config('docs:\n  enabled: false\n');
+          final before = docsFolder();
+          final json = await applyJson(fixThatWritesAFile());
+          expect(json['applied'], ['lib/fixed.dart']);
+          expect(docsFolder(), before);
+          expect(ids(json), isNot(contains('docs.stale')));
+        });
+
+        test('a person\'s file where a page goes is left alone, not listed, '
+            'and docs.stale reports it; the run is not a failure', () async {
+          final theirs = File(docsFile('routes.md'))
+            ..writeAsStringSync('# Our routes\n\nWritten by a person.\n');
+          final before = docsFolder();
+          final json = await applyJson(fixThatWritesAFile());
+          expect(json['applied'], ['lib/fixed.dart']);
+          expect(docsFolder(), before);
+          expect(
+            theirs.readAsStringSync(),
+            '# Our routes\n\nWritten by a person.\n',
+          );
+          expect(ids(json), contains('docs.stale'));
+          expect(err.toString(), isEmpty);
+          // A warning: the exit code is 0.
+          out.clear();
+          expect(
+            await run(
+              ['verify', '--apply'],
+              analysis: ScriptedCodeAnalysis(),
+              dartSdkPath: testDartSdk,
+            ),
+            ExitCodes.ok,
+          );
+        });
+
+        test('a page edited by hand is rewritten and listed, and a note says '
+            'its hand edits were overwritten', () async {
+          final routes = File(docsFile('routes.md'));
+          final rendered = routes.readAsStringSync();
+          routes.writeAsStringSync(rendered.replaceFirst('# ', '# Our '));
+          out.clear();
+          await run(
+            ['verify', '--apply', '--format', 'json'],
+            analysis: ScriptedCodeAnalysis(),
+            dartSdkPath: testDartSdk,
+          );
+          final json = jsonDecode(out.toString()) as Map<String, Object?>;
+          expect(json['applied'], ['docs/app/routes.md']);
+          expect(routes.readAsStringSync(), rendered);
+          expect(json['notices'], [contains('`docs/app/routes.md`')]);
+          expect(json['notices'], [contains('overwrote hand edits')]);
+          expect(ids(json), isNot(contains('docs.stale')));
+          // The text prints the note too.
+          routes.writeAsStringSync(rendered.replaceFirst('# ', '# Our '));
+          out.clear();
+          await run(
+            ['verify', '--apply'],
+            analysis: ScriptedCodeAnalysis(),
+            dartSdkPath: testDartSdk,
+          );
+          expect(out.toString(), contains('Note:\n  Rendering the human docs'));
+          expect(out.toString(), contains('overwrote hand edits'));
+        });
+
+        test('without --apply nothing is written: the pages stay behind and '
+            'docs.stale says so', () async {
+          // The same new file, written by a person.
+          File(
+            p.join(project, 'lib', 'fixed.dart'),
+          ).writeAsStringSync('/// Fixed.\nint fixed() => 1;\n');
+          final before = docsFolder();
+          out.clear();
+          await run(['verify', '--format', 'json'], dartSdkPath: testDartSdk);
+          final json = jsonDecode(out.toString()) as Map<String, Object?>;
+          expect(json['applied'], isEmpty);
+          expect(docsFolder(), before);
+          expect(ids(json), contains('docs.stale'));
+        });
+      });
+
       test(
         'with a real analysis server: --apply formats the project, names '
         'the file it rewrote, and the run after it is clean; without '
@@ -1288,13 +1500,14 @@ void main() {
             reason: '$err',
           );
           final json = jsonDecode(out.toString()) as Map<String, Object?>;
-          expect(json['applied'], ['lib/messy.dart']);
-          // The new file puts the human docs behind (`docs.stale`); no code
-          // finding is left.
-          expect([
-            for (final finding in json['findings']! as List)
-              (finding as Map)['id'],
-          ], everyElement('docs.stale'));
+          // The new file puts the human docs behind: `--apply` renders the
+          // page after it formatted the file, and names it.
+          expect(json['applied'], [
+            'lib/messy.dart',
+            'docs/app/architecture.md',
+          ]);
+          // No finding is left, the docs included.
+          expect(json['findings'], isEmpty);
           expect(messy.readAsStringSync(), 'int messy(int x) => x;\n');
           out.clear();
           expect(
@@ -1305,10 +1518,11 @@ void main() {
             ),
             ExitCodes.ok,
           );
-          // Nothing left to rewrite: no section, and no code finding.
-          expect(out.toString(), isNot(contains('Rewritten by --apply')));
-          expect(out.toString(), isNot(contains(' dart.')));
-          expect(out.toString(), startsWith('docs/app/'));
+          // Nothing left to rewrite or render: no section, no finding.
+          expect(
+            out.toString(),
+            '0 errors, 0 warnings, 0 info. No findings suppressed.\n',
+          );
           // The servers' cache is the folder the machine names, not the one
           // the machine shares.
           expect(

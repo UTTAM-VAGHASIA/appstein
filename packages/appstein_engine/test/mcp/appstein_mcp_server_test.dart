@@ -589,6 +589,11 @@ void main() {
         'knowledge is refreshed, names them in `applied` and tells the agent '
         'to read them again; with the fast scope, or with input that is '
         'refused, nothing is rewritten', () async {
+      // The human docs are rendered by `apply` too; they have tests of their
+      // own below.
+      File(
+        p.join(app, 'appstein.yaml'),
+      ).writeAsStringSync('docs:\n  enabled: false\n');
       final main = File(p.join(app, 'lib', 'main.dart'));
       analysis.onApply = (_) async {
         main.writeAsStringSync('${main.readAsStringSync()}// Fixed.\n');
@@ -656,6 +661,99 @@ void main() {
         hasLength(1),
       );
       expect(VerifyResult.fromJson(json).applied, ['lib/main.dart']);
+    });
+
+    group('`apply` renders the human docs', () {
+      String docsFile(String path) =>
+          p.joinAll([app, 'docs', 'app', ...path.split('/')]);
+
+      List<String> ids(Map<String, Object?> json) => [
+        for (final finding in json['findings']! as List)
+          (finding as Map)['id'] as String,
+      ];
+
+      test('after the fixes and the refresh, before the checks: each page '
+          'written is in `applied` after the files, and nothing is stale; '
+          'without `apply` nothing is written', () async {
+        final main = File(p.join(app, 'lib', 'main.dart'));
+        String? docsWhenFixing;
+        analysis.onApply = (_) async {
+          docsWhenFixing = Directory(docsFile('')).existsSync()
+              ? 'folder'
+              : 'none';
+          main.writeAsStringSync('${main.readAsStringSync()}// Fixed.\n');
+          return ['lib/main.dart'];
+        };
+        final server = await serve();
+
+        // Without `apply`: the pages are missing, and stay missing.
+        final plain = structured(
+          await call(server, 'verify', {'scope': 'full'}),
+        );
+        expect(plain['applied'], isEmpty);
+        expect(ids(plain), contains('docs.stale'));
+        expect(Directory(docsFile('')).existsSync(), isFalse);
+
+        final result = await call(server, 'verify', {
+          'scope': 'full',
+          'apply': true,
+        });
+        final json = structured(result);
+        expect(docsWhenFixing, 'none', reason: 'the fix came first');
+        final applied = (json['applied']! as List).cast<String>();
+        expect(applied.first, 'lib/main.dart');
+        expect(applied.skip(1), isNotEmpty);
+        expect(applied.skip(1), everyElement(startsWith('docs/app/')));
+        expect(applied.skip(1).toList(), [...applied.skip(1)]..sort());
+        // Each of them is on disk, and the same run finds nothing behind.
+        for (final page in applied.skip(1)) {
+          expect(File(p.join(app, page)).existsSync(), isTrue, reason: page);
+        }
+        expect(ids(json), isNot(contains('docs.stale')));
+        expect(json['notices'], isNull);
+        expect(
+          textOf(result),
+          startsWith('`apply` rewrote ${applied.length} files ('),
+        );
+
+        // The pages are settled: only the file the fix wrote again is named.
+        final again = structured(
+          await call(server, 'verify', {'scope': 'full', 'apply': true}),
+        );
+        expect(again['applied'], ['lib/main.dart']);
+        expect(ids(again), isNot(contains('docs.stale')));
+      });
+
+      test('a page edited by hand is written over, named in `applied`, and '
+          'a notice says its hand edits were overwritten', () async {
+        final server = await serve();
+        await call(server, 'verify', {'scope': 'full', 'apply': true});
+        final routes = File(docsFile('routes.md'));
+        final rendered = routes.readAsStringSync();
+        routes.writeAsStringSync(rendered.replaceFirst('# ', '# Our '));
+
+        final json = structured(
+          await call(server, 'verify', {'scope': 'full', 'apply': true}),
+        );
+        expect(json['applied'], ['docs/app/routes.md']);
+        expect(routes.readAsStringSync(), rendered);
+        expect(json['notices'], [
+          allOf(contains('`docs/app/routes.md`'), contains('overwrote hand')),
+        ]);
+      });
+
+      test('with docs.enabled false nothing is rendered or named', () async {
+        File(
+          p.join(app, 'appstein.yaml'),
+        ).writeAsStringSync('docs:\n  enabled: false\n');
+        final server = await serve();
+        final json = structured(
+          await call(server, 'verify', {'scope': 'full', 'apply': true}),
+        );
+        expect(json['applied'], isEmpty);
+        expect(Directory(docsFile('')).existsSync(), isFalse);
+        expect(ids(json), isNot(contains('docs.stale')));
+      });
     });
 
     test('an analysis server that fails while `apply` rewrites is an error '

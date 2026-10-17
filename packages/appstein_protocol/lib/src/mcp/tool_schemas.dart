@@ -568,8 +568,10 @@ abstract final class ToolSchemas {
         description:
             'With `scope: full` only: first apply the fixes `dart fix` would '
             'apply and format the whole project (generated files left out), '
-            'then check. This rewrites files: the result names each one in '
-            '`applied`, and you must read those again before you edit them. '
+            'render the human docs when `docs.enabled` is on, then check. '
+            'This rewrites files: the result names each one, and each docs '
+            'page it wrote, in `applied`, and you must read those again '
+            'before you edit them. '
             '`apply` with `scope: fast` is refused.',
       ),
     },
@@ -641,9 +643,10 @@ abstract final class ToolSchemas {
       'applied': jsonList(
         jsonString(),
         description:
-            'Each file `apply` rewrote before the checks ran, from the '
-            'project folder. Read these files again before you edit them. '
-            'Empty without `apply`, and when it rewrote nothing.',
+            'Each file `apply` rewrote and each human docs page it wrote '
+            'before the checks ran, from the project folder. Read these '
+            'files again before you edit them. Empty without `apply`, and '
+            'when it wrote nothing.',
       ),
     },
     required: [

@@ -135,6 +135,10 @@ The first line of a generated page is an HTML comment, so it doesn't show on Git
 
 `appstein docs --check` stops after `prepareDocs`: it prints each page that isn't unchanged and exits 1 if there is one. The `docs.stale` check of `appstein verify` reports the same pages as warnings, one finding per page with the reason, and never writes.
 
+## Rendering from `verify --apply`
+
+`appstein verify --full --apply` renders the docs too, so the Stop hook can be one command (spec §5.3, §9.2). [`renderDocsForApply`](../../packages/appstein_engine/lib/src/verify/apply.dart) calls `runDocs` with `check: false`, the same call `appstein docs` makes, so the pages can't differ from `appstein docs`'s. It runs after `dart fix`, the formatting and `runDocs`'s own knowledge refresh, and before the checks, so the run's `docs.stale` finds nothing behind. It returns the path of each page `runDocs` wrote (`DocChangeKind.write`, from the project root, the docs folder and then the page's path), which the verify result lists in `applied`; unchanged pages and removed pages are not listed. `DocsDisabled` gives an empty list. `DocsRefused` (a person's file in the way, the knowledge not up to date, the lock busy) writes nothing and gives an empty list: the project's to fix, reported by `docs.stale`, and not a failure. A page it wrote over a hand edit also gets a notice line ("overwrote hand edits"), because nobody is at a hook to be told otherwise (spec §6.9). The `verify` tool of `appstein mcp` renders the docs the same way with its `apply`. See [verify](verify.md#the-human-docs-step).
+
 ## The engine's pages
 
 - **`README.md`** ([`readme_page.dart`](../../packages/appstein_engine/lib/src/docs/pages/readme_page.dart)): the stack, the platforms, the Flutter and Dart versions when the project pins Flutter, and the app IDs. The ID lines come from `appIdLines`, the function `INDEX.md` uses, so the two never disagree. "Run it" adds `fvm` when the project pins Flutter with FVM. Pages in a folder are listed under the folder's name ("Features" for `features/`), whatever a pack calls it: the engine doesn't know what a feature is.

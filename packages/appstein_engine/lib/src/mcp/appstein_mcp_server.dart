@@ -533,7 +533,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// With `apply: true` (full scope only), the project is fixed and
   /// formatted first (`applyToProject`), before the refresh, so the refresh
   /// and the reading are of the rewritten files, as in `appstein verify
-  /// --apply`. Everything the call asks is checked before that, so a refusal
+  /// --apply`; once the knowledge is up to date, the human docs are rendered
+  /// (`renderDocsForApply`), and the pages written join `applied`.
+  /// Everything the call asks is checked before that, so a refusal
   /// never follows a rewrite; a failure after it still names the files it
   /// rewrote. `apply` with the fast scope is refused.
   ///
@@ -630,6 +632,21 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       // Without a sync there are no packs, so no list of checks.
       if (using == null) {
         return _refuse(rewritten('The checks could not run.'), freshness);
+      }
+      // `apply` renders the human docs once the knowledge is up to date with
+      // the rewritten files, as `appstein verify --apply` does
+      // (`renderDocsForApply`, the code of `appstein docs`); a docs run that
+      // can't be done writes nothing and is reported by `docs.stale`.
+      if (apply == true) {
+        final docs = await renderDocsForApply(
+          projectRoot: projectRoot,
+          config: config,
+          packs: using.packs,
+          sync: using,
+          dartSdkPath: dartSdkPath,
+        );
+        applied = [...applied, ...docs.written];
+        leftAlone = [...leftAlone, ...docs.notices];
       }
       final result = await runVerify(
         projectRoot: projectRoot,
