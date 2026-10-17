@@ -62,7 +62,9 @@ const analysisHostTurnLimit = Duration(minutes: 15);
 /// [readyTimeout] and [answerGrace] set how long an answer is waited for
 /// (a reading: twice [readyTimeout], since the server may start again
 /// within one, plus [answerGrace]; any other question: its own limit plus
-/// [answerGrace]); only tests change them. [os] is the system's, for tests.
+/// [answerGrace]); [turnLimit] is how long the host's turn is waited for
+/// ([analysisHostTurnLimit]); only tests change them. [os] is the system's,
+/// for tests.
 CodeAnalysisScope analysisHostCodeAnalysis({
   required String projectRoot,
   required List<String> hostCommand,
@@ -72,6 +74,7 @@ CodeAnalysisScope analysisHostCodeAnalysis({
   Duration startLimit = analysisHostStartLimit,
   Duration readyTimeout = analysisReadyTimeout,
   Duration answerGrace = analysisHostAnswerGrace,
+  Duration turnLimit = analysisHostTurnLimit,
   HostOs? os,
 }) => <T>(body) async {
   final client = _HostClient(
@@ -83,6 +86,7 @@ CodeAnalysisScope analysisHostCodeAnalysis({
     startLimit: startLimit,
     readyTimeout: readyTimeout,
     answerGrace: answerGrace,
+    turnLimit: turnLimit,
     os: os ?? HostOs.current,
   );
   try {
@@ -137,6 +141,7 @@ final class _HostClient implements CodeAnalysis {
     required this.startLimit,
     required this.readyTimeout,
     required this.answerGrace,
+    required this.turnLimit,
     required this.os,
   });
 
@@ -148,6 +153,7 @@ final class _HostClient implements CodeAnalysis {
   final Duration startLimit;
   final Duration readyTimeout;
   final Duration answerGrace;
+  final Duration turnLimit;
   final HostOs os;
 
   _Connection? _connection;
@@ -303,7 +309,7 @@ final class _HostClient implements CodeAnalysis {
     // real queue, bounds it. The question's own limit starts when the server
     // begins on it.
     // A host that is ending answers at once with a failure, without a turn.
-    var got = await connection.next(analysisHostTurnLimit);
+    var got = await connection.next(turnLimit);
     final waitedForTurn = got.late;
     if (_isTurn(got.line, asked.id)) got = await connection.next(limit);
     final (:line, :late) = got;
@@ -314,7 +320,7 @@ final class _HostClient implements CodeAnalysis {
       throw CodeAnalysisException(switch ((late, waitedForTurn)) {
         (true, true) =>
           'the analysis host did not begin the question within '
-              '${secondsText(analysisHostTurnLimit)}',
+              '${secondsText(turnLimit)}',
         (true, false) =>
           'the analysis host did not answer within ${secondsText(limit)}',
         _ =>

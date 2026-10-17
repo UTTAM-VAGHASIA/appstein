@@ -21,6 +21,7 @@ import 'analysis_support.dart';
   String? folder,
   Duration readyTimeout = analysisReadyTimeout,
   Duration answerGrace = analysisHostAnswerGrace,
+  Duration turnLimit = analysisHostTurnLimit,
 }) {
   folder ??= p.join(tempDir().path, 'host folder');
   final environment = testAnalysisEnvironment();
@@ -30,6 +31,7 @@ import 'analysis_support.dart';
       projectRoot: app,
       readyTimeout: readyTimeout,
       answerGrace: answerGrace,
+      turnLimit: turnLimit,
       hostCommand:
           hostCommand ??
           [

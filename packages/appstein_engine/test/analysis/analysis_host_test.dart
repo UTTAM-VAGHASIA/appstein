@@ -659,8 +659,9 @@ void main() {
     Future<void> standIn(
       String folder,
       String app,
-      void Function(Socket socket) onQuestion,
-    ) async {
+      void Function(Socket socket) onQuestion, {
+      void Function()? onClientClosed,
+    }) async {
       final listening = await ServerSocket.bind(
         InternetAddress.loopbackIPv4,
         0,
@@ -677,22 +678,27 @@ void main() {
       );
       listening.listen((socket) {
         var lines = 0;
-        utf8.decoder.bind(socket).transform(const LineSplitter()).listen((
-          line,
-        ) {
-          if (lines++ == 0) {
-            socket.writeln(
-              jsonEncode(
-                const AnalysisHostWelcome(
-                  appsteinVersion: 'test',
-                  processId: 1,
-                ).toJson(),
-              ),
+        utf8.decoder
+            .bind(socket)
+            .transform(const LineSplitter())
+            .listen(
+              (line) {
+                if (lines++ == 0) {
+                  socket.writeln(
+                    jsonEncode(
+                      const AnalysisHostWelcome(
+                        appsteinVersion: 'test',
+                        processId: 1,
+                      ).toJson(),
+                    ),
+                  );
+                } else {
+                  onQuestion(socket);
+                }
+              },
+              onError: (Object _) {},
+              onDone: onClientClosed,
             );
-          } else {
-            onQuestion(socket);
-          }
-        }, onError: (Object _) {});
       });
     }
 
@@ -741,6 +747,39 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('one that never begins the question fails it within the turn limit, '
+        'saying so, and leaves no socket open', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      // It welcomes the client and reads the question, and sends no turn.
+      final closed = Completer<void>();
+      await standIn(
+        folder,
+        app,
+        (_) {},
+        onClientClosed: () => closed.complete(),
+      );
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        turnLimit: const Duration(seconds: 1),
+      );
+      final watch = Stopwatch()..start();
+      await expectLater(
+        codesIn(scope, 'lib/main.dart'),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            'the analysis host did not begin the question within 1 s',
+          ),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      // The client closed its end: the stand-in's side sees the end.
+      await closed.future.timeout(const Duration(seconds: 5));
     });
   });
 }
