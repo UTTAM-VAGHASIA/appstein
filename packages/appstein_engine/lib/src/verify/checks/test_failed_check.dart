@@ -1,6 +1,5 @@
 import 'package:appstein_protocol/appstein_protocol.dart';
 
-import '../../analysis/code_analysis.dart';
 import '../deprecation_ignores.dart';
 import '../test_run.dart';
 import '../verify_check.dart';

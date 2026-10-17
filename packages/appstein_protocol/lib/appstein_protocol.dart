@@ -4,6 +4,8 @@
 /// there is exactly one data format (spec §4, principle 4).
 library;
 
+export 'src/analysis/analysis_host_messages.dart';
+export 'src/analysis/code_reading.dart';
 export 'src/config/appstein_config.dart';
 export 'src/decisions/decision_record.dart';
 export 'src/knowledge/curated_note.dart';

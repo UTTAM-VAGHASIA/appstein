@@ -146,8 +146,10 @@ final class AnalysisServer implements StoppableCodeAnalysis {
   }) : projectRoot = p.normalize(p.absolute(projectRoot));
 
   /// How [applyFixesAndFormat] writes a file's new text: [replaceFileText].
-  /// **Test-only** to replace, like [afterLook], so a test can make a write
-  /// fail or take long.
+  /// Replaced by a test, so a write can fail or take long, and by the
+  /// analysis host (`AnalysisHostWrites.replaceText`), so a rewrite whose
+  /// client has gone away writes nothing. A write that throws a
+  /// [FileSystemException] leaves its file as it was, named in `leftAlone`.
   final Future<void> Function(String path, String text) replaceText;
 
   /// **Test-only**, like [processLookup]: called in each reading after the
@@ -635,10 +637,11 @@ Future<void> _writeAll(RandomAccessFile file, List<int> bytes) async {
 }
 
 /// Sets the permissions of the file at [path] to [mode] (octal, as `chmod`
-/// takes it); false when that failed. What [replaceFileText] runs, on Linux
-/// and macOS only, when the new file's permissions differ from the
-/// original's.
-Future<bool> _chmod(String mode, String path) async {
+/// takes it); false when that failed, also when there is no `chmod` or the
+/// file isn't the user's. What [replaceFileText] runs, on Linux and macOS
+/// only, when the new file's permissions differ from the original's, and
+/// what the analysis host's address file is made user-only with.
+Future<bool> setFileMode(String mode, String path) async {
   try {
     return (await Process.run('chmod', [mode, path])).exitCode == 0;
   } on ProcessException {
@@ -704,7 +707,7 @@ Future<void> replaceFileText(
   Future<RandomAccessFile> Function(File file) openBeside = _openBeside,
   Future<void> Function(RandomAccessFile file, List<int> bytes) writeBeside =
       _writeAll,
-  Future<bool> Function(String mode, String path) chmod = _chmod,
+  Future<bool> Function(String mode, String path) chmod = setFileMode,
 }) async {
   final bytes = utf8.encode(text);
   // A link stays a link: its target is what gets the text.

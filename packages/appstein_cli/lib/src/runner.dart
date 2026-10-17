@@ -5,6 +5,7 @@ import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
 import 'analysis_guard_command.dart';
+import 'analysis_host_command.dart';
 import 'docs_command.dart';
 import 'doctor_command.dart';
 import 'exit_codes.dart';
@@ -90,7 +91,8 @@ Future<int> runAppstein(
           dartSdkPath: dartSdkPath,
         ),
       )
-      ..addCommand(AnalysisGuardCommand());
+      ..addCommand(AnalysisGuardCommand())
+      ..addCommand(AnalysisHostCommand());
     extraCommands.forEach(runner.addCommand);
     return await runner.run(arguments) ?? ExitCodes.ok;
   } on UsageException catch (error) {

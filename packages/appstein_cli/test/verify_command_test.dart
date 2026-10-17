@@ -1229,23 +1229,50 @@ void main() {
           'appstein.dart',
         );
         final config = p.absolute('global', 'package_config.json');
-        expect(guardCommandFrom(executable: dart), [
-          dart,
-          analysisGuardCommandName,
-        ]);
+        const guard = analysisGuardCommandName;
+        expect(modeCommandFrom(guard, executable: dart), [dart, guard]);
         expect(
-          guardCommandFrom(
+          modeCommandFrom(
+            guard,
             executable: dart,
             library: library,
             packageConfig: Uri.file(config),
           ),
-          [dart, '--packages=$config', script, analysisGuardCommandName],
+          [dart, '--packages=$config', script, guard],
         );
-        expect(guardCommandFrom(executable: dart, library: library), [
+        expect(modeCommandFrom(guard, executable: dart, library: library), [
           dart,
           script,
-          analysisGuardCommandName,
+          guard,
         ]);
+        // The analysis host is started the same way, in its own mode.
+        expect(
+          modeCommandFrom(
+            analysisHostCommandName,
+            executable: dart,
+            library: library,
+          ),
+          [dart, script, analysisHostCommandName],
+        );
+      });
+
+      test('the analysis host is started with the folder of its address '
+          'file, and for tests with the Dart SDK and its idle time', () {
+        final command = analysisHostCommand(
+          addressFolder: p.absolute('my hosts'),
+          dartSdkPath: p.absolute('dart sdk'),
+          idleStop: const Duration(seconds: 3),
+        );
+        expect(command.sublist(command.length - 4), [
+          analysisHostCommandName,
+          '--address-folder=${p.absolute('my hosts')}',
+          '--dart-sdk=${p.absolute('dart sdk')}',
+          '--idle-stop-seconds=3',
+        ]);
+        expect(
+          analysisHostCommand(addressFolder: 'f').last,
+          '--address-folder=f',
+        );
       });
     });
 

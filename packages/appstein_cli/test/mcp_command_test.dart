@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
+import 'support/analysis_hosts.dart';
 import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
@@ -22,6 +23,7 @@ void main() {
   late String project;
   late String sdk;
   late String cache;
+  late String hosts;
 
   setUp(() {
     out = StringBuffer();
@@ -35,11 +37,18 @@ void main() {
     ).writeAsStringSync('name: my_app\nenvironment:\n  sdk: ^3.12.0\n');
     sdk = createFakeFlutterSdk(p.join(work.path, 'flutter'));
     cache = testAnalysisCache();
+    hosts = p.join(work.path, 'host folder');
+    // Before the folders are deleted: no host a test started outlives it.
+    addTearDown(() => killHost(hosts, project));
   });
 
   HostEnvironment machine({String? cwd}) => HostEnvironment(
     os: HostOs.current,
-    variables: {'FLUTTER_ROOT': sdk, analysisCacheVariable: cache},
+    variables: {
+      'FLUTTER_ROOT': sdk,
+      analysisCacheVariable: cache,
+      analysisHostFolderVariable: hosts,
+    },
     workingDirectory: cwd ?? project,
   );
 
@@ -138,10 +147,13 @@ void main() {
     expect(err.toString(), contains('appstein mcp needs a Flutter project'));
   });
 
-  // Warm analysis with real processes (slice 1d.2, ticket 04): the command's
-  // own kept server, the guard started as `dart bin/appstein.dart
-  // analysis-server-guard`, and the analysis server of the SDK that runs
-  // the tests. Only processes these tests started are looked at or ended.
+  // Warm analysis with real processes (slice 1d.2, ticket 04; slice 1d.7,
+  // ticket 02): the project's analysis host started as `dart
+  // bin/appstein.dart analysis-host`, detached, its guard started as `dart
+  // bin/appstein.dart analysis-server-guard`, and the analysis server of the
+  // SDK that runs the tests. Each test's host has its own address-file
+  // folder and cache folder, and is killed with what runs under it after
+  // the test. Only processes these tests started are looked at or ended.
   group('with a real analysis server', () {
     Future<ServerConnection> connect(StreamChannel<String> channel) async {
       final client = MCPClient(Implementation(name: 'test', version: '1'));
@@ -158,36 +170,55 @@ void main() {
       return server;
     }
 
-    Future<List<String>> dartFindings(ServerConnection server) async {
+    /// The findings of a fast `verify` call, as JSON.
+    Future<List<Object?>> verifyFindings(ServerConnection server) async {
       final result = await server.callTool(
         CallToolRequest(name: 'verify', arguments: const {'scope': 'fast'}),
       );
       expect(result.isError, isNot(isTrue), reason: '${result.content}');
-      return [
-        for (final finding in result.structuredContent!['findings']! as List)
-          if (finding case {
-            'id': final String id,
-            'file': final String file,
-          } when id.startsWith('dart.'))
-            '$id $file',
-      ];
+      return result.structuredContent!['findings']! as List;
     }
+
+    Future<List<String>> dartFindings(ServerConnection server) async => [
+      for (final finding in await verifyFindings(server))
+        if (finding case {
+          'id': final String id,
+          'file': final String file,
+        } when id.startsWith('dart.'))
+          '$id $file',
+    ];
+
+    /// Each `dart.` finding of [findings] whole: ID, file, line, severity
+    /// and message.
+    List<String> wholeDartFindings(List<Object?> findings) => [
+      for (final finding in findings)
+        if (finding case {'id': final String id} when id.startsWith('dart.'))
+          [
+            for (final key in ['id', 'file', 'line', 'severity', 'message'])
+              '${(finding as Map)[key]}',
+          ].join(' | '),
+    ];
 
     File broken() =>
         File(p.join(project, 'lib', 'my folder', 'broken.dart'))
           ..parent.createSync(recursive: true);
 
     test(
-      'starting the command starts no analysis server; the first verify '
-      'call starts one, the next uses it and reports an edit; when the '
-      'client closes, the command ends and the server and its guard are '
-      'gone',
+      'starting the command starts no host; the first verify call starts '
+      'one, the next uses it and reports an edit, and its findings equal a '
+      "terminal run's; when the client closes, the command ends and the host "
+      'keeps its server for the next session',
       () => withChildProcessesToItself(() async {
         final before = await childProcesses();
         Future<Map<int, String>> started() async =>
             (await childProcesses())
               ..removeWhere((id, _) => before.containsKey(id));
-        broken().writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
+        // An error and a warning, so the comparison below has more than one
+        // kind of finding to compare.
+        broken().writeAsStringSync(
+          '/// Wrong.\nint wrong() => \'text\';\n\n'
+          '/// Unused.\nvoid unused() {\n  final left = 1;\n}\n',
+        );
 
         final controller = StreamChannelController<String>();
         final exit = runAppstein(
@@ -203,31 +234,50 @@ void main() {
           CallToolRequest(name: 'overview', arguments: const {}),
         );
         expect(await started(), isEmpty, reason: 'before any verify call');
+        expect(hostProcess(hosts, project), isNull);
 
-        expect(await dartFindings(server), [
-          'dart.error lib/my folder/broken.dart',
-        ]);
-        final guards = await started();
-        expect(guards, hasLength(1), reason: '$guards');
-        final guard = guards.keys.single;
-        final under = await processesUnder(guard);
-        expect(under, isNotEmpty, reason: 'the guard has no analysis server');
-        await recordProcesses([guard, ...under]);
+        final first = wholeDartFindings(await verifyFindings(server));
+        expect(first, contains(startsWith('dart.error | lib/my folder/')));
+        expect(first, contains(startsWith('dart.warning | lib/my folder/')));
+        final host = hostProcess(hosts, project);
+        expect(host, isNotNull, reason: 'no address file');
+        expect(await processAlive(host!), isTrue);
+        final under = await processesUnder(host);
+        // The guard and the analysis server, at least.
+        expect(under.length, greaterThanOrEqualTo(2), reason: '$under');
+        await recordProcesses([host, ...under]);
 
-        // An edit, and a call at once: the same guard, and so the same server.
+        // The same project state, checked by a terminal run.
+        final terminal = StringBuffer();
+        expect(
+          await runAppstein(
+            ['verify', '--fast', '--format', 'json'],
+            out: terminal,
+            err: err,
+            environment: machine(),
+            dartSdkPath: testDartSdk,
+          ),
+          ExitCodes.errorsFound,
+          reason: '$err',
+        );
+        final ran = jsonDecode('$terminal') as Map<String, Object?>;
+        // Every `dart.` finding whole, in the same order.
+        expect(wholeDartFindings(ran['findings']! as List), first);
+
+        // An edit, and a call at once: the same host, and so the same server.
         broken().writeAsStringSync('/// Right.\nint right() => 1;\n');
         expect(await dartFindings(server), isEmpty);
-        expect((await started()).keys, [guard]);
-        expect(await processesUnder(guard), under);
+        expect(hostProcess(hosts, project), host);
+        expect(await processesUnder(host), under);
 
         await server.shutdown();
         expect(await exit, ExitCodes.ok);
-        // The command returned only after both had ended.
-        expect(await processAlive(guard), isFalse);
+        // The host is no session's: it stays, with its server, until it has
+        // been idle for ten minutes (the tear-down ends it).
+        expect(await processAlive(host), isTrue);
         for (final id in under) {
-          expect(await processAlive(id), isFalse, reason: 'process $id');
+          expect(await processAlive(id), isTrue, reason: 'process $id');
         }
-        expect(await started(), isEmpty);
         expect(out.toString(), isEmpty);
         // The server's cache is the folder the machine names, not the one
         // the machine shares.
@@ -235,6 +285,41 @@ void main() {
           Directory(p.join(cache, analysisDriverFolder)).existsSync(),
           isTrue,
         );
+      }),
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'an analysis server that cannot start in the host is an error reply '
+      'that says to run appstein doctor, and the server keeps answering',
+      () => withChildProcessesToItself(() async {
+        broken().writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
+        final controller = StreamChannelController<String>();
+        final exit = runAppstein(
+          ['mcp'],
+          out: out,
+          err: err,
+          environment: machine(),
+          mcpChannel: () => controller.local,
+          dartSdkPath: p.join(project, 'no such sdk'),
+        );
+        final server = await connect(controller.foreign);
+        final verified = await server.callTool(
+          CallToolRequest(name: 'verify', arguments: const {'scope': 'fast'}),
+        );
+        expect(verified.isError, isTrue);
+        final text = [
+          for (final content in verified.content)
+            if (content case TextContent(:final text)) text,
+        ].join('\n');
+        expect(text, contains('The Dart analysis server could not answer'));
+        expect(text, contains('appstein doctor'));
+        final overview = await server.callTool(
+          CallToolRequest(name: 'overview', arguments: const {}),
+        );
+        expect(overview.isError, isNot(isTrue), reason: '${overview.content}');
+        await server.shutdown();
+        expect(await exit, ExitCodes.ok);
       }),
       timeout: const Timeout(Duration(minutes: 10)),
     );
@@ -260,6 +345,7 @@ void main() {
         sdk,
         testDartSdk,
         cache,
+        hosts,
       ], workingDirectory: package);
       final recorded = <int>{process.pid};
       addTearDown(() async {
@@ -307,55 +393,71 @@ void main() {
       expect(await dartFindings(server), [
         'dart.error lib/my folder/broken.dart',
       ], reason: '$errors');
-      final under = await processesUnder(process.pid);
-      recorded.addAll(under);
-      await recordProcesses(recorded);
-      // The guard and the analysis server, at least.
-      expect(
-        under.difference({serving}).length,
-        greaterThanOrEqualTo(2),
-        reason: '$under\n$errors',
-      );
+      // The host it started: not under it, since it was started detached.
+      final host = hostProcess(hosts, project);
+      expect(host, isNotNull, reason: 'no address file\n$errors');
+      final under = {host!, ...await processesUnder(host)};
+      await recordProcesses([...recorded, ...under]);
+      // The host, its guard and the analysis server, at least.
+      expect(under.length, greaterThanOrEqualTo(3), reason: '$under\n$errors');
       return (process: process, serving: serving, under: under, server: server);
     }
 
+    /// The `dart.` findings of a `verify` call of a new session's `appstein
+    /// mcp`, in this process.
+    Future<List<String>> anotherSession() async {
+      final controller = StreamChannelController<String>();
+      final exit = runAppstein(
+        ['mcp'],
+        out: out,
+        err: err,
+        environment: machine(),
+        mcpChannel: () => controller.local,
+        dartSdkPath: testDartSdk,
+      );
+      final server = await connect(controller.foreign);
+      final found = await dartFindings(server);
+      await server.shutdown();
+      expect(await exit, ExitCodes.ok);
+      return found;
+    }
+
     test(
-      'in a process of its own: when its input closes, it exits 0 and the '
-      'guard and the analysis server are gone',
+      'in a process of its own: when its input closes, it exits 0, and the '
+      'host it started serves the next session with the same server',
       () => withChildProcessesToItself(() async {
         final (:process, serving: _, :under, :server) = await serveInAProcess();
-        // A second call, at once after an edit, is answered by the same
-        // processes.
-        broken().writeAsStringSync('/// Right.\nint right() => 1;\n');
-        expect(await dartFindings(server), isEmpty);
-        expect(await processesUnder(process.pid), containsAll(under));
         await server.shutdown();
         expect(
           await process.exitCode.timeout(const Duration(seconds: 30)),
           ExitCodes.ok,
         );
-        expect(
-          await survivorsAfter(under, const Duration(seconds: 5)),
-          isEmpty,
-          reason: 'what outlived `appstein mcp` (of $under)',
-        );
+        broken().writeAsStringSync('/// Right.\nint right() => 1;\n');
+        expect(await anotherSession(), isEmpty);
+        for (final id in under) {
+          expect(await processAlive(id), isTrue, reason: 'process $id');
+        }
+        final host = hostProcess(hosts, project)!;
+        expect({host, ...await processesUnder(host)}, under);
       }),
       timeout: const Timeout(Duration(minutes: 10)),
     );
 
     test(
-      'in a process of its own: when it is killed, the guard and the '
-      'analysis server are gone within a few seconds',
+      'in a process of its own: when it is killed, the host and its server '
+      'keep running for the next session',
       () => withChildProcessesToItself(() async {
         final (:process, :serving, :under, server: _) = await serveInAProcess();
         // The process this test started, which said it serves.
         Process.killPid(serving, ProcessSignal.sigkill);
         process.kill(ProcessSignal.sigkill);
-        expect(
-          await survivorsAfter(under, const Duration(seconds: 10)),
-          isEmpty,
-          reason: 'what outlived the killed `appstein mcp` (of $under)',
-        );
+        await process.exitCode.timeout(const Duration(seconds: 30));
+        for (final id in under) {
+          expect(await processAlive(id), isTrue, reason: 'process $id');
+        }
+        expect(await anotherSession(), [
+          'dart.error lib/my folder/broken.dart',
+        ]);
       }),
       timeout: const Timeout(Duration(minutes: 10)),
     );

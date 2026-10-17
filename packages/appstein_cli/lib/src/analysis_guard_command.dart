@@ -54,7 +54,12 @@ final class AnalysisGuardCommand extends Command<int> {
 ///   longer. The script is given the package configuration this process
 ///   runs with (`--packages`): one installed with `dart pub global
 ///   activate` lives in the pub cache, which has none beside it.
-List<String> analysisGuardCommand() {
+List<String> analysisGuardCommand() =>
+    appsteinModeCommand(analysisGuardCommandName);
+
+/// The command that starts this `appstein` again in its hidden mode [mode],
+/// as [analysisGuardCommand] says for the guard's.
+List<String> appsteinModeCommand(String mode) {
   // A compiled binary has no package configuration to ask.
   Uri? library;
   Uri? packageConfig;
@@ -66,28 +71,32 @@ List<String> analysisGuardCommand() {
   } on UnsupportedError {
     library = null;
   }
-  return guardCommandFrom(
+  return modeCommandFrom(
+    mode,
     executable: Platform.resolvedExecutable,
     library: library,
     packageConfig: packageConfig,
   );
 }
 
-/// [analysisGuardCommand] from what the running Dart says: its
+/// [appsteinModeCommand] for the hidden mode [mode] (the guard's,
+/// [analysisGuardCommandName], or the analysis host's,
+/// `analysisHostCommandName`) from what the running Dart says: its
 /// [executable], where `package:appstein_cli/appstein_cli.dart` is
 /// ([library], null in a compiled binary) and the package configuration it
 /// runs with ([packageConfig], null when there is none).
-List<String> guardCommandFrom({
+List<String> modeCommandFrom(
+  String mode, {
   required String executable,
   Uri? library,
   Uri? packageConfig,
 }) {
-  if (library == null) return [executable, analysisGuardCommandName];
+  if (library == null) return [executable, mode];
   return [
     executable,
     if (packageConfig != null && packageConfig.isScheme('file'))
       '--packages=${packageConfig.toFilePath()}',
     p.join(p.dirname(p.dirname(library.toFilePath())), 'bin', 'appstein.dart'),
-    analysisGuardCommandName,
+    mode,
   ];
 }

@@ -339,8 +339,8 @@ final class VerifyCommand extends Command<int> {
 /// starts the server of the SDK the project at [projectRoot] uses, behind
 /// the guard ([analysisGuardCommand]), when a check first asks, and stops
 /// it when the run ends, normally or with an error. A terminal `appstein
-/// verify` uses it. `appstein mcp` keeps one server between its `verify`
-/// calls instead (`keptCodeAnalysis`).
+/// verify` uses it. The `verify` tool of `appstein mcp` asks the project's
+/// analysis host instead (`hostCodeAnalysis`).
 ///
 /// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
 /// [onLeft] is told, after the server was stopped, each process the stop
