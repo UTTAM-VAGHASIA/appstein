@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:appstein_cli/appstein_cli.dart';
 import 'package:appstein_cli/src/verify_hook.dart'
-    show HookAnswer, hookInputLimit, isClaudeHookRun;
+    show HookAnswer, claudeHookKind, hookInputLimit, hookKindOf;
 import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
@@ -53,6 +53,28 @@ final class _Counting implements VerifyCheck {
   @override
   Future<List<Finding>> run(VerifyContext context) async {
     runs++;
+    return const [];
+  }
+}
+
+/// A fast check that finds nothing and calls [onRun] each time it runs.
+final class _NotifyingCheck implements VerifyCheck {
+  _NotifyingCheck(this.onRun);
+
+  final void Function() onRun;
+
+  @override
+  List<String> get ids => const ['x.notify'];
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    onRun();
     return const [];
   }
 }
@@ -195,6 +217,26 @@ void main() {
       );
       expect(input.sessionId, 's1');
     });
+
+    test('reads whether the agent is already continuing because of a Stop '
+        'hook: only the JSON true is yes, and missing is no', () {
+      expect(parseHookInput(_claudeInput).stopHookActive, isFalse);
+      expect(parseHookInput('{"stop_hook_active":true}').stopHookActive, true);
+      expect(
+        parseHookInput('{"stop_hook_active":false}').stopHookActive,
+        false,
+      );
+      for (final text in [
+        '',
+        'not json',
+        '[true]',
+        '{"stop_hook_active":"true"}',
+        '{"stop_hook_active":1}',
+        '{"stop_hook_active":null}',
+      ]) {
+        expect(parseHookInput(text).stopHookActive, isFalse, reason: text);
+      }
+    });
   });
 
   group('appstein verify --hook', () {
@@ -311,17 +353,30 @@ void main() {
         }
       });
 
-      test('--hook claude without --fast, with exit 3: the Stop hook is not '
-          'built yet', () async {
-        for (final arguments in [
-          ['verify', '--hook', 'claude'],
-          ['verify', '--full', '--hook', 'claude'],
-        ]) {
-          err.clear();
-          expect(await hook(arguments: arguments), ExitCodes.appsteinFailed);
+      test(
+        '--hook claude with --fast and --full together, with exit 3',
+        () async {
+          expect(
+            await hook(
+              arguments: ['verify', '--fast', '--full', '--hook', 'claude'],
+            ),
+            ExitCodes.appsteinFailed,
+          );
           expect(out.toString(), isEmpty);
-          expect(err.toString(), contains('--fast'));
-        }
+          expect(err.toString(), contains('--fast or --full'));
+        },
+      );
+
+      test('--hook claude --fast --apply, with exit 3: a fast run never '
+          'rewrites files', () async {
+        expect(
+          await hook(
+            arguments: ['verify', '--fast', '--apply', '--hook', 'claude'],
+          ),
+          ExitCodes.appsteinFailed,
+        );
+        expect(out.toString(), isEmpty);
+        expect(err.toString(), contains('--apply works with a full run only'));
       });
     });
 
@@ -1161,6 +1216,1051 @@ void main() {
       });
     });
 
+    group('the Stop hook (--full)', () {
+      /// The input Claude Code gives a Stop hook.
+      String stopInput(String? id, {bool? active, String event = 'Stop'}) =>
+          jsonEncode({
+            'session_id': ?id,
+            'hook_event_name': event,
+            'stop_hook_active': ?active,
+          });
+
+      /// A check that reports the error [message] at [line] of [file].
+      VerifyCheck brokenFile({
+        int line = 1,
+        String message = 'Broken.',
+        String file = 'lib/a.dart',
+      }) => _Reports(
+        [_finding('x.err', Severity.error, file, line: line, message: message)],
+        ids: const ['x.err'],
+      );
+
+      /// The input Claude Code gives the PostToolUse hook of a session.
+      String postInput(String id) =>
+          jsonEncode({'session_id': id, 'hook_event_name': 'PostToolUse'});
+
+      var nextStopSession = 0;
+
+      /// Runs the Stop hook for [input], with [extra] flags. Without an input
+      /// every call is a new session's Stop.
+      Future<int> stop({
+        String? input,
+        List<VerifyCheck>? checks,
+        List<String> extra = const [],
+        ScriptedCodeAnalysis? analysis,
+        CodeAnalysisScope? scope,
+      }) {
+        out.clear();
+        err.clear();
+        return hook(
+          arguments: ['verify', '--full', '--hook', 'claude', ...extra],
+          input: input ?? stopInput('new-stop-${++nextStopSession}'),
+          checks: checks,
+          analysis: analysis,
+          scope: scope,
+        );
+      }
+
+      Map<String, Object?> stopJson() => stdoutJson();
+
+      group('answers', () {
+        test('errors: exit 2 and stderr exactly as after an edit, with the '
+            'checks that did not run; stdout is empty', () async {
+          expect(
+            await stop(
+              checks: [
+                _Reports(
+                  [
+                    _finding(
+                      'x.one',
+                      Severity.error,
+                      'lib/b.dart',
+                      line: 3,
+                      message: 'Broken b.',
+                      fix: 'Fix b.',
+                      ref: '.appstein/map/routes.json#home',
+                    ),
+                    _finding(
+                      'x.three',
+                      Severity.warning,
+                      'lib/c.dart',
+                      message: 'Only a warning.',
+                    ),
+                  ],
+                  ids: ['x.one', 'x.three'],
+                ),
+                _NotRunCheck('y.slow', 'the analysis server is starting'),
+              ],
+            ),
+            2,
+          );
+          expect(out.toString(), isEmpty);
+          expect(
+            err.toString(),
+            startsWith(
+              'lib/b.dart\n'
+              '  error x.one (line 3): Broken b.\n'
+              '    fix: Fix b.\n'
+              '    knowledge: .appstein/map/routes.json#home\n',
+            ),
+          );
+          expect(
+            err.toString(),
+            contains('y.slow: the analysis server is starting'),
+          );
+          expect(err.toString(), isNot(contains('only a warning')));
+        });
+
+        test('more than 30 errors are cut as after an edit', () async {
+          expect(
+            await stop(
+              checks: [
+                _Reports(
+                  [
+                    for (var i = 0; i < 35; i++)
+                      _finding(
+                        'x.err',
+                        Severity.error,
+                        'lib/f${i.toString().padLeft(2, '0')}.dart',
+                      ),
+                  ],
+                  ids: const ['x.err'],
+                ),
+              ],
+            ),
+            2,
+          );
+          expect(
+            err.toString(),
+            endsWith('…and 5 more: call the `verify` tool for all\n'),
+          );
+        });
+
+        test('an analyzer error of the real code checks blocks too', () async {
+          expect(
+            await stop(
+              analysis: ScriptedCodeAnalysis(
+                found: const [
+                  CodeDiagnostic(
+                    file: 'lib/main.dart',
+                    line: 2,
+                    code: 'undefined_method',
+                    message: 'No such method.',
+                    level: DiagnosticLevel.error,
+                  ),
+                ],
+              ),
+            ),
+            2,
+          );
+          expect(err.toString(), contains('error dart.error (line 2)'));
+        });
+
+        test(
+          'warnings and no error: exit 0 and a JSON message for the '
+          'developer, never context for the agent; stderr is empty',
+          () async {
+            expect(
+              await stop(
+                checks: [
+                  _Reports(
+                    [
+                      _finding(
+                        'x.warn',
+                        Severity.warning,
+                        'lib/c.dart',
+                        line: 4,
+                        message: 'Unused.',
+                        fix: 'Remove it.',
+                      ),
+                      _finding('x.info', Severity.info, 'lib/d.dart'),
+                    ],
+                    ids: ['x.warn', 'x.info'],
+                  ),
+                ],
+              ),
+              0,
+            );
+            expect(err.toString(), isEmpty);
+            expect(out.toString(), endsWith('\n'));
+            expect(stopJson(), {
+              'systemMessage':
+                  'Appstein checked the project: no errors, 1 warning.\n'
+                  '\n'
+                  'lib/c.dart\n'
+                  '  warning x.warn (line 4): Unused.\n'
+                  '    fix: Remove it.\n',
+            });
+          },
+        );
+
+        test('warnings are cut at 30, and the message stays under 10,000 '
+            'characters', () async {
+          expect(
+            await stop(
+              checks: [
+                _Reports(
+                  [
+                    for (var i = 0; i < 40; i++)
+                      _finding(
+                        'x.warn',
+                        Severity.warning,
+                        'lib/f${i.toString().padLeft(2, '0')}.dart',
+                        message: 'w' * 700,
+                      ),
+                  ],
+                  ids: const ['x.warn'],
+                ),
+              ],
+            ),
+            0,
+          );
+          final message = stopJson()['systemMessage']! as String;
+          expect(message.length, lessThan(10000));
+          expect(message, contains(' more: call the `verify` tool for all'));
+          expect(stopJson().keys, ['systemMessage']);
+        });
+
+        test(
+          'only info findings, or nothing: exit 0 and no output at all',
+          () async {
+            expect(
+              await stop(
+                checks: [
+                  _Reports(
+                    [_finding('x.info', Severity.info, 'lib/d.dart')],
+                    ids: const ['x.info'],
+                  ),
+                ],
+              ),
+              0,
+            );
+            expect(out.toString(), isEmpty);
+            expect(err.toString(), isEmpty);
+
+            expect(await stop(), 0);
+            expect(out.toString(), isEmpty);
+            expect(err.toString(), isEmpty);
+          },
+        );
+
+        test('checks that did not run are told to the developer, since '
+            'silence never hides an unchecked project', () async {
+          expect(
+            await stop(
+              checks: [_NotRunCheck('x.slow', 'the analysis server is gone')],
+            ),
+            0,
+          );
+          expect(stopJson().keys, ['systemMessage']);
+          expect(
+            stopJson()['systemMessage'],
+            contains('x.slow: the analysis server is gone'),
+          );
+          expect(err.toString(), isEmpty);
+        });
+
+        test('notices are the whole message when there is nothing else, '
+            'and beside the warnings', () async {
+          const notice = 'Process 7 may be an analysis server.';
+          expect(
+            await stop(analysis: ScriptedCodeAnalysis(notices: const [notice])),
+            0,
+          );
+          expect(stopJson(), {'systemMessage': 'Appstein note: $notice'});
+
+          expect(
+            await stop(
+              extra: ['--apply'],
+              analysis: ScriptedCodeAnalysis(
+                notices: const [notice],
+                found: const [
+                  CodeDiagnostic(
+                    file: 'lib/main.dart',
+                    line: 2,
+                    code: 'unused_import',
+                    message: 'Unused import.',
+                    level: DiagnosticLevel.warning,
+                  ),
+                ],
+              ),
+            ),
+            0,
+          );
+          expect(stopJson().keys, ['systemMessage']);
+          final message = stopJson()['systemMessage']! as String;
+          expect(message, contains('warning dart.warning (line 2)'));
+          expect(message, endsWith('Appstein note: $notice'));
+        });
+
+        test('notices beside the errors of exit 2 are the developer\'s '
+            'systemMessage, as after an edit', () async {
+          const notice = 'Process 7 may be an analysis server.';
+          expect(
+            await stop(
+              analysis: ScriptedCodeAnalysis(
+                notices: const [notice],
+                found: const [
+                  CodeDiagnostic(
+                    file: 'lib/main.dart',
+                    line: 1,
+                    code: 'undefined_method',
+                    message: 'No such method.',
+                    level: DiagnosticLevel.error,
+                  ),
+                ],
+              ),
+            ),
+            2,
+          );
+          expect(stopJson(), {'systemMessage': 'Appstein note: $notice'});
+          expect(err.toString(), contains('error dart.error (line 1)'));
+        });
+
+        test('Appstein failing: exit 0 and the developer\'s message only, '
+            'with the details on stderr; the agent gets no context', () async {
+          expect(
+            await stop(
+              analysis: ScriptedCodeAnalysis(
+                failure: const CodeAnalysisException('it did not answer'),
+              ),
+            ),
+            0,
+          );
+          expect(stopJson().keys, ['systemMessage']);
+          final message = stopJson()['systemMessage']! as String;
+          expect(message, contains('it did not answer'));
+          expect(message, contains('run `appstein doctor`'));
+          expect(
+            err.toString(),
+            contains('The Dart analysis server could not answer'),
+          );
+
+          expect(await stop(checks: const [_Throws()]), 0);
+          expect(stopJson().keys, ['systemMessage']);
+          expect(stopJson()['systemMessage'], contains('boom.check'));
+
+          expect(
+            await stop(scope: <T>(body) => throw StateError('it fell')),
+            0,
+          );
+          expect(stopJson().keys, ['systemMessage']);
+          expect(err.toString(), contains('#0'));
+          expect(out.toString(), isNot(contains('#0')));
+        });
+
+        test('a failure before the command runs is the same at Stop, with '
+            '--full, with --hook=claude and with neither flag; a fast run '
+            'still tells the agent', () async {
+          for (final flags in [
+            ['--full', '--hook', 'claude'],
+            ['--hook=claude'],
+            ['--apply', '--hook', 'claude'],
+          ]) {
+            out.clear();
+            err.clear();
+            expect(
+              await runAppstein(
+                ['verify', ...flags],
+                out: out,
+                err: err,
+                environmentFactory: () =>
+                    throw const FileSystemException('cwd gone'),
+              ),
+              0,
+              reason: '$flags',
+            );
+            expect(stopJson().keys, ['systemMessage'], reason: '$flags');
+            expect(stopJson()['systemMessage'], contains('cwd gone'));
+          }
+          out.clear();
+          await runAppstein(
+            ['verify', '--fast', '--hook', 'claude'],
+            out: out,
+            err: err,
+            environmentFactory: () =>
+                throw const FileSystemException('cwd gone'),
+          );
+          expect(stopJson().keys.toSet(), {
+            'hookSpecificOutput',
+            'systemMessage',
+          });
+        });
+
+        final warning = _Reports(
+          [_finding('x.warn', Severity.warning, 'lib/c.dart')],
+          ids: const ['x.warn'],
+        );
+
+        test('with neither --fast nor --full a hook run answers as Stop, '
+            'start to end: warnings go to the developer only, errors block, '
+            'and the loop guard counts', () async {
+          Future<int> bare(String input, List<VerifyCheck> checks) {
+            out.clear();
+            err.clear();
+            return hook(
+              arguments: ['verify', '--hook', 'claude'],
+              input: input,
+              checks: checks,
+            );
+          }
+
+          expect(await bare(stopInput('a'), [warning]), 0);
+          expect(stopJson().keys, ['systemMessage']);
+          expect(err.toString(), isEmpty);
+
+          for (var i = 0; i < 3; i++) {
+            expect(
+              await bare(stopInput('b', active: i > 0), [brokenFile()]),
+              2,
+              reason: 'run $i',
+            );
+            expect(err.toString(), contains('error x.err'));
+          }
+          expect(await bare(stopInput('b', active: true), [brokenFile()]), 0);
+          expect(stopJson()['systemMessage'], contains('3 times in a row'));
+
+          // And the same with no input at all: the flags decide.
+          expect(await bare('', [warning]), 0);
+          expect(stopJson().keys, ['systemMessage']);
+        });
+
+        test('the event the input names decides the kind of run: a Stop '
+            'event is the Stop hook even for --fast, and any other event '
+            'is the after-edit hook even for a full run', () async {
+          // A fast run whose input says Stop.
+          expect(await hook(input: stopInput('a'), checks: [warning]), 0);
+          expect(stopJson().keys, ['systemMessage']);
+
+          // A full run whose input says PostToolUse.
+          expect(await stop(input: postInput('b'), checks: [warning]), 0);
+          expect(stopJson().keys, ['hookSpecificOutput']);
+        });
+
+        test('a full run whose input names another event than Stop reads '
+            'and saves no loop guard: it is blocked as after an edit and '
+            'leaves the count of the Stop hook alone', () async {
+          // Two Stop blocks.
+          await stop(
+            input: stopInput('s', active: false),
+            checks: [brokenFile()],
+          );
+          await stop(
+            input: stopInput('s', active: true),
+            checks: [brokenFile()],
+          );
+          final record = Directory(
+            HookSessions(project).folder,
+          ).listSync().whereType<File>().single;
+          final before = record.readAsStringSync();
+
+          // A PostToolUse hook set up without --fast: any number of runs
+          // block as after an edit, even with stop_hook_active true, and
+          // the record's guard stays as the Stop hook left it.
+          for (var i = 0; i < 5; i++) {
+            expect(
+              await stop(
+                input: jsonEncode({
+                  'session_id': 's',
+                  'hook_event_name': 'PostToolUse',
+                  'stop_hook_active': true,
+                }),
+                checks: [brokenFile()],
+              ),
+              2,
+              reason: 'run $i',
+            );
+            expect(err.toString(), contains('error x.err'));
+          }
+          expect(
+            HookSessions(project).readGuard('s')!.count,
+            2,
+            reason: 'the guard is the Stop hook\'s',
+          );
+          expect(record.readAsStringSync().contains('"guard"'), isTrue);
+          expect(before.contains('"guard"'), isTrue);
+
+          // A session whose only runs are such: no guard is ever written.
+          await stop(
+            input: jsonEncode({
+              'session_id': 'only-post',
+              'hook_event_name': 'PostToolUse',
+            }),
+            checks: [brokenFile()],
+          );
+          expect(HookSessions(project).readGuard('only-post'), isNull);
+
+          // The next Stop goes on counting from 2: block, then let go.
+          expect(
+            await stop(
+              input: stopInput('s', active: true),
+              checks: [brokenFile()],
+            ),
+            2,
+          );
+          expect(
+            await stop(
+              input: stopInput('s', active: true),
+              checks: [brokenFile()],
+            ),
+            0,
+          );
+        });
+
+        test('missing input still checks and blocks', () async {
+          for (final input in ['', 'not json', '[]']) {
+            expect(
+              await stop(input: input, checks: [brokenFile()]),
+              2,
+              reason: input,
+            );
+            expect(err.toString(), contains('error x.err'));
+          }
+        });
+      });
+
+      group('--apply', () {
+        test('fixes and formats, renders the human docs, then runs every '
+            'check: in that order, in hook mode as without it', () async {
+          final docs = Directory(p.join(project, 'docs', 'app'));
+          expect(docs.existsSync(), isTrue, reason: 'a healthy project');
+          docs.deleteSync(recursive: true);
+          final order = <String>[];
+          final analysis = ScriptedCodeAnalysis()
+            ..onApply = (_) async {
+              order.add('apply');
+              return ['lib/fixed.dart'];
+            };
+          expect(
+            await stop(
+              extra: ['--apply'],
+              analysis: analysis,
+              checks: [_NotifyingCheck(() => order.add('check'))],
+            ),
+            0,
+            reason: '$err',
+          );
+          expect(order, ['apply', 'check']);
+          expect(analysis.applyAsked, 1);
+          // The pages are back, and nothing else was said.
+          expect(docs.existsSync(), isTrue);
+          expect(docs.listSync(recursive: true).whereType<File>(), isNotEmpty);
+          expect(out.toString(), isEmpty);
+          expect(err.toString(), isEmpty);
+        });
+
+        test('errors after the rewrite still block with exit 2, and stderr '
+            'names the files it rewrote, first, to be read again before '
+            'they are edited', () async {
+          final analysis = ScriptedCodeAnalysis()..applied = ['lib/a.dart'];
+          expect(
+            await stop(
+              extra: ['--apply'],
+              analysis: analysis,
+              checks: [brokenFile()],
+            ),
+            2,
+          );
+          expect(analysis.applyAsked, 1);
+          expect(
+            err.toString(),
+            startsWith(
+              'Rewritten by --apply (read this file again before you edit '
+              'it):\n'
+              '  lib/a.dart\n'
+              '\n'
+              'lib/a.dart\n'
+              '  error x.err (line 1): Broken.\n',
+            ),
+          );
+          expect(out.toString(), isEmpty);
+
+          analysis.applied = ['lib/a.dart', 'lib/b c.dart'];
+          expect(
+            await stop(
+              extra: ['--apply'],
+              analysis: analysis,
+              checks: [brokenFile()],
+            ),
+            2,
+          );
+          expect(
+            err.toString(),
+            startsWith(
+              'Rewritten by --apply (read these files again before you edit '
+              'them):\n'
+              '  lib/a.dart\n'
+              '  lib/b c.dart\n'
+              '\n'
+              'lib/a.dart\n',
+            ),
+          );
+        });
+
+        test('the files rewritten are listed to 30, and the whole stderr '
+            'stays under 10,000 characters', () async {
+          final analysis = ScriptedCodeAnalysis()
+            ..applied = [
+              for (var i = 0; i < 40; i++) 'lib/${'f' * 600}$i.dart',
+            ];
+          expect(
+            await stop(
+              extra: ['--apply'],
+              analysis: analysis,
+              checks: [brokenFile()],
+            ),
+            2,
+          );
+          final text = err.toString();
+          expect(text, contains('…and '));
+          expect(text.length, lessThan(10000));
+          // The list ends on its own line, before the errors.
+          expect(text, contains('\n\nlib/a.dart\n  error x.err (line 1)'));
+
+          analysis.applied = [for (var i = 0; i < 40; i++) 'lib/f$i.dart'];
+          expect(
+            await stop(
+              extra: ['--apply'],
+              analysis: analysis,
+              checks: [brokenFile()],
+            ),
+            2,
+          );
+          expect(err.toString(), contains('  lib/f29.dart\n  …and 10 more\n'));
+          expect(err.toString(), isNot(contains('lib/f30.dart')));
+        });
+
+        test('a run that does not block says nothing of the files it '
+            'rewrote: the agent is not continuing', () async {
+          final analysis = ScriptedCodeAnalysis()..applied = ['lib/a.dart'];
+          expect(await stop(extra: ['--apply'], analysis: analysis), 0);
+          expect(out.toString(), isEmpty);
+          expect(err.toString(), isEmpty);
+        });
+
+        test('without it nothing is asked to rewrite', () async {
+          final analysis = ScriptedCodeAnalysis();
+          await stop(analysis: analysis);
+          expect(analysis.applyAsked, 0);
+        });
+      });
+
+      group('the Stop hook and "nothing changed" share a record and '
+          'break neither', () {
+        test('a full run is never silent: nothing changed, and it checks '
+            'every time', () async {
+          final check = _Counting();
+          for (var i = 0; i < 3; i++) {
+            expect(await stop(input: stopInput('a'), checks: [check]), 0);
+            expect(out.toString(), isEmpty);
+          }
+          expect(check.runs, 3);
+        });
+
+        test('a fast run\'s record does not silence a full run, and a full '
+            'run does not silence the next fast run, whether or not the '
+            'fast run had a record', () async {
+          final check = _Counting();
+          // A fast run saves its record.
+          await hook(input: postInput('a'), checks: [check]);
+          expect(check.runs, 1);
+          // The full run checks though nothing changed.
+          await stop(input: stopInput('a'), checks: [check]);
+          expect(check.runs, 2);
+          // The fast run is still silent: the Stop run left its record.
+          await hook(input: postInput('a'), checks: [check]);
+          expect(check.runs, 2);
+
+          // A session whose first run is a full one: its first fast run
+          // checks (a Stop run saved no fingerprint).
+          await stop(input: stopInput('b'), checks: [check]);
+          expect(check.runs, 3);
+          await hook(input: postInput('b'), checks: [check]);
+          expect(check.runs, 4);
+          await hook(input: postInput('b'), checks: [check]);
+          expect(check.runs, 4);
+        });
+
+        test('a Stop run that rewrites files does not make the next fast '
+            'run silent over them: the fast run sees the rewritten files '
+            'changed', () async {
+          final check = _Counting();
+          await hook(input: postInput('a'), checks: [check]);
+          expect(check.runs, 1);
+          final analysis = ScriptedCodeAnalysis()
+            ..onApply = (_) async {
+              File(
+                p.join(project, 'lib', 'main.dart'),
+              ).writeAsStringSync('void main() { print("fixed"); }\n');
+              return ['lib/main.dart'];
+            };
+          await stop(
+            input: stopInput('a'),
+            extra: ['--apply'],
+            analysis: analysis,
+            checks: [check],
+          );
+          expect(check.runs, 2);
+          await hook(input: postInput('a'), checks: [check]);
+          expect(check.runs, 3, reason: 'the rewritten file is a change');
+        });
+      });
+
+      group('the loop guard', () {
+        /// One Stop run of session [id], with [checks] (the same error by
+        /// default). [active] is the input's stop_hook_active.
+        Future<int> call(
+          String id, {
+          bool active = true,
+          List<VerifyCheck>? checks,
+        }) => stop(
+          input: stopInput(id, active: active),
+          checks: checks ?? [brokenFile()],
+        );
+
+        /// [count] Stop runs of session [id] in a row, the first not
+        /// continuing and the rest continuing, as Claude Code gives them.
+        Future<List<int>> runs(
+          String id,
+          int count, {
+          List<VerifyCheck>? checks,
+        }) async => [
+          for (var i = 0; i < count; i++)
+            await call(id, active: i > 0, checks: checks),
+        ];
+
+        test('the same errors block three times in a row and the fourth '
+            'Stop lets the agent go, with the errors that remain told to '
+            'the developer', () async {
+          expect(await runs('loop', 3), [2, 2, 2]);
+          expect(err.toString(), contains('error x.err'));
+
+          // The fourth.
+          expect(await call('loop'), 0);
+          expect(err.toString(), isEmpty);
+          expect(stopJson().keys, ['systemMessage']);
+          expect(
+            stopJson()['systemMessage'],
+            startsWith(
+              'Appstein let the agent stop with 1 error left: the same error '
+              'has blocked it 3 times in a row in this session. The '
+              'remaining error:\n'
+              '\n'
+              'lib/a.dart\n'
+              '  error x.err (line 1): Broken.\n',
+            ),
+          );
+          // A fifth and a sixth with the same errors go on letting it go.
+          expect(await call('loop'), 0);
+          expect(await call('loop'), 0);
+        });
+
+        test('the message lists every remaining error, cut at 30', () async {
+          final many = _Reports(
+            [
+              for (var i = 0; i < 32; i++)
+                _finding(
+                  'x.err',
+                  Severity.error,
+                  'lib/f${i.toString().padLeft(2, '0')}.dart',
+                  line: 1,
+                ),
+            ],
+            ids: const ['x.err'],
+          );
+          expect(await runs('s', 3, checks: [many]), [2, 2, 2]);
+          expect(await call('s', checks: [many]), 0);
+          final message = stopJson()['systemMessage']! as String;
+          expect(message, contains('with 32 errors left'));
+          expect(message, contains('lib/f29.dart'));
+          expect(message, isNot(contains('lib/f30.dart')));
+          expect(message, contains('…and 2 more: call the `verify` tool'));
+          expect(message.length, lessThan(10000));
+        });
+
+        test('the count starts again when the agent is not continuing: '
+            'every Stop with stop_hook_active false or missing is a first '
+            'block', () async {
+          for (final input in [stopInput('s', active: false), stopInput('s')]) {
+            for (var i = 0; i < 5; i++) {
+              expect(await stop(input: input, checks: [brokenFile()]), 2);
+            }
+          }
+          // And after such a reset the count goes on from 1.
+          expect(
+            [await call('s'), await call('s'), await call('s')],
+            [2, 2, 0],
+          );
+        });
+
+        test('a Stop that is not continuing in the middle of a count '
+            'starts it again', () async {
+          expect(await runs('s', 3), [2, 2, 2]);
+          // A new task: the agent says done again, not continuing.
+          expect(await runs('s', 3), [2, 2, 2]);
+          expect(await call('s'), 0);
+        });
+
+        test('the count starts again when the set of errors changes: a new '
+            'message, a new file, an added error', () async {
+          VerifyCheck two() => _Reports(
+            [
+              _finding('x.err', Severity.error, 'lib/b.dart'),
+              _finding('x.err', Severity.error, 'lib/c.dart'),
+            ],
+            ids: const ['x.err'],
+          );
+
+          // Three blocks of one set, then another set: three blocks again.
+          expect(await runs('s', 3), [2, 2, 2]);
+          for (final changed in [
+            () => brokenFile(message: 'Different.'),
+            () => brokenFile(file: 'lib/b.dart'),
+            two,
+          ]) {
+            expect(
+              [
+                await call('s', checks: [changed()]),
+                await call('s', checks: [changed()]),
+                await call('s', checks: [changed()]),
+              ],
+              [2, 2, 2],
+            );
+          }
+          // Only when the last set stays the same a fourth time does it go.
+          expect(await call('s', checks: [two()]), 0);
+        });
+
+        test('an error that moves between lines is the same error: an edit '
+            'above it does not reset the count', () async {
+          expect(
+            await call('s', active: false, checks: [brokenFile(line: 10)]),
+            2,
+          );
+          expect(await call('s', checks: [brokenFile(line: 14)]), 2);
+          expect(await call('s', checks: [brokenFile(line: 3)]), 2);
+          expect(await call('s', checks: [brokenFile(line: 20)]), 0);
+          // The message names the line it has now.
+          expect(stopJson()['systemMessage'], contains('(line 20)'));
+        });
+
+        test('the count ends when the errors are gone: a clean Stop in the '
+            'middle starts it again, and so do warnings alone', () async {
+          expect(await runs('s', 2), [2, 2]);
+          // Fixed.
+          expect(await call('s', checks: const []), 0);
+          // The same errors come back: three blocks again.
+          expect(
+            [await call('s'), await call('s'), await call('s')],
+            [2, 2, 2],
+          );
+          expect(await call('s'), 0);
+          // Warnings alone end it too.
+          expect(
+            await call(
+              's',
+              checks: [
+                _Reports(
+                  [_finding('x.warn', Severity.warning, 'lib/a.dart')],
+                  ids: const ['x.warn'],
+                ),
+              ],
+            ),
+            0,
+          );
+          expect(
+            [await call('s'), await call('s'), await call('s')],
+            [2, 2, 2],
+          );
+        });
+
+        test('two sessions keep separate counts', () async {
+          expect(await call('one', active: false), 2);
+          expect(await call('one'), 2);
+          // The other session is continuing too, but has no count: its first.
+          expect(await call('two'), 2);
+          expect(await call('one'), 2);
+          // The first reaches its limit; the second is at its first.
+          expect(await call('one'), 0);
+          expect(await call('two'), 2);
+          expect(await call('two'), 2);
+          expect(await call('two'), 0);
+          // And the first is still let go, not reset by the other.
+          expect(await call('one'), 0);
+        });
+
+        test('the edits between two Stop runs, and the after-edit hook '
+            'that follows them, keep the count', () async {
+          expect(await call('edits', active: false), 2);
+          for (var i = 1; i <= 3; i++) {
+            // The agent edits, and the PostToolUse hook runs (and saves its
+            // fingerprint into the same record).
+            File(
+              p.join(project, 'lib', 'main.dart'),
+            ).writeAsStringSync('void main() { print($i); }\n');
+            expect(
+              await hook(input: postInput('edits'), checks: [brokenFile()]),
+              2,
+            );
+            expect(
+              await call('edits', checks: [brokenFile(line: i + 1)]),
+              i < 3 ? 2 : 0,
+              reason: 'Stop after edit $i',
+            );
+          }
+        });
+
+        test('a run with no session never lets the agent go and keeps no '
+            'record: Claude Code\'s own limit ends such a loop', () async {
+          for (var i = 0; i < 6; i++) {
+            expect(
+              await stop(
+                input: '{"stop_hook_active":true}',
+                checks: [brokenFile()],
+              ),
+              2,
+            );
+          }
+          expect(
+            Directory(
+              p.join(project, '.appstein', 'hook-sessions'),
+            ).existsSync(),
+            isFalse,
+          );
+        });
+
+        test('a run in which Appstein failed changes nothing: the count '
+            'goes on after it', () async {
+          expect(await call('s', active: false), 2);
+          expect(
+            await stop(
+              input: stopInput('s', active: true),
+              scope: <T>(body) => throw StateError('it fell'),
+            ),
+            0,
+          );
+          expect(
+            [await call('s'), await call('s'), await call('s')],
+            [2, 2, 0],
+          );
+        });
+
+        group('when the record can\'t be read or saved, the agent is '
+            'blocked for longer, not let go early (but for one case)', () {
+          /// Takes the records' lock.
+          Future<KnowledgeLock> holdLock() => KnowledgeLock.acquire(
+            HookSessions(
+              project,
+            ).folder.replaceFirst('${p.separator}records', ''),
+          );
+
+          test('the records\' lock stays busy for the whole wait: no count '
+              'is saved, so the count stays at 1 and the agent is blocked, '
+              'without an error', () async {
+            final lock = await holdLock();
+            try {
+              for (var i = 0; i < 3; i++) {
+                expect(await call('s', active: i > 0), 2, reason: 'run $i');
+                expect(err.toString(), contains('error x.err'));
+              }
+            } finally {
+              lock.release();
+            }
+            expect(HookSessions(project).readGuard('s'), isNull);
+            // Once it is free the counting works again, from the start.
+            expect(
+              [
+                await call('s'),
+                await call('s'),
+                await call('s'),
+                await call('s'),
+              ],
+              [2, 2, 2, 0],
+            );
+          });
+
+          test('the lock is busy for less than the Stop hook\'s wait: the '
+              'count is saved after all (the after-edit hook\'s 200 ms '
+              'would have lost it)', () async {
+            final lock = await holdLock();
+            Timer(const Duration(milliseconds: 700), lock.release);
+            expect(await call('s', active: false), 2);
+            expect(HookSessions(project).readGuard('s')!.count, 1);
+          });
+
+          test('the lock is busy at the fourth run: the decision was made '
+              'from the count read, so the agent is let go', () async {
+            expect(await runs('s', 3), [2, 2, 2]);
+            final lock = await holdLock();
+            try {
+              expect(await call('s'), 0);
+              expect(stopJson()['systemMessage'], contains('3 times in a row'));
+            } finally {
+              lock.release();
+            }
+          });
+
+          test('the one way a release can come early: a save of a changed '
+              'set fails even after the wait, so the old, higher count '
+              'stays and the old errors coming back are counted on from '
+              'it', () async {
+            expect(await runs('s', 2), [2, 2]);
+            // Another set blocks once, and its save fails.
+            final lock = await holdLock();
+            try {
+              expect(
+                await call('s', checks: [brokenFile(file: 'lib/other.dart')]),
+                2,
+              );
+            } finally {
+              lock.release();
+            }
+            expect(HookSessions(project).readGuard('s')!.count, 2);
+            // The first errors return: counted on from 2, so the second of
+            // them is the third block, and the next run lets go, after the
+            // first errors blocked only three times with another between.
+            expect(await call('s'), 2);
+            expect(await call('s'), 0);
+          });
+
+          test('a record that is damaged counts as none: the count starts '
+              'again and the agent is blocked', () async {
+            expect(await runs('s', 2), [2, 2]);
+            final record = Directory(
+              HookSessions(project).folder,
+            ).listSync().whereType<File>().single;
+            record.writeAsStringSync('{ not json');
+            // It is whole again, at 1.
+            expect(
+              [
+                await call('s'),
+                await call('s'),
+                await call('s'),
+                await call('s'),
+              ],
+              [2, 2, 2, 0],
+            );
+          });
+
+          test('a folder that can\'t be written is no error: the agent is '
+              'blocked every time', () async {
+            // The records' folder is a file.
+            final blocker = File(
+              HookSessions(
+                project,
+              ).folder.replaceFirst('${p.separator}records', ''),
+            )..writeAsStringSync('not a folder');
+            expect(blocker.existsSync(), isTrue);
+            for (var i = 0; i < 5; i++) {
+              expect(await call('s', active: i > 0), 2, reason: 'run $i');
+              expect(err.toString(), contains('error x.err'));
+              expect(out.toString(), isEmpty);
+            }
+          });
+        });
+      });
+    });
+
     group('when Appstein itself fails', () {
       /// Expects exit 0, the failure told to the agent and to the developer,
       /// with [reason] in both, and its details on stderr (Claude Code keeps
@@ -1662,18 +2762,76 @@ void main() {
     });
   });
 
-  group('isClaudeHookRun', () {
-    test('is true for verify with --hook claude or --hook=claude', () {
-      expect(isClaudeHookRun(['verify', '--fast', '--hook', 'claude']), true);
-      expect(isClaudeHookRun(['verify', '--hook=claude']), true);
+  group('claudeHookKind', () {
+    test('is the after-edit hook for verify --fast with --hook claude or '
+        '--hook=claude', () {
+      expect(
+        claudeHookKind(['verify', '--fast', '--hook', 'claude']),
+        HookKind.afterEdit,
+      );
+      expect(
+        claudeHookKind(['verify', '--hook=claude', '--fast']),
+        HookKind.afterEdit,
+      );
     });
 
-    test('is false without verify, for another agent, and for words after '
-        '--, which are no options', () {
-      expect(isClaudeHookRun(['sync', '--hook', 'claude']), false);
-      expect(isClaudeHookRun(['verify', '--hook', 'codex']), false);
-      expect(isClaudeHookRun(['verify', '--', '--hook', 'claude']), false);
-      expect(isClaudeHookRun(['--', 'verify', '--hook=claude']), false);
+    test('is the Stop hook for a hook run that is not fast: --full, --apply '
+        'or neither flag', () {
+      expect(
+        claudeHookKind(['verify', '--full', '--hook', 'claude']),
+        HookKind.stop,
+      );
+      expect(claudeHookKind(['verify', '--hook=claude']), HookKind.stop);
+      expect(
+        claudeHookKind(['verify', '--full', '--apply', '--hook', 'claude']),
+        HookKind.stop,
+      );
+    });
+
+    test('is null without verify, for another agent, for no --hook, and for '
+        'words after --, which are no options', () {
+      expect(claudeHookKind(['sync', '--hook', 'claude']), isNull);
+      expect(claudeHookKind(['verify', '--hook', 'codex']), isNull);
+      expect(claudeHookKind(['verify', '--full']), isNull);
+      expect(claudeHookKind(['verify', '--', '--hook', 'claude']), isNull);
+      expect(claudeHookKind(['--', 'verify', '--hook=claude']), isNull);
+      // A --fast after -- is no option either.
+      expect(
+        claudeHookKind(['verify', '--hook', 'claude', '--', '--fast']),
+        HookKind.stop,
+      );
+    });
+  });
+
+  group('hookKindOf', () {
+    HookInput input(String? event) => HookInput(eventName: event);
+
+    test('the event the input names decides: Stop is the Stop hook, any '
+        'other event the after-edit hook, whatever the flags say', () {
+      for (final fast in [true, false]) {
+        expect(
+          hookKindOf(input('Stop'), fast: fast),
+          HookKind.stop,
+          reason: 'fast $fast',
+        );
+        for (final event in [
+          'PostToolUse',
+          'SubagentStop',
+          'UserPromptSubmit',
+        ]) {
+          expect(
+            hookKindOf(input(event), fast: fast),
+            HookKind.afterEdit,
+            reason: '$event, fast $fast',
+          );
+        }
+      }
+    });
+
+    test('with no event in the input the flags decide', () {
+      expect(hookKindOf(input(null), fast: true), HookKind.afterEdit);
+      expect(hookKindOf(input(null), fast: false), HookKind.stop);
+      expect(hookKindOf(const HookInput(), fast: false), HookKind.stop);
     });
   });
 

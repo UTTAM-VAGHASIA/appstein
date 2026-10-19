@@ -16,9 +16,11 @@ export 'src/verify_command.dart';
 export 'src/verify_hook.dart'
     show
         HookInput,
+        HookKind,
         HookReply,
         claudeFailureReply,
         claudePostToolUseReply,
+        claudeStopReply,
         parseHookInput,
         readStdinText;
 export 'src/version.dart';

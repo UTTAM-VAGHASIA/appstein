@@ -108,8 +108,8 @@ Future<int> runAppstein(
     // never "no errors" (spec §9.5), and a crash comes with its trace.
     final failure = describeFailure(error, stackTrace);
     // In a hook a failure never blocks the agent, wherever it happened.
-    if (isClaudeHookRun(arguments)) {
-      return answerHookFailure(output, errors, failure, answer);
+    if (claudeHookKind(arguments) case final kind?) {
+      return answerHookFailure(output, errors, failure, answer, kind: kind);
     }
     failure.writeTo(errors);
     return ExitCodes.appsteinFailed;

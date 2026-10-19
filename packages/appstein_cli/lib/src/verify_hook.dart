@@ -2,17 +2,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:appstein_engine/appstein_engine.dart' show loopGuardLimit;
 import 'package:appstein_protocol/appstein_protocol.dart';
 
 import 'exit_codes.dart';
 import 'failure.dart';
 import 'finding_text.dart';
 
-/// What Claude Code tells a hook on stdin (spec §5.3): the session's ID and
-/// the event's name. Every field is null when the input did not give it.
+/// What Claude Code tells a hook on stdin (spec §5.3): the session's ID, the
+/// event's name and, at Stop, whether the agent is already continuing because
+/// of a Stop hook. Every field is null (or false) when the input did not give
+/// it.
 final class HookInput {
   /// Creates the input.
-  const HookInput({this.sessionId, this.eventName});
+  const HookInput({
+    this.sessionId,
+    this.eventName,
+    this.stopHookActive = false,
+  });
 
   /// The agent session's ID (`session_id`); null counts as no session.
   final String? sessionId;
@@ -20,10 +27,16 @@ final class HookInput {
   /// The event that fired the hook (`hook_event_name`), such as
   /// `PostToolUse`.
   final String? eventName;
+
+  /// Whether the agent is already continuing because a Stop hook blocked it
+  /// (`stop_hook_active`). Missing, or not exactly `true`, counts as not
+  /// continuing.
+  final bool stopHookActive;
 }
 
 /// Reads the hook input from [text]: input that is empty or not a JSON object
-/// is no session, and a field that is not a non-empty string is left out.
+/// is no session, a field that is not a non-empty string is left out, and
+/// `stop_hook_active` is true only when it is the JSON `true`.
 HookInput parseHookInput(String text) {
   // A pipe from Windows PowerShell may start with a byte order mark, which
   // the JSON parser refuses.
@@ -46,6 +59,7 @@ HookInput parseHookInput(String text) {
   return HookInput(
     sessionId: field('session_id'),
     eventName: field('hook_event_name'),
+    stopHookActive: fields['stop_hook_active'] == true,
   );
 }
 
@@ -89,23 +103,61 @@ Future<String> readStdinText({
   }
 }
 
-/// Whether [arguments] ask for `appstein verify` in Claude Code's hook mode
-/// (`--hook claude`, or `--hook=claude`). A failure of Appstein in such a run
-/// is told the hook's way, wherever in the process it happens. Arguments after
-/// `--` are not options, so they never make a run a hook run.
-bool isClaudeHookRun(List<String> arguments) {
-  final end = arguments.indexOf('--');
-  final options = end < 0 ? arguments : arguments.sublist(0, end);
-  if (!options.contains('verify')) return false;
+/// The two events of Claude Code that `appstein verify --hook claude`
+/// answers, which differ in what reaches whom (spec §5.4, §9.5).
+enum HookKind {
+  /// The PostToolUse hook, after an edit: errors block with exit 2, warnings
+  /// are context for the agent, and the run may stay silent when nothing
+  /// changed.
+  afterEdit,
+
+  /// The Stop hook, when the agent says it is done: errors block with exit 2,
+  /// but warnings and everything else go to the developer only, since context
+  /// for the agent would keep it going. The loop guard belongs to it.
+  stop,
+}
+
+/// What kind of hook run [arguments] ask for, or null when they do not ask for
+/// `appstein verify` in Claude Code's hook mode (`--hook claude`, or
+/// `--hook=claude`). The flags decide: a `--fast` run is [HookKind.afterEdit]
+/// and any other, a full run, is [HookKind.stop]. This is what is known before
+/// any input is read, so a failure of Appstein in such a run is told the
+/// hook's way, wherever in the process it happens; once the input is read,
+/// [hookKindOf] has the final say. Arguments after `--` are not options, so
+/// they never make a run a hook run.
+HookKind? claudeHookKind(List<String> arguments) {
+  final options = _optionsOf(arguments);
+  if (!options.contains('verify')) return null;
   for (var i = 0; i < options.length; i++) {
-    if (options[i] == '--hook=claude') return true;
-    if (options[i] == '--hook' &&
-        i + 1 < options.length &&
-        options[i + 1] == 'claude') {
-      return true;
+    if (options[i] == '--hook=claude' ||
+        (options[i] == '--hook' &&
+            i + 1 < options.length &&
+            options[i + 1] == 'claude')) {
+      return options.contains('--fast') ? HookKind.afterEdit : HookKind.stop;
     }
   }
-  return false;
+  return null;
+}
+
+/// What kind of hook run this is, decided in this one place: the event the
+/// input names ([HookInput.eventName]) when it names one, `Stop` being the
+/// Stop hook and any other event the after-edit hook; the flags ([fast]: the
+/// run was given `--fast`) when the input names none (it is missing,
+/// unreadable, or has no event). A hook that Claude Code fires for another
+/// event than the one its flags suit (a PostToolUse hook set up without
+/// `--fast`) is answered as the event it is, and so never reads or saves the
+/// Stop hook's loop guard.
+HookKind hookKindOf(HookInput input, {required bool fast}) =>
+    switch (input.eventName) {
+      null => fast ? HookKind.afterEdit : HookKind.stop,
+      'Stop' => HookKind.stop,
+      _ => HookKind.afterEdit,
+    };
+
+/// The arguments before `--`: the words after it are not options.
+List<String> _optionsOf(List<String> arguments) {
+  final end = arguments.indexOf('--');
+  return end < 0 ? arguments : arguments.sublist(0, end);
 }
 
 /// What a hook run sends back to Claude Code: the exit code, the text for
@@ -235,34 +287,20 @@ const _cutMarker = '…(cut)';
 /// exits 2 and prints valid JSON has its JSON read, which is how the notices
 /// reach the developer there, but they name stderr for the agent.
 HookReply claudePostToolUseReply(VerifyResult result) {
-  final notRun = _cut(_notRunSection(result.notRun), _notRunLimit);
-  final budget = _findingsBudget - notRun.length;
-  final notice = result.notices.isEmpty
-      ? null
-      : _cut('Appstein note: ${result.notices.join(' ')}', _textLimit);
-  final errors = _of(result, Severity.error);
-  if (errors.isNotEmpty) {
-    return HookReply(
-      exitCode: ExitCodes.hookBlocked,
-      stdout: notice == null ? '' : _json({'systemMessage': notice}),
-      stderr: _cut(
-        _list(errors, budget) + (notRun.isEmpty ? '' : '\n$notRun'),
-        _textLimit,
-      ),
-    );
-  }
-  final warnings = _of(result, Severity.warning);
-  if (warnings.isEmpty && notRun.isEmpty && notice == null) {
+  final sections = _ReplySections(result);
+  if (sections.errors.isNotEmpty) return sections.blocked();
+  final notice = sections.notice;
+  if (sections.warnings.isEmpty && sections.notRun.isEmpty && notice == null) {
     return const HookReply(exitCode: ExitCodes.ok);
   }
   final forAgent = _cut(
     [
-      if (warnings.isNotEmpty)
-        'Appstein checked the project after your change: no errors, '
-            '${warnings.length} '
-            '${warnings.length == 1 ? 'warning' : 'warnings'}.\n\n'
-            '${_list(warnings, budget)}',
-      if (notRun.isNotEmpty) notRun,
+      if (sections.warnings.isNotEmpty)
+        sections.warningsText(
+          'Appstein checked the project after your change',
+          _findingsBudget - sections.notRun.length,
+        ),
+      if (sections.notRun.isNotEmpty) sections.notRun,
     ].join('\n'),
     _textLimit,
   );
@@ -276,6 +314,138 @@ HookReply claudePostToolUseReply(VerifyResult result) {
         },
       'systemMessage': ?notice,
     }),
+  );
+}
+
+/// What both replies of a run are made of, cut to what they may take: the
+/// errors and the warnings, the files `--apply` rewrote, the checks that did
+/// not run and the notices. The after-edit reply and the Stop reply put the
+/// same parts to different readers.
+final class _ReplySections {
+  /// Cuts the parts of [result]: the list of checks that did not run, and the
+  /// files rewritten (by their number and length), at [_notRunLimit]; the
+  /// notices at [_textLimit].
+  _ReplySections(VerifyResult result)
+    : notRun = _cut(_notRunSection(result.notRun), _notRunLimit),
+      notice = result.notices.isEmpty
+          ? null
+          : _cut('Appstein note: ${result.notices.join(' ')}', _textLimit),
+      errors = _of(result, Severity.error),
+      warnings = _of(result, Severity.warning),
+      applied = _appliedSection(result.applied);
+
+  /// The checks that did not run, or empty.
+  final String notRun;
+
+  /// The notices of the run for the developer, or null.
+  final String? notice;
+
+  /// The findings that are errors, and those that are warnings.
+  final List<Finding> errors, warnings;
+
+  /// The files `--apply` rewrote, to be read again before they are edited, or
+  /// empty.
+  final String applied;
+
+  /// The reply that blocks: exit 2 with the files `--apply` rewrote, the
+  /// errors and the checks that did not run on stderr, which Claude Code shows
+  /// the agent, and the notices for the developer on stdout. The same at
+  /// "done" and after an edit (a fast run rewrites no file, so it names none).
+  HookReply blocked() => HookReply(
+    exitCode: ExitCodes.hookBlocked,
+    stdout: notice == null ? '' : _json({'systemMessage': notice}),
+    stderr: _cut(
+      applied +
+          _list(errors, _findingsBudget - notRun.length - applied.length) +
+          (notRun.isEmpty ? '' : '\n$notRun'),
+      _textLimit,
+    ),
+  );
+
+  /// The sentence that says "no errors, N warnings" after [subject], and the
+  /// warnings listed within [budget] characters.
+  String warningsText(String subject, int budget) =>
+      '$subject: no errors, ${warnings.length} '
+      '${warnings.length == 1 ? 'warning' : 'warnings'}.\n\n'
+      '${_list(warnings, budget)}';
+}
+
+/// The files `--apply` rewrote, as the text output names them: to be read
+/// again before they are edited. At most [maxHookFindings] are named, then how
+/// many more; empty when there are none.
+String _appliedSection(List<String> applied) {
+  if (applied.isEmpty) return '';
+  final header = applied.length == 1
+      ? 'Rewritten by --apply (read this file again before you edit it):'
+      : 'Rewritten by --apply (read these files again before you edit them):';
+  // Names are added while they fit the section's share of the text; the line
+  // that says how many are left out has room reserved.
+  final named = <String>[];
+  var length = header.length;
+  for (final file in applied.take(maxHookFindings)) {
+    final line = '  ${_cut(file, _nameLimit)}';
+    if (length + line.length + 1 > _notRunLimit - 40) break;
+    named.add(line);
+    length += line.length + 1;
+  }
+  final left = applied.length - named.length;
+  return [
+    header,
+    ...named,
+    if (left > 0) '  …and $left more',
+    '',
+    '',
+  ].join('\n');
+}
+
+/// The reply to Claude Code's Stop hook for [result], the answer of a full
+/// run when the agent says it is done (spec §5.4, §9.5). What reaches whom
+/// differs from [claudePostToolUseReply]: context for the agent at Stop would
+/// keep it going, so only a block speaks to the agent, and everything else
+/// goes to the developer as the JSON `systemMessage`:
+/// - an error: exit 2 and the errors on stderr, as after an edit, headed by
+///   the files `--apply` rewrote when it rewrote any (the agent reads them
+///   again before it edits them);
+/// - an error, but [letGo] (the loop guard: the same errors have blocked the
+///   agent [loopGuardLimit] times in a row): exit 0, and a message for the
+///   developer listing the remaining errors;
+/// - a warning and no error: exit 0 and a message for the developer listing
+///   the warnings;
+/// - only info findings, or nothing: nothing at all, unless a check did not
+///   run or the run has a notice, which are told to the developer so silence
+///   never hides an unchecked project.
+///
+/// The notices of the run join the developer's message, or go beside the
+/// errors of exit 2 as in [claudePostToolUseReply]. Every text is cut as
+/// there, so none passes [maxHookContextLength].
+HookReply claudeStopReply(VerifyResult result, {bool letGo = false}) {
+  final sections = _ReplySections(result);
+  final errors = sections.errors;
+  if (errors.isNotEmpty && !letGo) return sections.blocked();
+  // The notice shares the message with the findings, so it is cut shorter
+  // than when it is alone, and the findings get what is left.
+  final notice = sections.notice == null
+      ? null
+      : _cut(sections.notice!, _notRunLimit);
+  final budget =
+      _findingsBudget - sections.notRun.length - (notice?.length ?? 0);
+  final parts = [
+    if (errors.isNotEmpty)
+      'Appstein let the agent stop with ${errors.length} '
+          '${errors.length == 1 ? 'error' : 'errors'} left: the same '
+          '${errors.length == 1 ? 'error has' : 'errors have'} blocked it '
+          '$loopGuardLimit times in a row in this session. The remaining '
+          '${errors.length == 1 ? 'error' : 'errors'}:\n\n'
+          '${_list(errors, budget)}'
+    else if (sections.warnings.isNotEmpty)
+      sections.warningsText('Appstein checked the project', budget),
+    if (sections.notRun.isNotEmpty) sections.notRun,
+    ?notice,
+  ];
+  if (parts.isEmpty) return const HookReply(exitCode: ExitCodes.ok);
+  return HookReply(
+    exitCode: ExitCodes.ok,
+    stdout: _json({'systemMessage': _cut(parts.join('\n'), _textLimit)}),
   );
 }
 
@@ -304,20 +474,37 @@ bool hookRunCompleted(VerifyResult result) =>
 /// failure as the terminal would show it, a crash's trace included) goes to
 /// stderr, which Claude Code keeps only in its debug log at exit 0, so a bug
 /// report has it.
-HookReply claudeFailureReply(String reason, {String details = ''}) {
+///
+/// At Stop ([HookKind.stop]) the developer's message is all there is: context
+/// for the agent at Stop would keep it going, so a broken tool never does
+/// (spec §9.5).
+HookReply claudeFailureReply(
+  String reason, {
+  required HookKind kind,
+  String details = '',
+}) {
   final why = _sentence(reason);
   return HookReply(
     exitCode: ExitCodes.ok,
-    stdout: _json({
-      'hookSpecificOutput': {
-        'hookEventName': 'PostToolUse',
-        'additionalContext':
-            'Appstein verify could not run, so your last change is '
-            'unchecked: $why Do not take the project for free of errors.',
+    stdout: _json(switch (kind) {
+      HookKind.stop => {
+        'systemMessage':
+            'Appstein could not check the project at "done", so it is '
+            'unchecked. $why You can run `appstein doctor` to check '
+            'your setup.',
       },
-      'systemMessage':
-          'Appstein could not check an edit. $why You can run `appstein '
-          'doctor` to check your setup.',
+      HookKind.afterEdit => {
+        'hookSpecificOutput': {
+          'hookEventName': 'PostToolUse',
+          'additionalContext':
+              'Appstein verify could not run, so your last change is '
+              'unchecked: $why Do not take the project for free of '
+              'errors.',
+        },
+        'systemMessage':
+            'Appstein could not check an edit. $why You can run '
+            '`appstein doctor` to check your setup.',
+      },
     }),
     stderr: details,
     isFailure: true,
@@ -328,14 +515,16 @@ HookReply claudeFailureReply(String reason, {String details = ''}) {
 /// to [out] and [err] through [answer], and returns the exit code that
 /// stands: 0 when this is the first answer, since in hook mode a failure
 /// never blocks the agent, wherever in the process it happens; the first
-/// answer's when there was one ([HookAnswer.write]).
+/// answer's when there was one ([HookAnswer.write]). The failure of a
+/// [HookKind.stop] run is told to the developer only.
 int answerHookFailure(
   StringSink out,
   StringSink err,
   FailureDescription failure,
-  HookAnswer answer,
-) => answer.write(
-  claudeFailureReply(failure.reason, details: failure.text),
+  HookAnswer answer, {
+  required HookKind kind,
+}) => answer.write(
+  claudeFailureReply(failure.reason, details: failure.text, kind: kind),
   out,
   err,
 );

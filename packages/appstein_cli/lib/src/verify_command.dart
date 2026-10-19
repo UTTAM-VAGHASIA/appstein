@@ -96,7 +96,9 @@ final class VerifyCommand extends Command<int> {
         'hook',
         allowed: const ['claude', 'codex'],
         allowedHelp: const {
-          'claude': 'Answer as a Claude Code hook (with --fast).',
+          'claude':
+              'Answer as a Claude Code hook: the PostToolUse hook with '
+              '--fast, the Stop hook with --full.',
           'codex': 'Not available yet: Codex hooks come in a later release.',
         },
         help:
@@ -180,12 +182,6 @@ final class VerifyCommand extends Command<int> {
           '--hook has its own output: don\'t pass --format with it.',
         );
       }
-      if (!results.flag('fast')) {
-        usageException(
-          '--hook claude works with a fast run only for now: pass --fast with '
-          'it (the hook after an edit).',
-        );
-      }
       return _runAsHook(results);
     }
     // A run that can't start, a check that throws and an analysis server
@@ -200,32 +196,20 @@ final class VerifyCommand extends Command<int> {
     return verifyExitCode(result);
   }
 
-  /// `--hook claude --fast`: reads the hook's input, runs the checks, and
-  /// answers the way Claude Code reads a PostToolUse hook
-  /// ([claudePostToolUseReply]). A failure of Appstein itself is told to the
-  /// agent and the developer with exit 0, and never blocks
-  /// ([answerHookFailure]), with the details on stderr; a usage error is
-  /// still exit 3. The reply goes through [hookAnswer], so a failure handler
-  /// that fires meanwhile and this command never both answer.
+  /// `--hook claude`: reads the hook's input, runs the checks, and answers the
+  /// way Claude Code reads the event ([HookKind], decided by [hookKindOf]: the
+  /// event the input names, else the flags, a `--fast` run being the
+  /// after-edit hook and a full run the Stop hook). A failure of Appstein
+  /// itself is told with exit 0, and never blocks ([answerHookFailure]): to
+  /// the agent and the developer after an edit, to the developer only at
+  /// Stop; the details go to stderr, and a usage error is still exit 3. The
+  /// reply goes through [hookAnswer], so a failure handler that fires
+  /// meanwhile and this command never both answer.
   ///
-  /// **Nothing changed means no output** (spec §9.1, slice 1d.7): when the
-  /// input names a session, the run first takes the fingerprint of everything
-  /// the knowledge and the checks read ([KnowledgeSync.fingerprint], one hash
-  /// scan). If it equals the fingerprint of this session's last completed
-  /// hook run ([HookSessions]), nothing Appstein reads has changed since the
-  /// session last heard from it, and the run exits 0 with no output, runs no
-  /// check and writes no file. The comparison is with the session's own
-  /// record, not with `state.json`: another session's refresh uses up the
-  /// shared change list, and would hide this session's edit.
-  ///
-  /// The fingerprint taken at the start is saved after the reply was written,
-  /// and only for a run that completed its checks ([hookRunCompleted]): one
-  /// that failed, or named a check as not run, saves nothing, so the next run
-  /// asks again. It is taken again after the reply and saved only if it is
-  /// the same: files that changed while the checks ran, and may have changed
-  /// back, were not checked as they are now, so nothing is saved and the next
-  /// run checks (`_SilenceGate`). A run with no session (missing or
-  /// unreadable input), and a run given `--files`, always checks.
+  /// The two kinds differ in what they do around the checks, each in a
+  /// `_HookRun`: [_AfterEditRun] (below) may answer without checking, and
+  /// [_StopRun] keeps the loop guard's count. The reply of either is written
+  /// first, and what the run saves is saved after it.
   Future<int> _runAsHook(ArgResults results) async {
     // The input is read first, as an agent sends it and closes the pipe. A
     // missing or broken input is no session.
@@ -235,22 +219,29 @@ final class VerifyCommand extends Command<int> {
     } on Object {
       // Input that can't be read counts as no session.
     }
+    final fast = results.flag('fast');
+    final kind = hookKindOf(input, fast: fast);
     final answer = hookAnswer ?? HookAnswer();
-    late final _SilenceGate gate;
+    final _HookRun run;
     final HookReply reply;
     final VerifyResult result;
     try {
       final setup = _setUp(results);
-      gate = _SilenceGate(
-        input.sessionId,
-        sync: setup.sync,
-        projectRoot: setup.projectRoot,
-      );
-      if (await gate.nothingChanged(filesGiven: setup.files.isNotEmpty)) {
-        return answer.write(const HookReply(exitCode: ExitCodes.ok), out, err);
-      }
+      run = switch (kind) {
+        HookKind.stop => _StopRun(input, setup.projectRoot),
+        HookKind.afterEdit => _AfterEditRun(
+          input.sessionId,
+          sync: setup.sync,
+          projectRoot: setup.projectRoot,
+          // A full run answered as the after-edit hook (its input says
+          // PostToolUse) must not skip its checks for what a fast run saw.
+          canBeSilent: fast,
+        ),
+      };
+      final early = await run.beforeChecks(filesGiven: setup.files.isNotEmpty);
+      if (early != null) return answer.write(early, out, err);
       result = await _check(results, setup);
-      reply = claudePostToolUseReply(result);
+      reply = run.replyTo(result);
     } on UsageException {
       rethrow;
     } on Object catch (error, stackTrace) {
@@ -259,14 +250,16 @@ final class VerifyCommand extends Command<int> {
         err,
         describeFailure(error, stackTrace),
         answer,
+        kind: kind,
       );
     }
     // A failure handler that spoke first has the only answer: the run did not
     // complete as far as Claude Code is concerned.
     final spokenFor = answer.answered;
     final exitCode = answer.write(reply, out, err);
-    // After the reply, so a hook killed in between is checked again.
-    if (!spokenFor && hookRunCompleted(result)) await gate.save();
+    // After the reply, so a hook killed in between is checked again (the
+    // after-edit hook) or counts one block fewer (the Stop hook).
+    if (!spokenFor) await run.afterReply(result);
     return exitCode;
   }
 
@@ -404,15 +397,52 @@ typedef _RunSetup = ({
   KnowledgeSync sync,
 });
 
-/// A hook run's memory of its session: whether the run may stay silent, and
-/// the saving of what the run saw (slice 1d.7, "Nothing changed means no
-/// output"). A run with no session gets a gate that is never silent and
-/// saves nothing.
-final class _SilenceGate {
-  _SilenceGate(
+/// What a hook run does around the checks, for one [HookKind]: what it may
+/// answer without checking, what it answers to the result, and what it saves
+/// after the reply was written (slice 1d.7).
+abstract interface class _HookRun {
+  /// A reply that answers without any check, or null when the checks are to
+  /// run. [filesGiven]: the run was given `--files`.
+  Future<HookReply?> beforeChecks({required bool filesGiven});
+
+  /// The reply to [result].
+  HookReply replyTo(VerifyResult result);
+
+  /// Saves what the run keeps for the next one. It is called only when this
+  /// run's reply is the answer, and a record that can't be written is never an
+  /// error.
+  Future<void> afterReply(VerifyResult result);
+}
+
+/// The after-edit hook's run: its memory of its session, whether it may stay
+/// silent, and the saving of what it saw (slice 1d.7, "Nothing changed means
+/// no output").
+///
+/// When the input names a session, the run first takes the fingerprint of
+/// everything the knowledge and the checks read ([KnowledgeSync.fingerprint],
+/// one hash scan). If it equals the fingerprint of this session's last
+/// completed hook run ([HookSessions]), nothing Appstein reads has changed
+/// since the session last heard from it, and the run exits 0 with no output,
+/// runs no check and writes no file. The comparison is with the session's own
+/// record, not with `state.json`: another session's refresh uses up the shared
+/// change list, and would hide this session's edit.
+///
+/// The fingerprint taken at the start is saved after the reply was written,
+/// and only for a run that completed its checks ([hookRunCompleted]): one that
+/// failed, or named a check as not run, saves nothing, so the next run asks
+/// again. It is taken again after the reply and saved only if it is the same:
+/// files that changed while the checks ran, and may have changed back, were
+/// not checked as they are now, so nothing is saved and the next run checks. A
+/// run with no session (missing or unreadable input), and a run given
+/// `--files`, always checks; so does a run that is not fast ([canBeSilent]
+/// false: a full run answering as the after-edit hook, which a fast run's
+/// record says nothing about).
+final class _AfterEditRun implements _HookRun {
+  _AfterEditRun(
     String? sessionId, {
     required this._sync,
     required this._projectRoot,
+    required this.canBeSilent,
   }) : _session = sessionId == null
            ? null
            : (id: sessionId, records: HookSessions(_projectRoot));
@@ -421,21 +451,33 @@ final class _SilenceGate {
   final KnowledgeSync _sync;
   final String _projectRoot;
 
+  /// Whether the run may answer without checking when nothing changed.
+  final bool canBeSilent;
+
   /// The fingerprint taken before the checks; null when there is none.
   String? _before;
 
-  /// Whether nothing the checks read changed since this session's last
-  /// completed run: the fingerprint is taken, and equals the session's
-  /// record. It is taken for a run given files too ([filesGiven]), which
-  /// always checks, so that the run can save it.
-  Future<bool> nothingChanged({required bool filesGiven}) async {
+  @override
+  Future<HookReply?> beforeChecks({required bool filesGiven}) async {
     final session = _session;
-    if (session == null) return false;
+    if (session == null) return null;
+    // Taken for a run given files too, which always checks, so that the run
+    // can save it.
     final before = _before = await _fingerprint();
-    return before != null &&
+    final silent =
+        canBeSilent &&
+        before != null &&
         !filesGiven &&
         session.records.read(session.id) == before;
+    return silent ? const HookReply(exitCode: ExitCodes.ok) : null;
   }
+
+  @override
+  HookReply replyTo(VerifyResult result) => claudePostToolUseReply(result);
+
+  @override
+  Future<void> afterReply(VerifyResult result) =>
+      hookRunCompleted(result) ? _save() : Future.value();
 
   /// Saves the fingerprint taken before the checks, if the files are still
   /// as they were then: a second fingerprint, taken now, must equal it. Files
@@ -443,7 +485,7 @@ final class _SilenceGate {
   /// checked in the state they are in now, so nothing is saved and the next
   /// run checks. A record that can't be written is not an error: it only
   /// saves the next run's work.
-  Future<void> save() async {
+  Future<void> _save() async {
     final session = _session;
     final before = _before;
     if (session == null || before == null) return;
@@ -463,6 +505,69 @@ final class _SilenceGate {
       return await _sync.fingerprint(_projectRoot);
     } on Object {
       return null;
+    }
+  }
+}
+
+/// The Stop hook's run, with its loop guard (slice 1d.7, "The loop guard"). It
+/// is never silent and keeps no fingerprint. From the errors of the run and the
+/// session's saved count ([decideLoopGuard]) it decides whether the agent is
+/// let go: the same errors block [loopGuardLimit] times in a row and the next
+/// Stop lets it go. The new count is saved after the reply. A run with no
+/// session has no record, so it never lets the agent go and saves nothing:
+/// Claude Code's own limit on continuations ends such a loop.
+///
+/// **When the count can't be read or saved.** The decision is made from the
+/// count read before the checks, and the save only serves the next run.
+/// - A count that can't be read (a damaged record, a read that meets a rename
+///   on Windows) counts as none, so it starts again at 1: the agent is blocked
+///   for longer, never let go early.
+/// - A count that can't be saved leaves the one before. The save waits for the
+///   records' lock for [stopSaveLockWait] (2 s: the Stop hook has no 5 s
+///   budget), so this needs the lock busy that long, or the folder unwritable.
+///   Mostly the old count is then lower than the right one, and the agent is
+///   blocked for longer (at most until Claude Code's own limit of eight
+///   continuations). The one way a release can come early is that a save of a
+///   changed set, or of a removal, fails: the old, higher count stays, and the
+///   same errors coming back are counted on from it.
+final class _StopRun implements _HookRun {
+  _StopRun(this._input, String projectRoot)
+    : _records = HookSessions(projectRoot, lockTimeout: stopSaveLockWait);
+
+  final HookInput _input;
+  final HookSessions _records;
+
+  /// The count the session's record had before this run.
+  LoopGuard? _last;
+
+  @override
+  Future<HookReply?> beforeChecks({required bool filesGiven}) async {
+    final id = _input.sessionId;
+    if (id != null) _last = _records.readGuard(id);
+    return null;
+  }
+
+  /// What the guard decides for [result]; null when the run has no session.
+  LoopGuardDecision? _decision(VerifyResult result) => _input.sessionId == null
+      ? null
+      : decideLoopGuard(_last, [
+          for (final finding in result.findings)
+            if (finding.severity == Severity.error) finding,
+        ], continuing: _input.stopHookActive);
+
+  @override
+  HookReply replyTo(VerifyResult result) =>
+      claudeStopReply(result, letGo: _decision(result)?.letGo ?? false);
+
+  @override
+  Future<void> afterReply(VerifyResult result) async {
+    final id = _input.sessionId;
+    final decision = _decision(result);
+    if (id == null || decision == null) return;
+    try {
+      await _records.saveGuard(id, decision.count);
+    } on Object {
+      // The count only serves the next run.
     }
   }
 }

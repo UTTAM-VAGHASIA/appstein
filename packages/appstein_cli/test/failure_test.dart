@@ -68,9 +68,15 @@ void main() {
       const CannotStart('There is no project.', 'Pass --project.'),
     ]) {
       final failure = describeFailure(error, trace);
-      final reply = claudeFailureReply(failure.reason, details: failure.text);
-      expect(reply.stderr, failure.text);
-      expect(reply.stdout, contains(failure.reason.split('\n').first));
+      for (final kind in HookKind.values) {
+        final reply = claudeFailureReply(
+          failure.reason,
+          details: failure.text,
+          kind: kind,
+        );
+        expect(reply.stderr, failure.text);
+        expect(reply.stdout, contains(failure.reason.split('\n').first));
+      }
     }
   });
 }

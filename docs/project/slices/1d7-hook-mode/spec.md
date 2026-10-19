@@ -117,7 +117,7 @@ Each project gets one **analysis host**: a small background process, the `appste
 - "The same errors" is the same set of (check ID, file, message). Lines are left out: an edit above an error moves it without fixing it.
 - The count is kept per session ID, beside the "nothing changed" fingerprint, in a git-ignored record under `.appstein/` like `state.json`. Records not touched for a day are deleted.
 - The count starts again when the set of errors changes, or when the Stop input says the agent is not already continuing because of a Stop hook.
-- On the third identical block in a row the guard lets the agent stop (exit 0) and gives the developer the remaining errors. Claude Code's own cap, eight continuations in a row, is never reached.
+- The same errors block three times in a row; on the fourth Stop with the same errors the guard lets the agent stop (exit 0) and gives the developer the remaining errors (the owner, 2026-10-19). Claude Code's own cap, eight continuations in a row, is never reached.
 
 **`--apply` renders the human docs (§5.3, §9.2)**
 

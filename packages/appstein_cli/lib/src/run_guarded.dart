@@ -13,7 +13,9 @@ import 'verify_hook.dart';
 /// When [arguments] ask for Claude Code's hook mode (`verify --hook claude`)
 /// the escaped error is told the hook's way instead: the failure JSON on
 /// stdout, the details on stderr, and exit code 0, since a failure of
-/// Appstein must never block the agent (spec §9.5). The run and this handler
+/// Appstein must never block the agent (spec §9.5). The kind of hook comes
+/// from the arguments ([claudeHookKind]), since no input was read here; a Stop
+/// hook tells the developer only. The run and this handler
 /// share one [HookAnswer], which the body finds as `HookAnswer.current`, so
 /// whichever speaks first is the only answer: an error that escapes while the
 /// body is still running, and the body's own reply after it, never make two
@@ -26,7 +28,7 @@ Future<void> runGuarded(
   List<String> arguments = const [],
 }) {
   final done = Completer<void>();
-  final hook = isClaudeHookRun(arguments);
+  final hook = claudeHookKind(arguments);
   final answer = HookAnswer();
   runZonedGuarded(
     () async {
@@ -38,12 +40,13 @@ Future<void> runGuarded(
     },
     (error, stackTrace) {
       try {
-        if (hook) {
+        if (hook != null) {
           exitCode = answerHookFailure(
             stdout,
             stderr,
             unexpectedFailure(error, stackTrace),
             answer,
+            kind: hook,
           );
         } else {
           exitCode = ExitCodes.appsteinFailed;
@@ -53,7 +56,7 @@ Future<void> runGuarded(
         // stderr itself is broken, or the error can't even be described; the
         // exit code is all that is left. A hook reply already given keeps its
         // code, so a late failure never unblocks an exit 2.
-        exitCode = hook
+        exitCode = hook != null
             ? answer.exitCode ?? ExitCodes.ok
             : ExitCodes.appsteinFailed;
       }
