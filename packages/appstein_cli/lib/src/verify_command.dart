@@ -19,13 +19,28 @@ typedef VerifyChecks =
     List<({VerifyCheck check, String? pack})> Function(List<Pack> packs);
 
 /// `appstein verify [--fast | --full] [--apply] [--format text|json]
-/// [--files paths]`: checks the project against its knowledge (spec §5.3,
-/// §9), after bringing the knowledge up to date. Without `--apply` it never
-/// writes a project file outside `.appstein/`. For the code checks it asks the
-/// project's analysis host when one of this version is running; otherwise it
-/// starts the project's Dart analysis server, waits for the first analysis,
-/// and stops the server before it returns (`hostCodeAnalysis` with
-/// `startHost: false`). It never starts or stops a host.
+/// [--files paths] [--hook claude]`: checks the project against its knowledge
+/// (spec §5.3, §9), after bringing the knowledge up to date. Without `--apply`
+/// it never writes a project file outside `.appstein/`.
+///
+/// **Where the code checks are answered** (`hostCodeAnalysis`, decision record
+/// 0002):
+/// - **A terminal run** (a person, CI) asks the project's analysis host when
+///   one of this version is running; otherwise it starts the project's Dart
+///   analysis server, waits for the first analysis, and stops the server
+///   before it returns (`startHost: false`). It never starts or stops a host,
+///   so a CI run leaves no process behind.
+/// - **A hook run** (`--hook claude`, fast or full) asks the host too, and
+///   when none answers it starts one, detached (`startHost: true`), and waits
+///   for it. The host keeps running when the hook ends, so the next hook gets
+///   warm answers.
+///
+/// **The cap.** A fast run, whichever way it runs, is capped by
+/// `verify.fast_timeout_seconds` (`runVerify`), counted from the start of the
+/// run: code checks that had not finished (a host or a server still starting)
+/// are named in "Not run", the run is partial and leaves the unverified files
+/// as they are. A full run has no cap: a full hook run waits for a host to
+/// start for as long as the analysis server's own start limit allows.
 ///
 /// `--files` (fast runs only) adds files to the unverified files, for the
 /// run and after it (`resolveVerifyFiles`): a path outside the project,
@@ -150,6 +165,8 @@ final class VerifyCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    // The cap of a fast run is counted from here.
+    final clock = RunClock();
     final results = argResults!;
     if (results.flag('fast') && results.flag('full')) {
       usageException('Pass --fast or --full, not both.');
@@ -182,17 +199,20 @@ final class VerifyCommand extends Command<int> {
           '--hook has its own output: don\'t pass --format with it.',
         );
       }
-      return _runAsHook(results);
+      return _runAsHook(results, clock);
     }
     // A run that can't start, a check that throws and an analysis server
     // that can't answer are Appstein's failure: the runner tells it
     // (`describeFailure`) and exits 3.
-    final result = await _check(results, _setUp(results));
+    final result = await _check(results, _setUp(results), clock: clock);
     out.write(
       results.option('format') == 'json'
           ? '${const JsonEncoder.withIndent('  ').convert(result.toJson())}\n'
           : formatVerify(result),
     );
+    // A fast run whose checks the time limit cut never reads as a pass: it is
+    // Appstein not finishing, told on stderr, in both formats.
+    if (result.incomplete) err.writeln(capCutMessage(result));
     return verifyExitCode(result);
   }
 
@@ -210,7 +230,7 @@ final class VerifyCommand extends Command<int> {
   /// `_HookRun`: [_AfterEditRun] (below) may answer without checking, and
   /// [_StopRun] keeps the loop guard's count. The reply of either is written
   /// first, and what the run saves is saved after it.
-  Future<int> _runAsHook(ArgResults results) async {
+  Future<int> _runAsHook(ArgResults results, RunClock clock) async {
     // The input is read first, as an agent sends it and closes the pipe. A
     // missing or broken input is no session.
     var input = const HookInput();
@@ -240,7 +260,7 @@ final class VerifyCommand extends Command<int> {
       };
       final early = await run.beforeChecks(filesGiven: setup.files.isNotEmpty);
       if (early != null) return answer.write(early, out, err);
-      result = await _check(results, setup);
+      result = await _check(results, setup, clock: clock, startHost: true);
       reply = run.replyTo(result);
     } on UsageException {
       rethrow;
@@ -316,8 +336,16 @@ final class VerifyCommand extends Command<int> {
 
   /// Brings the knowledge up to date, runs the checks and returns the result
   /// as the terminal prints it. Throws what the run throws when Appstein
-  /// itself fails: the runner reports those and exits 3.
-  Future<VerifyResult> _check(ArgResults results, _RunSetup setup) async {
+  /// itself fails: the runner reports those and exits 3. [clock] is the run's
+  /// own, started when the command began, which a fast run's cap is counted
+  /// from; [startHost] is true for a hook run, which starts the project's
+  /// analysis host when none answers.
+  Future<VerifyResult> _check(
+    ArgResults results,
+    _RunSetup setup, {
+    required RunClock clock,
+    bool startHost = false,
+  }) async {
     final apply = results.flag('apply');
     final (:projectRoot, :files, :config, :packs, :sync) = setup;
     // What the stop of the run's own analysis server could not end: known
@@ -326,14 +354,15 @@ final class VerifyCommand extends Command<int> {
     // A terminal run (a person, or CI) asks the project's analysis host when
     // one of this version answers, and otherwise starts a server of its own
     // and stops it at the end. It never starts or stops a host, so a CI run
-    // leaves no process behind.
+    // leaves no process behind. A hook run asks the host too, and starts one
+    // (detached, left running) when none answers.
     final analysis =
         codeAnalysis ??
         hostCodeAnalysis(
           projectRoot: projectRoot,
           environment: environment,
           dartSdkPath: dartSdkPath,
-          startHost: false,
+          startHost: startHost,
           onLeft: left.addAll,
         );
     // A check that throws and an analysis server that can't answer are
@@ -341,6 +370,14 @@ final class VerifyCommand extends Command<int> {
     // `CodeAnalysisException` and exits 3. The server is stopped either
     // way, by the scope.
     final found = await analysis((codeAnalysis) async {
+      // A hook run begins the look for the project's host, and the launch of
+      // one when none answers, now: in parallel with the refresh, so that at
+      // the cap there is nothing left to wait for.
+      if (startHost) {
+        if (codeAnalysis case final WarmableCodeAnalysis warmable) {
+          warmable.warmUp();
+        }
+      }
       // `--apply` rewrites the files first: the refresh and the reading that
       // follow are of the rewritten files.
       final changes = apply
@@ -375,6 +412,7 @@ final class VerifyCommand extends Command<int> {
           codeAnalysis: codeAnalysis,
           dartSdkPath: dartSdkPath,
           files: files,
+          clock: clock,
         );
         return result.withApplied(written).withNotices(notices);
       } on Object {
@@ -581,12 +619,30 @@ String rewrittenBeforeFailure(List<String> files) => [
   for (final file in files) '  $file',
 ].join('\n');
 
-/// The exit code of `appstein verify` for [result] (spec §9.5): 1 when a
-/// finding is an error, else 0. Warnings, info findings and checks that did
-/// not run never fail a run on their own: a check that could not run comes
-/// with the error that kept it from running.
-int verifyExitCode(VerifyResult result) =>
-    result.errors > 0 ? ExitCodes.errorsFound : ExitCodes.ok;
+/// The exit code of `appstein verify` for [result] (spec §9.5): 3 when the
+/// time limit of a fast run cut checks ([VerifyResult.incomplete]): Appstein did not
+/// finish checking, and that wins over the errors the other checks found,
+/// which are listed all the same; else 1 when a finding is an error, else 0.
+/// Warnings, info findings and checks that did not run for any other reason
+/// never fail a run on their own: a check that could not run comes with the
+/// error that kept it from running.
+int verifyExitCode(VerifyResult result) => result.incomplete
+    ? ExitCodes.appsteinFailed
+    : result.errors > 0
+    ? ExitCodes.errorsFound
+    : ExitCodes.ok;
+
+/// What a terminal run tells on stderr when the time limit cut checks
+/// ([VerifyResult.incomplete]): that Appstein could not finish checking and why, the
+/// pending checks, and that the exit code is 3 whatever else was found.
+String capCutMessage(VerifyResult result) {
+  final cut = result.cutChecks;
+  return 'Appstein could not finish checking: ${cut.first.reason}. '
+      'Checks still pending: ${[for (final check in cut) check.id].join(', ')}.'
+      ' This run exits 3 and not 0 or 1'
+      '${result.errors > 0 ? ', though it found ${_count(result.errors, 'error', 'errors')} (listed above)' : ''}'
+      ': run it again, or raise verify.fast_timeout_seconds.';
+}
 
 String _count(int count, String one, String many) =>
     '$count ${count == 1 ? one : many}';

@@ -37,10 +37,12 @@ const _connectLimit = Duration(seconds: 5);
 
 /// The code analysis of the project at [projectRoot], answered by the
 /// project's **analysis host** (decision record 0002): the `verify` tool of
-/// `appstein mcp` uses it. It is one more implementation of [CodeAnalysis],
+/// `appstein mcp`, the hooks (with [startHost] true) and a terminal `appstein
+/// verify` (with it false) use it. It is one more implementation of [CodeAnalysis],
 /// so the checks ask it as they ask an analysis server of their own.
 ///
-/// - **Nothing happens until the body asks.** The first question reads the
+/// - **Nothing happens until the body asks** (or calls `warmUp`, as a hook
+///   does at its start). The first question reads the
 ///   address file ([analysisHostAddressFile] in [addressFolder]) and
 ///   connects to `127.0.0.1` at its port with its secret. When no host
 ///   answers there, it starts one, as a detached process ([hostCommand] with
@@ -154,13 +156,7 @@ CodeAnalysisScope analysisHostCodeAnalysis({
     readyTimeout: readyTimeout,
     answerGrace: answerGrace,
     turnLimit: turnLimit,
-    connect:
-        connect ??
-        (port) => Socket.connect(
-          InternetAddress.loopbackIPv4,
-          port,
-          timeout: _connectLimit,
-        ),
+    connect: connect,
     os: os ?? HostOs.current,
   );
   try {
@@ -232,18 +228,18 @@ final class _Connection {
   }
 }
 
-/// What a client finds at the address file ([_HostClient._reach]).
-sealed class _Look {
-  const _Look();
+/// What a client finds at the address file ([_HostClient._tryAddress]).
+sealed class _AddressOutcome {
+  const _AddressOutcome();
 }
 
 /// No address file, or none that can be read.
-final class _NoHost extends _Look {
+final class _NoHost extends _AddressOutcome {
   const _NoHost();
 }
 
 /// The host welcomed the client.
-final class _Reached extends _Look {
+final class _Reached extends _AddressOutcome {
   const _Reached(this.connection, this.welcome, this.address);
 
   final _Connection connection;
@@ -253,20 +249,20 @@ final class _Reached extends _Look {
 
 /// The host of the address has ended: its port refuses the connection, or
 /// its process is gone.
-final class _Dead extends _Look {
+final class _Dead extends _AddressOutcome {
   const _Dead(this.address);
 
   final AnalysisHostAddress address;
 }
 
 /// The host's process is there, and it did not welcome the client.
-final class _Silent extends _Look {
+final class _Silent extends _AddressOutcome {
   const _Silent();
 }
 
 /// The address file or its folder may not be trusted ([untrustedAddress]);
 /// [why] is the reason it gave.
-final class _Untrusted extends _Look {
+final class _Untrusted extends _AddressOutcome {
   const _Untrusted(this.why);
 
   final String why;
@@ -274,14 +270,15 @@ final class _Untrusted extends _Look {
 
 /// The host's process runs and its port did not take the connection within
 /// 5 s: a slow host is not a dead one. [message] is the error's.
-final class _Slow extends _Look {
+final class _Slow extends _AddressOutcome {
   const _Slow(this.message);
 
   final String message;
 }
 
-/// The error codes of a connection refused: Windows, Linux, macOS.
-const _refusedCodes = {10061, 111, 61};
+/// The error codes of a connection refused: Windows (Winsock's 10061, and
+/// the 1225 a refused loopback connect reports), Linux, macOS.
+const _refusedCodes = {10061, 1225, 111, 61};
 
 /// [line] as a JSON object; null when it is none.
 Map<String, Object?>? _object(String? line) {
@@ -296,7 +293,7 @@ Map<String, Object?>? _object(String? line) {
   }
 }
 
-final class _HostClient implements CodeAnalysis {
+final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   _HostClient({
     required this.projectRoot,
     required this.hostCommand,
@@ -324,7 +321,7 @@ final class _HostClient implements CodeAnalysis {
   final Duration readyTimeout;
   final Duration answerGrace;
   final Duration turnLimit;
-  final Future<Socket> Function(int port) connect;
+  final Future<Socket> Function(int port)? connect;
   final HostOs os;
 
   _Connection? _connection;
@@ -350,8 +347,44 @@ final class _HostClient implements CodeAnalysis {
   /// The files of the last reading, for `leaveUnformatted`.
   var _analyzedFiles = const <String>[];
 
+  /// The connection being made, or waited on to end, that [close] must close:
+  /// a run that stopped waiting (a fast run at its cap) leaves no wait for a
+  /// host that never answers.
+  _Connection? _reaching;
+
+  /// The look for the host, and the launch of one when none answers
+  /// ([_connectLoop]). The first question joins it, so a run never launches
+  /// two hosts. It is kept when it failed, for the rest of the run: the first
+  /// question gets the same failure instead of looking, and launching, again.
+  /// It is dropped once it succeeded, since a question asked again after its
+  /// host ended needs a new look.
+  Future<_Connection?>? _connecting;
+
+  /// Cancels the connection being made to the host's port; null when none is.
+  void Function()? _cancelDial;
+
+  /// The pause of the look's poll, ended by [close].
+  Timer? _pause;
+  Completer<void>? _pausing;
+
+  @override
+  void warmUp() {
+    if (!startHost || _closed || _connection != null || _own != null) return;
+    unawaited(_connect().then<void>((_) {}, onError: (Object _) {}));
+  }
+
+  /// Ends the run's use of the host: nothing is waited for. A launch that was
+  /// asked for has been made, since [warmUp] asks at the start of the run; a
+  /// run that ends before its look has reached the launch leaves none.
   Future<void> close() async {
     _closed = true;
+    _cancelDial?.call();
+    _pause?.cancel();
+    if (_pausing case final pausing? when !pausing.isCompleted) {
+      pausing.complete();
+    }
+    _reaching?.close();
+    _reaching = null;
     _connection?.close();
     _connection = null;
     final own = _own;
@@ -366,14 +399,10 @@ final class _HostClient implements CodeAnalysis {
     return _own;
   }
 
-  /// The connection, made by the first question; null when this run uses
-  /// its own server instead ([_own]).
+  /// The connection, made by [warmUp] or by the first question; null when
+  /// this run uses its own server instead ([_own]).
   Future<_Connection?> _connect() async {
-    if (_closed) {
-      throw const CodeAnalysisException(
-        'it was asked after the run that used it had ended',
-      );
-    }
+    _checkOpen();
     if (_own != null) return null;
     if (_connection case final open?) return open;
     if (_broken) {
@@ -384,6 +413,17 @@ final class _HostClient implements CodeAnalysis {
       );
     }
     if (!startHost) return _connectToExisting();
+    if (_connecting case final looking?) return looking;
+    final looking = _connecting = _connectLoop();
+    unawaited(
+      looking.then<void>((_) {
+        if (identical(_connecting, looking)) _connecting = null;
+      }, onError: (Object _) {}),
+    );
+    return looking;
+  }
+
+  Future<_Connection?> _connectLoop() async {
     final failure = File(analysisHostFailureFile(addressFile));
     // The secrets of the hosts of an older version this client asked to stop.
     final askedToStop = <String>{};
@@ -391,7 +431,8 @@ final class _HostClient implements CodeAnalysis {
     var startedEnded = false;
     final watch = Stopwatch()..start();
     while (true) {
-      switch (await _reach()) {
+      _checkOpen();
+      switch (await _tryAddressWhileOpen()) {
         case _Reached(:final connection, :final welcome, :final address):
           final compared = compareAppsteinVersions(
             appsteinVersion,
@@ -428,7 +469,11 @@ final class _HostClient implements CodeAnalysis {
           );
         case _Dead(:final address):
           // Unless another client has replaced it meanwhile.
-          await removeAnalysisHostAddress(addressFile, address.secret);
+          await removeAnalysisHostAddress(
+            addressFile,
+            address.secret,
+            cancelled: () => _closed,
+          );
         case _NoHost() when started == null:
           // A reason left by an earlier host is not this one's.
           await _deleteIfThere(failure);
@@ -445,6 +490,7 @@ final class _HostClient implements CodeAnalysis {
           // started: asked again below.
           break;
       }
+      _checkOpen();
       if (watch.elapsed >= startLimit) {
         final which = started == null
             ? 'the analysis host'
@@ -453,7 +499,7 @@ final class _HostClient implements CodeAnalysis {
           '$which did not answer within ${secondsText(startLimit)}',
         );
       }
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await _wait(const Duration(milliseconds: 100));
     }
   }
 
@@ -479,7 +525,7 @@ final class _HostClient implements CodeAnalysis {
   ///   again; anything else is Appstein failing, since the run would
   ///   otherwise change its analysis server in the middle.
   Future<_Connection?> _connectToExisting() async {
-    final reach = await _reach();
+    final reach = await _tryAddressWhileOpen();
     if (reach case _Reached(:final connection, :final welcome)) {
       if (compareAppsteinVersions(appsteinVersion, welcome.appsteinVersion) ==
           0) {
@@ -541,9 +587,12 @@ final class _HostClient implements CodeAnalysis {
   /// until it has closed the connection: it has deleted its address file
   /// by then.
   Future<void> _askToStop(_Connection connection) async {
+    // Tracked, so closing the client ends the wait for the host to answer.
+    _reaching = connection;
     connection.socket.writeln(jsonEncode(const AnalysisHostStop().toJson()));
     await connection.next(const Duration(seconds: 10));
     connection.close();
+    if (identical(_reaching, connection)) _reaching = null;
   }
 
   /// Starts a host, detached, and returns its process ID.
@@ -566,6 +615,93 @@ final class _HostClient implements CodeAnalysis {
     }
   }
 
+  /// Waits [time], or until [close] ends the wait: no timer outlives the run.
+  Future<void> _wait(Duration time) {
+    final pausing = _pausing = Completer<void>();
+    _pause = Timer(time, () {
+      if (!pausing.isCompleted) pausing.complete();
+    });
+    return pausing.future;
+  }
+
+  /// Connects to the host's port on this machine. A connection that is not
+  /// made within [_connectLimit] fails, and one still being made when [close]
+  /// is called is cancelled, so nothing keeps the process alive after the
+  /// run: a refused connection to a closed port takes about 2 s to be
+  /// refused on Windows.
+  Future<Socket> _dial(int port) {
+    if (connect case final replaced?) return replaced(port);
+    final result = Completer<Socket>();
+    ConnectionTask<Socket>? task;
+    Timer? limit;
+    var cancelled = false;
+    void failWith(Object error, [StackTrace? stackTrace]) {
+      if (!result.isCompleted) result.completeError(error, stackTrace);
+    }
+
+    void cancel() {
+      cancelled = true;
+      limit?.cancel();
+      task?.cancel();
+      failWith(const SocketException('The connection was cancelled'));
+    }
+
+    _cancelDial = cancel;
+    Socket.startConnect(InternetAddress.loopbackIPv4, port).then<void>((made) {
+      task = made;
+      if (cancelled) {
+        // Cancelled before the task was known: its failure is nobody's.
+        unawaited(
+          made.socket.then<void>(
+            (socket) => socket.destroy(),
+            onError: (Object _) {},
+          ),
+        );
+        made.cancel();
+        return;
+      }
+      limit = Timer(_connectLimit, () {
+        made.cancel();
+        failWith(
+          SocketException('Connection timed out, host: 127.0.0.1, port: $port'),
+        );
+      });
+      made.socket.then<void>(
+        (socket) {
+          limit?.cancel();
+          if (result.isCompleted) {
+            socket.destroy();
+          } else {
+            result.complete(socket);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          limit?.cancel();
+          failWith(error, stackTrace);
+        },
+      );
+    }, onError: failWith);
+    return result.future.whenComplete(() {
+      if (identical(_cancelDial, cancel)) _cancelDial = null;
+    });
+  }
+
+  /// Throws when the run that uses this client has ended.
+  void _checkOpen() {
+    if (_closed) throw askedAfterRunEnded;
+  }
+
+  /// [_tryAddress], for a client that may be closed meanwhile: a connection
+  /// that welcomed it after that is closed, and the question ends.
+  Future<_AddressOutcome> _tryAddressWhileOpen() async {
+    final outcome = await _tryAddress();
+    if (_closed) {
+      if (outcome case _Reached(:final connection)) connection.close();
+      _checkOpen();
+    }
+    return outcome;
+  }
+
   /// What the address file names now: no host, a host that welcomed this
   /// client, a dead host (the connection is refused, or its process has
   /// ended), or one that is there and did not welcome it (starting, or
@@ -577,15 +713,21 @@ final class _HostClient implements CodeAnalysis {
   /// host's process runs is a [_Slow] (a slow host is not a dead one). The
   /// caller decides what each means: a client that starts a host fails the
   /// question, a terminal run uses a server of its own.
-  Future<_Look> _reach() async {
+  Future<_AddressOutcome> _tryAddress() async {
     if (await untrustedAddress(addressFile, os: os) case final why?) {
       return _Untrusted(why);
     }
     final address = readAnalysisHostAddress(addressFile);
     if (address == null) return const _NoHost();
+    // A host whose process has ended is dead, and nothing is dialed: a
+    // refused connection to a closed port takes about 2 s on Windows, and a
+    // stale address file would cost every hook that.
+    if (lookUpProcess(address.processId) is ProcessGone) {
+      return _Dead(address);
+    }
     final Socket socket;
     try {
-      socket = await connect(address.port);
+      socket = await _dial(address.port);
     } on SocketException catch (error) {
       final refused = _refusedCodes.contains(error.osError?.errorCode);
       if (refused || lookUpProcess(address.processId) is ProcessGone) {
@@ -595,6 +737,8 @@ final class _HostClient implements CodeAnalysis {
       return _Slow(error.message);
     }
     final connection = _Connection(socket);
+    _reaching = connection;
+    if (_closed) connection.close();
     socket.writeln(
       jsonEncode(
         AnalysisHostHello(
@@ -604,6 +748,7 @@ final class _HostClient implements CodeAnalysis {
       ),
     );
     final (:line, late: _) = await connection.next(const Duration(seconds: 10));
+    if (identical(_reaching, connection)) _reaching = null;
     if (_object(line) case final json?) {
       try {
         return _Reached(

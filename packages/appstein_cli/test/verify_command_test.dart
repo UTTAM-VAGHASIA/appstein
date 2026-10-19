@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -9,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'support/analysis_hosts.dart';
+import 'support/cap_config.dart';
 import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
@@ -62,6 +64,98 @@ final class _ThrowingCheck implements VerifyCheck {
   @override
   Future<List<Finding>> run(VerifyContext context) =>
       throw StateError('it broke');
+}
+
+/// A fast check that reports one error, as a check that needs no analysis.
+final class _ReportsError implements VerifyCheck {
+  const _ReportsError();
+
+  @override
+  List<String> get ids => const ['x.found'];
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async => const [
+    Finding(
+      id: 'x.found',
+      severity: Severity.error,
+      file: 'lib/a.dart',
+      line: 2,
+      message: 'Wrong.',
+    ),
+  ];
+}
+
+/// A fast check that names itself as not run, for a reason of its own.
+final class _NotRunForOtherReasons implements VerifyCheck {
+  const _NotRunForOtherReasons();
+
+  @override
+  List<String> get ids => const ['x.other'];
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async {
+    context.notRun('x.other', 'it needs something that is not there');
+    return const [];
+  }
+}
+
+/// The scripted analysis, which also takes `warmUp`, and says in [events]
+/// what it was asked and told, in order.
+final class _Warmable implements CodeAnalysis, WarmableCodeAnalysis {
+  _Warmable() : inner = ScriptedCodeAnalysis();
+
+  final ScriptedCodeAnalysis inner;
+  final events = <String>[];
+
+  /// A scope that gives every body this stand-in.
+  Future<T> scope<T>(Future<T> Function(CodeAnalysis analysis) body) =>
+      body(this);
+
+  @override
+  void warmUp() => events.add('warmUp');
+
+  @override
+  Future<CodeReading> read() {
+    events.add('read');
+    return inner.read();
+  }
+
+  @override
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) => inner.canDartFix(diagnostic, within: within);
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) => inner.formatChanges(files, within: within);
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) =>
+      inner.pendingFixes(within: within);
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) => inner.applyFixesAndFormat(
+    leaveUnformatted: leaveUnformatted,
+    within: within,
+  );
 }
 
 void main() {
@@ -330,28 +424,41 @@ void main() {
       ScriptedCodeAnalysis? analysis,
       bool realServer = false,
       CodeAnalysisScope? scope,
-    }) => runAppstein(
-      // The fake SDK has no `dart` to run an analysis server with, so a run
-      // gets a scripted answer (nothing found) unless it asks for the real
-      // server, which is then the one of `dartSdkPath`, or gives a scope.
-      codeAnalysis:
-          scope ??
-          (realServer ? null : (analysis ?? ScriptedCodeAnalysis()).scope),
-      args,
-      out: out,
-      err: err,
-      environment: HostEnvironment(
-        os: HostOs.current,
-        variables: {
-          'FLUTTER_ROOT': sdk,
-          analysisCacheVariable: cache,
-          analysisHostFolderVariable: hosts,
-        },
-        workingDirectory: workingDirectory ?? project,
-      ),
-      verifyChecks: verifyChecks,
-      dartSdkPath: dartSdkPath,
-    );
+      Future<String> Function()? hookInput,
+    }) {
+      // A fast run is capped by `verify.fast_timeout_seconds` (20 s), and a
+      // server that starts cold on a busy machine can take longer: a run with
+      // a real server waits as long as it takes, unless the test sets its own
+      // cap.
+      final file = File(p.join(project, 'appstein.yaml'));
+      // A test that gives a scope may give a real server too.
+      if ((realServer || scope != null) && !file.existsSync()) {
+        writeCap(project, waitAsLongAsItTakes);
+      }
+      return runAppstein(
+        // The fake SDK has no `dart` to run an analysis server with, so a run
+        // gets a scripted answer (nothing found) unless it asks for the real
+        // server, which is then the one of `dartSdkPath`, or gives a scope.
+        codeAnalysis:
+            scope ??
+            (realServer ? null : (analysis ?? ScriptedCodeAnalysis()).scope),
+        args,
+        out: out,
+        err: err,
+        environment: HostEnvironment(
+          os: HostOs.current,
+          variables: {
+            'FLUTTER_ROOT': sdk,
+            analysisCacheVariable: cache,
+            analysisHostFolderVariable: hosts,
+          },
+          workingDirectory: workingDirectory ?? project,
+        ),
+        verifyChecks: verifyChecks,
+        dartSdkPath: dartSdkPath,
+        hookInput: hookInput,
+      );
+    }
 
     void config(String text) =>
         File(p.join(project, 'appstein.yaml')).writeAsStringSync(text);
@@ -1686,6 +1793,375 @@ void main() {
         }),
         timeout: const Timeout(Duration(minutes: 10)),
       );
+
+      // Slice 1d.7, ticket 09: `verify.fast_timeout_seconds` caps a terminal
+      // fast run too, and the hooks go through the analysis host.
+      test(
+        'a hook run, fast or full, begins looking for the host at its '
+        'start, before its first question; a terminal run does not',
+        () async {
+          for (final kind in ['--fast', '--full']) {
+            final analysis = _Warmable();
+            expect(
+              await run(
+                ['verify', kind, '--hook', 'claude'],
+                scope: analysis.scope,
+                verifyChecks: (_) => [
+                  (check: const DartErrorCheck(), pack: null),
+                ],
+                hookInput: () async => '{"session_id":"s"}',
+              ),
+              ExitCodes.ok,
+              reason: '$kind: $err',
+            );
+            expect(analysis.events, ['warmUp', 'read'], reason: kind);
+          }
+          final terminal = _Warmable();
+          expect(
+            await run(
+              ['verify', '--fast'],
+              scope: terminal.scope,
+              verifyChecks: (_) => [
+                (check: const DartErrorCheck(), pack: null),
+              ],
+            ),
+            ExitCodes.ok,
+            reason: '$err',
+          );
+          expect(terminal.events, ['read']);
+        },
+      );
+
+      group('a fast run whose checks the cap cut', () {
+        // The analysis never answers; the cap is 1 s.
+        ScriptedCodeAnalysis hanging() =>
+            ScriptedCodeAnalysis()..onAsked = () => Completer<void>().future;
+
+        List<({VerifyCheck check, String? pack})> checks(_) => [
+          (check: const DartErrorCheck(), pack: null),
+          (check: const _ReportsError(), pack: null),
+        ];
+
+        // A cap far above the refresh, even on a busy machine: the reason
+        // of a cut is the analysis's.
+        setUp(() => writeCap(project, 3));
+
+        test('a terminal run exits 3 and names the pending checks: it never '
+            'reads as a pass', () async {
+          final watch = Stopwatch()..start();
+          expect(
+            await run(
+              ['verify', '--fast'],
+              analysis: hanging(),
+              verifyChecks: (_) => [
+                (check: const DartErrorCheck(), pack: null),
+              ],
+            ),
+            ExitCodes.appsteinFailed,
+          );
+          expect(watch.elapsed, lessThan(const Duration(seconds: 15)));
+          expect(out.toString(), contains('Not run:\n  dart.error: '));
+          expect(
+            err.toString(),
+            allOf(
+              startsWith('Appstein could not finish checking: '),
+              contains('Checks still pending: dart.error.'),
+              contains('This run exits 3 and not 0 or 1'),
+            ),
+          );
+        });
+
+        test('the errors the other checks found are listed, and exit 3 wins '
+            'over 1, in text and in JSON', () async {
+          expect(
+            await run(
+              ['verify', '--fast'],
+              analysis: hanging(),
+              verifyChecks: checks,
+            ),
+            ExitCodes.appsteinFailed,
+          );
+          expect(out.toString(), contains('error x.found (line 2)'));
+          expect(out.toString(), contains('Not run:\n  dart.error: '));
+          expect(
+            err.toString(),
+            allOf(
+              contains('Checks still pending: dart.error.'),
+              contains('though it found 1 error (listed above)'),
+            ),
+          );
+
+          out.clear();
+          err.clear();
+          expect(
+            await run(
+              ['verify', '--fast', '--format', 'json'],
+              analysis: hanging(),
+              verifyChecks: checks,
+            ),
+            ExitCodes.appsteinFailed,
+          );
+          final json = jsonDecode(out.toString()) as Map<String, Object?>;
+          expect(
+            [for (final f in json['findings']! as List) (f as Map)['id']],
+            ['x.found'],
+          );
+          // One object, as the tool returns it: the run is marked
+          // incomplete, with the reason.
+          expect(json['incomplete'], isTrue);
+          expect(json['incompleteReason'], contains('starting or busy'));
+          expect(json['notRun'], isNotEmpty);
+          expect(err.toString(), contains('Checks still pending'));
+        });
+
+        test(
+          'a check not run for another reason does not fail a run',
+          () async {
+            expect(
+              await run(
+                ['verify', '--fast'],
+                verifyChecks: (_) => [
+                  (check: const _NotRunForOtherReasons(), pack: null),
+                ],
+              ),
+              ExitCodes.ok,
+            );
+            expect(out.toString(), contains('Not run:\n  x.other: '));
+            expect(err.toString(), isEmpty);
+            out.clear();
+            await run(
+              ['verify', '--fast', '--format', 'json'],
+              verifyChecks: (_) => [
+                (check: const _NotRunForOtherReasons(), pack: null),
+              ],
+            );
+            expect(out.toString(), isNot(contains('incomplete')));
+          },
+        );
+
+        test('a hook in the same situation is unchanged: exit 0, or 2 with '
+            'an error, and the agent is told the checks are pending', () async {
+          Future<int> hook(
+            List<({VerifyCheck check, String? pack})> Function(List<Pack>)
+            verifyChecks,
+          ) {
+            out.clear();
+            err.clear();
+            return run(
+              ['verify', '--fast', '--hook', 'claude'],
+              analysis: hanging(),
+              verifyChecks: verifyChecks,
+              hookInput: () async =>
+                  '{"session_id":"s${DateTime.now().microsecondsSinceEpoch}",'
+                  '"hook_event_name":"PostToolUse"}',
+            );
+          }
+
+          expect(
+            await hook((_) => [(check: const DartErrorCheck(), pack: null)]),
+            0,
+          );
+          expect(out.toString(), contains('still pending'));
+          expect(await hook(checks), 2);
+          expect(err.toString(), contains('error x.found (line 2)'));
+          expect(err.toString(), contains('dart.error: '));
+        });
+      });
+
+      group('the hooks start and use the analysis host', () {
+        /// Runs [body] in the turn of the tests that start processes. The
+        /// host the test started is ended before the turn is given back,
+        /// also when the test fails or times out: a host still ending would
+        /// be counted by the test that takes the turn next. A host a hook
+        /// started in the background may not have written its address yet,
+        /// so it is waited for (a test that failed before any host started
+        /// pays the wait).
+        Future<void> inTurn(Future<void> Function() body) =>
+            withChildProcessesToItself(
+              body,
+              cleanup: () async {
+                final watch = Stopwatch()..start();
+                while (hostProcess(hosts, project) == null &&
+                    watch.elapsed < const Duration(seconds: 30)) {
+                  await Future<void>.delayed(const Duration(milliseconds: 200));
+                }
+                await killHost(hosts, project);
+              },
+            );
+
+        const codeChecks = <VerifyCheck>[
+          DartErrorCheck(),
+          DartUnreadableCheck(),
+        ];
+        List<({VerifyCheck check, String? pack})> checks(_) => [
+          for (final check in codeChecks) (check: check, pack: null),
+        ];
+
+        File broken() =>
+            File(p.join(project, 'lib', 'my folder', 'broken.dart'))
+              ..parent.createSync(recursive: true)
+              ..writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
+
+        var sessions = 0;
+
+        /// Runs the hook of [kind] ('--fast', or '--full' for Stop), as a new
+        /// session's, with the real analysis host and server.
+        ///
+        /// The run is bounded, so a hang fails the test with its reason long
+        /// before the turn's wait runs out for the other tests: a fast hook
+        /// is capped, a full one waits for a host (60 s) and its server.
+        Future<int> hook(String kind) {
+          out.clear();
+          err.clear();
+          final event = kind == '--full' ? 'Stop' : 'PostToolUse';
+          final bound = kind == '--full'
+              ? const Duration(seconds: 150)
+              : const Duration(seconds: 60);
+          return run(
+            ['verify', kind, '--hook', 'claude'],
+            realServer: true,
+            dartSdkPath: testDartSdk,
+            verifyChecks: checks,
+            hookInput: () async =>
+                '{"session_id":"cap-${++sessions}","hook_event_name":"$event"}',
+          ).timeout(
+            bound,
+            onTimeout: () => throw StateError(
+              'the $kind hook did not answer within ${bound.inSeconds} s',
+            ),
+          );
+        }
+
+        /// Waits until the project's host has written its address.
+        Future<int> hostComes() async {
+          final watch = Stopwatch()..start();
+          while (hostProcess(hosts, project) == null) {
+            expect(
+              watch.elapsed,
+              lessThan(const Duration(seconds: 90)),
+              reason: 'no host started',
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
+          return hostProcess(hosts, project)!;
+        }
+
+        test(
+          'a fast hook run with no host starts one and, at the cap, tells the '
+          'agent its code checks are pending; the host keeps running, and a '
+          'full hook run waits for it; the next fast hook gets warm answers '
+          'from the same host and server',
+          () => inTurn(() async {
+            broken();
+            // Far above the refresh, even on a busy machine, and short of a
+            // cold host start (15 s or more from source).
+            writeCap(project, 8);
+            expect(hostProcess(hosts, project), isNull);
+
+            // The cap comes first: the host is only starting.
+            final watch = Stopwatch()..start();
+            expect(await hook('--fast'), ExitCodes.ok, reason: '$err');
+            expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
+            final context =
+                ((jsonDecode(out.toString())
+                            as Map<String, Object?>)['hookSpecificOutput']!
+                        as Map<String, Object?>)['additionalContext']!
+                    as String;
+            expect(
+              context,
+              allOf(
+                contains('dart.error: the analysis server is starting or busy'),
+                contains('still pending'),
+              ),
+            );
+            expect(err.toString(), isEmpty);
+
+            // The host the hook started outlives the hook.
+            final host = await hostComes();
+            await recordProcesses([host]);
+            expect(await processAlive(host), isTrue);
+
+            // A full run has no cap: it joins the host that is starting, and
+            // waits for its server.
+            expect(await hook('--full'), 2, reason: '$err');
+            expect(err.toString(), contains('error dart.error (line 2): '));
+            expect(hostProcess(hosts, project), host);
+            final under = await processesUnder(host);
+            await recordProcesses(under);
+
+            // The next fast run is warm: the same answers well within the
+            // default cap (20 s, written down: a missing file would get the
+            // helper's long one), from the same host, and no server was
+            // added. A cold host would be cut at the cap and name its code
+            // checks as not run.
+            writeCap(project, 20);
+            final warm = Stopwatch()..start();
+            expect(await hook('--fast'), 2, reason: '$err');
+            expect(warm.elapsed, lessThan(const Duration(seconds: 12)));
+            expect(err.toString(), contains('error dart.error (line 2): '));
+            expect(err.toString(), isNot(contains('Not run')));
+            expect(hostProcess(hosts, project), host);
+            expect(await processesUnder(host), under);
+          }),
+          timeout: const Timeout(Duration(minutes: 5)),
+        );
+
+        test('a host that never welcomes the hook costs it no more than the '
+            'cap, and the hook leaves its connection closed', () async {
+          writeCap(project, 1);
+          final listening = await ServerSocket.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          addTearDown(listening.close);
+          await writeAnalysisHostAddress(
+            analysisHostAddressFile(hosts, project),
+            AnalysisHostAddress(
+              port: listening.port,
+              secret: 'silent',
+              // A live process: this test's own.
+              processId: pid,
+              appsteinVersion: appsteinVersion,
+            ),
+          );
+          // It reads the greeting and never answers it; the welcome is waited
+          // for 10 s.
+          final closed = Completer<void>();
+          listening.listen((socket) {
+            socket.listen(
+              (_) {},
+              onError: (Object _) {},
+              onDone: () {
+                if (!closed.isCompleted) closed.complete();
+              },
+            );
+          });
+          final watch = Stopwatch()..start();
+          expect(await hook('--fast'), ExitCodes.ok, reason: '$err');
+          expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
+          expect(out.toString(), contains('dart.error: '));
+          await closed.future.timeout(const Duration(seconds: 3));
+        });
+
+        test(
+          'a full hook run with no host starts one, waits for it with no cap '
+          'and reports the error; the host is left running',
+          () => inTurn(() async {
+            broken();
+            // A cap a host's start can't meet: a full run ignores it.
+            writeCap(project, 1);
+            expect(hostProcess(hosts, project), isNull);
+            expect(await hook('--full'), 2, reason: '$err');
+            expect(err.toString(), contains('error dart.error (line 2): '));
+            expect(err.toString(), isNot(contains('Not run')));
+            final host = hostProcess(hosts, project);
+            expect(host, isNotNull);
+            await recordProcesses([host!]);
+            expect(await processAlive(host), isTrue);
+          }),
+          timeout: const Timeout(Duration(minutes: 5)),
+        );
+      });
 
       // A host of another Appstein version is left alone (slice 1d.7, ticket
       // 04): the run uses a server of its own, asks the host nothing and

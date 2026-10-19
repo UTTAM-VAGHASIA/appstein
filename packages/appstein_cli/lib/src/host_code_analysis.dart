@@ -11,8 +11,9 @@ import 'version.dart';
 /// names (`analysisHostFolder`). Two kinds of run use it, told apart by
 /// [startHost]:
 ///
-/// - **The `verify` tool of `appstein mcp`** ([startHost] true): the host is
-///   started when none answers ([analysisHostCommand]), and given the
+/// - **The `verify` tool of `appstein mcp` and the hooks** ([startHost] true;
+///   a hook run begins the look, and the launch, at its start with `warmUp`):
+///   the host is started when none answers ([analysisHostCommand]), and given the
 ///   analysis cache folder [environment] names
 ///   (`analysisServerEnvironment`) as a full path, since the host runs in
 ///   another folder. When the host runs a newer Appstein, the call is

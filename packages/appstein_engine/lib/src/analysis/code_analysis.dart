@@ -199,3 +199,21 @@ final class CodeAnalysisException implements Exception {
   @override
   String toString() => 'The Dart analysis server could not answer: $reason.';
 }
+
+/// A code analysis that can begin finding or starting what it needs while
+/// the caller does other work: a hook run begins looking for the project's
+/// analysis host, and launching one when none answers, at its start, in
+/// parallel with the refresh of the knowledge.
+abstract interface class WarmableCodeAnalysis {
+  /// Begins, and returns at once. The first question joins what is under
+  /// way, so nothing is started twice. A terminal run's analysis starts
+  /// nothing.
+  void warmUp();
+}
+
+/// What a question fails with when it is asked after the run that used the
+/// analysis has ended (a run that stopped waiting, such as a fast run at its
+/// cap, leaves questions behind).
+const askedAfterRunEnded = CodeAnalysisException(
+  'it was asked after the run that used it had ended',
+);

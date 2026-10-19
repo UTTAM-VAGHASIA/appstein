@@ -633,6 +633,16 @@ abstract final class ToolSchemas {
         ),
         description: 'The checks that could not run, and why.',
       ),
+      'incomplete': jsonBoolean(
+        description:
+            'True when the time limit of a fast run cut checks, so Appstein '
+            'could not finish checking: the checks in `notRun` whose reason '
+            'says so are still pending, and the findings are only those of '
+            'the checks that ran. Absent otherwise.',
+      ),
+      'incompleteReason': jsonString(
+        description: 'Why the run is incomplete. Present with `incomplete`.',
+      ),
       'notices': jsonList(
         jsonString(),
         description:

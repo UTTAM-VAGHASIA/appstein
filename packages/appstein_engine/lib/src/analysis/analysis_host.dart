@@ -99,19 +99,26 @@ String analysisHostFailureFile(String addressFile) =>
 /// is left. Returns false when the lock can't be had.
 Future<bool> removeAnalysisHostAddress(
   String addressFile,
-  String secret,
-) async {
+  String secret, {
+  bool Function()? cancelled,
+}) async {
   if (!await Directory(p.dirname(addressFile)).exists()) return false;
   try {
-    return await withAnalysisHostLock(addressFile, () async {
-      if (readAnalysisHostAddress(addressFile)?.secret != secret) return false;
-      try {
-        await File(addressFile).delete();
-        return true;
-      } on FileSystemException {
-        return false;
-      }
-    });
+    return await withAnalysisHostLock(
+      addressFile,
+      cancelled: cancelled,
+      () async {
+        if (readAnalysisHostAddress(addressFile)?.secret != secret) {
+          return false;
+        }
+        try {
+          await File(addressFile).delete();
+          return true;
+        } on FileSystemException {
+          return false;
+        }
+      },
+    );
   } on FileSystemException {
     return false;
   }

@@ -32,7 +32,7 @@ Built from the parser and the `AppsteinConfig` classes:
 | `packs.stack` | text | `official_mvvm` | One of `knownStacks`: `official_mvvm` |
 | `packs.platforms` | list of text | `[android, ios]` | Each one of `knownPlatforms`: `android`, `ios`. At least one, no duplicates |
 | `delta.baseline` | quoted text | `"3.16"` | A Flutter major.minor version only, like `"3.16"`; `"3.16.0"` is an error. It must be quoted: unquoted, YAML reads `3.20` as the number 3.2, so a number is an error |
-| `verify.fast_timeout_seconds` | whole number | `20` | 1 or more |
+| `verify.fast_timeout_seconds` | whole number | `20` | 1 or more. The cap of every fast run: a fast `verify` (a hook, the `verify` tool or a terminal run) stops waiting for the code analysis after this many seconds, counted from the start of the run, and names the code checks that had not finished as not run ([verify](verify.md#the-cap-of-a-fast-run)). A full run is never capped. A terminal fast run the cap cut exits 3 ("could not finish checking"), so CI never reads it as a pass |
 | `verify.build_on_full` | `true` or `false` | `true` | |
 | `verify.test_timeout_seconds` | whole number | `600` | 1 or more. A full `verify` stops the project's tests after this many seconds and reports `test.failed` on the project ([verify](verify.md#the-tests)). `0`, a negative number, `1.5` and quoted `"600"` are errors: "verify.test_timeout_seconds must be a whole number of at least 1." |
 | `verify.severity` | map | empty | Keys are check IDs: two or more lowercase words joined by dots (`ui.no_hardcoded_colors`). Values are `error`, `warning` or `info` |
@@ -97,9 +97,9 @@ Windows PowerShell 5.1 writes UTF-8 files with a byte order mark (BOM), the invi
 
 `loadConfig` has these callers:
 
-- **`appstein verify`** and the MCP server's `verify` tool, which read **`verify.severity`** and **`suppressions`** ([verify](verify.md)), **`docs`** for the `docs.stale` check, and **`verify.test_timeout_seconds`** for the test run of a full run.
+- **`appstein verify`** and the MCP server's `verify` tool, which read **`verify.severity`** and **`suppressions`** ([verify](verify.md)), **`docs`** for the `docs.stale` check, **`verify.test_timeout_seconds`** for the test run of a full run, and **`verify.fast_timeout_seconds`** for the cap of a fast run (`runVerify` reads it unless its `RunClock` carries a limit, which only tests give; see [the cap of a fast run](verify.md#the-cap-of-a-fast-run)).
 - **`appstein docs`**, which reads **`docs.enabled`** and **`docs.path`** ([human-docs](human-docs.md)), and **`appstein mcp`**, which builds its sync from the file on every call ([mcp-server](mcp-server.md)).
 - **`ProjectCheck` in `appstein doctor`**, which reports whether the file is valid and shows the stack and platforms ([doctor](doctor.md#finding-the-project)).
 - **`appstein sync`**, which reads **`packs.stack`** to choose the stack pack and **`delta.baseline`** to choose how far back the version delta's curated notes reach ([version-delta](version-delta.md)). `packsFor` in the CLI maps `official_mvvm` to `OfficialMvvmPack`, and the pack's layer rules, features and routes shape the project map (see [cli](cli.md#appstein-sync) and [project-map](project-map.md#packs-and-the-core)). A project with no `appstein.yaml` gets the defaults, so `official_mvvm`. A broken file stops `sync` with exit code 3 before anything is written. It also reads **`packs.platforms`**: `packsFor` gives each listed platform its pack (`android` gives `AndroidPack`, `ios` gives `IosPack`), and those packs write `native.json` ([native-config](native-config.md)).
 
-The other keys (`verify.fast_timeout_seconds`, `verify.build_on_full`, `packages.*`, `integrations.graphify_export`, `integrations.developer_knowledge_mcp`) are read by no command yet. The slices that use them are planned in the [spec](../project/specs/2026-09-29-appstein-design.md#53-commands).
+The other keys (`verify.build_on_full`, `packages.*`, `integrations.graphify_export`, `integrations.developer_knowledge_mcp`) are read by no command yet. The slices that use them are planned in the [spec](../project/specs/2026-09-29-appstein-design.md#53-commands).

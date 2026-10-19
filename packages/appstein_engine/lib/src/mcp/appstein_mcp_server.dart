@@ -28,6 +28,7 @@ import '../verify/test_run.dart';
 import '../verify/unverified_files.dart';
 import '../verify/verify_check.dart';
 import '../verify/verify_run.dart';
+import '../verify/wait_at_most.dart';
 import 'toolchain_report.dart';
 import 'verify_tool.dart';
 import 'what_changed.dart';
@@ -49,42 +50,77 @@ const _doctor = 'Run `appstein doctor` to see what is wrong.';
 /// they asked.
 final class _Turn {
   Future<void> _last = Future.value();
-  Completer<void>? _held;
 
-  /// Completes when the turn is this caller's, after everyone who asked
-  /// before. The caller must [give] it back.
-  Future<void> take() {
+  /// Joins the line: completes with the turn's completer once everyone who
+  /// asked before has given it back.
+  Future<Completer<void>> enter() {
     final before = _last;
     final mine = Completer<void>();
     _last = mine.future;
-    return before.then<void>((_) {
-      _held = mine;
-    });
+    return before.then((_) => mine);
   }
 
-  /// Gives the turn to the next caller. Only its holder calls this.
-  void give() => _held!.complete();
-
   /// Runs [action] holding the turn, and gives it back when [action] ends,
-  /// normally or with an error.
-  Future<T> hold<T>(Future<T> Function() action) async {
-    await take();
+  /// normally or with an error. [action] may give the turn up for a while and
+  /// take it again through its [_Lease].
+  Future<T> hold<T>(Future<T> Function(_Lease lease) action) async {
+    final lease = _Lease(this);
+    await lease.take();
     try {
-      return await action();
+      return await action(lease);
     } finally {
-      give();
+      lease.end();
     }
   }
 }
 
-/// The code analysis of a `verify` call that holds [_turn]: it gives the
-/// turn back while the analysis is asked, and takes it again before the
-/// run goes on.
+/// One caller's right to a [_Turn]. It knows whether the caller holds the
+/// turn now, so a call that ends while a question it gave its turn up for is
+/// still out never gives a turn it does not hold: the question passes it on
+/// when it takes it again.
+final class _Lease {
+  _Lease(this._turn);
+
+  final _Turn _turn;
+
+  /// The turn held now; null while it is given up or not yet taken.
+  Completer<void>? _mine;
+
+  bool _ended = false;
+
+  bool get ended => _ended;
+
+  /// Completes when the turn is this caller's. The caller must [give] it
+  /// back, or [end].
+  Future<void> take() => _turn.enter().then((mine) {
+    _mine = mine;
+    // A call that ended while it waited has no use for the turn.
+    if (_ended) give();
+  });
+
+  /// Gives the turn to the next caller. Nothing when it is not held.
+  void give() {
+    final mine = _mine;
+    _mine = null;
+    mine?.complete();
+  }
+
+  /// The call is over: gives the turn up if it is held.
+  void end() {
+    _ended = true;
+    give();
+  }
+}
+
+/// The code analysis of a `verify` call that holds a turn through [_lease]:
+/// it gives the turn back while the analysis is asked, and takes it again
+/// before the run goes on. A question still out when the call ends gives the
+/// turn on when it is answered; none is asked after that.
 final class _OutOfTurn implements CodeAnalysis {
-  _OutOfTurn(this._analysis, this._turn);
+  _OutOfTurn(this._analysis, this._lease);
 
   final CodeAnalysis _analysis;
-  final _Turn _turn;
+  final _Lease _lease;
 
   @override
   Future<CodeReading> read() => _outOfTurn(_analysis.read);
@@ -143,11 +179,12 @@ final class _OutOfTurn implements CodeAnalysis {
   );
 
   Future<T> _outOfTurn<T>(Future<T> Function() ask) async {
-    _turn.give();
+    if (_lease.ended) throw askedAfterRunEnded;
+    _lease.give();
     try {
       return await ask();
     } finally {
-      await _turn.take();
+      await _lease.take();
     }
   }
 }
@@ -159,12 +196,22 @@ final class _OutOfTurn implements CodeAnalysis {
 ///
 /// Before each answer it syncs as `appstein sync --detect` does, with
 /// [syncFor]'s `KnowledgeSync` (the CLI builds one from `appstein.yaml` on
-/// every call, with package skills off and a held analyzer cache). Calls
-/// are answered one at a time, with one exception: while a `verify` call
-/// waits for the analysis server, calls of the other tools are answered,
-/// and a second `verify` call waits. A sync that fails leaves the reply marked
-/// `stale`, from the files on disk; with no file to answer from, the reply
-/// is an error. Nothing is ever written to stdout but protocol messages.
+/// every call, with package skills off and a held analyzer cache). Three
+/// turns order the calls:
+/// - the calls' turn: calls are answered one at a time, with one exception:
+///   while a `verify` call waits for the analysis server, calls of the other
+///   tools are answered. A fast `verify` call that has used its cap goes on
+///   without it;
+/// - the `verify` turn: a second `verify` call waits for the first, which has
+///   the analysis; a fast call waits at most until its cap;
+/// - the refresh turn: at most one sync at a time, whoever asks, since two
+///   would analyze the project and fetch its packages twice, with one held
+///   analyzer cache between them. A fast `verify` call that skipped the
+///   calls' turn still waits for it.
+///
+/// A sync that fails leaves the reply marked `stale`, from the files on
+/// disk; with no file to answer from, the reply is an error. Nothing is ever
+/// written to stdout but protocol messages.
 final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// Serves the project at [projectRoot] over [channel]. [codeAnalysis]
   /// gives each `verify` call its code analysis. [dartSdkPath] overrides
@@ -375,16 +422,48 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
           toolOutputSchema(ToolSchemas.verifyResult),
         ),
       ),
-      (request) => _verifyCalls.hold(() async {
+      (request) async {
+        final clock = RunClock();
+        final arguments = request.arguments ?? const {};
+        final cap = _fastCap(arguments);
+        // The code analysis is entered first, when the call arrives: the look
+        // for the host begins at once, while the call waits for its turns
+        // and refreshes. (Entering may wait too, for an idle analysis server
+        // that is being stopped, and no other tool waits for that.)
         try {
-          // The code analysis is entered before the calls' turn is taken:
-          // entering may wait (an idle analysis server that is being
-          // stopped), and no other tool waits for that.
-          return await codeAnalysis(
-            (analysis) => _oneAtATime(
-              () => _verify(request.arguments ?? const {}, analysis),
-            ),
-          );
+          return await codeAnalysis((analysis) async {
+            // This process is long-lived: a launch it asks for needs no
+            // waiting at all.
+            if (analysis case final WarmableCodeAnalysis warmable) {
+              warmable.warmUp();
+            }
+            final verifyTurn = _Lease(_verifyCalls);
+            final callsTurn = _Lease(_calls);
+            try {
+              // A fast call waits for another `verify` call, which has the
+              // analysis, and then for the calls' turn, at most until its
+              // cap: the waits count toward it. Past it, the call goes on
+              // without the turn, which another call may hold for its whole
+              // test run: it only refreshes (its own turn), judges and saves
+              // under the knowledge lock.
+              for (final turn in [verifyTurn, callsTurn]) {
+                final waiting = turn.take();
+                if (cap == null) {
+                  await waiting;
+                } else {
+                  await waitAtMost(
+                    waiting,
+                    cap - clock.elapsed,
+                    onLimit: turn.end,
+                  );
+                }
+              }
+              return await _verify(arguments, analysis, callsTurn, clock);
+            } finally {
+              callsTurn.end();
+              verifyTurn.end();
+            }
+          });
         } on CodeAnalysisException catch (error) {
           // The analysis could not be entered at all. No refresh ran, so
           // the reply states no freshness.
@@ -393,8 +472,21 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
             content: [TextContent(text: '$error $_doctor')],
           );
         }
-      }),
+      },
     );
+  }
+
+  /// The cap of a fast `verify` call, from `appstein.yaml` (the default when
+  /// it can't be read: the call reports that itself); null for a full one.
+  Duration? _fastCap(Map<String, Object?> arguments) {
+    if (arguments['scope'] != 'fast') return null;
+    var config = const AppsteinConfig();
+    try {
+      config = loadConfig(projectRoot) ?? config;
+    } on ConfigException {
+      // The call says so once it runs.
+    }
+    return Duration(seconds: config.verify.fastTimeoutSeconds);
   }
 
   /// The project's folder.
@@ -416,6 +508,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
 
   /// The turn every call answers in: one call at a time.
   final _calls = _Turn();
+
+  /// The turn of the refresh: one sync at a time, whoever asks.
+  final _refresh = _Turn();
 
   /// The turn of the `verify` calls. A `verify` call gives [_calls] back
   /// while it waits for the analysis server, so that the other tools are
@@ -448,7 +543,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       inputSchema: ObjectSchema.fromMap(input),
       outputSchema: ObjectSchema.fromMap(toolOutputSchema(result)),
     ),
-    (request) => _oneAtATime(() async {
+    (request) => _calls.hold((_) async {
       final before = await _freshen();
       try {
         return switch (await write(request.arguments ?? const {})) {
@@ -486,11 +581,8 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       inputSchema: ObjectSchema.fromMap(input),
       outputSchema: ObjectSchema.fromMap(toolOutputSchema(result)),
     ),
-    (request) => _oneAtATime(() => _call(request, answer)),
+    (request) => _calls.hold((_) => _call(request, answer)),
   );
-
-  /// Runs [action] after every call before it finished.
-  Future<T> _oneAtATime<T>(Future<T> Function() action) => _calls.hold(action);
 
   Future<CallToolResult> _call(
     CallToolRequest request,
@@ -539,11 +631,19 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
   /// never follows a rewrite; a failure after it still names the files it
   /// rewrote. `apply` with the fast scope is refused.
   ///
+  /// A fast run is capped by `verify.fast_timeout_seconds`, counted from the
+  /// arrival of the call [clock], so the waits for the turns count: the cap
+  /// cuts the wait for the code analysis only (`runVerify`), and the question
+  /// it stops waiting for passes the calls' turn on when it is answered
+  /// ([_Lease]).
+  ///
   /// [analysis] is the call's code analysis, which the caller has entered
   /// (`codeAnalysis`) before it took the calls' turn.
   Future<CallToolResult> _verify(
     Map<String, Object?> arguments,
     CodeAnalysis analysis,
+    _Lease lease,
+    RunClock clock,
   ) async {
     final mode = arguments['scope'] == 'fast'
         ? VerifyMode.fast
@@ -600,7 +700,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
               'list.';
       }
     }
-    final codeAnalysis = _OutOfTurn(analysis, _calls);
+    final codeAnalysis = _OutOfTurn(analysis, lease);
     // `apply` rewrites the files before the knowledge is brought up to date,
     // as `appstein verify --apply` does: the refresh and the reading that
     // follow are of the rewritten files.
@@ -638,12 +738,14 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
       // (`renderDocsForApply`, the code of `appstein docs`); a docs run that
       // can't be done writes nothing and is reported by `docs.stale`.
       if (apply == true) {
-        final docs = await renderDocsForApply(
-          projectRoot: projectRoot,
-          config: config,
-          packs: using.packs,
-          sync: using,
-          dartSdkPath: dartSdkPath,
+        final docs = await _refresh.hold(
+          (_) => renderDocsForApply(
+            projectRoot: projectRoot,
+            config: config,
+            packs: using.packs,
+            sync: using,
+            dartSdkPath: dartSdkPath,
+          ),
         );
         applied = [...applied, ...docs.written];
         leftAlone = [...leftAlone, ...docs.notices];
@@ -659,6 +761,7 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
         refreshed: KnowledgeRefresh.fromFreshness(freshness),
         dartSdkPath: dartSdkPath,
         files: files,
+        clock: clock,
       );
       return switch (verifyAnswer(
         result.withApplied(applied).withNotices(leftAlone),
@@ -696,7 +799,9 @@ final class AppsteinMcpServer extends MCPServer with ToolsSupport {
     try {
       final sync = syncFor();
       built?.call(sync);
-      final report = await sync.detect(projectRoot, dartSdkPath: dartSdkPath);
+      final report = await _refresh.hold(
+        (_) => sync.detect(projectRoot, dartSdkPath: dartSdkPath),
+      );
       if (report.current) return const FreshnessReport.current();
       // Input names: a project file's is `project:<path>`; the agent wants
       // the path, as `appstein sync --detect` prints it.

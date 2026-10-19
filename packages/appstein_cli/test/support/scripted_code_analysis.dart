@@ -15,6 +15,7 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
     this.unreadableFiles = const {},
     this.fixable = const {},
     this.failure,
+    this.onAsked,
   });
 
   /// The diagnostics [read] answers with.
@@ -38,6 +39,10 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
   /// What [read] throws instead, when set.
   CodeAnalysisException? failure;
 
+  /// Called each time [read] is asked, before it answers: a test makes the
+  /// analysis slow by waiting here.
+  Future<void> Function()? onAsked;
+
   /// How often [read] was asked.
   int asked = 0;
 
@@ -48,6 +53,7 @@ final class ScriptedCodeAnalysis implements CodeAnalysis {
   @override
   Future<CodeReading> read() async {
     asked++;
+    await onAsked?.call();
     if (failure case final failure?) throw failure;
     return CodeReading(
       diagnostics: found,

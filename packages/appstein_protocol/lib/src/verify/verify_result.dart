@@ -5,13 +5,24 @@ import 'finding.dart';
 /// A check that did not run, and why (spec §9).
 final class CheckNotRun {
   /// Creates the entry.
-  const CheckNotRun({required this.id, required this.reason});
+  const CheckNotRun({
+    required this.id,
+    required this.reason,
+    this.cutByCap = false,
+  });
 
   /// The check's ID.
   final String id;
 
   /// Why it did not run, in words that follow the ID and a colon.
   final String reason;
+
+  /// Whether the time limit of a fast run (`verify.fast_timeout_seconds`)
+  /// cut the code analysis it needed, so the run did not finish checking. It
+  /// is not in a check's JSON form: the result says it once, as
+  /// [VerifyResult.incomplete], and a result read back from JSON does not
+  /// carry it.
+  final bool cutByCap;
 
   /// The JSON form.
   Map<String, Object?> toJson() => {'id': id, 'reason': reason};
@@ -106,6 +117,19 @@ final class VerifyResult {
   /// affected.
   final List<String> notices;
 
+  /// The checks the time limit of a fast run cut ([CheckNotRun.cutByCap]).
+  List<CheckNotRun> get cutChecks => [
+    for (final check in notRun)
+      if (check.cutByCap) check,
+  ];
+
+  /// Whether the time limit of a fast run cut any check, so the run did not
+  /// finish checking: the terminal exits 3, and the JSON form says so.
+  bool get incomplete => cutChecks.isNotEmpty;
+
+  /// Why the first cut check did not run; null when [incomplete] is false.
+  String? get incompleteReason => cutChecks.firstOrNull?.reason;
+
   /// The number of error findings. Any error blocks "done".
   int get errors => _count(Severity.error);
 
@@ -126,6 +150,11 @@ final class VerifyResult {
     'suppressed': suppressed,
     'activeSuppressions': activeSuppressions,
     'notRun': [for (final entry in notRun) entry.toJson()],
+    // Only on a run the cap cut, as `notices` only when there are any.
+    if (incomplete) ...{
+      'incomplete': true,
+      'incompleteReason': incompleteReason,
+    },
     if (notices.isNotEmpty) 'notices': notices,
     'applied': applied,
   };

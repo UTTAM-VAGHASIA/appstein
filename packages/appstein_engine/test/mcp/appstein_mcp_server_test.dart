@@ -21,6 +21,49 @@ import '../support/scripted_code_analysis.dart';
 import 'support/mcp_client.dart';
 import 'support/mcp_support.dart';
 
+/// The scripted analysis, which also takes `warmUp`: [events] says what it was
+/// told and asked, in order.
+final class _Warmable implements CodeAnalysis, WarmableCodeAnalysis {
+  _Warmable(this.inner, this.events);
+
+  final ScriptedCodeAnalysis inner;
+  final List<String> events;
+
+  @override
+  void warmUp() => events.add('warmUp');
+
+  @override
+  Future<CodeReading> read() {
+    events.add('read');
+    return inner.read();
+  }
+
+  @override
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) => inner.canDartFix(diagnostic, within: within);
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) => inner.formatChanges(files, within: within);
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) =>
+      inner.pendingFixes(within: within);
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) => inner.applyFixesAndFormat(
+    leaveUnformatted: leaveUnformatted,
+    within: within,
+  );
+}
+
 void main() {
   setUpAll(warmUpAnalyzer);
 
@@ -50,7 +93,7 @@ void main() {
     );
   });
 
-  Future<ServerConnection> serve() async {
+  Future<ServerConnection> serve({List<String>? warmEvents}) async {
     final controller = StreamChannelController<String>();
     final server = AppsteinMcpServer(
       controller.local,
@@ -58,7 +101,9 @@ void main() {
       syncFor: () => syncFor(),
       codeAnalysis: <T>(body) async {
         await entering?.call();
-        return analysis.scope(body);
+        return warmEvents == null
+            ? analysis.scope(body)
+            : body(_Warmable(analysis, warmEvents));
       },
       appsteinVersion: '0.1.0-dev',
       dartSdkPath: testDartSdk,
@@ -67,6 +112,12 @@ void main() {
     addTearDown(server.shutdown);
     return connectTo(controller.foreign);
   }
+
+  /// Sets the cap of a fast run (`verify.fast_timeout_seconds`) of the app.
+  void writeCap(int seconds) =>
+      File(p.join(app, 'appstein.yaml')).writeAsStringSync(
+        'appstein: 1\nverify:\n  fast_timeout_seconds: $seconds\n',
+      );
 
   Map<String, Object?> structured(CallToolResult result) {
     expect(result.isError, isNot(isTrue), reason: textOf(result));
@@ -487,6 +538,216 @@ void main() {
         ];
       final json = structured(await call(server, 'verify', {'scope': 'fast'}));
       expect(ids(json), ['dart.error']);
+    });
+
+    test('a fast call is capped by verify.fast_timeout_seconds: the code '
+        'checks that had not finished are named as not run, and the next '
+        'call asks again', () async {
+      // A cap far above the refresh, even on a busy machine, and an analysis
+      // far slower than the cap: the reason is the analysis's.
+      writeCap(3);
+      analysis
+        ..found = const [
+          CodeDiagnostic(
+            file: 'lib/main.dart',
+            line: 1,
+            code: 'some_code',
+            message: 'Wrong.',
+            level: DiagnosticLevel.error,
+          ),
+        ]
+        ..onAsked = () => Future<void>.delayed(const Duration(seconds: 15));
+      final server = await serve();
+      // The first call builds the knowledge, which takes the cap by itself;
+      // the next finds it current, and spends the cap on the analysis.
+      await call(server, 'overview');
+      final watch = Stopwatch()..start();
+      final json = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 12)));
+      expect(ids(json), isNot(contains('dart.error')));
+      final notRun = json['notRun']! as List;
+      expect([
+        for (final check in notRun) (check as Map)['id'],
+      ], contains('dart.error'));
+      expect([
+        for (final check in notRun) (check as Map)['reason'],
+      ], everyElement(contains('the analysis server is starting or busy')));
+      // The marker: the run could not finish checking, with the reason; the
+      // findings and `notRun` are there as always.
+      expect(json['incomplete'], isTrue);
+      expect(
+        json['incompleteReason'],
+        allOf(
+          contains('the analysis server is starting or busy'),
+          isA<String>(),
+        ),
+      );
+      expect(json['findings'], isA<List<Object?>>());
+      expectMatchesSchema(toolOutputSchema(ToolSchemas.verifyResult), json);
+      analysis.onAsked = null;
+      final again = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(ids(again), ['dart.error']);
+      expect(again['notRun'], isEmpty);
+      // An uncut run has no marker at all.
+      expect(again.containsKey('incomplete'), isFalse);
+      expect(again.containsKey('incompleteReason'), isFalse);
+    });
+
+    test('the text says Appstein could not finish checking, with the pending '
+        'checks, when the cap cut some', () async {
+      writeCap(1);
+      analysis.onAsked = () => Future<void>.delayed(const Duration(seconds: 6));
+      final server = await serve();
+      await call(server, 'overview');
+      final result = await call(server, 'verify', {'scope': 'fast'});
+      expect(
+        textOf(result),
+        allOf(
+          contains('Appstein could not finish checking: '),
+          contains('Checks still pending: '),
+          contains('dart.error'),
+        ),
+      );
+    });
+
+    test('a verify call begins the look for the host when it arrives, before '
+        'its first question', () async {
+      final events = <String>[];
+      final server = await serve(warmEvents: events);
+      structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(events, ['warmUp', 'read']);
+    });
+
+    test('the look starts when a call arrives, also while another verify '
+        'call holds the turn', () async {
+      final events = <String>[];
+      // The first call has the analysis for 3 s.
+      analysis.onAsked = () => Future<void>.delayed(const Duration(seconds: 3));
+      final server = await serve(warmEvents: events);
+      final first = call(server, 'verify', {'scope': 'full'});
+      while (!events.contains('read')) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(events, ['warmUp', 'read']);
+      final second = call(server, 'verify', {'scope': 'full'});
+      // The second call is waiting for the first one's turn, and has begun
+      // its look.
+      final waited = Stopwatch()..start();
+      while (events.length < 3 && waited.elapsed < const Duration(seconds: 2)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(events, ['warmUp', 'read', 'warmUp']);
+      structured(await first);
+      analysis.onAsked = null;
+      structured(await second);
+      expect(events, ['warmUp', 'read', 'warmUp', 'read']);
+    });
+
+    test('a fast call queued behind another verify call is cut at its cap: '
+        'the wait counts, the call asks the analysis nothing and comes back '
+        'partial', () async {
+      writeCap(1);
+      // The first call (a full run) has the analysis for 4 s.
+      analysis.onAsked = () => Future<void>.delayed(const Duration(seconds: 4));
+      final server = await serve();
+      final first = call(server, 'verify', {'scope': 'full'});
+      // It has its turn and is asking the analysis by the time the second
+      // call arrives.
+      while (analysis.asked == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final watch = Stopwatch()..start();
+      final json = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 2500)));
+      expect(analysis.asked, 1, reason: 'the second call asked nothing');
+      final notRun = json['notRun']! as List;
+      expect([
+        for (final check in notRun) (check as Map)['id'],
+      ], contains('dart.error'));
+      expect([
+        for (final check in notRun) (check as Map)['reason'],
+      ], everyElement(contains('had used its 1 s limit')));
+      // The first call is answered whole, and the turn went on.
+      expect(structured(await first)['notRun'], isNot(contains('dart.error')));
+      analysis.onAsked = null;
+      final again = structured(await call(server, 'verify', {'scope': 'fast'}));
+      expect(again['notRun'], isEmpty);
+    });
+
+    test(
+      'a fast call that has used its cap does not wait for the calls\' '
+      'turn, which a full call holds while the project\'s tests run',
+      () async {
+        writeCap(1);
+        // The full call's tests take 5 s, with the turn in its hand: this is
+        // not the analysis, whose questions give the turn up.
+        runner.onRun = (command) async {
+          if (command.contains(' test')) {
+            await Future<void>.delayed(const Duration(seconds: 5));
+          }
+        };
+        final server = await serve();
+        await call(server, 'overview');
+        final first = call(server, 'verify', {'scope': 'full'});
+        while (!runner.calls.any((command) => command.contains(' test'))) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        final watch = Stopwatch()..start();
+        final json = structured(
+          await call(server, 'verify', {'scope': 'fast'}),
+        );
+        expect(watch.elapsed, lessThan(const Duration(milliseconds: 3000)));
+        expect([
+          for (final check in json['notRun']! as List) (check as Map)['id'],
+        ], contains('dart.error'));
+        expect(analysis.asked, 1, reason: 'only the full call asked');
+        // The full call goes on and is answered whole.
+        expect(
+          structured(await first)['notRun'],
+          isNot(contains('dart.error')),
+        );
+      },
+    );
+
+    test('two refreshes never overlap, though a fast call that has used its '
+        'cap does not wait for the calls\' turn', () async {
+      writeCap(1);
+      final pubspec = File(p.join(app, 'pubspec.yaml'));
+      var running = 0;
+      var overlapped = 0;
+      var pubGets = 0;
+      var minutes = 5;
+      // Each `flutter pub get` takes 2 s, and the next refresh needs another.
+      runner.onRun = (command) async {
+        if (!command.contains(' pub get')) return;
+        pubGets++;
+        running++;
+        if (running > overlapped) overlapped = running;
+        await Future<void>.delayed(const Duration(seconds: 2));
+        running--;
+        pubspec.setLastModifiedSync(
+          DateTime.now().add(Duration(minutes: ++minutes)),
+        );
+      };
+      final server = await serve();
+      await call(server, 'overview');
+      pubspec.setLastModifiedSync(
+        DateTime.now().add(const Duration(minutes: 5)),
+      );
+      // The full call refreshes first, and is in its refresh when the fast
+      // call, which has no cap left once it has waited for the `verify`
+      // turn, comes.
+      final first = call(server, 'verify', {'scope': 'full'});
+      while (running == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final second = structured(
+        await call(server, 'verify', {'scope': 'fast'}),
+      );
+      expect(second['freshness'], isNotNull);
+      await first;
+      expect(pubGets, greaterThanOrEqualTo(2));
+      expect(overlapped, 1, reason: 'a second sync started during a sync');
     });
 
     test('a // appstein:ignore comment hides a finding, and the reply counts '

@@ -284,10 +284,15 @@ Future<Duration?> goneWithin(Iterable<int> ids, Duration limit) async {
 /// - The file names its holder by process ID and start. One left behind by
 ///   a run that was killed, or by an earlier process that had this one's
 ///   ID, is taken away.
+/// - The turn is given back when [body] ends, and also when the test is
+///   torn down: a test that times out never lets [body]'s end run, and
+///   would keep the others waiting for the whole [wait]. [cleanup] (ending
+///   what the test started) runs first, inside the turn, both ways.
 Future<T> withChildProcessesToItself<T>(
   Future<T> Function() body, {
   Duration wait = turnWait,
   File? file,
+  Future<void> Function()? cleanup,
 }) async {
   // Another file only in the tests of this function itself.
   final turn = file ?? turnFile();
@@ -321,14 +326,26 @@ Future<T> withChildProcessesToItself<T>(
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }
+  var given = false;
+  Future<void> giveBack() async {
+    if (given) return;
+    given = true;
+    try {
+      await cleanup?.call();
+    } finally {
+      try {
+        turn.deleteSync();
+      } on FileSystemException {
+        // Taken away as left behind: nothing to give back.
+      }
+    }
+  }
+
+  addTearDown(giveBack);
   try {
     return await body();
   } finally {
-    try {
-      turn.deleteSync();
-    } on FileSystemException {
-      // Taken away as left behind: nothing to give back.
-    }
+    await giveBack();
   }
 }
 

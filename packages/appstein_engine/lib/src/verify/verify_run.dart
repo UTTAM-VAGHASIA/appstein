@@ -97,6 +97,37 @@ const _filesNotKept =
 
 String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 
+/// The clock of one run, started when it is made: a caller makes it when the
+/// run is asked for, so what comes before `runVerify` counts toward the cap of
+/// a fast run. [limit] replaces `verify.fast_timeout_seconds`, for tests.
+final class RunClock {
+  /// Starts the clock now.
+  RunClock({this.limit}) : _watch = Stopwatch()..start();
+
+  /// The limit that replaces the configured one; null for the configured one.
+  final Duration? limit;
+
+  final Stopwatch _watch;
+
+  /// The time since the clock started.
+  Duration get elapsed => _watch.elapsed;
+}
+
+/// Why a check is named as not run when the cap of a fast run ([cap]) cut the
+/// code analysis it needed: [waited] is how long the first cut question was
+/// given, zero when the time was spent before it was asked.
+String capReason(Duration cap, Duration waited) => waited <= Duration.zero
+    ? 'this run had used its ${secondsText(cap)} limit before the code '
+          'analysis was asked (the refresh, or a wait for another call, took '
+          'the time), so the code checks of this change are still pending'
+    : 'the analysis server is starting or busy: it had not answered in the '
+          '${secondsText(_tenths(waited))} left of this run\'s '
+          '${secondsText(cap)} limit, so the code checks of this change are '
+          'still pending';
+
+Duration _tenths(Duration time) =>
+    Duration(milliseconds: (time.inMilliseconds / 100).round() * 100);
+
 /// Runs `appstein verify` on the project at [projectRoot] (spec §9).
 ///
 /// 1. It brings the knowledge up to date with [sync], as `appstein sync
@@ -133,6 +164,13 @@ String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 /// `files`). That one set is what is gathered for and what the checks judge
 /// (`VerifyContext.unverified`).
 ///
+/// **The cap (slice 1d.7).** A fast run waits for the code analysis at most
+/// the limit of [clock] (`verify.fast_timeout_seconds`), counted from the
+/// clock's start. Only the analysis is cut: a check whose gathering needed a
+/// question that was cut is named in [VerifyResult.notRun] ([capReason]) and
+/// not run, and the run is partial. The refresh and the knowledge lock count
+/// toward the limit and are never cut. A full run has no cap.
+///
 /// [checks] is every check of the project, each with the pack that
 /// contributed it (null for the engine's); `checksFor` builds the list.
 /// [codeAnalysis] answers the code checks. The caller owns it: a terminal
@@ -157,7 +195,12 @@ Future<VerifyResult> runVerify({
   KnowledgeRefresh? refreshed,
   String? dartSdkPath,
   List<String> files = const [],
+  RunClock? clock,
 }) async {
+  final runClock = clock ?? RunClock();
+  final cap = mode == VerifyMode.fast
+      ? runClock.limit ?? Duration(seconds: config.verify.fastTimeoutSeconds)
+      : null;
   final refresh =
       refreshed ??
       await refreshKnowledge(
@@ -181,6 +224,7 @@ Future<VerifyResult> runVerify({
     projectRoot: projectRoot,
     unverified: unverified,
     mode: mode,
+    timeLeft: cap == null ? null : () => cap - runClock.elapsed,
     // With the sync's machine and process runner, so the tests run on the
     // Flutter SDK the knowledge was built for.
     runTests: () => runProjectTests(
@@ -190,13 +234,15 @@ Future<VerifyResult> runVerify({
       timeout: Duration(seconds: config.verify.testTimeoutSeconds),
     ),
   );
+  // The checks the cap kept from gathering: not run, and named.
+  final unfinished = <VerifyCheck>{};
   for (final (:check, pack: _) in checks) {
     if (check is! GatheringCheck) continue;
     if (mode == VerifyMode.fast && check.mode != VerifyMode.fast) continue;
     // It will not run: `knowledge.stale` is reported and it is named.
     if (check.needsMap && !refresh.ok) continue;
     try {
-      await gathering.gatherFor(check);
+      if (!await gathering.gatherFor(check)) unfinished.add(check);
     } on CodeAnalysisException {
       // The analysis server failed, not the check that asked it.
       rethrow;
@@ -287,6 +333,15 @@ Future<VerifyResult> runVerify({
         incomplete.addAll(check.ids);
         continue;
       }
+      if (unfinished.contains(check)) {
+        notRun[id] = CheckNotRun(
+          id: id,
+          reason: capReason(cap!, gathering.cutAfter!),
+          cutByCap: true,
+        );
+        incomplete.addAll(check.ids);
+        continue;
+      }
       running = check.ids;
       runningCheck = check;
       final List<Finding> found;
@@ -339,6 +394,7 @@ Future<VerifyResult> runVerify({
       if (check is! FollowingCheck) continue;
       if (mode == VerifyMode.fast && check.mode != VerifyMode.fast) continue;
       if (check.needsMap && stale != null) continue;
+      if (unfinished.contains(check)) continue;
       running = check.ids;
       runningCheck = check;
       final List<Finding> found;
@@ -373,7 +429,8 @@ Future<VerifyResult> runVerify({
               finding.id == 'knowledge.stale' ||
               finding.id == 'dart.plugin_failed',
         ) ||
-        notRun.keys.any(_isCodeCheck);
+        notRun.keys.any(_isCodeCheck) ||
+        unfinished.isNotEmpty;
     final kept = locked
         ? await _settleUnverified(
             store,

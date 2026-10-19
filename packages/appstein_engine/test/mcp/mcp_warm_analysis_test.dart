@@ -30,6 +30,13 @@ void main() {
   setUp(() {
     app = copyFixtureApp();
     sdk = fakeFlutter();
+    // The first call starts the real server, which can take longer than the
+    // cap of a fast run on a busy machine; these tests are not about it.
+    writeProjectFile(
+      app,
+      'appstein.yaml',
+      'appstein: 1\nverify:\n  fast_timeout_seconds: 600\n',
+    );
   });
 
   // A full run also runs the project's tests (ticket 10): scripted as a
@@ -171,6 +178,7 @@ int sidesOf(Shape shape) => shape.sides;
                 checks: checksFor(_packs),
                 codeAnalysis: analysis,
                 dartSdkPath: testDartSdk,
+                clock: RunClock(limit: const Duration(minutes: 10)),
               ),
             );
         final json = terminal.toJson();

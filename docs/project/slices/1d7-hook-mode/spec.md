@@ -151,6 +151,7 @@ Each project gets one **analysis host**: a small background process, the `appste
 
 - It caps every fast run, whatever started it (hook, tool, terminal), counted from the run's start. Waiting for a host to start counts. The default stays 20 s.
 - At the cap, the checks that hadn't finished are named among the checks not run, with the reason (for example "the analysis server is starting"), and the run is partial, so no file leaves the unverified files. The next run asks again.
+- A terminal run cut by the cap exits 3, "Appstein could not finish checking", with the pending checks and any errors the other checks found, so CI never reads a cut run as a pass. Checks not run for any other reason keep 1d.1's rule. A hook run keeps its own answer: exit 0, or 2 with errors, and the agent is told its code checks are pending (the owner, 2026-10-20).
 - A fast hook run that finds no host starts one and waits for it up to the cap. A start takes 7 to 8 s without the plugin, about 19 s with it, and about a minute the first time a project builds the plugin.
 - Full runs have no cap: they wait for the host as long as its start limit allows.
 
@@ -205,7 +206,7 @@ A good test here states what an agent, a developer or CI sees: given this projec
 - `--hook` with `--format` is a usage error.
 - `--apply`'s writes are made by the host's server, as by `appstein mcp`'s in 1d.2.
 
-**A consequence to watch.** The cap now applies to a terminal fast run too. A terminal fast run starts its own analysis server when no host runs, and with the plugin that start takes about 19 s on the development machine, so such a run can reach the 20 s cap and name its code checks as not run. Without the plugin (CI's measurement app) it took 10.8 to 13.6 s cold. Slice 1d.3 takes the plugin out of the server.
+**A consequence to watch.** The cap now applies to a terminal fast run too. A terminal fast run starts its own analysis server when no host runs, and with the plugin that start takes about 19 s on the development machine, so such a run can reach the 20 s cap, name its code checks as not run and exit 3 (Appstein could not finish checking; the owner, 2026-10-20). Without the plugin (CI's measurement app) it took 10.8 to 13.6 s cold. Slice 1d.3 takes the plugin out of the server.
 
 **Facts this design rests on** (checked on 2026-10-17):
 

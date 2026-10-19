@@ -12,6 +12,7 @@ import 'formatting.dart';
 import 'suppression_comments.dart';
 import 'test_run.dart';
 import 'unverified_files.dart';
+import 'wait_at_most.dart';
 
 /// When a check runs (spec §9.1, §9.2).
 enum VerifyMode {
@@ -242,8 +243,12 @@ final class VerifyGathering {
     this._runTests,
     UnverifiedFiles? unverified,
     this.mode = VerifyMode.full,
+    Duration? Function()? timeLeft,
   }) : _codeAnalysis = codeAnalysis,
+       _timeLeft = timeLeft ?? _noLimit,
        unverified = unverified ?? UnverifiedFiles.none;
+
+  static Duration? _noLimit() => null;
 
   /// The run's mode.
   final VerifyMode mode;
@@ -304,7 +309,9 @@ final class VerifyGathering {
     // The budget is held by the analysis (`within`), on the question itself,
     // not here around the call (see `dartFixes`). A server that fails fails
     // the run: the `CodeAnalysisException` is passed on as it is.
-    final answers = await _codeAnalysis.formatChanges(files, within: budget);
+    final answers = await _ask(
+      (analysis) => analysis.formatChanges(files, within: budget),
+    );
     final unanswered = [
       for (final file in files)
         if (!answers.changed.containsKey(file) &&
@@ -382,7 +389,10 @@ final class VerifyGathering {
   Future<PendingFixes> pendingFixes() {
     _pendingAskers.add(_gatheringFor);
     return _pendingAsked ??= _reading()
-        .then((_) => _codeAnalysis.pendingFixes(within: fixBudgetFull))
+        .then(
+          (_) =>
+              _ask((analysis) => analysis.pendingFixes(within: fixBudgetFull)),
+        )
         .then((found) => _pending = found);
   }
 
@@ -452,14 +462,17 @@ final class VerifyGathering {
           // turn does shorten what is left for the questions after it. That
           // costs only hints (a use not asked about gets the general one),
           // never a partial run and never a wrong answer.
-          answers[diagnostic] = await _codeAnalysis.canDartFix(
-            diagnostic,
-            within: left,
+          answers[diagnostic] = await _ask(
+            (analysis) => analysis.canDartFix(diagnostic, within: left),
           );
         } on CodeAnalysisException {
           // The general hint for this use and the rest; see above.
           break;
         } on TimeoutException {
+          break;
+        } on _CutOff {
+          // The run's time ran out: the reading is in, so only the hints are
+          // lost, and the check is neither cut nor named as not run.
           break;
         }
       }
@@ -522,6 +535,35 @@ final class VerifyGathering {
   }
 
   final CodeAnalysis _codeAnalysis;
+  final Duration? Function() _timeLeft;
+
+  Duration? _cutAfter;
+
+  /// How long the first question the run's time cut was given, zero when the
+  /// time was spent before it was asked; null while none was cut.
+  Duration? get cutAfter => _cutAfter;
+
+  /// Asks the analysis [question], waiting at most the time the run has left.
+  /// The question that is cut stays out and its late answer is dropped; no
+  /// other is asked after it.
+  Future<T> _ask<T>(Future<T> Function(CodeAnalysis analysis) question) async {
+    if (_cutAfter != null) throw const _CutOff();
+    final left = _timeLeft();
+    if (left == null) return question(_codeAnalysis);
+    if (left <= Duration.zero) {
+      _cutAfter = Duration.zero;
+      throw const _CutOff();
+    }
+    return waitAtMost(
+      question(_codeAnalysis),
+      left,
+      onLimit: () {
+        _cutAfter = left;
+        throw const _CutOff();
+      },
+    );
+  }
+
   Future<CodeReading>? _asked;
   CodeReading? _code;
 
@@ -542,20 +584,26 @@ final class VerifyGathering {
   /// nothing was asked.
   List<String> get notices => [...?_code?.notices, ...?_pending?.notices];
 
-  Future<CodeReading> _reading() =>
-      _asked ??= _codeAnalysis.read().then((reading) => _code = reading);
+  Future<CodeReading> _reading() => _asked ??= _ask(
+    (analysis) => analysis.read(),
+  ).then((reading) => _code = reading);
 
   // The check whose `gather` is running, and the checks that asked for the
-  // reading: `runVerify` sets the first, so the reading is given only to a
+  // reading: `gatherFor` sets the first, so the reading is given only to a
   // check that gathered it.
   VerifyCheck? _gatheringFor;
   final _codeAskers = <VerifyCheck?>{};
 
   /// Runs [check]'s `gather`, noting what it asks for as asked by [check].
-  Future<void> gatherFor(GatheringCheck check) async {
+  /// Returns false when the run's time cut a question the gather needed
+  /// ([cutAfter]): the check is then not run.
+  Future<bool> gatherFor(GatheringCheck check) async {
     _gatheringFor = check;
     try {
       await check.gather(this);
+      return true;
+    } on _CutOff {
+      return false;
     } finally {
       _gatheringFor = null;
     }
@@ -604,7 +652,11 @@ final class VerifyGathering {
   /// for the comments, and the list is empty: the comments are about the
   /// findings of a run that looked at the code.
   Future<List<SuppressionComment>> suppressionComments() async {
-    if (projectRoot == null || _asked == null) return const [];
+    // A reading that did not arrive (a fast run that reached its cap) is not
+    // waited for here: no check judged one, and the files are not read.
+    if (projectRoot == null || _asked == null || _code == null) {
+      return const [];
+    }
     return (await _sourceComments()).suppression;
   }
 
@@ -650,6 +702,14 @@ final class VerifyGathering {
     }
     return found;
   }
+}
+
+/// Thrown for a question the run's time cut, or that came after one was cut.
+final class _CutOff implements Exception {
+  const _CutOff();
+
+  @override
+  String toString() => 'the run reached its time limit';
 }
 
 /// How long one run may spend asking the analysis server whether `dart fix`

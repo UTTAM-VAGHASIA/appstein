@@ -42,7 +42,8 @@ String analysisHostLockFile(String addressFile) =>
 /// - The folder must exist.
 ///
 /// [stale] replaces the 10 s, and [beforeClear] is called between the two
-/// looks at a lock that is to be cleared; both are for tests only.
+/// looks at a lock that is to be cleared; both are for tests only. When
+/// [cancelled] says true the wait ends with a [FileSystemException].
 ///
 /// Throws a [FileSystemException] when the lock can't be had within 30 s.
 Future<T> withAnalysisHostLock<T>(
@@ -50,10 +51,20 @@ Future<T> withAnalysisHostLock<T>(
   Future<T> Function() body, {
   Duration stale = _lockStale,
   Future<void> Function()? beforeClear,
+  bool Function()? cancelled,
 }) async {
   final lock = File(analysisHostLockFile(addressFile));
   final watch = Stopwatch()..start();
   while (true) {
+    // The caller no longer wants the lock (its run ended): a wait for a lock
+    // that is held, or left behind and not yet old, ends with it.
+    if (cancelled?.call() ?? false) {
+      throw FileSystemException(
+        'the wait for the lock on the analysis host address file was '
+        'cancelled',
+        lock.path,
+      );
+    }
     try {
       await lock.create(exclusive: true);
       break;

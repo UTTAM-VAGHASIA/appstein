@@ -53,6 +53,9 @@ void main() {
       checks: checksFor(_packs),
       codeAnalysis: analysis,
       dartSdkPath: testDartSdk,
+      // The first run starts the real server, which can take longer than the
+      // cap of a fast run on a busy machine; these tests are not about it.
+      clock: RunClock(limit: const Duration(minutes: 10)),
     );
   }
 

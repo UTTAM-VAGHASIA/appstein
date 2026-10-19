@@ -1152,7 +1152,7 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div><b>0</b><p>No errors</p></div>
       <div><b>1</b><p>Errors found (CLI and CI)</p></div>
       <div><b>2</b><p>Errors in Claude hook mode: block and feed back</p></div>
-      <div><b>3</b><p>Appstein itself failed. In hook mode it exits 0 instead: never blocks, tells you to run <code>doctor</code> and the agent that its edit is unchecked</p></div>
+      <div><b>3</b><p>Appstein itself failed, or a fast run reached its time cap before every check finished, so a cut run never passes in CI. In hook mode neither blocks: a failure exits 0, tells you to run <code>doctor</code> and the agent that its edit is unchecked; a cut exits 0 (or 2 with errors) and tells the agent its code checks are pending</p></div>
     </div>
 
     <details class="more">

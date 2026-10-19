@@ -15,6 +15,8 @@ import '../support/analyzer_warm_up.dart';
 import '../support/fake_process_runner.dart';
 import '../support/fixture_app.dart';
 import '../support/scripted_code_analysis.dart';
+import '../support/temp.dart';
+import '../analysis/support/host_support.dart' as host;
 import 'support/verify_support.dart';
 
 const _packs = <Pack>[OfficialMvvmPack(), AndroidPack(), IosPack()];
@@ -75,6 +77,39 @@ final class _ReadingCheck implements GatheringCheck {
     seen = context.code;
     return const [];
   }
+}
+
+/// A gathering check that asks the analysis nothing: it waits for the disk,
+/// and reports what it read. [reads] gets "read" when it did.
+final class _DiskGatheringCheck implements GatheringCheck {
+  _DiskGatheringCheck(this.reads);
+
+  final List<String> reads;
+  String? _text;
+
+  @override
+  List<String> get ids => const ['disk.gathered'];
+
+  @override
+  VerifyMode get mode => VerifyMode.fast;
+
+  @override
+  bool get needsMap => false;
+
+  @override
+  Future<void> gather(VerifyGathering gathering) async {
+    _text = await File(Platform.resolvedExecutable).stat().then((_) => 'x');
+    reads.add('read');
+  }
+
+  @override
+  Future<List<Finding>> run(VerifyContext context) async => [
+    Finding(
+      id: 'disk.gathered',
+      severity: Severity.warning,
+      message: 'Gathered $_text.',
+    ),
+  ];
 }
 
 /// A check that reads the code analysis's reading without gathering it:
@@ -239,8 +274,10 @@ void main() {
     Map<VerifyCheck, String> from = const {},
     CodeAnalysis? codeAnalysis,
     List<String> files = const [],
+    RunClock? clock,
   }) => runVerify(
     files: files,
+    clock: clock,
     codeAnalysis: codeAnalysis ?? ScriptedCodeAnalysis(),
     projectRoot: app,
     config: config,
@@ -2227,6 +2264,282 @@ void f() {
             for (final check in result.notRun) check.id,
           ], contains('dart.partly'));
           expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart']);
+        });
+      });
+
+      // Slice 1d.7, ticket 09: `verify.fast_timeout_seconds` caps a fast
+      // run, through a scripted analysis that answers slowly.
+      group('the cap of a fast run', () {
+        /// An analysis that answers its reading only after [after], or, when
+        /// [thenFail] is set, fails then.
+        ScriptedCodeAnalysis slow(
+          Duration after, {
+          CodeAnalysisException? thenFail,
+        }) =>
+            ScriptedCodeAnalysis(
+                found: [
+                  diagnostic(
+                    DiagnosticLevel.error,
+                    file: 'lib/a.dart',
+                    line: 2,
+                  ),
+                ],
+              )
+              ..onAsked = () async {
+                await Future<void>.delayed(after);
+                if (thenFail != null) throw thenFail;
+              };
+
+        const cap = Duration(milliseconds: 300);
+
+        Future<VerifyResult> runCapped(
+          List<VerifyCheck> checks, {
+          required CodeAnalysis codeAnalysis,
+          VerifyMode mode = VerifyMode.fast,
+          RunClock? clock,
+          bool refresh = false,
+        }) => run(
+          checks,
+          mode: mode,
+          codeAnalysis: codeAnalysis,
+          clock: clock ?? RunClock(limit: cap),
+          // The knowledge is current (the group's setUp synced it): the
+          // refresh is skipped, so the limit is spent on the analysis only,
+          // however slow the machine is. A test about the refresh asks for it.
+          refreshed: refresh ? null : const KnowledgeRefresh.current(),
+        );
+
+        setUp(() => markUnverified(['lib/a.dart', 'lib/b.dart']));
+
+        test('at the cap the code checks are named as not run with why, the '
+            'run is partial and no file leaves; the next run asks '
+            'again', () async {
+          final watch = Stopwatch()..start();
+          final result = await runCapped(
+            dartChecks,
+            codeAnalysis: slow(const Duration(seconds: 20)),
+          );
+          expect(
+            watch.elapsed,
+            lessThan(const Duration(seconds: 10)),
+            reason: 'the run did not wait for the answer',
+          );
+          expect([
+            for (final check in result.notRun) check.id,
+          ], containsAll(['dart.error', 'dart.deprecated', 'dart.unreadable']));
+          for (final check in result.notRun) {
+            expect(check.reason, contains('the analysis server is starting'));
+            expect(check.reason, contains("left of this run's 0.3 s limit"));
+          }
+          expect(result.findings, isEmpty);
+          expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart']);
+
+          // Asked again, and answered: the error is reported, and the clean
+          // file leaves.
+          final again = await runCapped(
+            dartChecks,
+            codeAnalysis: slow(Duration.zero),
+          );
+          expect(again.notRun, isEmpty);
+          expect(found(again), [('dart.error', 'lib/a.dart', 2)]);
+          expect(unverifiedNow(), ['lib/a.dart']);
+        });
+
+        test('a full run has no cap: it waits for the answer', () async {
+          final result = await runCapped(
+            dartChecks,
+            mode: VerifyMode.full,
+            codeAnalysis: slow(const Duration(milliseconds: 900)),
+          );
+          expect(result.notRun, isEmpty);
+          expect(found(result), [('dart.error', 'lib/a.dart', 2)]);
+        });
+
+        test('a fast run that answers within the cap is whole', () async {
+          final result = await runCapped(
+            dartChecks,
+            codeAnalysis: slow(const Duration(milliseconds: 50)),
+            clock: RunClock(limit: const Duration(seconds: 30)),
+          );
+          expect(result.notRun, isEmpty);
+          expect(found(result), [('dart.error', 'lib/a.dart', 2)]);
+        });
+
+        test('the time is counted from the run\'s start, which the caller '
+            'may have begun earlier', () async {
+          final clock = RunClock(limit: const Duration(milliseconds: 450));
+          // The refresh, or whatever came before the run, took 400 ms.
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          final result = await runCapped(
+            dartChecks,
+            codeAnalysis: slow(const Duration(milliseconds: 100)),
+            clock: clock,
+          );
+          expect(result.notRun, isNotEmpty);
+        });
+
+        test('a run whose time is spent before the analysis is asked asks '
+            'it nothing, and says the time was spent, not that it waited '
+            'for the analysis', () async {
+          final analysis = slow(Duration.zero);
+          final result = await runCapped(
+            dartChecks,
+            codeAnalysis: analysis,
+            clock: RunClock(limit: Duration.zero),
+          );
+          expect(analysis.asked, 0);
+          expect(result.findings, isEmpty);
+          expect([
+            for (final check in result.notRun) check.id,
+          ], containsAll(['dart.error', 'dart.deprecated', 'dart.unreadable']));
+          for (final check in result.notRun) {
+            expect(check.reason, contains('had used its 0 s limit'));
+            expect(check.reason, isNot(contains('had not answered')));
+          }
+          expect(unverifiedNow(), ['lib/a.dart', 'lib/b.dart']);
+        });
+
+        test('a cut during the dart fix questions loses only the fix hints: '
+            'the reading is in, the check is not named as not run, and the '
+            'run is not partial', () async {
+          final analysis = ScriptedCodeAnalysis(
+            found: [
+              diagnostic(
+                DiagnosticLevel.info,
+                file: 'lib/a.dart',
+                code: 'deprecated_member_use',
+              ),
+            ],
+          )..onFixAsked = () => Completer<void>().future;
+          final result = await runCapped([
+            const DartDeprecatedCheck(),
+          ], codeAnalysis: analysis);
+          expect(result.notRun, isEmpty);
+          expect(result.findings.single.id, 'dart.deprecated');
+          expect(
+            result.findings.single.fixHint,
+            contains('`dart fix --dry-run` lists the uses'),
+          );
+          // Not partial: the file with no finding leaves the unverified
+          // files.
+          expect(unverifiedNow(), ['lib/a.dart']);
+        });
+
+        test('a hook run that begins the host at its start has requested the '
+            'launch while the refresh is still running, launches one host, '
+            'and its end waits for nothing', () async {
+          final marks = tempDir().path;
+          File(p.join(marks, 'host.dart')).writeAsStringSync(
+            "import 'dart:io';\n"
+            'void main(List<String> arguments) => File(arguments.first)\n'
+            "    .writeAsStringSync('launched\\n', mode: FileMode.append);\n",
+          );
+          final mark = File(p.join(marks, 'launches'));
+          final (:scope, folder: _) = host.testHost(
+            app,
+            hostCommand: [
+              Platform.resolvedExecutable,
+              p.join(marks, 'host.dart'),
+              mark.path,
+            ],
+          );
+          // A slow refresh: the packages need `flutter pub get`, which takes
+          // 3 s, longer than the 1 s cap.
+          File(
+            p.join(app, 'pubspec.yaml'),
+          ).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 5)));
+          var launchedDuringRefresh = false;
+          runner.onRun = (command) async {
+            if (!command.contains(' pub get')) return;
+            await Future<void>.delayed(const Duration(seconds: 2));
+            launchedDuringRefresh = mark.existsSync();
+            await Future<void>.delayed(const Duration(seconds: 1));
+          };
+          late VerifyResult result;
+          late Duration ran;
+          final watch = Stopwatch()..start();
+          await scope((analysis) async {
+            // What a hook does at its start.
+            (analysis as WarmableCodeAnalysis).warmUp();
+            result = await runCapped(
+              dartChecks,
+              codeAnalysis: analysis,
+              clock: RunClock(limit: const Duration(seconds: 1)),
+              refresh: true,
+            );
+            ran = watch.elapsed;
+          });
+          final closing = watch.elapsed - ran;
+          // The refresh took longer than the cap and was not cut; the cap was
+          // spent before the first question, which was not asked.
+          expect(ran, greaterThan(const Duration(seconds: 2)));
+          expect(launchedDuringRefresh, isTrue);
+          expect([
+            for (final check in result.notRun) check.reason,
+          ], everyElement(contains('had used its 1 s limit')));
+          // Nothing is waited for at the end of the run.
+          expect(closing, lessThan(const Duration(milliseconds: 300)));
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          expect(mark.readAsLinesSync(), ['launched']);
+        });
+
+        test('a gathering that asks the analysis nothing is not cut, though '
+            'it waits for the disk and the time is spent', () async {
+          final reads = <String>[];
+          final result = await runCapped(
+            [_DiskGatheringCheck(reads), ...dartChecks],
+            codeAnalysis: slow(Duration.zero),
+            clock: RunClock(limit: Duration.zero),
+          );
+          expect(reads, ['read']);
+          expect(ids(result), ['disk.gathered']);
+          expect([
+            for (final check in result.notRun) check.id,
+          ], isNot(contains('disk.gathered')));
+        });
+
+        test(
+          'the cap is verify.fast_timeout_seconds when none is given',
+          () async {
+            final watch = Stopwatch()..start();
+            final result = await run(
+              dartChecks,
+              mode: VerifyMode.fast,
+              config: const AppsteinConfig(
+                verify: VerifyConfig(fastTimeoutSeconds: 1),
+              ),
+              refreshed: const KnowledgeRefresh.current(),
+              codeAnalysis: slow(const Duration(seconds: 20)),
+            );
+            expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+            expect(
+              result.notRun.first.reason,
+              contains("this run's 1 s limit"),
+            );
+            expect(result.notRun.first.reason, contains('analysis server'));
+          },
+        );
+
+        test('a check that needs no analysis still runs, and the abandoned '
+            'reading failing later is no error of the run', () async {
+          final plain = FakeCheck(
+            ['a.plain'],
+            mode: VerifyMode.fast,
+            findings: [finding('a.plain', message: 'found')],
+          );
+          final result = await runCapped(
+            [...dartChecks, plain],
+            codeAnalysis: slow(
+              const Duration(milliseconds: 600),
+              thenFail: const CodeAnalysisException('the server died'),
+            ),
+          );
+          expect(plain.runs, 1);
+          expect(ids(result), ['a.plain']);
+          expect(result.notRun, isNotEmpty);
+          // Long enough for the abandoned reading to fail: an error nobody
+          // waits for would reach the test's zone and fail it.
+          await Future<void>.delayed(const Duration(milliseconds: 900));
         });
       });
 

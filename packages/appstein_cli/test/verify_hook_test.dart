@@ -10,6 +10,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'support/cap_config.dart';
 import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
@@ -712,6 +713,120 @@ void main() {
         );
         expect(context(), contains('warning x.warn (line 2)'));
         expect(context(), contains('x.slow: the analysis server is starting'));
+      });
+    });
+
+    // Slice 1d.7, ticket 09: `verify.fast_timeout_seconds` caps a fast hook
+    // run. The analysis here hangs, as a host or server that is still
+    // starting does; the cap is 1 s, the least a config can say.
+    group('the cap of a fast run', () {
+      const codeChecks = <VerifyCheck>[DartErrorCheck(), DartUnreadableCheck()];
+
+      void capIsOneSecond() => writeCap(project, 1);
+
+      /// An analysis that never answers, and the file `main.dart` it would
+      /// have found an error in.
+      ScriptedCodeAnalysis hanging() => ScriptedCodeAnalysis(
+        found: [
+          const CodeDiagnostic(
+            file: 'lib/main.dart',
+            line: 1,
+            code: 'some_code',
+            message: 'Wrong.',
+            level: DiagnosticLevel.error,
+          ),
+        ],
+      )..onAsked = () => Completer<void>().future;
+
+      List<String> unverified() =>
+          KnowledgeStore(project).readState().state!.unverified;
+
+      test(
+        'at the cap the run ends: exit 0, and the agent is told its code '
+        'checks are pending because the analysis server is starting',
+        () async {
+          capIsOneSecond();
+          final watch = Stopwatch()..start();
+          expect(await hook(checks: codeChecks, analysis: hanging()), 0);
+          // Not the 20 s of the default cap, nor the answer that never comes.
+          expect(watch.elapsed, lessThan(const Duration(seconds: 15)));
+          expect(err.toString(), isEmpty);
+          expect(
+            context(),
+            allOf(
+              contains('dart.error: '),
+              contains('still pending'),
+              contains('not checked'),
+            ),
+          );
+        },
+      );
+
+      test('with errors found by other checks: exit 2, and stderr lists '
+          'them with the code checks that are pending', () async {
+        capIsOneSecond();
+        expect(
+          await hook(
+            checks: [
+              ...codeChecks,
+              _Reports(
+                [_finding('x.err', Severity.error, 'lib/a.dart', line: 4)],
+                ids: const ['x.err'],
+              ),
+            ],
+            analysis: hanging(),
+          ),
+          2,
+        );
+        expect(err.toString(), contains('error x.err (line 4)'));
+        expect(err.toString(), contains('dart.error: '));
+      });
+
+      test('the run is partial: no file leaves the unverified files, and '
+          'the next run asks again', () async {
+        capIsOneSecond();
+        final analysis = hanging();
+        const session =
+            '{"session_id":"one-session","hook_event_name":"PostToolUse"}';
+        expect(
+          await hook(input: session, checks: codeChecks, analysis: analysis),
+          0,
+        );
+        expect(unverified(), contains('lib/main.dart'));
+        // The same session, and nothing changed: had the run completed it
+        // would be silent now. This one did not, so it checks again, and
+        // gets its answer: the file leaves the unverified files.
+        analysis
+          ..onAsked = null
+          ..found = [];
+        out.clear();
+        expect(
+          await hook(input: session, checks: codeChecks, analysis: analysis),
+          0,
+        );
+        expect(analysis.asked, 2);
+        expect(out.toString(), isEmpty);
+        expect(unverified(), isEmpty);
+      });
+
+      test('a full hook run has no cap: it waits for the answer', () async {
+        capIsOneSecond();
+        final slow = ScriptedCodeAnalysis()
+          ..onAsked = () =>
+              Future<void>.delayed(const Duration(milliseconds: 2500));
+        expect(
+          await hook(
+            arguments: ['verify', '--full', '--hook', 'claude'],
+            input: '{"session_id":"s1","hook_event_name":"Stop"}',
+            checks: codeChecks,
+            analysis: slow,
+          ),
+          0,
+        );
+        expect(slow.asked, 1);
+        // Nothing was left unchecked, so nothing is said.
+        expect(out.toString(), isEmpty);
+        expect(err.toString(), isEmpty);
       });
     });
 

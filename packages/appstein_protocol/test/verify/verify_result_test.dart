@@ -111,6 +111,44 @@ void main() {
     );
   });
 
+  test('incomplete: in the JSON form only when the cap cut a check, with the '
+      'reason, and not on a result read back', () {
+    const plain = VerifyResult(
+      findings: [],
+      notRun: [CheckNotRun(id: 'x.other', reason: 'a reason of its own')],
+    );
+    expect(plain.incomplete, isFalse);
+    expect(plain.incompleteReason, isNull);
+    expect(plain.toJson().containsKey('incomplete'), isFalse);
+    expect(plain.toJson().containsKey('incompleteReason'), isFalse);
+
+    const cut = VerifyResult(
+      findings: [],
+      notRun: [
+        CheckNotRun(
+          id: 'dart.deprecated',
+          reason: 'it is slow',
+          cutByCap: true,
+        ),
+        CheckNotRun(id: 'dart.error', reason: 'it is slow', cutByCap: true),
+        CheckNotRun(id: 'x.other', reason: 'a reason of its own'),
+      ],
+    );
+    expect(cut.incomplete, isTrue);
+    expect(cut.incompleteReason, 'it is slow');
+    expect(cut.cutChecks.map((check) => check.id), [
+      'dart.deprecated',
+      'dart.error',
+    ]);
+    expect(cut.toJson()['incomplete'], isTrue);
+    expect(cut.toJson()['incompleteReason'], 'it is slow');
+    // The checks' own JSON is as before.
+    expect((cut.toJson()['notRun']! as List).first, {
+      'id': 'dart.deprecated',
+      'reason': 'it is slow',
+    });
+  });
+
   test('notices: in the JSON form only when there are any, read back, and '
       'a result written without the field reads as having none', () {
     const plain = VerifyResult(findings: []);

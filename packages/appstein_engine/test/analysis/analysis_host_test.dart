@@ -1458,6 +1458,489 @@ void main() {
       await closed.future.timeout(const Duration(seconds: 5));
     });
 
+    // Slice 1d.7, ticket 09: a fast run that reached its cap stops waiting
+    // and its scope ends; what its question was still waiting for must end
+    // with it.
+    test('a scope that ends while its question waits for the welcome of a '
+        'host that never sends one closes that connection and looks no '
+        'more', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final listening = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      addTearDown(listening.close);
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        AnalysisHostAddress(
+          port: listening.port,
+          secret: 'silent',
+          processId: pid,
+          appsteinVersion: 'test',
+        ),
+      );
+      var connections = 0;
+      final firstClosed = Completer<void>();
+      listening.listen((socket) {
+        if (connections++ == 0) {
+          // It reads the greeting and never answers it.
+          socket.listen(
+            (_) {},
+            onError: (Object _) {},
+            onDone: firstClosed.complete,
+          );
+        } else {
+          socket.destroy();
+        }
+      });
+      final (:scope, folder: _) = testHost(app, folder: folder);
+      late Future<Object?> abandoned;
+      final watch = Stopwatch()..start();
+      await scope((analysis) async {
+        abandoned = analysis.read().then<Object?>(
+          (_) => null,
+          onError: (Object error) => error,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
+      // Not the 10 s the welcome would be waited for.
+      await firstClosed.future.timeout(const Duration(seconds: 3));
+      expect(
+        await abandoned.timeout(const Duration(seconds: 5)),
+        isA<CodeAnalysisException>().having(
+          (error) => error.reason,
+          'reason',
+          contains('after the run that used it had ended'),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(connections, 1, reason: 'no look after the run ended');
+    });
+
+    test('a scope that ends while its client waits for a host of an older '
+        'version to stop closes that connection and looks no more', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final listening = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      addTearDown(listening.close);
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        AnalysisHostAddress(
+          port: listening.port,
+          secret: 'older',
+          processId: pid,
+          appsteinVersion: '0.9.0',
+        ),
+      );
+      var connections = 0;
+      final firstClosed = Completer<void>();
+      listening.listen((socket) {
+        if (connections++ > 0) {
+          socket.destroy();
+          return;
+        }
+        var lines = 0;
+        utf8.decoder
+            .bind(socket)
+            .transform(const LineSplitter())
+            .listen(
+              // It welcomes the client as a host of an older version, and
+              // never answers the stop it is sent.
+              (_) {
+                if (lines++ == 0) {
+                  socket.writeln(
+                    jsonEncode(
+                      const AnalysisHostWelcome(
+                        appsteinVersion: '0.9.0',
+                        processId: 1,
+                      ).toJson(),
+                    ),
+                  );
+                }
+              },
+              onError: (Object _) {},
+              onDone: firstClosed.complete,
+            );
+      });
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        version: '1.0.0',
+      );
+      late Future<Object?> abandoned;
+      final watch = Stopwatch()..start();
+      await scope((analysis) async {
+        abandoned = analysis.read().then<Object?>(
+          (_) => null,
+          onError: (Object error) => error,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
+      // Not the 10 s the stop would be waited for.
+      await firstClosed.future.timeout(const Duration(seconds: 3));
+      expect(
+        await abandoned.timeout(const Duration(seconds: 5)),
+        isA<CodeAnalysisException>().having(
+          (error) => error.reason,
+          'reason',
+          contains('after the run that used it had ended'),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(connections, 1, reason: 'no look after the run ended');
+    });
+
+    test('warmUp launches the host that is not running while the run does '
+        'other work; a client that starts no host starts nothing', () async {
+      final app = tempDir().path;
+      final marks = tempDir().path;
+      // A "host" that only leaves a mark and ends.
+      File(p.join(marks, 'host.dart')).writeAsStringSync(
+        "import 'dart:io';\n"
+        'void main(List<String> arguments) =>\n'
+        "    File('\${arguments.first}').writeAsStringSync('started');\n",
+      );
+      List<String> command(String mark) => [
+        Platform.resolvedExecutable,
+        p.join(marks, 'host.dart'),
+        mark,
+      ];
+      final watch = Stopwatch()..start();
+      final folder = p.join(tempDir().path, 'hosts');
+      // The address of a host that has ended: finding that out takes time,
+      // and the run is over before it is known.
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        const AnalysisHostAddress(
+          port: 1,
+          secret: 'dead',
+          processId: 2147480000,
+          appsteinVersion: 'test',
+        ),
+      );
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        hostCommand: command(p.join(marks, 'started')),
+        connect: (port) async {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          throw SocketException(
+            'refused',
+            osError: const OSError('refused', 111),
+          );
+        },
+      );
+      final mark = File(p.join(marks, 'started'));
+      var markedWhileBusy = false;
+      await scope((analysis) async {
+        (analysis as WarmableCodeAnalysis).warmUp();
+        // The run's other work (the refresh) goes on, and the launch is
+        // requested meanwhile, as soon as the look has found no host.
+        final busy = Stopwatch()..start();
+        while (!mark.existsSync() &&
+            busy.elapsed < const Duration(seconds: 15)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        markedWhileBusy = mark.existsSync();
+      });
+      expect(markedWhileBusy, isTrue);
+      // The scope ends at once: it waits for nothing.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+
+      final (scope: terminal, folder: _) = testHost(
+        app,
+        startHost: false,
+        hostCommand: command(p.join(marks, 'terminal')),
+      );
+      await terminal((analysis) async {
+        (analysis as WarmableCodeAnalysis).warmUp();
+      });
+      await Future<void>.delayed(const Duration(seconds: 2));
+      expect(File(p.join(marks, 'terminal')).existsSync(), isFalse);
+    });
+
+    test('a look that failed stays the run\'s answer: the first question gets '
+        'the same failure at once, and no second host is launched', () async {
+      final app = tempDir().path;
+      final marks = tempDir().path;
+      // A "host" that adds a line to the mark and dies at start.
+      File(p.join(marks, 'host.dart')).writeAsStringSync(
+        "import 'dart:io';\n"
+        'void main(List<String> arguments) => File(arguments.first)\n'
+        "    .writeAsStringSync('launched\\n', mode: FileMode.append);\n",
+      );
+      final mark = File(p.join(marks, 'launches'));
+      final (:scope, folder: _) = testHost(
+        app,
+        hostCommand: [
+          Platform.resolvedExecutable,
+          p.join(marks, 'host.dart'),
+          mark.path,
+        ],
+      );
+      await scope((analysis) async {
+        (analysis as WarmableCodeAnalysis).warmUp();
+        // The look fails: the host it launched has ended without an address.
+        final waited = Stopwatch()..start();
+        while (waited.elapsed < const Duration(seconds: 20) &&
+            !mark.existsSync()) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        await Future<void>.delayed(const Duration(seconds: 2));
+        final asked = Stopwatch()..start();
+        await expectLater(
+          analysis.read(),
+          throwsA(
+            isA<CodeAnalysisException>().having(
+              (error) => error.reason,
+              'reason',
+              contains('ended before it answered'),
+            ),
+          ),
+        );
+        // The same failure, not another look.
+        expect(asked.elapsed, lessThan(const Duration(seconds: 1)));
+      });
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(mark.readAsLinesSync(), ['launched']);
+    });
+
+    test('nothing of the look keeps the process alive after the run: a '
+        'connection still being made is cancelled when the run ends', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      // The address of a host whose process is alive (this test runner's own,
+      // so the look dials), on a port nothing listens on: on Windows the
+      // refusal comes after about 2 s, so the connection is still being made
+      // when the run ends. (A process that has ended is found dead without a
+      // dial.)
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        AnalysisHostAddress(
+          port: 1,
+          secret: 'live',
+          processId: pid,
+          appsteinVersion: 'test',
+        ),
+      );
+      final process = await Process.start(Platform.resolvedExecutable, [
+        analysisSupportFile('dial_main.dart'),
+        folder,
+        app,
+      ]);
+      final ended = Completer<Stopwatch>();
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+            if (line == 'ended' && !ended.isCompleted) {
+              ended.complete(Stopwatch()..start());
+            }
+          });
+      unawaited(process.stderr.drain<void>());
+      addTearDown(process.kill);
+      final sinceEnded = await ended.future.timeout(
+        const Duration(seconds: 60),
+      );
+      await process.exitCode.timeout(const Duration(seconds: 30));
+      // Not the 2 s of the connection that was still being made.
+      expect(sinceEnded.elapsed, lessThan(const Duration(milliseconds: 1000)));
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test(
+      'a wait for the address file\'s lock ends when the run is over',
+      () async {
+        final folder = p.join(tempDir().path, 'hosts');
+        final file = analysisHostAddressFile(folder, tempDir().path);
+        await writeAnalysisHostAddress(
+          file,
+          const AnalysisHostAddress(
+            port: 1,
+            secret: 'dead',
+            processId: 1,
+            appsteinVersion: 'test',
+          ),
+        );
+        // A lock held by a live process (this one), not yet old: it is waited
+        // for, up to 10 s before it counts as left behind.
+        File(analysisHostLockFile(file)).writeAsStringSync('$pid');
+        var over = false;
+        Timer(const Duration(milliseconds: 300), () => over = true);
+        final watch = Stopwatch()..start();
+        final removed = await removeAnalysisHostAddress(
+          file,
+          'dead',
+          cancelled: () => over,
+        );
+        expect(removed, isFalse);
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+        expect(File(file).existsSync(), isTrue);
+      },
+    );
+
+    test('a stale address file naming a process that has ended is dead '
+        'without a connection attempt', () async {
+      final app = tempDir().path;
+      final marks = tempDir().path;
+      File(p.join(marks, 'host.dart')).writeAsStringSync(
+        "import 'dart:io';\n"
+        'void main(List<String> arguments) => File(arguments.first)\n'
+        "    .writeAsStringSync('launched\\n', mode: FileMode.append);\n",
+      );
+      final mark = File(p.join(marks, 'launches'));
+      final folder = p.join(tempDir().path, 'hosts');
+      // A listener that counts the connections made to it: the port of the
+      // address file.
+      var connections = 0;
+      final listening = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      addTearDown(listening.close);
+      listening.listen((socket) {
+        connections++;
+        socket.destroy();
+      });
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        AnalysisHostAddress(
+          port: listening.port,
+          secret: 'stale',
+          processId: 2147480000,
+          appsteinVersion: 'test',
+        ),
+      );
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        hostCommand: [
+          Platform.resolvedExecutable,
+          p.join(marks, 'host.dart'),
+          mark.path,
+        ],
+      );
+      await scope((analysis) async {
+        (analysis as WarmableCodeAnalysis).warmUp();
+        final waited = Stopwatch()..start();
+        while (!mark.existsSync() &&
+            waited.elapsed < const Duration(seconds: 20)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      });
+      // The stale address was found dead, deleted, and a host launched; the
+      // port was never dialed.
+      expect(mark.existsSync(), isTrue);
+      expect(connections, 0);
+    });
+
+    test('a run launches one host, though warmUp and the first question '
+        'both look for it', () async {
+      final app = tempDir().path;
+      final marks = tempDir().path;
+      // A "host" that adds a line to the mark, and ends.
+      File(p.join(marks, 'host.dart')).writeAsStringSync(
+        "import 'dart:io';\n"
+        'void main(List<String> arguments) => File(arguments.first)\n'
+        "    .writeAsStringSync('launched\\n', mode: FileMode.append);\n",
+      );
+      final mark = File(p.join(marks, 'launches'));
+      final (:scope, folder: _) = testHost(
+        app,
+        hostCommand: [
+          Platform.resolvedExecutable,
+          p.join(marks, 'host.dart'),
+          mark.path,
+        ],
+      );
+      await scope((analysis) async {
+        (analysis as WarmableCodeAnalysis).warmUp();
+        // The first question joins the look that is under way. The "host"
+        // ends without answering, which is that question's failure.
+        await expectLater(
+          analysis.read(),
+          throwsA(isA<CodeAnalysisException>()),
+        );
+      });
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(mark.readAsLinesSync(), ['launched']);
+    });
+
+    test('warmUp does not outlast the run when the host is only starting: a '
+        'host that listens and has not welcomed the client yet is left to '
+        'start, and the scope ends at once', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final listening = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      addTearDown(listening.close);
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        AnalysisHostAddress(
+          port: listening.port,
+          secret: 'starting',
+          processId: pid,
+          appsteinVersion: 'test',
+        ),
+      );
+      // It takes the connection and reads the greeting; it is not ready to
+      // welcome anyone.
+      listening.listen(
+        (socket) => socket.listen((_) {}, onError: (Object _) {}),
+      );
+      final (:scope, folder: _) = testHost(app, folder: folder);
+      final watch = Stopwatch()..start();
+      await scope((analysis) async {
+        (analysis as WarmableCodeAnalysis).warmUp();
+      });
+      // The cap was spent before the first question, so the run is over at
+      // once: it does not wait for the welcome (10 s), nor for the longest
+      // wait the close allows.
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 400)));
+      // And it started nothing: a host listens already.
+      expect(startedHostProcesses(folder), isEmpty);
+    });
+
+    test('a scope that ends while its client waits for a host it started '
+        'stops the wait', () async {
+      final app = tempDir().path;
+      // A host that never comes: a program that ends by itself soon.
+      final waiter = File(p.join(tempDir().path, 'wait.dart'))
+        ..writeAsStringSync(
+          'import \'dart:async\';\n'
+          'void main() => Timer(const Duration(seconds: 4), () {});\n',
+        );
+      final (:scope, folder: _) = testHost(
+        app,
+        hostCommand: [Platform.resolvedExecutable, waiter.path],
+      );
+      late Future<Object?> abandoned;
+      final watch = Stopwatch()..start();
+      await scope((analysis) async {
+        abandoned = analysis.read().then<Object?>(
+          (_) => null,
+          onError: (Object error) => error,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+      });
+      expect(
+        await abandoned.timeout(const Duration(seconds: 3)),
+        isA<CodeAnalysisException>().having(
+          (error) => error.reason,
+          'reason',
+          contains('after the run that used it had ended'),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+    });
+
     test('a client that starts no host: one that ends during a question '
         'fails it, and no host or server of its own is started', () async {
       final app = tempDir().path;

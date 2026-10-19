@@ -28,6 +28,10 @@ ToolAnswer verifyAnswer(VerifyResult result, {required VerifyMode mode}) {
         '${result.info} info.',
     if (result.notRun.isNotEmpty)
       '${_count(result.notRun.length, 'check', 'checks')} did not run.',
+    if (result.incomplete)
+      'Appstein could not finish checking: ${result.incompleteReason}. '
+          'Checks still pending: '
+          '${[for (final check in result.cutChecks) check.id].join(', ')}.',
     if (result.suppressed > 0)
       '${_count(result.suppressed, 'finding is', 'findings are')} '
           'suppressed.',

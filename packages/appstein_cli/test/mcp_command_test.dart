@@ -12,6 +12,7 @@ import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
 import 'support/analysis_hosts.dart';
+import 'support/cap_config.dart';
 import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
@@ -41,6 +42,12 @@ void main() {
     // Before the folders are deleted: no host a test started outlives it.
     addTearDown(() => killHost(hosts, project));
   });
+
+  /// A test that starts processes, in the turn of such tests; the host it
+  /// started is ended before the turn is given back, also when the test
+  /// fails or times out.
+  Future<T> inTurn<T>(Future<T> Function() body) =>
+      withChildProcessesToItself(body, cleanup: () => killHost(hosts, project));
 
   /// The machine; [hostFolder] replaces the folder the analysis hosts' address
   /// files are in.
@@ -157,6 +164,11 @@ void main() {
   // folder and cache folder, and is killed with what runs under it after
   // the test. Only processes these tests started are looked at or ended.
   group('with a real analysis server', () {
+    // A fast call is capped by `verify.fast_timeout_seconds` (20 s), and a
+    // host that starts cold on a busy machine can take longer. These tests
+    // are about the host, not the cap: they wait as long as it takes.
+    setUp(() => writeCap(project, waitAsLongAsItTakes));
+
     Future<ServerConnection> connect(StreamChannel<String> channel) async {
       final client = MCPClient(Implementation(name: 'test', version: '1'));
       final server = client.connectServer(channel);
@@ -213,7 +225,7 @@ void main() {
       'one, the next uses it and reports an edit, and its findings equal a '
       "terminal run's; when the client closes, the command ends and the host "
       'keeps its server for the next session',
-      () => withChildProcessesToItself(() async {
+      () => inTurn(() async {
         final before = await childProcesses();
         Future<Map<int, String>> started() async =>
             (await childProcesses())
@@ -298,7 +310,7 @@ void main() {
     test(
       'a terminal fast run and full run use the running host and start no '
       "server of their own, and their findings equal the tool's",
-      () => withChildProcessesToItself(() async {
+      () => inTurn(() async {
         final before = await childProcesses();
         broken().writeAsStringSync(
           '/// Wrong.\nint wrong() => \'text\';\n\n'
@@ -369,7 +381,7 @@ void main() {
     test(
       'an analysis server that cannot start in the host is an error reply '
       'that says to run appstein doctor, and the server keeps answering',
-      () => withChildProcessesToItself(() async {
+      () => inTurn(() async {
         broken().writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
         final controller = StreamChannelController<String>();
         final exit = runAppstein(
@@ -502,7 +514,7 @@ void main() {
     test(
       'in a process of its own: when its input closes, it exits 0, and the '
       'host it started serves the next session with the same server',
-      () => withChildProcessesToItself(() async {
+      () => inTurn(() async {
         final (:process, serving: _, :under, :server) = await serveInAProcess();
         await server.shutdown();
         expect(
@@ -523,7 +535,7 @@ void main() {
     test(
       'two sessions at once, both calling verify, leave exactly one host and '
       "one analysis server; ending the first leaves the second's answers warm",
-      () => withChildProcessesToItself(() async {
+      () => inTurn(() async {
         final before = await childProcesses();
         final (:process, serving: _, :under, :server) = await serveInAProcess();
         // A second session, open while the first still serves.
@@ -575,7 +587,7 @@ void main() {
     test(
       'in a process of its own: when it is killed, the host and its server '
       'keep running for the next session',
-      () => withChildProcessesToItself(() async {
+      () => inTurn(() async {
         final (:process, :serving, :under, server: _) = await serveInAProcess();
         // The process this test started, which said it serves.
         Process.killPid(serving, ProcessSignal.sigkill);
