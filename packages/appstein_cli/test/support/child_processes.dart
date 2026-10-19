@@ -367,6 +367,12 @@ Future<bool> _turnWasLeft(File turn) async {
   return start != parts.skip(1).join(' ');
 }
 
+/// Whether [image], a program's name or path, is a Windows console host
+/// (`conhost.exe`), which Windows gives a console program and which is no
+/// Appstein process. Tests that list processes leave it out.
+bool isConsoleHost(String image) =>
+    image.split(RegExp(r'[\\/]')).last.toLowerCase() == 'conhost.exe';
+
 /// The processes this process started that are still running, by ID with
 /// their names: what a test compares before and after a run to see that
 /// nothing was left behind. The tool that lists them is left out.
@@ -385,7 +391,7 @@ Future<Map<int, String>> childProcesses() async {
       if (process == null || process == list.pid) continue;
       children[process] = name.join(' ');
     }
-    children.removeWhere((_, name) => name.toLowerCase() == 'conhost.exe');
+    children.removeWhere((_, name) => isConsoleHost(name));
   } else {
     final list = await Process.run('ps', ['-A', '-o', 'pid=,ppid=,comm=']);
     for (final line in const LineSplitter().convert('${list.stdout}')) {

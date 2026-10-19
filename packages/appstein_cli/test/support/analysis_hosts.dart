@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_protocol/appstein_protocol.dart';
+import 'package:test/test.dart';
 
 import 'child_processes.dart';
 
@@ -61,6 +64,56 @@ Future<void> killHost(String folder, String project) async {
       }
     }
   }
+}
+
+/// A stand-in for the analysis host of [project], in this test's own
+/// process, for a client of the host to meet: it listens on `127.0.0.1`,
+/// writes the address file for [project] in [folder] (naming this process as
+/// the host), welcomes a client that connects as a host of Appstein
+/// [version], and tells [onQuestion] each line after the greeting. The
+/// lines it was sent after the greeting are in [received] (a stop message
+/// among them). It is closed after the test; no process is started.
+///
+/// The stand-in is no host to kill, and its address file names this test's
+/// own process: a test that uses it must not call [killHost] for the same
+/// folder and project.
+Future<({List<String> received})> standInHost(
+  String folder,
+  String project, {
+  required String version,
+  void Function(Socket socket, String line)? onQuestion,
+}) async {
+  final listening = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  addTearDown(listening.close);
+  await writeAnalysisHostAddress(
+    analysisHostAddressFile(folder, project),
+    AnalysisHostAddress(
+      port: listening.port,
+      secret: 'stand-in',
+      processId: pid,
+      appsteinVersion: version,
+    ),
+  );
+  final received = <String>[];
+  listening.listen((socket) {
+    var lines = 0;
+    utf8.decoder.bind(socket).transform(const LineSplitter()).listen((line) {
+      if (lines++ == 0) {
+        socket.writeln(
+          jsonEncode(
+            AnalysisHostWelcome(
+              appsteinVersion: version,
+              processId: pid,
+            ).toJson(),
+          ),
+        );
+      } else {
+        received.add(line);
+        onQuestion?.call(socket, line);
+      }
+    }, onError: (Object _) {});
+  });
+  return (received: received);
 }
 
 /// Whether [image] (a program's path or name) is `dart` or `appstein`.

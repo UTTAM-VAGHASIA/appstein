@@ -136,8 +136,9 @@ String _sentence(String text) => text.endsWith('.') ? text : '$text.';
 /// [checks] is every check of the project, each with the pack that
 /// contributed it (null for the engine's); `checksFor` builds the list.
 /// [codeAnalysis] answers the code checks. The caller owns it: a terminal
-/// run gives a server of its own and stops it afterwards
-/// (`ownAnalysisServer`). It is not asked, so no server is started, when no
+/// run gives the project's analysis host when one is running, else a server
+/// of its own that it stops afterwards (`analysisHostCodeAnalysis` with
+/// `startHost: false`). It is not asked, so nothing is started, when no
 /// selected check gathers its reading. [dartSdkPath] is passed to the sync,
 /// for tests.
 ///

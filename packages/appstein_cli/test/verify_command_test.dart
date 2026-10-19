@@ -8,6 +8,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'support/analysis_hosts.dart';
 import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
@@ -38,6 +39,12 @@ const _noTest = Finding(
   message: 'The feature `profile` has no test.',
   fixHint: 'Add a test under `test/ui/profile/`.',
 );
+
+/// Whether the process [id] is a Windows console host ([isConsoleHost]).
+bool _isConsoleHostProcess(int id) => switch (lookUpProcess(id)) {
+  ProcessRunning(:final identity) => isConsoleHost(identity.image),
+  _ => false,
+};
 
 /// A check that throws, as a broken check of a pack would.
 final class _ThrowingCheck implements VerifyCheck {
@@ -295,6 +302,10 @@ void main() {
     late String sdk;
     late String cache;
 
+    /// The folder this test's runs look for an analysis host in: its own, so
+    /// that a host of the machine's user is never met.
+    late String hosts;
+
     setUp(() {
       out = StringBuffer();
       err = StringBuffer();
@@ -307,6 +318,7 @@ void main() {
       ).writeAsStringSync('name: my_app\nenvironment:\n  sdk: ^3.12.0\n');
       sdk = createFakeFlutterSdk(p.join(work.path, 'flutter'));
       cache = testAnalysisCache();
+      hosts = p.join(work.path, 'host folder');
     });
 
     Future<int> run(
@@ -330,7 +342,11 @@ void main() {
       err: err,
       environment: HostEnvironment(
         os: HostOs.current,
-        variables: {'FLUTTER_ROOT': sdk, analysisCacheVariable: cache},
+        variables: {
+          'FLUTTER_ROOT': sdk,
+          analysisCacheVariable: cache,
+          analysisHostFolderVariable: hosts,
+        },
         workingDirectory: workingDirectory ?? project,
       ),
       verifyChecks: verifyChecks,
@@ -1564,39 +1580,51 @@ void main() {
       // The whole path: the command starts the guard (`dart bin/appstein.dart
       // analysis-server-guard`), the guard starts the analysis server of the
       // SDK that runs the tests, and both are gone when the command returns.
-      // The scope is the command's own, wrapped only to note the process IDs
-      // the guard named, since a server left behind by a guard that has
-      // ended is no longer a child of this process.
+      // The scope is the command's own, wrapped only to note the processes
+      // that run under this one at the end of each body, before the scope
+      // stops the server: with no host running, the run's own guard and
+      // server. A server left behind by a guard that has ended is no longer
+      // a child of this process, so the IDs are noted while they run.
       test(
-        'with a real analysis server: a compile error is a dart.error with '
-        'exit 1, in a fast and a full run; without it, exit 0; no process '
-        'is left',
+        'with no host and a real analysis server: a compile error is a '
+        'dart.error with exit 1, in a fast and a full run; without it, exit '
+        '0; each run starts a server of its own and stops it, and no host, '
+        'guard or server is left',
         () => withChildProcessesToItself(() async {
           // Alone among the tests that start processes: the mcp command's
           // tests, in another file, run at the same time in this process.
           final before = await childProcesses();
-          final own = terminalCodeAnalysis(
+          final own = hostCodeAnalysis(
+            startHost: false,
             projectRoot: project,
             environment: HostEnvironment(
               os: HostOs.current,
-              variables: {'FLUTTER_ROOT': sdk, analysisCacheVariable: cache},
+              variables: {
+                'FLUTTER_ROOT': sdk,
+                analysisCacheVariable: cache,
+                analysisHostFolderVariable: hosts,
+              },
               workingDirectory: project,
             ),
             dartSdkPath: testDartSdk,
           );
-          final started = <({int guard, int server})>[];
+          final started = <Set<int>>[];
           Future<T> noting<T>(Future<T> Function(CodeAnalysis analysis) body) =>
               own<T>((analysis) async {
                 try {
                   return await body(analysis);
                 } finally {
-                  final processes = (analysis as AnalysisServer).processes;
-                  if (processes != null) {
-                    started.add(processes);
-                    // While they run: Windows gives an ended process's ID to
-                    // a new one, which must not be taken for one of these.
-                    await recordProcesses([processes.guard, processes.server]);
-                  }
+                  // Not the test runner's own helpers, which ran before, and
+                  // not the console hosts Windows gives a process.
+                  final running = {
+                    for (final id in await processesUnder(pid))
+                      if (!before.containsKey(id) && !_isConsoleHostProcess(id))
+                        id,
+                  };
+                  started.add(running);
+                  // While they run: Windows gives an ended process's ID to
+                  // a new one, which must not be taken for one of these.
+                  await recordProcesses(running);
                 }
               });
           final broken = File(p.join(project, 'lib', 'my folder', 'b.dart'))
@@ -1643,19 +1671,94 @@ void main() {
           final left = await childProcesses()
             ..removeWhere((id, _) => before.containsKey(id));
           expect(left, isEmpty);
-          // Three runs, each with a guard and a server of its own, all gone.
+          // Three runs, each with a guard and a server of its own (at least
+          // two processes), all gone.
           expect(started, hasLength(3));
-          for (final (:guard, :server) in started) {
-            expect(await processAlive(guard), isFalse, reason: 'guard $guard');
-            expect(
-              await processAlive(server),
-              isFalse,
-              reason: 'server $server',
-            );
+          for (final running in started) {
+            expect(running.length, greaterThanOrEqualTo(2), reason: '$running');
+            for (final id in running) {
+              expect(await processAlive(id), isFalse, reason: 'process $id');
+            }
           }
+          // No host was started, and none was written.
+          expect(hostProcess(hosts, project), isNull);
+          expect(Directory(hosts).existsSync(), isFalse);
         }),
         timeout: const Timeout(Duration(minutes: 10)),
       );
+
+      // A host of another Appstein version is left alone (slice 1d.7, ticket
+      // 04): the run uses a server of its own, asks the host nothing and
+      // sends it no stop. The host is a stand-in in this process, so the
+      // lines it was sent can be read.
+      for (final (host, side) in [
+        ('0.0.1', 'an older'),
+        ('999.0.0', 'a newer'),
+      ]) {
+        test(
+          'with a host of $side Appstein: it is not used and not stopped, '
+          'the run uses a server of its own and stops it',
+          () => withChildProcessesToItself(() async {
+            final before = await childProcesses();
+            final standIn = await standInHost(hosts, project, version: host);
+            File(p.join(project, 'lib', 'b.dart'))
+              ..parent.createSync(recursive: true)
+              ..writeAsStringSync('/// Wrong.\nint wrong() => \'text\';\n');
+            expect(
+              await run(
+                ['verify', '--fast'],
+                realServer: true,
+                dartSdkPath: testDartSdk,
+              ),
+              ExitCodes.errorsFound,
+              reason: '$err',
+            );
+            expect(out.toString(), contains('error dart.error (line 2): '));
+            expect(err.toString(), isEmpty);
+            // Nothing was asked of the host, and no stop was sent: it was
+            // left as it was, with its address.
+            expect(standIn.received, isEmpty);
+            expect(
+              readAnalysisHostAddress(
+                analysisHostAddressFile(hosts, project),
+              )?.appsteinVersion,
+              host,
+            );
+            // The run's own guard and server are gone.
+            final left = await childProcesses()
+              ..removeWhere((id, _) => before.containsKey(id));
+            expect(left, isEmpty);
+          }),
+          timeout: const Timeout(Duration(minutes: 10)),
+        );
+      }
+
+      test('a host that stops answering during a run is Appstein failing: '
+          'exit 3 with the reason and `appstein doctor`, no finding, and no '
+          'host or server of its own is started', () async {
+        // It welcomes the run and closes the connection at its question.
+        final standIn = await standInHost(
+          hosts,
+          project,
+          version: appsteinVersion,
+          onQuestion: (socket, _) => socket.destroy(),
+        );
+        expect(
+          await run(['verify', '--fast'], realServer: true),
+          ExitCodes.appsteinFailed,
+        );
+        expect(out.toString(), isEmpty);
+        expect(
+          err.toString(),
+          'The Dart analysis server could not answer: the analysis host '
+          'ended, or closed the connection, before it answered.\n'
+          'Run `appstein doctor` to check your setup.\n',
+        );
+        // The question was asked, once for each try, of the host that was
+        // there; the fake SDK has no `dart`, so a server of the run's own,
+        // or a host the run started, would have said so instead.
+        expect(standIn.received, isNotEmpty);
+      });
 
       test(
         '--format json has no findings and nothing that did not run',

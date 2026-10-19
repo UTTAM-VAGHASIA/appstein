@@ -74,7 +74,8 @@ const _connectLimit = Duration(seconds: 5);
 /// - **An address file it doesn't own is never trusted** (off Windows): the
 ///   folder must be the user's own with mode 700, and the file the user's
 ///   own with mode 600 ([untrustedAddress]); otherwise the question fails
-///   with the reason.
+///   with the reason. (A client that starts no host uses a server of its own
+///   instead, below.)
 /// - **One connection serves the whole body**, and is closed when the body
 ///   ends; the host is left running for the next client. The host takes the
 ///   server for each question alone, so between two questions of this body
@@ -94,6 +95,31 @@ const _connectLimit = Duration(seconds: 5);
 ///   for each file of the last reading, before the question is sent: the
 ///   host can't ask it back.
 ///
+/// **With [startHost] false** (a terminal `appstein verify`), the client
+/// only uses a host that is already there, and never starts one, stops one,
+/// or deletes an address. [hostCommand] is never run. Until a host has
+/// answered a question, a host that can't be used counts as no host:
+/// - a host of this [appsteinVersion] that welcomes the client is asked, and
+///   no server of this run's own is started;
+/// - otherwise the run asks an analysis server of its own ([ownServer],
+///   stopped when the body ends), as in 1d.2, and the address file is left as
+///   it was, dead or not;
+/// - a host of another version, older or newer, a host that refused the
+///   connection or has ended, and no address file are quiet: no notice;
+/// - an address file that may not be trusted, a live host that won't take the
+///   connection within 5 s, and a live host that never welcomes the client
+///   each add a notice that says why ([unusableHostNotice]) to the readings,
+///   so a planted file shows in a log;
+/// - a question that meets an ending host, or a closed connection, is asked
+///   again as for the other client, and finds the next host, if it has this
+///   version, or else the run's own server, with a notice that the host ended
+///   or was replaced.
+///
+/// **From the first answer of a host on,** the run never changes its
+/// analysis server: a host that then fails (ended, replaced by another
+/// version, or closed the connection) is Appstein failing, a
+/// [CodeAnalysisException] with the reason, like its own server failing.
+///
 /// [readyTimeout] and [answerGrace] set how long an answer is waited for
 /// (a reading: twice [readyTimeout], since the server may start again
 /// within one, plus [answerGrace]; any other question: its own limit plus
@@ -107,6 +133,7 @@ CodeAnalysisScope analysisHostCodeAnalysis({
   required String addressFolder,
   required String appsteinVersion,
   required StoppableCodeAnalysis Function() ownServer,
+  bool startHost = true,
   Map<String, String> environment = const {},
   Duration startLimit = analysisHostStartLimit,
   Duration readyTimeout = analysisReadyTimeout,
@@ -121,6 +148,7 @@ CodeAnalysisScope analysisHostCodeAnalysis({
     addressFile: analysisHostAddressFile(addressFolder, projectRoot, os: os),
     appsteinVersion: appsteinVersion,
     ownServer: ownServer,
+    startHost: startHost,
     environment: environment,
     startLimit: startLimit,
     readyTimeout: readyTimeout,
@@ -161,6 +189,13 @@ String olderThanHostNotice(String client, String host) =>
     'This session runs Appstein $client, older than the analysis host of the '
     'project (Appstein $host), so this run started an analysis server of its '
     'own, which is slower. Restart the session for fast answers.';
+
+/// The notice of a terminal run that did not use the project's analysis host
+/// because it could not: [reason] says why, as "it did not welcome the
+/// client". The run used an analysis server of its own instead.
+String unusableHostNotice(String reason) =>
+    'This run did not use the analysis host of the project ($reason), so it '
+    'started an analysis server of its own, which is slower.';
 
 /// One connection to the host, made by the first question.
 final class _Connection {
@@ -229,6 +264,22 @@ final class _Silent extends _Look {
   const _Silent();
 }
 
+/// The address file or its folder may not be trusted ([untrustedAddress]);
+/// [why] is the reason it gave.
+final class _Untrusted extends _Look {
+  const _Untrusted(this.why);
+
+  final String why;
+}
+
+/// The host's process runs and its port did not take the connection within
+/// 5 s: a slow host is not a dead one. [message] is the error's.
+final class _Slow extends _Look {
+  const _Slow(this.message);
+
+  final String message;
+}
+
 /// The error codes of a connection refused: Windows, Linux, macOS.
 const _refusedCodes = {10061, 111, 61};
 
@@ -252,6 +303,7 @@ final class _HostClient implements CodeAnalysis {
     required this.addressFile,
     required this.appsteinVersion,
     required this.ownServer,
+    required this.startHost,
     required this.environment,
     required this.startLimit,
     required this.readyTimeout,
@@ -266,6 +318,7 @@ final class _HostClient implements CodeAnalysis {
   final String addressFile;
   final String appsteinVersion;
   final StoppableCodeAnalysis Function() ownServer;
+  final bool startHost;
   final Map<String, String> environment;
   final Duration startLimit;
   final Duration readyTimeout;
@@ -282,11 +335,16 @@ final class _HostClient implements CodeAnalysis {
   /// Whether a question of this body was answered by a host.
   var _answered = false;
 
+  /// Whether this client, which starts no host, has connected to one.
+  var _reached = false;
+
   /// The run's own analysis server, once the host was found to run a newer
-  /// Appstein; null until then.
+  /// Appstein, or, for a client that starts no host, to be none that can be
+  /// used; null until then.
   StoppableCodeAnalysis? _own;
 
-  /// The notice of [_own]'s readings ([olderThanHostNotice]).
+  /// The notice of [_own]'s readings ([olderThanHostNotice],
+  /// [unusableHostNotice]); null for none.
   String? _ownNotice;
 
   /// The files of the last reading, for `leaveUnformatted`.
@@ -325,6 +383,7 @@ final class _HostClient implements CodeAnalysis {
         'the analysis host stopped answering during this run',
       );
     }
+    if (!startHost) return _connectToExisting();
     final failure = File(analysisHostFailureFile(addressFile));
     // The secrets of the hosts of an older version this client asked to stop.
     final askedToStop = <String>{};
@@ -359,6 +418,14 @@ final class _HostClient implements CodeAnalysis {
           await _askToStop(connection);
           // Its address is gone: a host of this version is started next.
           continue;
+        case _Untrusted(:final why):
+          throw CodeAnalysisException(
+            'Appstein will not use the analysis host address file: $why',
+          );
+        case _Slow(:final message):
+          throw CodeAnalysisException(
+            'the analysis host did not take the connection ($message)',
+          );
         case _Dead(:final address):
           // Unless another client has replaced it meanwhile.
           await removeAnalysisHostAddress(addressFile, address.secret);
@@ -388,6 +455,58 @@ final class _HostClient implements CodeAnalysis {
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
+  }
+
+  /// The connection of a client that starts no host ([startHost] false): to
+  /// the host the address file names when it welcomes this client and runs
+  /// this [appsteinVersion]; null when this run uses its own server instead
+  /// ([_own]). It never starts a host, sends a stop or deletes an address:
+  /// the address file and the host are left as they were.
+  ///
+  /// The line is drawn at the first answer ([_answered]):
+  /// - **Nothing answered yet** (the first look, or a question asked again
+  ///   after its host ended or was replaced): a host that can't be used
+  ///   counts as no host, and the run uses its own server. A host of another
+  ///   version is left alone, quietly. An address file that may not be
+  ///   trusted, a host that won't take the connection and a host that never
+  ///   welcomes the client come with a notice ([unusableHostNotice]) that
+  ///   says why, so a planted file shows in a CI log. A host that refused
+  ///   the connection or has ended, or no address file, is quiet: the stale
+  ///   file is never deleted here, so a notice would print on every run.
+  ///   A host that was connected and is gone (ended, or replaced by another
+  ///   version) comes with a notice too.
+  /// - **Something answered:** a later look must find a host of this version
+  ///   again; anything else is Appstein failing, since the run would
+  ///   otherwise change its analysis server in the middle.
+  Future<_Connection?> _connectToExisting() async {
+    final reach = await _reach();
+    if (reach case _Reached(:final connection, :final welcome)) {
+      if (compareAppsteinVersions(appsteinVersion, welcome.appsteinVersion) ==
+          0) {
+        _reached = true;
+        return _connection = connection;
+      }
+      connection.close();
+    }
+    if (_answered) {
+      throw const CodeAnalysisException(
+        'the analysis host stopped answering during this run',
+      );
+    }
+    _ownNotice = _reached
+        ? unusableHostNotice('it ended or was replaced before it answered')
+        : switch (reach) {
+            _Untrusted(:final why) => unusableHostNotice(
+              'its address file may not be trusted: $why',
+            ),
+            _Slow(:final message) => unusableHostNotice(
+              'it did not take the connection ($message)',
+            ),
+            _Silent() => unusableHostNotice('it did not welcome the client'),
+            _ => null,
+          };
+    _own = ownServer();
+    return null;
   }
 
   /// Why the host this client started ended before it answered: the reason
@@ -452,15 +571,15 @@ final class _HostClient implements CodeAnalysis {
   /// ended), or one that is there and did not welcome it (starting, or
   /// ending).
   ///
-  /// Throws a [CodeAnalysisException] when the address file or its folder
-  /// may not be trusted ([untrustedAddress]), and when the connection fails
-  /// otherwise (it is not taken within 5 s) while the host's process runs:
-  /// a slow host is not a dead one.
+  /// It throws nothing about the host: an address file or folder that may
+  /// not be trusted ([untrustedAddress]) is an [_Untrusted], and a
+  /// connection that fails otherwise (it is not taken within 5 s) while the
+  /// host's process runs is a [_Slow] (a slow host is not a dead one). The
+  /// caller decides what each means: a client that starts a host fails the
+  /// question, a terminal run uses a server of its own.
   Future<_Look> _reach() async {
     if (await untrustedAddress(addressFile, os: os) case final why?) {
-      throw CodeAnalysisException(
-        'Appstein will not use the analysis host address file: $why',
-      );
+      return _Untrusted(why);
     }
     final address = readAnalysisHostAddress(addressFile);
     if (address == null) return const _NoHost();
@@ -473,9 +592,7 @@ final class _HostClient implements CodeAnalysis {
         // Nothing listens there, or nothing runs: the host has ended.
         return _Dead(address);
       }
-      throw CodeAnalysisException(
-        'the analysis host did not take the connection (${error.message})',
-      );
+      return _Slow(error.message);
     }
     final connection = _Connection(socket);
     socket.writeln(

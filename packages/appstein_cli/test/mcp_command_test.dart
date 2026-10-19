@@ -42,12 +42,14 @@ void main() {
     addTearDown(() => killHost(hosts, project));
   });
 
-  HostEnvironment machine({String? cwd}) => HostEnvironment(
+  /// The machine; [hostFolder] replaces the folder the analysis hosts' address
+  /// files are in.
+  HostEnvironment machine({String? cwd, String? hostFolder}) => HostEnvironment(
     os: HostOs.current,
     variables: {
       'FLUTTER_ROOT': sdk,
       analysisCacheVariable: cache,
-      analysisHostFolderVariable: hosts,
+      analysisHostFolderVariable: hostFolder ?? hosts,
     },
     workingDirectory: cwd ?? project,
   );
@@ -170,10 +172,13 @@ void main() {
       return server;
     }
 
-    /// The findings of a fast `verify` call, as JSON.
-    Future<List<Object?>> verifyFindings(ServerConnection server) async {
+    /// The findings of a fast (or [scope]) `verify` call, as JSON.
+    Future<List<Object?>> verifyFindings(
+      ServerConnection server, {
+      String scope = 'fast',
+    }) async {
       final result = await server.callTool(
-        CallToolRequest(name: 'verify', arguments: const {'scope': 'fast'}),
+        CallToolRequest(name: 'verify', arguments: {'scope': scope}),
       );
       expect(result.isError, isNot(isTrue), reason: '${result.content}');
       return result.structuredContent!['findings']! as List;
@@ -247,14 +252,15 @@ void main() {
         expect(under.length, greaterThanOrEqualTo(2), reason: '$under');
         await recordProcesses([host, ...under]);
 
-        // The same project state, checked by a terminal run.
+        // The same project state, checked by a terminal run with a server of
+        // its own: it looks for a host where there is none.
         final terminal = StringBuffer();
         expect(
           await runAppstein(
             ['verify', '--fast', '--format', 'json'],
             out: terminal,
             err: err,
-            environment: machine(),
+            environment: machine(hostFolder: p.join(hosts, 'no hosts here')),
             dartSdkPath: testDartSdk,
           ),
           ExitCodes.errorsFound,
@@ -285,6 +291,77 @@ void main() {
           Directory(p.join(cache, analysisDriverFolder)).existsSync(),
           isTrue,
         );
+      }),
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'a terminal fast run and full run use the running host and start no '
+      "server of their own, and their findings equal the tool's",
+      () => withChildProcessesToItself(() async {
+        final before = await childProcesses();
+        broken().writeAsStringSync(
+          '/// Wrong.\nint wrong() => \'text\';\n\n'
+          '/// Unused.\nvoid unused() {\n  final left = 1;\n}\n',
+        );
+        final controller = StreamChannelController<String>();
+        final exit = runAppstein(
+          ['mcp'],
+          out: out,
+          err: err,
+          environment: machine(),
+          mcpChannel: () => controller.local,
+          dartSdkPath: testDartSdk,
+        );
+        final server = await connect(controller.foreign);
+        // The tool starts the host.
+        final fast = wholeDartFindings(await verifyFindings(server));
+        final full = wholeDartFindings(
+          await verifyFindings(server, scope: 'full'),
+        );
+        expect(fast, contains(startsWith('dart.error | lib/my folder/')));
+        expect(full, contains(startsWith('dart.warning | lib/my folder/')));
+        final host = hostProcess(hosts, project)!;
+        final under = await processesUnder(host);
+        await recordProcesses([host, ...under]);
+
+        // The terminal runs are given no Dart to start a server with: a run
+        // that did not ask the host could not answer, and would exit 3.
+        for (final (mode, expected) in [('--fast', fast), ('--full', full)]) {
+          final terminal = StringBuffer();
+          expect(
+            await runAppstein(
+              ['verify', mode, '--format', 'json'],
+              out: terminal,
+              err: err,
+              environment: machine(),
+            ),
+            ExitCodes.errorsFound,
+            reason: '$mode\n$err',
+          );
+          final ran = jsonDecode('$terminal') as Map<String, Object?>;
+          expect(wholeDartFindings(ran['findings']! as List), expected);
+        }
+        expect(err.toString(), isEmpty);
+
+        // The terminal runs started no server, and no host: the host is the
+        // same one, with the same server, and nothing else is running. The
+        // host was started by this process: on Windows the `dart` launcher
+        // that started it is still this process's child, with the host
+        // under it.
+        expect(hostProcess(hosts, project), host);
+        expect(await processesUnder(host), under);
+        final started = await childProcesses()
+          ..removeWhere((id, _) => before.containsKey(id));
+        for (final id in [...started.keys]) {
+          if (id == host || (await processesUnder(id)).contains(host)) {
+            started.remove(id);
+          }
+        }
+        expect(started, isEmpty, reason: 'host $host, under $under');
+
+        await server.shutdown();
+        expect(await exit, ExitCodes.ok);
       }),
       timeout: const Timeout(Duration(minutes: 10)),
     );

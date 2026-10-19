@@ -6,6 +6,7 @@ export 'src/analysis_host_command.dart';
 export 'src/docs_command.dart';
 export 'src/doctor_printer.dart';
 export 'src/exit_codes.dart';
+export 'src/host_code_analysis.dart';
 export 'src/mcp_command.dart';
 export 'src/packs.dart';
 export 'src/run_guarded.dart';

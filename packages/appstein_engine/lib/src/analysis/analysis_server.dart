@@ -69,7 +69,12 @@ String projectDartExecutable(
 
 /// A scope that gives each body an analysis server of its own for the
 /// project at [projectRoot], and stops it when the body ends, normally or
-/// with an error. This is what a terminal `appstein verify` does. The
+/// with an error. No production code uses it any more: a terminal `appstein
+/// verify` asks the project's analysis host when one is running and otherwise
+/// starts a server of its own through the host client's `ownServer`
+/// (`analysisHostCodeAnalysis` with `startHost: false`). It stays as the
+/// plainest scope for a test of the server, or of a run, that needs a server
+/// and no host. The
 /// server is started only when the body first asks something. A question
 /// asked after the body has ended never starts a server nobody stops:
 /// `read` throws a [StateError], and `formatChanges`, `canDartFix`,
@@ -79,8 +84,8 @@ String projectDartExecutable(
 /// The arguments are [AnalysisServer.new]'s, and [onLeft]: called after the
 /// server was stopped, with a line for each process the stop could not end
 /// because it could not be shown to be the server's own
-/// ([AnalysisServer.leftProcesses]). A terminal run has no later run to
-/// tell it in, so it prints them.
+/// ([AnalysisServer.leftProcesses]). A run with a server of its own has no
+/// later run to tell it in, so its caller prints them.
 CodeAnalysisScope ownAnalysisServer({
   required String projectRoot,
   required List<String> guardCommand,

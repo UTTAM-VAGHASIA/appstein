@@ -1457,5 +1457,393 @@ void main() {
       // The client closed its end: the stand-in's side sees the end.
       await closed.future.timeout(const Duration(seconds: 5));
     });
+
+    test('a client that starts no host: one that ends during a question '
+        'fails it, and no host or server of its own is started', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      await standIn(folder, app, (socket) => socket.destroy());
+      final own = _OwnStubs();
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        startHost: false,
+        ownServer: own.create,
+      );
+      await expectLater(
+        codesIn(scope, 'lib/main.dart'),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            'the analysis host ended, or closed the connection, before it '
+                'answered',
+          ),
+        ),
+      );
+      expect(own.created, 0);
+      expect(startedHostProcesses(folder), isEmpty);
+    });
+
+    test('a client that starts no host: a host that tells it is ending before '
+        'anything was answered is replaced by a server of its own, with a '
+        'notice, and no host is started', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final file = analysisHostAddressFile(folder, app);
+      // The host is stopped by a newer session: it answers the question with
+      // an ending and takes its address with it.
+      await standIn(folder, app, (socket) {
+        socket.writeln(jsonEncode(const AnalysisHostEnding(0).toJson()));
+        File(file).deleteSync();
+      });
+      final own = _OwnStubs();
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        startHost: false,
+        ownServer: own.create,
+      );
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, ['own']);
+      expect(reading.notices, [
+        unusableHostNotice('it ended or was replaced before it answered'),
+      ]);
+      expect(own.created, 1);
+      expect(own.stubs.single.closed, isTrue);
+      expect(startedHostProcesses(folder), isEmpty);
+      expect(File(file).existsSync(), isFalse);
+    });
+
+    test('a client that starts no host: a host that fails after it answered '
+        'fails the run, and the run starts no host and uses no server of its '
+        'own', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final file = analysisHostAddressFile(folder, app);
+      var questions = 0;
+      await standIn(folder, app, (socket) {
+        if (questions++ == 0) {
+          socket
+            ..writeln(jsonEncode(const AnalysisHostTurn(0).toJson()))
+            ..writeln(
+              jsonEncode(
+                AnalysisHostAnswer.answered(
+                  0,
+                  const CodeReading().toJson(),
+                ).toJson(),
+              ),
+            );
+        } else {
+          // It ends before the second question's turn, with its address.
+          File(file).deleteSync();
+          socket.destroy();
+        }
+      });
+      final own = _OwnStubs();
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        startHost: false,
+        ownServer: own.create,
+      );
+      await expectLater(
+        scope((analysis) async {
+          await analysis.read();
+          return analysis.read();
+        }),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            'the analysis host stopped answering during this run',
+          ),
+        ),
+      );
+      expect(own.created, 0);
+      expect(startedHostProcesses(folder), isEmpty);
+    });
   });
+
+  // A terminal run (slice 1d.7, ticket 04): it uses a host that is there, and
+  // never starts or stops one.
+  group('a client that starts no host (a terminal run)', () {
+    test('with no host it uses a server of its own, stops it at the end, and '
+        'starts and writes no host', () async {
+      final app = tempDir().path;
+      final own = _OwnStubs();
+      final (:scope, :folder) = testHost(
+        app,
+        startHost: false,
+        ownServer: own.create,
+      );
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, ['own']);
+      expect(reading.notices, isEmpty);
+      expect(own.created, 1);
+      expect(own.stubs.single.closed, isTrue);
+      expect(startedHostProcesses(folder), isEmpty);
+      expect(
+        readAnalysisHostAddress(analysisHostAddressFile(folder, app)),
+        isNull,
+      );
+    });
+
+    test('a host of its own version answers, and no server of its own is '
+        'started', () async {
+      final app = tempDir().path;
+      final host = await inProcessHost(app);
+      final own = _OwnStubs();
+      final (:scope, :folder) = testHost(
+        app,
+        folder: host.folder,
+        startHost: false,
+        ownServer: own.create,
+      );
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, ['lib/a.dart']);
+      expect(host.server.asked, ['read']);
+      expect(own.created, 0);
+      expect(startedHostProcesses(folder), isEmpty);
+    });
+
+    for (final (clientVersion, hostVersion) in [
+      ('1.0.0', '2.0.0'),
+      ('2.0.0', '1.0.0'),
+    ]) {
+      test('a host of another version ($hostVersion, beside a client of '
+          '$clientVersion) is left alone: the run uses a server of its own, '
+          'sends no stop and says nothing of it', () async {
+        final app = tempDir().path;
+        final host = await inProcessHost(app, version: hostVersion);
+        final own = _OwnStubs();
+        final (:scope, :folder) = testHost(
+          app,
+          folder: host.folder,
+          version: clientVersion,
+          startHost: false,
+          ownServer: own.create,
+        );
+        final reading = await scope((analysis) => analysis.read());
+        expect(reading.analyzedFiles, ['own']);
+        expect(reading.notices, isEmpty);
+        expect(own.stubs.single.closed, isTrue);
+        // The host was not asked anything, not stopped, and still answers
+        // as the host of the project.
+        expect(host.server.asked, isEmpty);
+        expect(
+          readAnalysisHostAddress(analysisHostAddressFile(folder, app))?.secret,
+          host.address.secret,
+        );
+        // A stop would have ended it: it still welcomes a client.
+        final raw = await rawClient(host.address);
+        raw.socket.destroy();
+        expect(startedHostProcesses(folder), isEmpty);
+      });
+    }
+
+    test('an address whose host has ended is left as it was: the run uses a '
+        'server of its own and starts no host', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final file = analysisHostAddressFile(folder, app);
+      await writeAnalysisHostAddress(
+        file,
+        AnalysisHostAddress(
+          port: 1,
+          secret: 'dead',
+          processId: await endedProcess(),
+          appsteinVersion: 'test',
+        ),
+      );
+      final own = _OwnStubs();
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        startHost: false,
+        ownServer: own.create,
+      );
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, ['own']);
+      // Quiet: the file stays, so a notice would print on every run.
+      expect(reading.notices, isEmpty);
+      expect(readAnalysisHostAddress(file)?.secret, 'dead');
+      expect(startedHostProcesses(folder), isEmpty);
+    });
+
+    test('a host that won\'t take the connection within 5 s while its process '
+        'runs counts as no host: a server of its own and a notice that says '
+        'why; the address is left and no host is started', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final file = analysisHostAddressFile(folder, app);
+      // A live process: this test's own.
+      await writeAnalysisHostAddress(
+        file,
+        AnalysisHostAddress(
+          port: 1,
+          secret: 'slow',
+          processId: pid,
+          appsteinVersion: 'test',
+        ),
+      );
+      final own = _OwnStubs();
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        startHost: false,
+        ownServer: own.create,
+        // What `Socket.connect` throws when its timeout runs out.
+        connect: (port) async => throw SocketException(
+          'Connection timed out, host: 127.0.0.1, port: $port',
+        ),
+      );
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, ['own']);
+      expect(reading.notices, [
+        unusableHostNotice(
+          'it did not take the connection (Connection timed out, host: '
+          '127.0.0.1, port: 1)',
+        ),
+      ]);
+      expect(readAnalysisHostAddress(file)?.secret, 'slow');
+      expect(startedHostProcesses(folder), isEmpty);
+    });
+
+    test('a host that never welcomes the client counts as no host: a server '
+        'of its own and a notice that says why; no host is started', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      // It takes the connection and says nothing.
+      final listening = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      addTearDown(listening.close);
+      final held = <Socket>[];
+      listening.listen(held.add);
+      addTearDown(() {
+        for (final socket in held) {
+          socket.destroy();
+        }
+      });
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+        AnalysisHostAddress(
+          port: listening.port,
+          secret: 'mute',
+          processId: pid,
+          appsteinVersion: 'test',
+        ),
+      );
+      final own = _OwnStubs();
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        startHost: false,
+        ownServer: own.create,
+      );
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, ['own']);
+      expect(reading.notices, [
+        unusableHostNotice('it did not welcome the client'),
+      ]);
+      expect(startedHostProcesses(folder), isEmpty);
+    }, timeout: const Timeout(Duration(minutes: 1)));
+
+    test(
+      'an address file that may not be trusted counts as no host: a server '
+      'of its own and a notice that says why, and the file is left as it is',
+      () async {
+        final app = tempDir().path;
+        final folder = p.join(tempDir().path, 'hosts');
+        final file = analysisHostAddressFile(folder, app);
+        await writeAnalysisHostAddress(
+          file,
+          const AnalysisHostAddress(
+            port: 1,
+            secret: 'planted',
+            processId: 1,
+            appsteinVersion: 'test',
+          ),
+        );
+        Process.runSync('chmod', ['755', folder]);
+        final own = _OwnStubs();
+        final (:scope, folder: _) = testHost(
+          app,
+          folder: folder,
+          startHost: false,
+          ownServer: own.create,
+        );
+        final reading = await scope((analysis) => analysis.read());
+        expect(reading.analyzedFiles, ['own']);
+        expect(reading.notices, hasLength(1));
+        expect(
+          reading.notices.single,
+          allOf(
+            contains('address file may not be trusted'),
+            contains('mode 755, not 700'),
+          ),
+        );
+        expect(readAnalysisHostAddress(file)?.secret, 'planted');
+        expect(startedHostProcesses(folder), isEmpty);
+      },
+      skip: Platform.isWindows
+          ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
+                'has no Unix mode'
+          : false,
+    );
+  });
+}
+
+/// Stand-ins for the analysis server a client that starts no host uses beside
+/// no host, or beside a host of another version: [create] is its
+/// `ownServer`.
+final class _OwnStubs {
+  final stubs = <_OwnStub>[];
+
+  int get created => stubs.length;
+
+  StoppableCodeAnalysis create() {
+    final stub = _OwnStub();
+    stubs.add(stub);
+    return stub;
+  }
+}
+
+/// A stand-in for a run's own analysis server: it reads one file, `own`, and
+/// notes that it was closed.
+final class _OwnStub implements StoppableCodeAnalysis {
+  var closed = false;
+
+  @override
+  Future<CodeReading> read() async => const CodeReading(analyzedFiles: ['own']);
+
+  @override
+  Future<bool> canDartFix(
+    CodeDiagnostic diagnostic, {
+    required Duration within,
+  }) async => false;
+
+  @override
+  Future<FormatAnswers> formatChanges(
+    List<String> files, {
+    required Duration within,
+  }) async => const FormatAnswers();
+
+  @override
+  Future<PendingFixes> pendingFixes({required Duration within}) async =>
+      const PendingFixes();
+
+  @override
+  Future<AppliedChanges> applyFixesAndFormat({
+    required Future<bool> Function(String file) leaveUnformatted,
+    required Duration within,
+  }) async => const AppliedChanges();
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> close() async => closed = true;
 }

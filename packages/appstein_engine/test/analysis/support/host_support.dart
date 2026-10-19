@@ -20,7 +20,10 @@ import 'analysis_support.dart';
 /// starts. [dartFrom] is a file that holds the path of the `dart` that runs
 /// the server (`host_main.dart`'s `--dart-from`). A run whose host is newer
 /// asks a real analysis server of its own, with the tests' SDK. [connect]
-/// replaces the connection to the host's port.
+/// replaces the connection to the host's port. [startHost] false makes the
+/// client one that starts no host (a terminal run); [ownServer] replaces the
+/// real analysis server a run beside no host, or beside a host of another
+/// version, would start.
 ({CodeAnalysisScope scope, String folder}) testHost(
   String app, {
   Duration idle = const Duration(minutes: 10),
@@ -32,6 +35,8 @@ import 'analysis_support.dart';
   String version = 'test',
   String? dartFrom,
   Future<Socket> Function(int port)? connect,
+  bool startHost = true,
+  StoppableCodeAnalysis Function()? ownServer,
 }) {
   folder ??= p.join(tempDir().path, 'host folder');
   final environment = testAnalysisEnvironment();
@@ -57,12 +62,15 @@ import 'analysis_support.dart';
           ],
       addressFolder: folder,
       appsteinVersion: version,
-      ownServer: () => AnalysisServer(
-        projectRoot: app,
-        guardCommand: testGuardCommand,
-        dartExecutable: () => testDart,
-        environment: environment,
-      ),
+      startHost: startHost,
+      ownServer:
+          ownServer ??
+          () => AnalysisServer(
+            projectRoot: app,
+            guardCommand: testGuardCommand,
+            dartExecutable: () => testDart,
+            environment: environment,
+          ),
       environment: environment,
     ),
     folder: folder,

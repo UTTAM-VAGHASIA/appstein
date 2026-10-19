@@ -5,10 +5,10 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
-import 'analysis_guard_command.dart';
 import 'exit_codes.dart';
 import 'failure.dart';
 import 'finding_text.dart';
+import 'host_code_analysis.dart';
 import 'packs.dart';
 import 'project_option.dart';
 import 'verify_hook.dart';
@@ -21,9 +21,11 @@ typedef VerifyChecks =
 /// `appstein verify [--fast | --full] [--apply] [--format text|json]
 /// [--files paths]`: checks the project against its knowledge (spec §5.3,
 /// §9), after bringing the knowledge up to date. Without `--apply` it never
-/// writes a project file outside `.appstein/`. For the code checks it starts
-/// the project's Dart analysis server, waits for the first analysis, and
-/// stops the server before it returns.
+/// writes a project file outside `.appstein/`. For the code checks it asks the
+/// project's analysis host when one of this version is running; otherwise it
+/// starts the project's Dart analysis server, waits for the first analysis,
+/// and stops the server before it returns (`hostCodeAnalysis` with
+/// `startHost: false`). It never starts or stops a host.
 ///
 /// `--files` (fast runs only) adds files to the unverified files, for the
 /// run and after it (`resolveVerifyFiles`): a path outside the project,
@@ -115,9 +117,10 @@ final class VerifyCommand extends Command<int> {
   /// Builds the project's checks from its packs.
   final VerifyChecks checks;
 
-  /// Gives the run its code analysis. When null, the run starts an analysis
-  /// server of its own and stops it when it ends ([terminalCodeAnalysis]).
-  /// Only tests set it.
+  /// Gives the run its code analysis. When null, the run asks a running
+  /// analysis host, or else starts an analysis server of its own and stops it
+  /// when it ends (`hostCodeAnalysis` with `startHost: false`). Only tests
+  /// set it.
   final CodeAnalysisScope? codeAnalysis;
 
   /// Where the analysis reads `dart:` libraries from, and whose `dart` runs
@@ -327,12 +330,17 @@ final class VerifyCommand extends Command<int> {
     // What the stop of the run's own analysis server could not end: known
     // only after the run, and printed with its result.
     final left = <String>[];
+    // A terminal run (a person, or CI) asks the project's analysis host when
+    // one of this version answers, and otherwise starts a server of its own
+    // and stops it at the end. It never starts or stops a host, so a CI run
+    // leaves no process behind.
     final analysis =
         codeAnalysis ??
-        terminalCodeAnalysis(
+        hostCodeAnalysis(
           projectRoot: projectRoot,
           environment: environment,
           dartSdkPath: dartSdkPath,
+          startHost: false,
           onLeft: left.addAll,
         );
     // A check that throws and an analysis server that can't answer are
@@ -458,32 +466,6 @@ final class _SilenceGate {
     }
   }
 }
-
-/// The code analysis of a run that owns its analysis server: each run
-/// starts the server of the SDK the project at [projectRoot] uses, behind
-/// the guard ([analysisGuardCommand]), when a check first asks, and stops
-/// it when the run ends, normally or with an error. A terminal `appstein
-/// verify` uses it. The `verify` tool of `appstein mcp` asks the project's
-/// analysis host instead (`hostCodeAnalysis`).
-///
-/// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
-/// [onLeft] is told, after the server was stopped, each process the stop
-/// could not end because it could not be shown to be the run's own
-/// (`ownAnalysisServer`). The server's cache folder is the one
-/// [environment] names (`analysisServerEnvironment`).
-CodeAnalysisScope terminalCodeAnalysis({
-  required String projectRoot,
-  required HostEnvironment environment,
-  String? dartSdkPath,
-  void Function(List<String> notices)? onLeft,
-}) => ownAnalysisServer(
-  projectRoot: projectRoot,
-  guardCommand: analysisGuardCommand(),
-  dartExecutable: () =>
-      projectDartExecutable(environment, projectRoot, dartSdkPath: dartSdkPath),
-  environment: analysisServerEnvironment(environment),
-  onLeft: onLeft,
-);
 
 /// What `appstein verify --apply` prints to stderr when the run fails after
 /// it rewrote [files]: each of them, to be read again before it is edited.

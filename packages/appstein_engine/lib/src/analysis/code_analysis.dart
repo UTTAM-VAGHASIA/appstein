@@ -173,8 +173,11 @@ abstract interface class StoppableCodeAnalysis implements CodeAnalysis {
 /// Runs [body] with the code analysis of one project, and releases what
 /// that took when [body] ends, normally or with an error.
 ///
-/// It decides how long an analysis server lives. `ownAnalysisServer` gives
-/// each [body] a server of its own, which is what a terminal run does.
+/// It decides who owns the analysis server and how long it lives.
+/// `analysisHostCodeAnalysis` gives each [body] the project's analysis host,
+/// or, for a terminal run (`startHost: false`) with no host that answers, a
+/// server of its own, stopped when the body ends; `ownAnalysisServer` gives
+/// each [body] a server of its own and nothing else, for tests.
 typedef CodeAnalysisScope =
     Future<T> Function<T>(Future<T> Function(CodeAnalysis analysis) body);
 
