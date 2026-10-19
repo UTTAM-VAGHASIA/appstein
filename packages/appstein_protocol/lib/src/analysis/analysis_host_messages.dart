@@ -5,7 +5,10 @@ import 'code_reading.dart';
 // 0002): one JSON object per line, each way. A client sends an
 // [AnalysisHostHello] first, the host answers it with an
 // [AnalysisHostWelcome], and then the client asks [AnalysisHostQuestion]s,
-// one at a time, each answered by one [AnalysisHostAnswer].
+// one at a time, each answered by one [AnalysisHostAnswer]. A client whose
+// Appstein version is newer than the welcome's sends an [AnalysisHostStop]
+// instead, and a host that was asked to stop answers a later question with
+// an [AnalysisHostEnding].
 
 /// What a project's analysis host writes in its address file: how a client
 /// reaches it. The file is named by a hash of the project's path, in a
@@ -291,6 +294,40 @@ final class AnalysisHostTurn {
 
   /// The line as JSON.
   Map<String, Object?> toJson() => {'id': id, 'turn': true};
+}
+
+/// What a client sends, after the welcome, to a host of an older Appstein
+/// version than its own: end, so a host of the client's version can take
+/// the project. The host gives up its address file at once, then closes the
+/// connection, answers the questions it already has, and ends. (A client
+/// older than the host leaves it alone.)
+final class AnalysisHostStop {
+  /// Creates the line.
+  const AnalysisHostStop();
+
+  /// Whether [map] is a stop line (and not a question).
+  static bool isStop(Map<String, Object?> map) => map['stop'] == true;
+
+  /// The line as JSON.
+  Map<String, Object?> toJson() => {'stop': true};
+}
+
+/// What a host that was asked to stop ([AnalysisHostStop]) sends for a
+/// question that came after the stop, in place of its turn and answer: it
+/// takes no new question, and then closes the connection. The client asks
+/// the host that took the project instead, found through the address file.
+final class AnalysisHostEnding {
+  /// Creates the line for the question [id].
+  const AnalysisHostEnding(this.id);
+
+  /// The question that was not taken.
+  final int id;
+
+  /// Whether [map] is an ending line (and not a turn or an answer).
+  static bool isEnding(Map<String, Object?> map) => map['ending'] == true;
+
+  /// The line as JSON.
+  Map<String, Object?> toJson() => {'id': id, 'ending': true};
 }
 
 const _source = 'a message of the analysis host';

@@ -444,6 +444,58 @@ void main() {
     );
 
     test(
+      'two sessions at once, both calling verify, leave exactly one host and '
+      "one analysis server; ending the first leaves the second's answers warm",
+      () => withChildProcessesToItself(() async {
+        final before = await childProcesses();
+        final (:process, serving: _, :under, :server) = await serveInAProcess();
+        // A second session, open while the first still serves.
+        final controller = StreamChannelController<String>();
+        final exit = runAppstein(
+          ['mcp'],
+          out: out,
+          err: err,
+          environment: machine(),
+          mcpChannel: () => controller.local,
+          dartSdkPath: testDartSdk,
+        );
+        final second = await connect(controller.foreign);
+        expect(await dartFindings(second), [
+          'dart.error lib/my folder/broken.dart',
+        ]);
+        expect(await dartFindings(server), [
+          'dart.error lib/my folder/broken.dart',
+        ]);
+        // The one host, with the one guard and server it had.
+        final host = hostProcess(hosts, project)!;
+        expect({host, ...await processesUnder(host)}, under);
+        // The second session, in this process, started no host of its own:
+        // the only process this test started is the first session's.
+        expect(
+          (await childProcesses()).keys.toSet().difference({
+            ...before.keys,
+            process.pid,
+          }),
+          isEmpty,
+        );
+
+        await server.shutdown();
+        expect(
+          await process.exitCode.timeout(const Duration(seconds: 30)),
+          ExitCodes.ok,
+        );
+        broken().writeAsStringSync('/// Right.\nint right() => 1;\n');
+        expect(await dartFindings(second), isEmpty);
+        // Warm: the same host and the same server answered.
+        expect(hostProcess(hosts, project), host);
+        expect({host, ...await processesUnder(host)}, under);
+        await second.shutdown();
+        expect(await exit, ExitCodes.ok);
+      }),
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
       'in a process of its own: when it is killed, the host and its server '
       'keep running for the next session',
       () => withChildProcessesToItself(() async {

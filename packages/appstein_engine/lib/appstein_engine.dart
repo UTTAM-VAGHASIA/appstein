@@ -5,6 +5,7 @@ export 'src/analysis/analysis_cache.dart';
 export 'src/analysis/analysis_guard.dart';
 export 'src/analysis/analysis_host.dart';
 export 'src/analysis/analysis_host_client.dart';
+export 'src/analysis/analysis_host_lock.dart';
 export 'src/analysis/analysis_server.dart';
 export 'src/analysis/code_analysis.dart';
 export 'src/analysis/kept_analysis_server.dart';

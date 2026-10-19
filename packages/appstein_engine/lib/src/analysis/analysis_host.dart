@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../host/host_environment.dart';
+import 'analysis_host_lock.dart';
 import 'analysis_server.dart';
 import 'code_analysis.dart';
 import 'kept_analysis_server.dart';
@@ -91,9 +92,36 @@ String analysisHostAddressFile(
 String analysisHostFailureFile(String addressFile) =>
     '${p.withoutExtension(addressFile)}.failed';
 
+/// Deletes the address file [addressFile] when it still holds the address
+/// with [secret], under the lock ([withAnalysisHostLock]), and says whether
+/// it did. A client calls it for a host it found dead, and a host for its
+/// own address as it ends: an address another starter has written meanwhile
+/// is left. Returns false when the lock can't be had.
+Future<bool> removeAnalysisHostAddress(
+  String addressFile,
+  String secret,
+) async {
+  if (!await Directory(p.dirname(addressFile)).exists()) return false;
+  try {
+    return await withAnalysisHostLock(addressFile, () async {
+      if (readAnalysisHostAddress(addressFile)?.secret != secret) return false;
+      try {
+        await File(addressFile).delete();
+        return true;
+      } on FileSystemException {
+        return false;
+      }
+    });
+  } on FileSystemException {
+    return false;
+  }
+}
+
 /// Writes [address] to the file [path], whole or not at all: to a new file
 /// beside it first, which then takes its place (a rename), so a client never
-/// reads half an address. Off Windows ([os]) the folder is given mode 700
+/// reads half an address. The rename replaces a file that is there: the
+/// host calls this under the address file's lock, after it has found none
+/// ([withAnalysisHostLock]). Off Windows ([os]) the folder is given mode 700
 /// and the file mode 600 before the address is in it, so only the user can
 /// read the secret; `chmod` fails on a folder that isn't the user's, so a
 /// folder another user made is never written to. On Windows the folder is
@@ -111,15 +139,7 @@ Future<void> writeAnalysisHostAddress(
 
 /// Writes [text] to [path] as [writeAnalysisHostAddress] says.
 Future<void> _writeUserOnly(String path, String text, HostOs os) async {
-  final folder = Directory(p.dirname(path));
-  if (os != HostOs.windows && await FileSystemEntity.isLink(folder.path)) {
-    throw FileSystemException(
-      'the folder of the address file is a link, not a plain folder',
-      folder.path,
-    );
-  }
-  await folder.create(recursive: true);
-  await _userOnly('700', folder.path, os);
+  await _userFolder(path, os);
   final beside = File('$path.$pid.tmp');
   try {
     await beside.writeAsString('');
@@ -134,6 +154,20 @@ Future<void> _writeUserOnly(String path, String text, HostOs os) async {
     }
     rethrow;
   }
+}
+
+/// Makes the folder of the file [path], user-only, as
+/// [writeAnalysisHostAddress] says.
+Future<void> _userFolder(String path, HostOs os) async {
+  final folder = Directory(p.dirname(path));
+  if (os != HostOs.windows && await FileSystemEntity.isLink(folder.path)) {
+    throw FileSystemException(
+      'the folder of the address file is a link, not a plain folder',
+      folder.path,
+    );
+  }
+  await folder.create(recursive: true);
+  await _userOnly('700', folder.path, os);
 }
 
 /// Gives [path] the permissions [mode] off Windows ([setFileMode]), and does
@@ -221,6 +255,21 @@ const _helloLimit = Duration(seconds: 10);
 ///   user's, the port can't be bound, the file can't be written), it leaves
 ///   why in [analysisHostFailureFile] for the client that started it, and
 ///   throws.
+/// - **Taking the project is exclusive**: the address is written under the
+///   address file's lock ([withAnalysisHostLock]), and only when no other
+///   host's address is there. A host that finds one has lost a race with
+///   another starter: it returns at once, having started nothing, and its
+///   client connects to the winner. An address a dead host left is deleted
+///   by the client that finds it dead, before it starts a host.
+/// - **A client of a newer Appstein version asks it to stop**
+///   (`AnalysisHostStop`): it deletes its address file and closes its port
+///   at once, so that client can start a host of its own version, then
+///   closes that connection, answers the questions it already has (being
+///   answered or waiting in its queue), and ends. It takes no new question:
+///   one that comes on a connection still open is answered with an
+///   `AnalysisHostEnding` and the connection is closed, so its client asks
+///   the host that took the project, and an `--apply` sent then never
+///   writes.
 /// - **A connection must send the secret first** (an `AnalysisHostHello`):
 ///   every local program can reach a loopback port, so one whose first line
 ///   isn't the hello with the secret, or that sends none within 10 s, is
@@ -271,20 +320,35 @@ Future<void> runAnalysisHost({
   final ServerSocket listening;
   try {
     listening = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final bool claimed;
     try {
-      await writeAnalysisHostAddress(
-        addressFile,
-        AnalysisHostAddress(
-          port: listening.port,
-          secret: secret,
-          processId: pid,
-          appsteinVersion: appsteinVersion,
-        ),
-        os: system,
-      );
+      await _userFolder(addressFile, system);
+      // Exclusive: only when no other host's address is there. A dead
+      // host's was deleted by the client that found it dead.
+      claimed = await withAnalysisHostLock(addressFile, () async {
+        if (readAnalysisHostAddress(addressFile) != null) return false;
+        await writeAnalysisHostAddress(
+          addressFile,
+          AnalysisHostAddress(
+            port: listening.port,
+            secret: secret,
+            processId: pid,
+            appsteinVersion: appsteinVersion,
+          ),
+          os: system,
+        );
+        return true;
+      });
     } on Object {
       await listening.close();
       rethrow;
+    }
+    if (!claimed) {
+      // Another host took the project first: its clients, the one that
+      // started this one too, use that one.
+      await listening.close();
+      await kept.close();
+      return;
     }
   } on Object catch (error) {
     await kept.close();
@@ -308,23 +372,25 @@ Future<void> runAnalysisHost({
   final ended = Completer<void>();
   final connections = <Socket>{};
   var asking = 0;
+  var ending = false;
+  var askedToStop = false;
   Timer? idle;
+  Future<void>? gaveUp;
+
+  // Gives the project up: the port is closed and the address file deleted,
+  // when it is still its own (another host may have written it since).
+  Future<void> giveUp() => gaveUp ??= () async {
+    await listening.close();
+    await removeAnalysisHostAddress(addressFile, secret);
+  }();
 
   Future<void> end() async {
-    if (ended.isCompleted) return;
+    if (ending) return;
+    ending = true;
     idle?.cancel();
-    await listening.close();
-    for (final socket in connections) {
-      socket.destroy();
-    }
-    // Only its own: another host may have written the file since.
-    if (readAnalysisHostAddress(addressFile)?.secret == secret) {
-      try {
-        await File(addressFile).delete();
-      } on FileSystemException {
-        // Gone already.
-      }
-    }
+    await giveUp();
+    // An answer written a moment ago still reaches its client.
+    await Future.wait([...connections].map(_closeWritten));
     await kept.close();
     if (!ended.isCompleted) ended.complete();
   }
@@ -334,6 +400,28 @@ Future<void> runAnalysisHost({
     idle = Timer(idleStop, () {
       if (asking == 0) unawaited(end());
     });
+  }
+
+  // When no question is being answered: a host asked to stop ends, any
+  // other counts its idle time again.
+  void afterQuestions() {
+    if (asking > 0 || ending) return;
+    if (askedToStop) {
+      unawaited(end());
+    } else {
+      countIdle();
+    }
+  }
+
+  // Asked by a client of a newer version: the project is given up at once,
+  // so that client can start a host of its own, and this one ends when the
+  // questions it already has are answered. It takes no new one.
+  Future<void> stop() async {
+    if (askedToStop) return;
+    askedToStop = true;
+    idle?.cancel();
+    await giveUp();
+    afterQuestions();
   }
 
   countIdle();
@@ -374,7 +462,20 @@ Future<void> runAnalysisHost({
       while (await lines.moveNext().timeout(idleStop)) {
         final json = jsonDecode(lines.current);
         if (json is! Map<String, Object?>) return;
+        if (AnalysisHostStop.isStop(json)) {
+          // Its address file is gone before the connection closes.
+          await stop();
+          return;
+        }
         final question = AnalysisHostQuestion.fromJson(json);
+        if (askedToStop || ending) {
+          // A question that came after the stop, or while the host ends
+          // (its server is being closed), is not taken, so the old
+          // host and server don't run on beside the new ones: its client
+          // asks the host that took the project.
+          socket.writeln(jsonEncode(AnalysisHostEnding(question.id).toJson()));
+          return;
+        }
         asking++;
         idle?.cancel();
         final AnalysisHostAnswer? answer;
@@ -400,7 +501,7 @@ Future<void> runAnalysisHost({
           return;
         } finally {
           asking--;
-          if (asking == 0 && !ended.isCompleted) countIdle();
+          afterQuestions();
         }
         if (answer == null) return;
         socket.writeln(jsonEncode(answer.toJson()));
@@ -410,11 +511,24 @@ Future<void> runAnalysisHost({
       // asked nothing for the idle time: the connection is closed below.
     } finally {
       connections.remove(socket);
-      socket.destroy();
+      // The last line written (an answer, an ending) still reaches it.
+      await _closeWritten(socket);
       await lines.cancel();
     }
   });
   await ended.future;
+}
+
+/// Closes [socket] once what was written to it has gone out, or after 1 s
+/// when its client doesn't take it: `destroy` alone drops what is still
+/// waiting to be sent.
+Future<void> _closeWritten(Socket socket) async {
+  try {
+    await socket.flush().timeout(const Duration(seconds: 1));
+  } on Object {
+    // Gone already, or not taking what was written: closed below anyway.
+  }
+  socket.destroy();
 }
 
 /// How the analysis host's server writes the files of a rewrite

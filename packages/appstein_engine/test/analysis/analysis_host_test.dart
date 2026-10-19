@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:appstein_engine/appstein_engine.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
@@ -24,6 +25,10 @@ Future<List<String>> codesIn(CodeAnalysisScope scope, String file) => scope(
 /// own process: no process is started. Its readings take the times in
 /// [readTimes] (then none), and its rewrite waits for [applyHeld] and then
 /// writes one file through the host's write gate, which tells [written].
+/// Its pending-fix passes put a temporary edit into it ([editing], which a
+/// reading then shows as the file `lib/temporary.dart`) and hold it until
+/// [passesHeld] completes. [asked] tells what it was asked, in order, and
+/// whether a reading saw the edit.
 final class _StandInServer implements StoppableCodeAnalysis {
   _StandInServer(this._writes);
 
@@ -33,14 +38,19 @@ final class _StandInServer implements StoppableCodeAnalysis {
   final asked = <String>[];
   final written = <String>[];
   final applyHeld = Completer<void>();
+  final passesBegan = Completer<void>();
+  final passesHeld = Completer<void>();
+  var editing = false;
 
   @override
   Future<CodeReading> read() async {
-    asked.add('read');
+    asked.add(editing ? 'read saw the edit' : 'read');
     if (readTimes.isNotEmpty) {
       await Future<void>.delayed(readTimes.removeAt(0));
     }
-    return const CodeReading(analyzedFiles: ['lib/a.dart']);
+    return CodeReading(
+      analyzedFiles: ['lib/a.dart', if (editing) 'lib/temporary.dart'],
+    );
   }
 
   @override
@@ -71,8 +81,15 @@ final class _StandInServer implements StoppableCodeAnalysis {
   }) async => const FormatAnswers();
 
   @override
-  Future<PendingFixes> pendingFixes({required Duration within}) async =>
-      const PendingFixes();
+  Future<PendingFixes> pendingFixes({required Duration within}) async {
+    asked.add('passes');
+    editing = true;
+    passesBegan.complete();
+    await passesHeld.future;
+    editing = false;
+    asked.add('passes ended');
+    return const PendingFixes();
+  }
 
   @override
   Future<void> stop() async {}
@@ -82,17 +99,18 @@ final class _StandInServer implements StoppableCodeAnalysis {
 }
 
 /// A host for the project [app] run in the test's own process, with a
-/// [_StandInServer], an idle time of 2 s and an address-file folder of its
-/// own. The test waits for it to end itself afterwards.
+/// [_StandInServer], an idle time of 2 s, [version] and an address-file
+/// folder of its own (or [folder]). The test waits for it to end itself
+/// afterwards.
 Future<({_StandInServer server, String folder, AnalysisHostAddress address})>
-inProcessHost(String app) async {
-  final folder = p.join(tempDir().path, 'hosts');
+inProcessHost(String app, {String? folder, String version = 'test'}) async {
+  folder ??= p.join(tempDir().path, 'hosts');
   late _StandInServer server;
   final done = runAnalysisHost(
     projectRoot: app,
     analysis: (writes) => server = _StandInServer(writes),
     addressFolder: folder,
-    appsteinVersion: 'test',
+    appsteinVersion: version,
     idleStop: const Duration(seconds: 2),
   );
   addTearDown(() => done);
@@ -106,6 +124,23 @@ inProcessHost(String app) async {
     address: readAnalysisHostAddress(file)!,
   );
 }
+
+/// The ID of a process that has ended: a `dart --version` run to its end.
+Future<int> endedProcess() async {
+  final ended = await Process.start(Platform.resolvedExecutable, ['--version']);
+  await ended.exitCode;
+  return ended.pid;
+}
+
+/// The next line of [lines], as JSON.
+Future<Map<String, Object?>> nextLine(StreamIterator<String> lines) async {
+  expect(await lines.moveNext(), isTrue, reason: 'the connection closed');
+  return jsonDecode(lines.current) as Map<String, Object?>;
+}
+
+/// Sends [question] on [socket].
+void send(Socket socket, AnalysisHostQuestion question) =>
+    socket.writeln(jsonEncode(question.toJson()));
 
 /// A raw client of the host at [address], welcomed, whose lines come in
 /// order through the iterator.
@@ -435,20 +470,19 @@ void main() {
       host = hostProcess(folder, app);
       under = await processesUnder(host!);
       await recordProcesses([host!, ...under]);
-      // Connected, asking nothing: the host still ends, and the next
-      // question of this client fails.
+      // Connected, asking nothing: the host still ends.
       expect(
         await goneWithin([host!, ...under], const Duration(seconds: 30)),
         isNotNull,
         reason: 'the idle host or what ran under it',
       );
-      await expectLater(analysis.read(), throwsA(isA<CodeAnalysisException>()));
+      expect(hostProcess(folder, app), isNull, reason: 'its address file');
+      // The next reading of this client, which depends on nothing asked
+      // before, is asked of a new host.
+      writeProjectFile(app, 'lib/broken.dart', _right);
+      expect((await analysis.read()).diagnostics, isEmpty);
     });
-    expect(hostProcess(folder, app), isNull, reason: 'its address file');
-
-    writeProjectFile(app, 'lib/broken.dart', _right);
-    expect(await codesIn(scope, 'lib/broken.dart'), isEmpty);
-    expect(hostProcess(folder, app), isNot(host));
+    expect(hostProcess(folder, app), allOf(isNotNull, isNot(host)));
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('a killed host takes its guard and server with it, and the next '
@@ -513,7 +547,465 @@ void main() {
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  // Ticket 03: every session shares one host.
+  group('one host for every client of a project', () {
+    test('clients that start a host at the same moment end with one host and '
+        'one analysis server: the one that loses waits for the winner and '
+        'connects to it', () async {
+      final app = copyFixtureApp();
+      final (scope: one, :folder) = testHost(app);
+      final (scope: two, folder: _) = testHost(app, folder: folder);
+      expect(
+        await Future.wait([
+          codesIn(one, 'lib/main.dart'),
+          codesIn(two, 'lib/main.dart'),
+        ]),
+        [isEmpty, isEmpty],
+      );
+      final started = startedHostProcesses(folder);
+      expect(started, hasLength(2), reason: 'both did not start: a weak test');
+      final host = hostProcess(folder, app)!;
+      expect(started, contains(host));
+      // The one that lost ends by itself, having started no server.
+      expect(
+        await goneWithin([
+          for (final id in started)
+            if (id != host) id,
+        ], const Duration(seconds: 30)),
+        isNotNull,
+      );
+      expect(await processAlive(host), isTrue);
+      final under = await processesUnder(host);
+      await recordProcesses(under);
+      expect(under.length, greaterThanOrEqualTo(2), reason: '$under');
+      // Both clients' next questions go to that host and server.
+      expect(await codesIn(one, 'lib/main.dart'), isEmpty);
+      expect(await codesIn(two, 'lib/main.dart'), isEmpty);
+      expect(hostProcess(folder, app), host);
+      expect(await processesUnder(host), under);
+      // Nothing but the address file is left in the folder.
+      expect(
+        [
+          for (final entry in Directory(folder).listSync())
+            p.basename(entry.path),
+        ],
+        [p.basename(analysisHostAddressFile(folder, app))],
+      );
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('an address file whose host refuses the connection, or has ended and '
+        'whose port answers no welcome, is deleted and a new host is '
+        'started', () async {
+      // A process ID that is no process's now.
+      final ended = await endedProcess();
+      for (final how in ['refuses', 'ended']) {
+        final app = copyFixtureApp();
+        final folder = p.join(tempDir().path, 'host folder');
+        final file = analysisHostAddressFile(folder, app);
+        final listening = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        final port = listening.port;
+        if (how == 'refuses') {
+          await listening.close();
+        } else {
+          // Another program has the port now: it takes the connection and
+          // says nothing.
+          addTearDown(listening.close);
+          listening.listen((socket) {});
+        }
+        await writeAnalysisHostAddress(
+          file,
+          AnalysisHostAddress(
+            port: port,
+            secret: 'dead',
+            processId: ended,
+            appsteinVersion: 'test',
+          ),
+        );
+        final (:scope, folder: _) = testHost(app, folder: folder);
+        expect(await codesIn(scope, 'lib/main.dart'), isEmpty, reason: how);
+        final address = readAnalysisHostAddress(file)!;
+        expect(address.secret, isNot('dead'), reason: how);
+        expect(startedHostProcesses(folder), [address.processId], reason: how);
+      }
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('an address file is deleted only while it still holds the address '
+        'found dead: one another starter has just written is left', () async {
+      final folder = p.join(tempDir().path, 'hosts');
+      final file = analysisHostAddressFile(folder, '/work/my app');
+      AnalysisHostAddress address(String secret) => AnalysisHostAddress(
+        port: 1,
+        secret: secret,
+        processId: 1,
+        appsteinVersion: 'test',
+      );
+      await writeAnalysisHostAddress(file, address('dead'));
+      // Another client replaced it after this one found it dead.
+      await writeAnalysisHostAddress(file, address('new'));
+      expect(await removeAnalysisHostAddress(file, 'dead'), isFalse);
+      expect(readAnalysisHostAddress(file)!.secret, 'new');
+      expect(await removeAnalysisHostAddress(file, 'new'), isTrue);
+      expect(File(file).existsSync(), isFalse);
+      expect(await removeAnalysisHostAddress(file, 'new'), isFalse);
+      // The lock it took is gone too.
+      expect(File(analysisHostLockFile(file)).existsSync(), isFalse);
+    });
+
+    test('the lock on an address file lets one change at a time, and a lock '
+        'left by a process that died is cleared', () async {
+      final folder = p.join(tempDir().path, 'hosts');
+      Directory(folder).createSync(recursive: true);
+      final file = analysisHostAddressFile(folder, '/work/my app');
+      var inside = 0;
+      var most = 0;
+      Future<void> change() => withAnalysisHostLock(file, () async {
+        most = max(most, ++inside);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        inside--;
+      });
+      await Future.wait([for (var i = 0; i < 5; i++) change()]);
+      expect(most, 1);
+      expect(File(analysisHostLockFile(file)).existsSync(), isFalse);
+
+      // Left by a process that has ended: cleared at once.
+      final lock = File(analysisHostLockFile(file))
+        ..writeAsStringSync('${await endedProcess()}');
+      final watch = Stopwatch()..start();
+      expect(await withAnalysisHostLock(file, () async => 'in'), 'in');
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      // Empty (its maker died before it wrote its ID) and old: cleared.
+      lock
+        ..writeAsStringSync('')
+        ..setLastModifiedSync(
+          DateTime.now().subtract(const Duration(seconds: 20)),
+        );
+      watch.reset();
+      expect(await withAnalysisHostLock(file, () async => 'in'), 'in');
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+
+    test('an old lock is cleared whatever process it names, even a live one '
+        'whose ID was given to another program', () async {
+      final folder = p.join(tempDir().path, 'hosts');
+      Directory(folder).createSync(recursive: true);
+      final file = analysisHostAddressFile(folder, '/work/my app');
+      // A live process that is not the lock's maker: this test's own.
+      final lock = File(analysisHostLockFile(file))
+        ..writeAsStringSync('$pid')
+        ..setLastModifiedSync(
+          DateTime.now().subtract(const Duration(seconds: 20)),
+        );
+      final watch = Stopwatch()..start();
+      expect(await withAnalysisHostLock(file, () async => 'in'), 'in');
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(lock.existsSync(), isFalse);
+
+      // A new one, held for a moment by a live process: left alone.
+      lock.writeAsStringSync('$pid');
+      watch.reset();
+      final waited = withAnalysisHostLock(file, () async => 'in');
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      lock.deleteSync();
+      expect(await waited, 'in');
+      expect(watch.elapsed, greaterThan(const Duration(milliseconds: 450)));
+    });
+
+    test('a lock made anew between the two looks, with the same text, is '
+        'left: the modified time tells it from the old one', () async {
+      final folder = p.join(tempDir().path, 'hosts');
+      Directory(folder).createSync(recursive: true);
+      final file = analysisHostAddressFile(folder, '/work/my app');
+      final lock = File(analysisHostLockFile(file))
+        ..writeAsStringSync('')
+        ..setLastModifiedSync(
+          DateTime.now().subtract(const Duration(seconds: 20)),
+        );
+      var looks = 0;
+      final watch = Stopwatch()..start();
+      final result = await withAnalysisHostLock(
+        file,
+        () async => 'in',
+        stale: const Duration(seconds: 2),
+        beforeClear: () async {
+          // Another starter made its lock, empty for now, the moment the old
+          // one was found abandoned.
+          if (looks++ == 0) {
+            lock
+              ..deleteSync()
+              ..writeAsStringSync('');
+          }
+        },
+      );
+      expect(result, 'in');
+      // The new lock was left until it was stale itself.
+      expect(looks, 2);
+      expect(watch.elapsed, greaterThan(const Duration(milliseconds: 1900)));
+    });
+
+    test('versions compare as semantic versions; one that is not one counts '
+        'as newer than the client', () {
+      expect(compareAppsteinVersions('0.2.0', '0.2.0'), 0);
+      expect(compareAppsteinVersions('0.10.0', '0.9.0'), greaterThan(0));
+      expect(compareAppsteinVersions('0.9.0', '0.10.0'), lessThan(0));
+      expect(compareAppsteinVersions('1.0.0-dev', '1.0.0'), lessThan(0));
+      expect(compareAppsteinVersions('test', 'test'), 0);
+      // Either unreadable: the client is older, so it stops nothing.
+      expect(compareAppsteinVersions('2.0.0', 'garbage'), lessThan(0));
+      expect(compareAppsteinVersions('garbage', '1.0.0'), lessThan(0));
+    });
+
+    test('a client of a newer Appstein version asks the host to stop; its '
+        "answer comes from a new host of its own version, and the old host "
+        'ends with its guard and server', () async {
+      final app = copyFixtureApp();
+      writeProjectFile(app, 'lib/broken.dart', _wrong);
+      final (scope: older, :folder) = testHost(app, version: '1.0.0');
+      expect(await codesIn(older, 'lib/broken.dart'), [
+        'return_of_invalid_type',
+      ]);
+      final old = hostProcess(folder, app)!;
+      final under = await processesUnder(old);
+      await recordProcesses([old, ...under]);
+
+      final (scope: newer, folder: _) = testHost(
+        app,
+        folder: folder,
+        version: '2.0.0',
+      );
+      expect(await codesIn(newer, 'lib/broken.dart'), [
+        'return_of_invalid_type',
+      ]);
+      final address = readAnalysisHostAddress(
+        analysisHostAddressFile(folder, app),
+      )!;
+      expect(address.appsteinVersion, '2.0.0');
+      expect(address.processId, isNot(old));
+      expect(
+        await goneWithin([old, ...under], const Duration(seconds: 30)),
+        isNotNull,
+        reason: 'the old host, its guard or its server',
+      );
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('a client of an older Appstein version leaves a newer host running, '
+        'answers from a server of its own, and says the session should be '
+        'restarted', () async {
+      final app = copyFixtureApp();
+      writeProjectFile(app, 'lib/broken.dart', _wrong);
+      final (scope: newer, :folder) = testHost(app, version: '2.0.0');
+      expect(await codesIn(newer, 'lib/broken.dart'), [
+        'return_of_invalid_type',
+      ]);
+      final host = hostProcess(folder, app)!;
+      final under = await processesUnder(host);
+      await recordProcesses([host, ...under]);
+
+      final (scope: older, folder: _) = testHost(
+        app,
+        folder: folder,
+        version: '1.0.0',
+      );
+      final reading = await older((analysis) => analysis.read());
+      expect(
+        [
+          for (final found in reading.diagnostics)
+            if (found.file == 'lib/broken.dart') found.code,
+        ],
+        ['return_of_invalid_type'],
+      );
+      expect(reading.notices, [olderThanHostNotice('1.0.0', '2.0.0')]);
+      expect(reading.notices.single, contains('Restart the session'));
+      // The host and its server are as they were, and nothing was started.
+      expect(hostProcess(folder, app), host);
+      expect(await processAlive(host), isTrue);
+      expect(await processesUnder(host), under);
+      expect(startedHostProcesses(folder), [host]);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('two sessions of two versions no longer replace each other: the '
+        'newer keeps its host, the older answers from its own server each '
+        'time', () async {
+      final app = copyFixtureApp();
+      final (scope: older, :folder) = testHost(app, version: '1.0.0');
+      final (scope: newer, folder: _) = testHost(
+        app,
+        folder: folder,
+        version: '2.0.0',
+      );
+      // The older first: its host is replaced once by the newer's.
+      expect(await codesIn(older, 'lib/main.dart'), isEmpty);
+      expect(await codesIn(newer, 'lib/main.dart'), isEmpty);
+      final host = hostProcess(folder, app)!;
+      expect(startedHostProcesses(folder), hasLength(2));
+      for (var round = 0; round < 2; round++) {
+        final reading = await older((analysis) => analysis.read());
+        expect(reading.notices, hasLength(1), reason: 'round $round');
+        expect(await codesIn(newer, 'lib/main.dart'), isEmpty);
+        expect(hostProcess(folder, app), host, reason: 'round $round');
+      }
+      expect(startedHostProcesses(folder), hasLength(2));
+      expect(await processAlive(host), isTrue);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test("a change of the project's SDK starts the host's server again; the "
+        'next answer comes from the new SDK', () async {
+      final app = copyFixtureApp();
+      writeProjectFile(app, 'lib/broken.dart', _wrong);
+      // Where the host finds the project's `dart`, as `fvm use` changes it.
+      final pointer = File(p.join(tempDir().path, 'sdk.txt'))
+        ..writeAsStringSync(testDart);
+      final (:scope, :folder) = testHost(app, dartFrom: pointer.path);
+      expect(await codesIn(scope, 'lib/broken.dart'), [
+        'return_of_invalid_type',
+      ]);
+      final host = hostProcess(folder, app)!;
+      final first = await processesUnder(host);
+      await recordProcesses([host, ...first]);
+
+      // An SDK that is not there: the answer says so, so it is the new
+      // SDK's.
+      final missing = dartExecutableIn(p.join(tempDir().path, 'no sdk'));
+      pointer.writeAsStringSync(missing);
+      await expectLater(
+        codesIn(scope, 'lib/broken.dart'),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            contains(missing),
+          ),
+        ),
+      );
+      expect(
+        await goneWithin(first, const Duration(seconds: 30)),
+        isNotNull,
+        reason: "the old SDK's guard or server",
+      );
+
+      // Another SDK folder: the folders of the one the tests run on, linked,
+      // and a `version` file of its own, as an SDK upgraded in place
+      // changes it.
+      final other = Directory(p.join(tempDir().path, 'other sdk'))
+        ..createSync();
+      for (final entry in Directory(testDartSdk).listSync()) {
+        final into = p.join(other.path, p.basename(entry.path));
+        if (entry is Directory) {
+          // Taken away before the temporary folder is deleted, so that
+          // delete never reaches the real SDK through it.
+          final link = Link(into)..createSync(entry.path);
+          addTearDown(link.deleteSync);
+        } else if (entry is File) {
+          entry.copySync(into);
+        }
+      }
+      pointer.writeAsStringSync(dartExecutableIn(other.path));
+      expect(await codesIn(scope, 'lib/broken.dart'), [
+        'return_of_invalid_type',
+      ]);
+      expect(hostProcess(folder, app), host);
+      final second = await processesUnder(host);
+      expect(second.length, greaterThanOrEqualTo(2), reason: '$second');
+      expect(second.intersection(first), isEmpty);
+      await recordProcesses(second);
+
+      // The same `dart`, upgraded in place (`flutter upgrade`): only its
+      // SDK's version file says so.
+      final version = File(p.join(other.path, 'version'));
+      expect(version.readAsStringSync().trim(), isNot('9.9.9'));
+      version.writeAsStringSync('9.9.9\n');
+      expect(await codesIn(scope, 'lib/broken.dart'), [
+        'return_of_invalid_type',
+      ]);
+      expect(hostProcess(folder, app), host);
+      expect(
+        await goneWithin(second, const Duration(seconds: 30)),
+        isNotNull,
+        reason: "the server of the SDK before the upgrade",
+      );
+      final third = await processesUnder(host);
+      expect(third.length, greaterThanOrEqualTo(2), reason: '$third');
+      expect(third.intersection(second), isEmpty);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('a project with a long name, spelled in other letters on Windows, '
+        'has one host; another project gets a host of its own', () async {
+      final copied = copyFixtureApp();
+      // The stubs it uses are found from its parent folder, so it is renamed
+      // beside them.
+      final app = p
+          .join(p.dirname(copied), 'An App Whose Name Goes On And On ' * 3)
+          .trimRight();
+      Directory(copied).renameSync(app);
+      final (:scope, :folder) = testHost(app);
+      expect(await codesIn(scope, 'lib/main.dart'), isEmpty);
+      final host = hostProcess(folder, app)!;
+      if (Platform.isWindows) {
+        final spelled = app.toLowerCase();
+        final (scope: other, folder: _) = testHost(spelled, folder: folder);
+        expect(await codesIn(other, 'lib/main.dart'), isEmpty);
+        expect(hostProcess(folder, spelled), host);
+      }
+      final another = copyFixtureApp();
+      final (scope: second, folder: _) = testHost(another, folder: folder);
+      expect(await codesIn(second, 'lib/main.dart'), isEmpty);
+      final its = hostProcess(folder, another)!;
+      expect(its, isNot(host));
+      expect(await processAlive(host), isTrue);
+      expect(await processAlive(its), isTrue);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
+
   group('the queue of a host in this process, with a stand-in server', () {
+    test("a question asked during another client's pending-fix passes waits "
+        'for them, and never sees their temporary edits', () async {
+      final app = tempDir().path;
+      final (:server, :folder, :address) = await inProcessHost(app);
+      // A failed test still lets the host end.
+      addTearDown(() {
+        if (!server.passesHeld.isCompleted) server.passesHeld.complete();
+      });
+      // The client of a full run, asking its passes.
+      final full = await rawClient(address);
+      addTearDown(full.socket.destroy);
+      send(
+        full.socket,
+        const AnalysisHostQuestion(
+          id: 0,
+          kind: AnalysisHostQuestionKind.pendingFixes,
+          within: Duration(seconds: 60),
+        ),
+      );
+      expect(AnalysisHostTurn.isTurn(await nextLine(full.lines)), isTrue);
+      await server.passesBegan.future;
+
+      // Another client's fast reading, sent while the passes hold the
+      // server with their edit.
+      final (scope: fast, folder: _) = testHost(app, folder: folder);
+      var answered = false;
+      final reading = fast((analysis) => analysis.read()).then((reading) {
+        answered = true;
+        return reading;
+      });
+      // It reached the host and waits in its queue: the host has its line
+      // (the reading's turn has not come), and the passes still run.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(server.editing, isTrue, reason: 'the passes ended: a weak test');
+      expect(answered, isFalse, reason: 'answered during the passes');
+      expect(server.asked, ['passes']);
+
+      server.passesHeld.complete();
+      expect(
+        AnalysisHostAnswer.fromJson(await nextLine(full.lines)).value,
+        isNotNull,
+      );
+      // Begun only after the passes ended, and without their edit.
+      expect((await reading).analyzedFiles, ['lib/a.dart']);
+      expect(server.asked, ['passes', 'passes ended', 'read']);
+    });
+
     test('a question waiting behind a slow one is answered: its time limit '
         'starts with its turn, not while it waits', () async {
       final app = tempDir().path;
@@ -600,6 +1092,113 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       expect(server.asked, ['apply']);
       expect(server.written, isEmpty);
+    });
+
+    test('a host asked to stop answers the questions it has, and takes no new '
+        'one: a question sent after the stop gets an ending, is never begun, '
+        'and an --apply then writes nothing', () async {
+      final app = tempDir().path;
+      final (:server, :folder, :address) = await inProcessHost(app);
+      server
+        ..readTimes.add(const Duration(seconds: 1))
+        ..applyHeld.complete();
+      final busy = await rawClient(address);
+      final queued = await rawClient(address);
+      final late = await rawClient(address);
+      final stopper = await rawClient(address);
+      for (final client in [busy, queued, late, stopper]) {
+        addTearDown(client.socket.destroy);
+      }
+      const read = AnalysisHostQuestion(
+        id: 0,
+        kind: AnalysisHostQuestionKind.read,
+      );
+      send(busy.socket, read);
+      expect(AnalysisHostTurn.isTurn(await nextLine(busy.lines)), isTrue);
+      send(queued.socket, read);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      stopper.socket.writeln(jsonEncode(const AnalysisHostStop().toJson()));
+      expect(await stopper.lines.moveNext(), isFalse);
+      expect(
+        File(analysisHostAddressFile(folder, app)).existsSync(),
+        isFalse,
+        reason: 'the address is given up at once',
+      );
+      send(
+        late.socket,
+        const AnalysisHostQuestion(
+          id: 0,
+          kind: AnalysisHostQuestionKind.applyFixesAndFormat,
+          within: Duration(seconds: 5),
+        ),
+      );
+      expect(await nextLine(late.lines), const AnalysisHostEnding(0).toJson());
+      expect(await late.lines.moveNext(), isFalse);
+
+      // What it had is answered: the one under way and the one queued.
+      expect(
+        AnalysisHostAnswer.fromJson(await nextLine(busy.lines)).value,
+        isNotNull,
+      );
+      expect(AnalysisHostTurn.isTurn(await nextLine(queued.lines)), isTrue);
+      expect(
+        AnalysisHostAnswer.fromJson(await nextLine(queued.lines)).value,
+        isNotNull,
+      );
+      expect(server.asked, ['read', 'read']);
+      expect(server.written, isEmpty);
+    });
+
+    test('a host that ends after its idle time begins no question that comes '
+        'while it ends', () async {
+      final app = tempDir().path;
+      final (:server, :folder, :address) = await inProcessHost(app);
+      final client = await rawClient(address);
+      addTearDown(client.socket.destroy);
+      final file = analysisHostAddressFile(folder, app);
+      // The address is given up as the host begins to end, and the
+      // connection stays open until what was written has gone out.
+      while (File(file).existsSync()) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      send(
+        client.socket,
+        const AnalysisHostQuestion(id: 0, kind: AnalysisHostQuestionKind.read),
+      );
+      // The host answers with an ending or closes the connection; it never
+      // takes the question.
+      while (await client.lines.moveNext()) {
+        final line = jsonDecode(client.lines.current) as Map<String, Object?>;
+        expect(AnalysisHostTurn.isTurn(line), isFalse);
+      }
+      expect(server.asked, isEmpty, reason: 'never begun');
+    });
+
+    test("a client whose question meets a stopped host gets its answer from "
+        'the host that took the project, in the same run', () async {
+      final app = tempDir().path;
+      final first = await inProcessHost(app);
+      final (:scope, folder: _) = testHost(app, folder: first.folder);
+      final replaced = Completer<void>();
+      final answered = scope((analysis) async {
+        await analysis.read();
+        await replaced.future;
+        return (await analysis.read()).analyzedFiles;
+      });
+      while (first.server.asked.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      // Another client asks the host to stop, and starts the next one.
+      final stopper = await rawClient(first.address);
+      stopper.socket.writeln(jsonEncode(const AnalysisHostStop().toJson()));
+      expect(await stopper.lines.moveNext(), isFalse);
+      final second = await inProcessHost(app, folder: first.folder);
+      replaced.complete();
+
+      expect(await answered, ['lib/a.dart']);
+      expect(first.server.asked, ['read'], reason: 'the old host answered');
+      expect(second.server.asked, ['read']);
     });
 
     test('a rewrite whose client stays writes', () async {
@@ -702,6 +1301,44 @@ void main() {
       });
     }
 
+    test('one whose connection times out while its process runs is not taken '
+        'for dead: the question fails, the address is left and no host is '
+        'started', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      final file = analysisHostAddressFile(folder, app);
+      // A live process: this test's own.
+      await writeAnalysisHostAddress(
+        file,
+        AnalysisHostAddress(
+          port: 1,
+          secret: 'slow',
+          processId: pid,
+          appsteinVersion: 'test',
+        ),
+      );
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        // What `Socket.connect` throws when its timeout runs out.
+        connect: (port) async => throw SocketException(
+          'Connection timed out, host: 127.0.0.1, port: $port',
+        ),
+      );
+      await expectLater(
+        codesIn(scope, 'lib/main.dart'),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            startsWith('the analysis host did not take the connection'),
+          ),
+        ),
+      );
+      expect(readAnalysisHostAddress(file)?.secret, 'slow');
+      expect(startedHostProcesses(folder), isEmpty);
+    });
+
     test('one that ends during a question fails it, saying so', () async {
       final app = tempDir().path;
       final folder = p.join(tempDir().path, 'hosts');
@@ -718,6 +1355,45 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('one that ends before a question other than a reading, after it '
+        'answered one, fails it: it is not asked again of another', () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'hosts');
+      var questions = 0;
+      await standIn(folder, app, (socket) {
+        if (questions++ == 0) {
+          socket
+            ..writeln(jsonEncode(const AnalysisHostTurn(0).toJson()))
+            ..writeln(
+              jsonEncode(
+                AnalysisHostAnswer.answered(
+                  0,
+                  const CodeReading().toJson(),
+                ).toJson(),
+              ),
+            );
+        } else {
+          socket.destroy();
+        }
+      });
+      final (:scope, folder: _) = testHost(app, folder: folder);
+      await expectLater(
+        scope((analysis) async {
+          await analysis.read();
+          return analysis.pendingFixes(within: const Duration(seconds: 5));
+        }),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            'the analysis host ended, or closed the connection, before it '
+                'answered',
+          ),
+        ),
+      );
+      expect(questions, 2, reason: 'not asked again of another');
     });
 
     test('one that does not answer in time fails the question, saying '

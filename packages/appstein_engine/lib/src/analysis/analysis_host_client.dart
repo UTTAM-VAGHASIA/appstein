@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:appstein_protocol/appstein_protocol.dart';
+import 'package:pub_semver/pub_semver.dart';
 
 import '../host/host_environment.dart';
 import 'analysis_host.dart';
@@ -31,6 +32,9 @@ const analysisHostAnswerGrace = Duration(seconds: 30);
 /// forever.
 const analysisHostTurnLimit = Duration(minutes: 15);
 
+/// How long a client waits for the host to take its connection.
+const _connectLimit = Duration(seconds: 5);
+
 /// The code analysis of the project at [projectRoot], answered by the
 /// project's **analysis host** (decision record 0002): the `verify` tool of
 /// `appstein mcp` uses it. It is one more implementation of [CodeAnalysis],
@@ -42,6 +46,31 @@ const analysisHostTurnLimit = Duration(minutes: 15);
 ///   answers there, it starts one, as a detached process ([hostCommand] with
 ///   [projectRoot] added as its last argument, and [environment] added to
 ///   this process's own), and waits up to [startLimit] for it to answer.
+/// - **Every client of a project shares one host.** Clients that start a
+///   host at the same moment end with one: a host writes its address only
+///   when no other's is there (`runAnalysisHost`), and the client whose host
+///   lost connects to the winner's.
+/// - **An address whose host has ended** (its port refuses the connection,
+///   or its process is gone) is deleted, unless another client has replaced
+///   it meanwhile ([removeAnalysisHostAddress]), and a host is started. A
+///   connection that is not taken in 5 s while the host's process runs is
+///   no proof of that: the question fails, and the address is left.
+/// - **The versions are compared as semantic versions** (the welcome's with
+///   [appsteinVersion]):
+///   - a host of an older Appstein is asked to stop (`AnalysisHostStop`);
+///     it gives up its address at once, and a host of [appsteinVersion] is
+///     started and answers;
+///   - a host of a newer Appstein is left alone: this run asks an analysis
+///     server of its own ([ownServer], stopped when the body ends), as a
+///     terminal run without a host does, and its reading's notices say that
+///     the session runs an older Appstein and should be restarted;
+///   - a version that can't be read as one counts as newer than this
+///     client's, so nothing is stopped.
+/// - **A host that was asked to stop by another client** answers a question
+///   that came after the stop with an `AnalysisHostEnding`. The question is
+///   then asked again of the host found through the address file, when that
+///   is safe: it is a reading, or nothing was answered yet in this body.
+///   Otherwise it fails, as a host that ended does.
 /// - **An address file it doesn't own is never trusted** (off Windows): the
 ///   folder must be the user's own with mode 700, and the file the user's
 ///   own with mode 600 ([untrustedAddress]); otherwise the question fails
@@ -50,7 +79,13 @@ const analysisHostTurnLimit = Duration(minutes: 15);
 ///   ends; the host is left running for the next client. The host takes the
 ///   server for each question alone, so between two questions of this body
 ///   another client's may be answered.
-/// - **A host that can't be started, ends, or doesn't answer in time** is
+/// - **A question that gets an `AnalysisHostEnding`, or whose connection
+///   closes before the host's turn,** is asked again of the host found
+///   through the address file, at most 3 times in all. It is asked again
+///   only when it is a reading or nothing was answered yet in this body;
+///   otherwise it fails.
+/// - **A host that can't be started, ends after it took a question, or
+///   doesn't answer in time** is
 ///   Appstein failing, as an analysis server that can't answer is: the
 ///   question throws a [CodeAnalysisException] that says so. A host that
 ///   could not start says why in [analysisHostFailureFile], and the
@@ -63,18 +98,21 @@ const analysisHostTurnLimit = Duration(minutes: 15);
 /// (a reading: twice [readyTimeout], since the server may start again
 /// within one, plus [answerGrace]; any other question: its own limit plus
 /// [answerGrace]); [turnLimit] is how long the host's turn is waited for
-/// ([analysisHostTurnLimit]); only tests change them. [os] is the system's,
-/// for tests.
+/// ([analysisHostTurnLimit]); only tests change them. [connect] replaces
+/// the connection to the host's port, and [os] the system's, for tests
+/// only.
 CodeAnalysisScope analysisHostCodeAnalysis({
   required String projectRoot,
   required List<String> hostCommand,
   required String addressFolder,
   required String appsteinVersion,
+  required StoppableCodeAnalysis Function() ownServer,
   Map<String, String> environment = const {},
   Duration startLimit = analysisHostStartLimit,
   Duration readyTimeout = analysisReadyTimeout,
   Duration answerGrace = analysisHostAnswerGrace,
   Duration turnLimit = analysisHostTurnLimit,
+  Future<Socket> Function(int port)? connect,
   HostOs? os,
 }) => <T>(body) async {
   final client = _HostClient(
@@ -82,19 +120,47 @@ CodeAnalysisScope analysisHostCodeAnalysis({
     hostCommand: hostCommand,
     addressFile: analysisHostAddressFile(addressFolder, projectRoot, os: os),
     appsteinVersion: appsteinVersion,
+    ownServer: ownServer,
     environment: environment,
     startLimit: startLimit,
     readyTimeout: readyTimeout,
     answerGrace: answerGrace,
     turnLimit: turnLimit,
+    connect:
+        connect ??
+        (port) => Socket.connect(
+          InternetAddress.loopbackIPv4,
+          port,
+          timeout: _connectLimit,
+        ),
     os: os ?? HostOs.current,
   );
   try {
     return await body(client);
   } finally {
-    client.close();
+    await client.close();
   }
 };
+
+/// How the Appstein version [client] compares with [host]: negative when
+/// the client is older, zero when they are the same, positive when it is
+/// newer. Both are read as semantic versions; when either can't be, the
+/// client counts as older, so it stops nothing.
+int compareAppsteinVersions(String client, String host) {
+  if (client == host) return 0;
+  try {
+    return Version.parse(client).compareTo(Version.parse(host));
+  } on FormatException {
+    return -1;
+  }
+}
+
+/// The notice of a run whose session runs Appstein [client], older than the
+/// project's analysis host, which runs [host].
+String olderThanHostNotice(String client, String host) =>
+    'This session runs Appstein $client, older than the analysis host of the '
+    'project (Appstein $host), so this run started an analysis server of its '
+    'own, which is slower. Restart the session for fast answers.';
 
 /// One connection to the host, made by the first question.
 final class _Connection {
@@ -131,17 +197,67 @@ final class _Connection {
   }
 }
 
+/// What a client finds at the address file ([_HostClient._reach]).
+sealed class _Look {
+  const _Look();
+}
+
+/// No address file, or none that can be read.
+final class _NoHost extends _Look {
+  const _NoHost();
+}
+
+/// The host welcomed the client.
+final class _Reached extends _Look {
+  const _Reached(this.connection, this.welcome, this.address);
+
+  final _Connection connection;
+  final AnalysisHostWelcome welcome;
+  final AnalysisHostAddress address;
+}
+
+/// The host of the address has ended: its port refuses the connection, or
+/// its process is gone.
+final class _Dead extends _Look {
+  const _Dead(this.address);
+
+  final AnalysisHostAddress address;
+}
+
+/// The host's process is there, and it did not welcome the client.
+final class _Silent extends _Look {
+  const _Silent();
+}
+
+/// The error codes of a connection refused: Windows, Linux, macOS.
+const _refusedCodes = {10061, 111, 61};
+
+/// [line] as a JSON object; null when it is none.
+Map<String, Object?>? _object(String? line) {
+  if (line == null) return null;
+  try {
+    return switch (jsonDecode(line)) {
+      final Map<String, Object?> json => json,
+      _ => null,
+    };
+  } on FormatException {
+    return null;
+  }
+}
+
 final class _HostClient implements CodeAnalysis {
   _HostClient({
     required this.projectRoot,
     required this.hostCommand,
     required this.addressFile,
     required this.appsteinVersion,
+    required this.ownServer,
     required this.environment,
     required this.startLimit,
     required this.readyTimeout,
     required this.answerGrace,
     required this.turnLimit,
+    required this.connect,
     required this.os,
   });
 
@@ -149,11 +265,13 @@ final class _HostClient implements CodeAnalysis {
   final List<String> hostCommand;
   final String addressFile;
   final String appsteinVersion;
+  final StoppableCodeAnalysis Function() ownServer;
   final Map<String, String> environment;
   final Duration startLimit;
   final Duration readyTimeout;
   final Duration answerGrace;
   final Duration turnLimit;
+  final Future<Socket> Function(int port) connect;
   final HostOs os;
 
   _Connection? _connection;
@@ -161,22 +279,44 @@ final class _HostClient implements CodeAnalysis {
   var _broken = false;
   var _nextId = 0;
 
+  /// Whether a question of this body was answered by a host.
+  var _answered = false;
+
+  /// The run's own analysis server, once the host was found to run a newer
+  /// Appstein; null until then.
+  StoppableCodeAnalysis? _own;
+
+  /// The notice of [_own]'s readings ([olderThanHostNotice]).
+  String? _ownNotice;
+
   /// The files of the last reading, for `leaveUnformatted`.
   var _analyzedFiles = const <String>[];
 
-  void close() {
+  Future<void> close() async {
     _closed = true;
     _connection?.close();
     _connection = null;
+    final own = _own;
+    _own = null;
+    await own?.close();
   }
 
-  /// The connection, made by the first question.
-  Future<_Connection> _connect() async {
+  /// The run's own server when this run uses one ([_own]); null when it asks
+  /// the host. The first question decides.
+  Future<CodeAnalysis?> _ownRoute() async {
+    await _connect();
+    return _own;
+  }
+
+  /// The connection, made by the first question; null when this run uses
+  /// its own server instead ([_own]).
+  Future<_Connection?> _connect() async {
     if (_closed) {
       throw const CodeAnalysisException(
         'it was asked after the run that used it had ended',
       );
     }
+    if (_own != null) return null;
     if (_connection case final open?) return open;
     if (_broken) {
       // Another connection would be another client: the server may have
@@ -185,48 +325,106 @@ final class _HostClient implements CodeAnalysis {
         'the analysis host stopped answering during this run',
       );
     }
-    final found = await _reach();
-    if (found != null) return _connection = found;
-    // A reason left by an earlier host is not this one's.
     final failure = File(analysisHostFailureFile(addressFile));
-    try {
-      await failure.delete();
-    } on FileSystemException {
-      // None was left.
-    }
-    final started = await _start();
+    // The secrets of the hosts of an older version this client asked to stop.
+    final askedToStop = <String>{};
+    int? started;
+    var startedEnded = false;
     final watch = Stopwatch()..start();
-    while (watch.elapsed < startLimit) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      if (await _reach() case final reached?) return _connection = reached;
-      if (lookUpProcess(started) is ProcessGone) {
-        // It may have written its address in its last moment.
-        if (await _reach() case final reached?) return _connection = reached;
-        String? why;
-        try {
-          why = (await failure.readAsString()).trim();
-          await failure.delete();
-        } on FileSystemException {
-          // It left none: it ended before it could say why, or it could not
-          // write there, as in a folder that is a link (it refuses to write
-          // through one), which the look below names.
-        }
-        if (why == null || why.isEmpty) {
-          if (await untrustedAddress(addressFile, os: os) case final bad?) {
-            why = 'the analysis host could not start: $bad';
+    while (true) {
+      switch (await _reach()) {
+        case _Reached(:final connection, :final welcome, :final address):
+          final compared = compareAppsteinVersions(
+            appsteinVersion,
+            welcome.appsteinVersion,
+          );
+          if (compared == 0) return _connection = connection;
+          if (compared < 0) {
+            // A newer host is left alone: this run asks a server of its own.
+            connection.close();
+            _ownNotice = olderThanHostNotice(
+              appsteinVersion,
+              welcome.appsteinVersion,
+            );
+            _own = ownServer();
+            return null;
           }
-        }
+          if (!askedToStop.add(address.secret)) {
+            connection.close();
+            throw CodeAnalysisException(
+              'the analysis host of Appstein ${welcome.appsteinVersion} did '
+              'not stop when asked',
+            );
+          }
+          await _askToStop(connection);
+          // Its address is gone: a host of this version is started next.
+          continue;
+        case _Dead(:final address):
+          // Unless another client has replaced it meanwhile.
+          await removeAnalysisHostAddress(addressFile, address.secret);
+        case _NoHost() when started == null:
+          // A reason left by an earlier host is not this one's.
+          await _deleteIfThere(failure);
+          started = await _start();
+        case _NoHost() when startedEnded:
+          throw CodeAnalysisException(await _whyItEnded(failure));
+        case _NoHost() when lookUpProcess(started!) is ProcessGone:
+          // It may have written its address in its last moment: one more
+          // look.
+          startedEnded = true;
+          continue;
+        case _Silent() || _NoHost():
+          // A host that is starting or ending, or the one this client
+          // started: asked again below.
+          break;
+      }
+      if (watch.elapsed >= startLimit) {
+        final which = started == null
+            ? 'the analysis host'
+            : 'the analysis host Appstein started';
         throw CodeAnalysisException(
-          why == null || why.isEmpty
-              ? 'the analysis host Appstein started ended before it answered'
-              : why,
+          '$which did not answer within ${secondsText(startLimit)}',
         );
       }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-    throw CodeAnalysisException(
-      'the analysis host Appstein started did not answer within '
-      '${secondsText(startLimit)}',
-    );
+  }
+
+  /// Why the host this client started ended before it answered: the reason
+  /// it left in [failure] (which is then deleted), else what is wrong with
+  /// the address file's folder, else that it ended.
+  Future<String> _whyItEnded(File failure) async {
+    try {
+      final why = (await failure.readAsString()).trim();
+      await failure.delete();
+      if (why.isNotEmpty) return why;
+    } on FileSystemException {
+      // It left none: it ended before it could say why, or it could not
+      // write there, as in a folder that is a link (it refuses to write
+      // through one), which the look below names.
+    }
+    if (await untrustedAddress(addressFile, os: os) case final bad?) {
+      return 'the analysis host could not start: $bad';
+    }
+    return 'the analysis host Appstein started ended before it answered';
+  }
+
+  /// Deletes [file] when it is there.
+  static Future<void> _deleteIfThere(File file) async {
+    try {
+      await file.delete();
+    } on FileSystemException {
+      // None was there.
+    }
+  }
+
+  /// Asks the host of an older version at [connection] to stop, and waits
+  /// until it has closed the connection: it has deleted its address file
+  /// by then.
+  Future<void> _askToStop(_Connection connection) async {
+    connection.socket.writeln(jsonEncode(const AnalysisHostStop().toJson()));
+    await connection.next(const Duration(seconds: 10));
+    connection.close();
   }
 
   /// Starts a host, detached, and returns its process ID.
@@ -249,28 +447,35 @@ final class _HostClient implements CodeAnalysis {
     }
   }
 
-  /// A connection to the host the address file names, welcomed; null when
-  /// there is no address file or nothing there welcomes this client.
+  /// What the address file names now: no host, a host that welcomed this
+  /// client, a dead host (the connection is refused, or its process has
+  /// ended), or one that is there and did not welcome it (starting, or
+  /// ending).
   ///
   /// Throws a [CodeAnalysisException] when the address file or its folder
-  /// may not be trusted ([untrustedAddress]).
-  Future<_Connection?> _reach() async {
+  /// may not be trusted ([untrustedAddress]), and when the connection fails
+  /// otherwise (it is not taken within 5 s) while the host's process runs:
+  /// a slow host is not a dead one.
+  Future<_Look> _reach() async {
     if (await untrustedAddress(addressFile, os: os) case final why?) {
       throw CodeAnalysisException(
         'Appstein will not use the analysis host address file: $why',
       );
     }
     final address = readAnalysisHostAddress(addressFile);
-    if (address == null) return null;
+    if (address == null) return const _NoHost();
     final Socket socket;
     try {
-      socket = await Socket.connect(
-        InternetAddress.loopbackIPv4,
-        address.port,
-        timeout: const Duration(seconds: 5),
+      socket = await connect(address.port);
+    } on SocketException catch (error) {
+      final refused = _refusedCodes.contains(error.osError?.errorCode);
+      if (refused || lookUpProcess(address.processId) is ProcessGone) {
+        // Nothing listens there, or nothing runs: the host has ended.
+        return _Dead(address);
+      }
+      throw CodeAnalysisException(
+        'the analysis host did not take the connection (${error.message})',
       );
-    } on SocketException {
-      return null;
     }
     final connection = _Connection(socket);
     socket.writeln(
@@ -282,36 +487,81 @@ final class _HostClient implements CodeAnalysis {
       ),
     );
     final (:line, late: _) = await connection.next(const Duration(seconds: 10));
-    try {
-      final json = line == null ? null : jsonDecode(line);
-      if (json is Map<String, Object?>) {
-        AnalysisHostWelcome.fromJson(json);
-        return connection;
+    if (_object(line) case final json?) {
+      try {
+        return _Reached(
+          connection,
+          AnalysisHostWelcome.fromJson(json),
+          address,
+        );
+      } on FormatException {
+        // Not a welcome: not a host this client can use.
       }
-    } on FormatException {
-      // Not a welcome: not a host this client can use.
     }
     connection.close();
-    return null;
+    // Another program may have the port of a host that has ended.
+    return lookUpProcess(address.processId) is ProcessGone
+        ? _Dead(address)
+        : const _Silent();
   }
 
   /// Asks the host [question] and returns its answer's value; it waits at
-  /// most [limit] for the answer.
+  /// most [limit] for the answer, from the question's turn.
+  ///
+  /// A host that was asked to stop by another client sends an ending for
+  /// it instead: the question is asked again of the host found through the
+  /// address file, when that is safe (a reading, or nothing answered yet
+  /// in this body), a few times at most.
   Future<Object> _ask(
     AnalysisHostQuestion Function(int id) question,
     Duration limit,
   ) async {
-    final connection = await _connect();
-    final asked = question(_nextId++);
-    connection.socket.writeln(jsonEncode(asked.toJson()));
-    // First the turn: the wait in the host's queue is the questions ahead's,
-    // each with its own limit, so only [analysisHostTurnLimit], far above any
-    // real queue, bounds it. The question's own limit starts when the server
-    // begins on it.
-    // A host that is ending answers at once with a failure, without a turn.
-    var got = await connection.next(turnLimit);
-    final waitedForTurn = got.late;
-    if (_isTurn(got.line, asked.id)) got = await connection.next(limit);
+    for (var tries = 1; ; tries++) {
+      final connection = await _connect();
+      if (connection == null) throw const _UseOwnServer();
+      final asked = question(_nextId++);
+      connection.socket.writeln(jsonEncode(asked.toJson()));
+      // First the turn: the wait in the host's queue is the questions
+      // ahead's, each with its own limit, so only [turnLimit], far above
+      // any real queue, bounds it. The question's own limit starts when the
+      // server begins on it.
+      var got = await connection.next(turnLimit);
+      final waitedForTurn = got.late;
+      final first = _object(got.line);
+      final ending = first != null && AnalysisHostEnding.isEnding(first);
+      // Closed before the question's turn: the host ended without
+      // beginning it (a host asked to stop ends once it has nothing left).
+      final closed = got.line == null && !got.late;
+      if (ending || closed) {
+        final again = asked.kind == AnalysisHostQuestionKind.read || !_answered;
+        if (again && tries < 3) {
+          // Not this run's host any more: the next one is found anew.
+          _connection?.close();
+          _connection = null;
+          continue;
+        }
+        if (ending) {
+          _drop();
+          throw const CodeAnalysisException(
+            'the analysis host was replaced by a newer Appstein during this '
+            'run',
+          );
+        }
+      }
+      if (first != null && AnalysisHostTurn.isTurn(first)) {
+        got = await connection.next(limit);
+      }
+      return _answerOf(got, asked, limit, waitedForTurn: waitedForTurn);
+    }
+  }
+
+  /// The value of the answer [got] to [asked].
+  Object _answerOf(
+    ({String? line, bool late}) got,
+    AnalysisHostQuestion asked,
+    Duration limit, {
+    required bool waitedForTurn,
+  }) {
     final (:line, :late) = got;
     if (line == null) {
       // The answers of this connection can no longer be told apart: a later
@@ -339,24 +589,12 @@ final class _HostClient implements CodeAnalysis {
         'the analysis host sent an answer that could not be read ($error)',
       );
     }
+    _answered = true;
     if (answer.failure case final failure?) {
       throw CodeAnalysisException(failure, refusalCode: answer.refusalCode);
     }
     if (answer.timedOut) throw TimeoutException(null, asked.within);
     return answer.value!;
-  }
-
-  /// Whether [line] is the turn of the question [id].
-  static bool _isTurn(String? line, int id) {
-    if (line == null) return false;
-    try {
-      final json = jsonDecode(line);
-      return json is Map<String, Object?> &&
-          AnalysisHostTurn.isTurn(json) &&
-          json['id'] == id;
-    } on FormatException {
-      return false;
-    }
   }
 
   /// Closes the connection for good, after it failed.
@@ -366,86 +604,135 @@ final class _HostClient implements CodeAnalysis {
     _connection = null;
   }
 
-  @override
-  Future<CodeReading> read() async {
-    final value = await _ask(
-      (id) => AnalysisHostQuestion(id: id, kind: AnalysisHostQuestionKind.read),
-      // The host's server may start several times within one reading (a
-      // change to the analysis options while it starts).
-      readyTimeout * 2 + answerGrace,
-    );
-    final reading = CodeReading.fromJson(value as Map<String, Object?>);
-    _analyzedFiles = reading.analyzedFiles;
-    return reading;
+  /// [ownAnswer] from the run's own server when this run uses one ([_own]),
+  /// else [hostAnswer]. A question asked again after its host ended
+  /// ([_ask]) may find a newer host, and so this run's own server: it is
+  /// then answered by that.
+  Future<T> _either<T>(
+    Future<T> Function(CodeAnalysis own) ownAnswer,
+    Future<T> Function() hostAnswer,
+  ) async {
+    if (await _ownRoute() case final own?) return ownAnswer(own);
+    try {
+      return await hostAnswer();
+    } on _UseOwnServer {
+      return ownAnswer(_own!);
+    }
   }
+
+  @override
+  Future<CodeReading> read() => _either(
+    (own) async {
+      final reading = await own.read();
+      return CodeReading(
+        diagnostics: reading.diagnostics,
+        pluginFailures: reading.pluginFailures,
+        notices: [...reading.notices, ?_ownNotice],
+        analyzedFiles: reading.analyzedFiles,
+        unreadableFiles: reading.unreadableFiles,
+      );
+    },
+    () async {
+      final value = await _ask(
+        (id) =>
+            AnalysisHostQuestion(id: id, kind: AnalysisHostQuestionKind.read),
+        // The host's server may start several times within one reading (a
+        // change to the analysis options while it starts).
+        readyTimeout * 2 + answerGrace,
+      );
+      final reading = CodeReading.fromJson(value as Map<String, Object?>);
+      _analyzedFiles = reading.analyzedFiles;
+      return reading;
+    },
+  );
 
   @override
   Future<bool> canDartFix(
     CodeDiagnostic diagnostic, {
     required Duration within,
-  }) async =>
-      await _ask(
-            (id) => AnalysisHostQuestion(
-              id: id,
-              kind: AnalysisHostQuestionKind.canDartFix,
-              within: within,
-              diagnostic: diagnostic,
-            ),
-            within + answerGrace,
-          )
-          as bool;
+  }) => _either(
+    (own) => own.canDartFix(diagnostic, within: within),
+    () async =>
+        await _ask(
+              (id) => AnalysisHostQuestion(
+                id: id,
+                kind: AnalysisHostQuestionKind.canDartFix,
+                within: within,
+                diagnostic: diagnostic,
+              ),
+              within + answerGrace,
+            )
+            as bool,
+  );
 
   @override
   Future<FormatAnswers> formatChanges(
     List<String> files, {
     required Duration within,
-  }) async => FormatAnswers.fromJson(
-    await _ask(
-          (id) => AnalysisHostQuestion(
-            id: id,
-            kind: AnalysisHostQuestionKind.formatChanges,
-            within: within,
-            files: files,
-          ),
-          within + questionGrace + answerGrace,
-        )
-        as Map<String, Object?>,
+  }) => _either(
+    (own) => own.formatChanges(files, within: within),
+    () async => FormatAnswers.fromJson(
+      await _ask(
+            (id) => AnalysisHostQuestion(
+              id: id,
+              kind: AnalysisHostQuestionKind.formatChanges,
+              within: within,
+              files: files,
+            ),
+            within + questionGrace + answerGrace,
+          )
+          as Map<String, Object?>,
+    ),
   );
 
   @override
-  Future<PendingFixes> pendingFixes({required Duration within}) async =>
-      PendingFixes.fromJson(
-        await _ask(
-              (id) => AnalysisHostQuestion(
-                id: id,
-                kind: AnalysisHostQuestionKind.pendingFixes,
-                within: within,
-              ),
-              fixQuestionLimit(within) + answerGrace,
-            )
-            as Map<String, Object?>,
-      );
+  Future<PendingFixes> pendingFixes({required Duration within}) => _either(
+    (own) => own.pendingFixes(within: within),
+    () async => PendingFixes.fromJson(
+      await _ask(
+            (id) => AnalysisHostQuestion(
+              id: id,
+              kind: AnalysisHostQuestionKind.pendingFixes,
+              within: within,
+            ),
+            fixQuestionLimit(within) + answerGrace,
+          )
+          as Map<String, Object?>,
+    ),
+  );
 
   @override
   Future<AppliedChanges> applyFixesAndFormat({
     required Future<bool> Function(String file) leaveUnformatted,
     required Duration within,
-  }) async {
-    final leave = [
-      for (final file in _analyzedFiles)
-        if (await leaveUnformatted(file)) file,
-    ];
-    return AppliedChanges.fromJson(
-      await _ask(
-            (id) => AnalysisHostQuestion(
-              id: id,
-              kind: AnalysisHostQuestionKind.applyFixesAndFormat,
-              within: within,
-              leaveUnformatted: leave,
-            ),
-            fixQuestionLimit(within) + answerGrace,
-          )
-          as Map<String, Object?>,
-    );
-  }
+  }) => _either(
+    (own) => own.applyFixesAndFormat(
+      leaveUnformatted: leaveUnformatted,
+      within: within,
+    ),
+    () async {
+      final leave = [
+        for (final file in _analyzedFiles)
+          if (await leaveUnformatted(file)) file,
+      ];
+      return AppliedChanges.fromJson(
+        await _ask(
+              (id) => AnalysisHostQuestion(
+                id: id,
+                kind: AnalysisHostQuestionKind.applyFixesAndFormat,
+                within: within,
+                leaveUnformatted: leave,
+              ),
+              fixQuestionLimit(within) + answerGrace,
+            )
+            as Map<String, Object?>,
+      );
+    },
+  );
+}
+
+/// Thrown by [_HostClient._ask] when a question asked again after its host
+/// ended finds that this run must use its own server.
+final class _UseOwnServer implements Exception {
+  const _UseOwnServer();
 }

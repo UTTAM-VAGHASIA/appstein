@@ -28,6 +28,21 @@ const dataDrivenFixId = 'dart.fix.dataDriven';
 String dartExecutableIn(String dartSdkPath) =>
     p.join(dartSdkPath, 'bin', Platform.isWindows ? 'dart.exe' : 'dart');
 
+/// The Dart version the SDK of the `dart` executable [dart] says, from the
+/// SDK's `version` file (`<sdk>/version`, beside `bin`), as `readSdkVersions`
+/// reads Flutter's: the file, never a process, the first word, a byte order
+/// mark left out. Null when it can't be read.
+String? _dartVersionOf(String dart) {
+  try {
+    final text = File(
+      p.join(p.dirname(p.dirname(dart)), 'version'),
+    ).readAsStringSync().replaceFirst('\uFEFF', '').trim();
+    return text.split(RegExp(r'\s+')).first;
+  } on FileSystemException {
+    return null;
+  }
+}
+
 /// The `dart` executable of the Flutter SDK the project at [projectRoot]
 /// uses, found as every other part of Appstein finds the SDK, so `verify`
 /// agrees with the developer's `dart analyze` and IDE. [dartSdkPath]
@@ -272,11 +287,14 @@ final class AnalysisServer implements StoppableCodeAnalysis {
   /// question.
   ///
   /// **When one of the files that set how the project is analyzed changed,
-  /// the server is started again** and the new one answers. The server
-  /// takes such a change in by itself, but later, and nothing it sends says
-  /// when it has. A new server has read the files as they are, and it tells
-  /// a plugin that still can't be loaded again, so `pluginFailures` holds a
-  /// failure only while it holds.
+  /// or the project's SDK did ([dartExecutable] gives another `dart`, as
+  /// after `fvm use` to another version, or the SDK's `version` file names
+  /// another Dart, as after `flutter upgrade` in place), the server is
+  /// started again** and the new one answers. The server takes such a
+  /// change in by itself, but later, and nothing it sends says when it has.
+  /// A new server has read the files as they are, and it tells a plugin
+  /// that still can't be loaded again, so `pluginFailures` holds a failure
+  /// only while it holds.
   @override
   Future<CodeReading> read() async {
     if (_closed) {
@@ -819,6 +837,26 @@ final class _Session {
   final AnalysisServer _owner;
   late final Future<void> _opened;
 
+  /// The `dart` the server was started with ([AnalysisServer.dartExecutable]).
+  String? _dartAtStart;
+
+  /// The Dart version its SDK said then ([_dartVersionOf]).
+  String? _dartVersionAtStart;
+
+  /// Whether the project's `dart` is no longer the one this server runs:
+  /// the project's SDK changed (`fvm use` to another version), its SDK was
+  /// upgraded in place (`flutter upgrade`, `flutter channel`: the same
+  /// path, another Dart version), or it has none now.
+  bool get _sdkChanged {
+    try {
+      final dart = _owner.dartExecutable();
+      return dart != _dartAtStart ||
+          _dartVersionOf(dart) != _dartVersionAtStart;
+    } on CodeAnalysisException {
+      return true;
+    }
+  }
+
   /// The files as the server knows them: the look taken before the server
   /// was started, then the look of each reading.
   late DiskLook _seen;
@@ -908,7 +946,8 @@ final class _Session {
   /// Starts the guard, and tells the server which notifications to send
   /// and where the project is.
   Future<void> _open() async {
-    final dart = _owner.dartExecutable();
+    final dart = _dartAtStart = _owner.dartExecutable();
+    _dartVersionAtStart = _dartVersionOf(dart);
     if (!File(dart).existsSync()) {
       throw CodeAnalysisException('there is no Dart executable at $dart');
     }
@@ -972,7 +1011,10 @@ final class _Session {
   Future<void> _takeIn() async {
     final now = await DiskLook.of(_root, unchanging: _unchanging);
     if (_failure case final failure?) throw failure;
-    if (!now.sameSettingsAs(_seen)) throw const _SettingsChanged();
+    // A change of the SDK, too: the server of the new one must answer.
+    if (!now.sameSettingsAs(_seen) || _sdkChanged) {
+      throw const _SettingsChanged();
+    }
     // Besides what the look sees change: the files a formatting question
     // found different from the text of the last reading, which the look may
     // never see (a same-size edit whose time was put back). Without them such

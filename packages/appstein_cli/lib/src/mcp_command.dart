@@ -3,6 +3,7 @@ import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
+import 'analysis_guard_command.dart';
 import 'analysis_host_command.dart';
 import 'exit_codes.dart';
 import 'packs.dart';
@@ -101,6 +102,8 @@ final class McpCommand extends Command<int> {
             projectRoot: projectRoot,
             environment: environment,
             dartSdkPath: dartSdkPath,
+            // Stdout is the MCP channel: the notices go to the log.
+            onLeft: (notices) => notices.forEach(err.writeln),
           ),
       appsteinVersion: appsteinVersion,
       dartSdkPath: dartSdkPath,
@@ -116,16 +119,26 @@ final class McpCommand extends Command<int> {
 /// ([analysisHostCommand]), in the folder [environment] names
 /// (`analysisHostFolder`). The host is given the analysis cache folder
 /// [environment] names (`analysisServerEnvironment`), as a full path, since
-/// the host runs in another folder.
+/// the host runs in another folder. When the host runs a newer Appstein,
+/// the call is answered by an analysis server of its own instead, as a
+/// terminal run is (`terminalCodeAnalysis`), and says the session should
+/// be restarted.
 ///
 /// [dartSdkPath] replaces the Flutter SDK's own Dart SDK, for tests.
+///
+/// [onLeft] is told, after a call that used a server of its own was
+/// answered and the server stopped, a line for each process the stop could
+/// not end because it could not be shown to be the server's own
+/// (`AnalysisServer.leftProcesses`); `appstein mcp` writes them to stderr.
 CodeAnalysisScope hostCodeAnalysis({
   required String projectRoot,
   required HostEnvironment environment,
   String? dartSdkPath,
+  void Function(List<String> notices)? onLeft,
 }) {
   final folder = analysisHostFolder(environment);
-  return analysisHostCodeAnalysis(
+  final own = <AnalysisServer>[];
+  final scope = analysisHostCodeAnalysis(
     projectRoot: projectRoot,
     hostCommand: analysisHostCommand(
       addressFolder: folder,
@@ -133,6 +146,22 @@ CodeAnalysisScope hostCodeAnalysis({
     ),
     addressFolder: folder,
     appsteinVersion: appsteinVersion,
+    // A host of a newer Appstein is left alone: the run starts the server
+    // a terminal run would.
+    ownServer: () {
+      final server = AnalysisServer(
+        projectRoot: projectRoot,
+        guardCommand: analysisGuardCommand(),
+        dartExecutable: () => projectDartExecutable(
+          environment,
+          projectRoot,
+          dartSdkPath: dartSdkPath,
+        ),
+        environment: analysisServerEnvironment(environment),
+      );
+      own.add(server);
+      return server;
+    },
     os: environment.os,
     environment: {
       for (final MapEntry(:key, :value) in analysisServerEnvironment(
@@ -143,6 +172,19 @@ CodeAnalysisScope hostCodeAnalysis({
             : p.join(environment.workingDirectory, value),
     },
   );
+  return <T>(body) async {
+    try {
+      return await scope(body);
+    } finally {
+      // The scope has closed its own server, if it used one.
+      final servers = [...own];
+      own.clear();
+      for (final server in servers) {
+        final left = server.leftProcesses();
+        if (left.isNotEmpty) onLeft?.call(left);
+      }
+    }
+  };
 }
 
 /// The factory `appstein mcp` gives its server: each call builds a

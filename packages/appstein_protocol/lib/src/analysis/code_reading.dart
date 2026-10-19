@@ -126,10 +126,12 @@ final class CodeReading {
   final Map<String, String> unreadableFiles;
 
   /// What the person or agent who runs `verify` must be told that is no
-  /// finding about the project, one plain line each. Today that is one
-  /// thing: a process that may be an analysis server Appstein started and
-  /// could not show to be its own, so it did not end it, with the command
-  /// to end it by hand. `runVerify` passes them on in the result.
+  /// finding about the project, one plain line each: a process that may be
+  /// an analysis server Appstein started and could not show to be its own,
+  /// so it did not end it, with the command to end it by hand; and, for a
+  /// session whose Appstein is older than the project's analysis host, that
+  /// it should be restarted for fast answers. `runVerify` passes them on in
+  /// the result.
   final List<String> notices;
 
   /// Every diagnostic `dart analyze` would show for the project, in file
