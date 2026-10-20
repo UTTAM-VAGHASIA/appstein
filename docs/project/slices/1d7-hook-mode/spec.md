@@ -162,8 +162,8 @@ Each project gets one **analysis host**: a small background process, the `appste
 
 **Measuring (§15)**
 
-- A new row in `tool/measure_sync.dart`, on Linux, macOS and Windows in CI: on the 200-file app with a ready analysis host, edit one file to add an error, then time the compiled `appstein verify --fast --hook claude` from its process start to its exit, with Claude Code's input on stdin. The median of three must be under 5 s (5.000 s or more fails), and every run must exit 2 and name the error.
-- A row for the same hook with no host running (it starts one and waits), recorded with no limit other than the cap.
+- A new row in `tool/measure_sync.dart`, on Linux, macOS and Windows in CI: on the 200-file app with a ready analysis host, edit one file to add an error, then time the compiled `appstein verify --fast --hook claude` from its process start until it has exited and its output has closed, which is what Claude Code waits for (the owner, 2026-10-21), with Claude Code's input on stdin. The median of three must be under 5 s (5.000 s or more fails), and every run must exit 2 and name the error.
+- A row for the same hook with no host running (it starts one and waits) and a warm analysis cache, the everyday case of a new session or a host's idle stop, labelled so (the owner, 2026-10-21), recorded with no limit other than the cap.
 - A check that two `appstein mcp` processes and a hook on one project leave exactly one analysis server running, failing otherwise, with the memory of two sessions recorded beside that of one.
 - The 1d.2 rows stay: the warm `verify` tool (now through the host) and the terminal runs.
 

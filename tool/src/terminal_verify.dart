@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'command_run.dart';
+
 /// The summary line a terminal `appstein verify --fast` must end with on the
 /// measured app: the fast checks find nothing there.
 const fastSummary = '0 errors, 0 warnings, 0 info. No findings suppressed.';
@@ -84,6 +86,40 @@ void _deleteFolder(String path) => Directory(path).deleteSync(recursive: true);
 /// the warm rows are timed ([measureTerminalRows]).
 const terminalWarmUpMost = 15;
 
+/// The default of `verify.fast_timeout_seconds`, the cap on every fast run
+/// (spec "The cap"), which the measured app keeps: the terminal fast rows are
+/// capped by it, as a user's runs are.
+const terminalFastCap = Duration(seconds: 20);
+
+/// The words a terminal run cut by the cap prints on stderr
+/// (`capCutMessage`), as [hookCutWords] are the words a hook's text holds.
+const terminalCutWords = 'could not finish checking';
+
+/// Whether a terminal run was cut by the cap: it exited 3, and said that
+/// Appstein could not finish checking (spec "The cap": a terminal fast run
+/// cut by the cap exits 3, so CI never reads a cut run as a pass).
+bool terminalRunCutByCap(int exitCode, String stdout, String stderr) =>
+    exitCode == 3 &&
+    (stderr.contains(terminalCutWords) || stdout.contains(terminalCutWords));
+
+/// Why a terminal fast run that [terminalRunCutByCap] does not count, as a
+/// message that names the cap: [flag] and [what] say which run, [elapsed] is
+/// its time when it was timed. A run cut by the cap measures nothing, so the
+/// row fails; the cap is not raised to fit (the default is what users get).
+String terminalCutProblem(
+  String flag,
+  String what, {
+  Duration? elapsed,
+  required String stdout,
+  required String stderr,
+}) =>
+    'appstein verify $flag ($what) was cut by the fast-run cap '
+    '(verify.fast_timeout_seconds, ${terminalFastCap.inSeconds} s by '
+    'default)${elapsed == null ? '' : ' after ${elapsed.inMilliseconds} ms'}'
+    ': it exited 3, "Appstein could not finish checking", and left its code '
+    'checks pending. The row fails, and the cap is not raised to fit:\n'
+    '$stdout$stderr';
+
 /// Why a terminal `appstein verify` run on the measured app does not count,
 /// or null when it does. A run counts when
 /// - it exited 0;
@@ -133,14 +169,6 @@ bool _reportsStaleRoutes(List<String> lines) {
   }
   return false;
 }
-
-/// One terminal `appstein verify` run: its exit code, output and time.
-typedef TerminalRun = ({
-  int exitCode,
-  String stdout,
-  String stderr,
-  Duration elapsed,
-});
 
 /// The flags of round [round] of timed runs, in the order they run: fast
 /// first in even rounds, full first in odd ones, so neither row always
@@ -205,7 +233,7 @@ final class TerminalRows {
 /// the analysis server, and the rows would measure another cache. Throws a
 /// [StateError] that says why when either check fails.
 Future<TerminalRows> measureTerminalRows({
-  required Future<TerminalRun> Function(String flag, String cache) run,
+  required Future<CommandRun> Function(String flag, String cache) run,
   required String warmCache,
   required String Function() newCache,
   required void Function(String cache) discardCache,
@@ -213,8 +241,20 @@ Future<TerminalRows> measureTerminalRows({
   int warmUpMost = terminalWarmUpMost,
 }) async {
   final rows = TerminalRows();
-  Future<TerminalRun> checked(String flag, String cache, String what) async {
+  Future<CommandRun> checked(String flag, String cache, String what) async {
     final result = await run(flag, cache);
+    if (flag == fastFlag &&
+        terminalRunCutByCap(result.exitCode, result.stdout, result.stderr)) {
+      throw StateError(
+        terminalCutProblem(
+          flag,
+          what,
+          elapsed: result.elapsed,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        ),
+      );
+    }
     if (terminalVerifyProblem(
           result.exitCode,
           result.stdout,
@@ -287,6 +327,17 @@ Future<int> sampledPeak(
 }) async {
   for (var attempt = 1; attempt <= 2; attempt++) {
     final result = await sample();
+    if (flag == fastFlag &&
+        terminalRunCutByCap(result.exitCode, result.stdout, result.stderr)) {
+      throw StateError(
+        terminalCutProblem(
+          flag,
+          'a sampled run',
+          stdout: result.stdout,
+          stderr: result.stderr,
+        ),
+      );
+    }
     if (terminalVerifyProblem(
           result.exitCode,
           result.stdout,

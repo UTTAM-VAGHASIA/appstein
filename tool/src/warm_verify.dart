@@ -1,19 +1,21 @@
 /// The limit for a fast `verify` that an agent meets (design §15): the
-/// warm `verify` tool of a running `appstein mcp`, after one file is edited.
+/// warm `verify` tool of a running `appstein mcp`, and the hook, after one
+/// file is edited.
 const warmLimit = Duration(seconds: 5);
 
 /// The middle of [times], an odd number of them.
 Duration medianOf(List<Duration> times) =>
     (times.toList()..sort())[times.length ~/ 2];
 
-/// Why the [median] of the warm fast runs fails the limit, or null when it
-/// is under it. The design says "< 5 s" (§15), so a median of exactly 5 s
-/// fails. The message gives the measured time.
-String? warmLimitMiss(Duration median) => median < warmLimit
+/// Why the [median] of three runs of [label] (such as `warm fast verify` or
+/// `hook`) fails the limit, or null when it is under it. The design says
+/// "< 5 s" (§15), so a median of exactly 5 s fails. The message gives the
+/// measured time.
+String? limitMiss(String label, Duration median) => median < warmLimit
     ? null
-    : 'The warm fast verify took ${median.inMilliseconds} ms, the median of '
-          'three, and the limit is under ${warmLimit.inSeconds} s (design '
-          '§15). The limit is not changed to fit.';
+    : 'The $label took ${median.inMilliseconds} ms, the median of three, '
+          'and the limit is under ${warmLimit.inSeconds} s (design §15). The '
+          'limit is not changed to fit.';
 
 /// [original] (the text of a Dart file) with a real error added at the end,
 /// the [n]th edit of a measurement, and the line the analyzer reports it on.

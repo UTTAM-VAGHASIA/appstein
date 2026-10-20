@@ -1,13 +1,9 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
+import 'edited_file.dart';
 import 'mcp_session.dart';
 import 'process_memory.dart';
 import 'warm_verify.dart';
 
-/// Gives the running processes ([listProcesses]); a test gives its own.
-typedef ProcessLister = Future<List<ProcessRow>> Function();
+List<int> _noHosts() => const [];
 
 /// What the warm `verify` measurement found.
 final class WarmResult {
@@ -63,6 +59,15 @@ final class WarmResult {
 /// how long the session may take to end ([McpSession.close]). Nothing is
 /// ended here but the session's own process: a leftover is a bug to find.
 ///
+/// The session's `verify` calls go through the project's analysis host, a
+/// detached process that outlives the session by design (decision record
+/// 0002). [hostProcesses] gives the IDs of the hosts the session started,
+/// whose trees (the host, its guard and the server) count with the session's
+/// for the memory and for the check that nothing is left, and [endHosts]
+/// ends them after the session is closed and returns why it could not, or
+/// null: the one process this function lets the caller end besides the
+/// session's own. Without them the session has no host.
+///
 /// The file is put back as it was. A failed check, a reply that is wrong or
 /// a call that gets no answer is [WarmResult.problem], never an exception.
 Future<WarmResult> measureWarm(
@@ -73,30 +78,26 @@ Future<WarmResult> measureWarm(
   int goneAttempts = 20,
   Duration goneDelay = const Duration(milliseconds: 500),
   Duration? closePatience,
+  List<int> Function() hostProcesses = _noHosts,
+  Future<String?> Function()? endHosts,
 }) async {
   final warm = WarmResult();
-  final path = p.joinAll([project, ...file.split('/')]);
-  final original = File(path).readAsStringSync();
+  final edited = EditedFile(project, file);
   // Every process seen under the session, with the start it had when first
   // seen: what the check that nothing is left running compares with.
   final tree = <int, int?>{};
   void note(List<ProcessRow> rows) {
-    for (final MapEntry(:key, :value) in treeStarts(
-      rows,
+    for (final MapEntry(:key, :value) in treesStarts(rows, [
       session.pid,
-    ).entries) {
+      ...hostProcesses(),
+    ]).entries) {
       tree.putIfAbsent(key, () => value);
     }
   }
 
-  /// Adds the error of edit [n] to the file and returns the line.
-  int addError(int n) {
-    final edit = editWithError(original, n);
-    File(path).writeAsStringSync(edit.text);
-    return edit.line;
-  }
+  int addError(int n) => edited.addError(n);
 
-  void fixError() => File(path).writeAsStringSync(original);
+  void fixError() => edited.restore();
 
   Future<McpCall> verify() => session.call('verify', const {'scope': 'fast'});
 
@@ -122,7 +123,7 @@ Future<WarmResult> measureWarm(
       return warm..problem = 'the first verify call: $problem';
     }
     final ready = await lister();
-    warm.memoryReady = treeMemory(ready, session.pid);
+    warm.memoryReady = treesMemory(ready, [session.pid, ...hostProcesses()]);
     note(ready);
 
     for (var n = 0; n < 3; n++) {
@@ -155,7 +156,7 @@ Future<WarmResult> measureWarm(
       }
     }
     final after = await lister();
-    warm.memoryAfter = treeMemory(after, session.pid);
+    warm.memoryAfter = treesMemory(after, [session.pid, ...hostProcesses()]);
     note(after);
     return warm;
   } on StateError catch (error) {
@@ -176,31 +177,26 @@ Future<WarmResult> measureWarm(
     final byItself = closePatience == null
         ? await session.close()
         : await session.close(patience: closePatience);
+    // The analysis host outlives the session by design, so the tool ends it
+    // itself; its guard and server follow it.
+    final hostsProblem = endHosts == null ? null : await endHosts();
     // Everything that was under it must be gone, which takes the guard a
     // moment after `appstein mcp` ends.
-    var left = tree.keys.toSet();
-    var checked = true;
-    for (var i = 0; i < goneAttempts && left.isNotEmpty; i++) {
-      try {
-        left = survivors(tree, await lister());
-      } on StateError catch (error) {
-        checked = false;
-        listingProblem =
-            '${listingProblem == null ? '' : '$listingProblem; '}'
-            'could not check that the processes ended: ${error.message}';
-        break;
-      }
-      if (left.isNotEmpty) await Future<void>.delayed(goneDelay);
-    }
+    final gone = await waitUntilGone(
+      tree,
+      lister,
+      attempts: goneAttempts,
+      delay: goneDelay,
+    );
     final problems = [
       ?warm.problem,
       if (!byItself)
         'appstein mcp did not end when its input closed, and was killed',
+      ?hostsProblem,
       ?listingProblem,
-      if (checked && left.isNotEmpty)
-        'processes of appstein mcp are still running after it ended: '
-            '${left.join(', ')} (end them with '
-            '${Platform.isWindows ? 'taskkill -PID <id> -F' : 'kill <id>'})',
+      ?gone.listingProblem,
+      if (gone.listingProblem == null && gone.left.isNotEmpty)
+        stillRunningProblem('appstein mcp', gone.left),
     ];
     warm.problem = problems.isEmpty ? null : problems.join('; ');
   }

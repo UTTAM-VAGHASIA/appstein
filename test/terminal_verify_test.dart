@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../tool/src/command_run.dart';
 import '../tool/src/terminal_verify.dart';
 
 /// The text of a full run on the measured app, as `appstein verify` prints
@@ -145,6 +146,54 @@ void main() {
       expect(
         terminalVerifyProblem(0, '$fastSummary\n', '', fast: false),
         contains('did not report docs.stale'),
+      );
+    });
+  });
+
+  group('terminalRunCutByCap', () {
+    const cutText =
+        'Appstein could not finish checking: the analysis server is starting '
+        'or busy. Checks still pending: dart.error. This run exits 3 and not '
+        '0 or 1: run it again, or raise verify.fast_timeout_seconds.';
+
+    test('is a run that exited 3 and said Appstein could not finish '
+        'checking', () {
+      expect(
+        terminalRunCutByCap(3, 'Not run:\n  dart.error: x\n', cutText),
+        isTrue,
+      );
+    });
+
+    test('is not any other run: not an exit 3 that says something else, '
+        'not the same words with another exit code', () {
+      expect(terminalRunCutByCap(3, '', 'the analysis server failed'), isFalse);
+      expect(terminalRunCutByCap(1, '', cutText), isFalse);
+      expect(terminalRunCutByCap(0, '$fastSummary\n', ''), isFalse);
+    });
+  });
+
+  group('terminalCutProblem', () {
+    test('names the cap, its default, the time and the flag, and says the '
+        'row fails and the cap is not raised', () {
+      final problem = terminalCutProblem(
+        fastFlag,
+        'a cold run',
+        elapsed: const Duration(milliseconds: 20412),
+        stdout: 'Not run:\n  dart.error: still pending\n',
+        stderr: 'Appstein could not finish checking: x',
+      );
+      expect(problem, contains('appstein verify --fast (a cold run)'));
+      expect(problem, contains('verify.fast_timeout_seconds'));
+      expect(problem, contains('20 s'));
+      expect(problem, contains('20412 ms'));
+      expect(problem, contains('not raised'));
+      expect(problem, contains('Appstein could not finish checking: x'));
+    });
+
+    test('has no time for a run that was not timed', () {
+      expect(
+        terminalCutProblem(fastFlag, 'a sampled run', stdout: '', stderr: ''),
+        isNot(contains(' ms')),
       );
     });
   });
@@ -357,6 +406,51 @@ void main() {
       expect(cache.discarded, ['cold 0', 'cold 1']);
     });
 
+    test('a cold fast run cut by the cap fails the row with the cap, the '
+        'time and the output, not as "named checks as not run"; its cold '
+        'cache is discarded', () async {
+      final discarded = <String>[];
+      var cold = 0;
+      await expectLater(
+        measureTerminalRows(
+          run: (flag, cache) async => cache == warmCache
+              ? (
+                  exitCode: 0,
+                  stdout: fullOutput(),
+                  stderr: '',
+                  elapsed: Duration.zero,
+                )
+              : (
+                  exitCode: 3,
+                  stdout:
+                      'Not run:\n  dart.error: the code checks of this '
+                      'change are still pending\n\n$fastSummary\n',
+                  stderr:
+                      'Appstein could not finish checking: x. This run '
+                      'exits 3\n',
+                  elapsed: const Duration(milliseconds: 20300),
+                ),
+          warmCache: warmCache,
+          newCache: () => 'cold ${cold++}',
+          discardCache: discarded.add,
+          cacheCount: (_) => (entries: 5, halfWritten: 0),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('cut by the fast-run cap'),
+              contains('20300 ms'),
+              contains('verify.fast_timeout_seconds'),
+              isNot(contains('named checks as not run')),
+            ),
+          ),
+        ),
+      );
+      expect(discarded, ['cold 0']);
+    });
+
     test('fails when a run left its cache folder empty: the cache variable '
         'did not reach the server', () async {
       final cache = _FakeCache(warmAdds: [0]);
@@ -421,6 +515,31 @@ void main() {
         ),
       );
       expect(runs, 2);
+    });
+
+    test('a sampled fast run cut by the cap fails with the cap, not as a '
+        'run that named checks as not run', () async {
+      await expectLater(
+        sampledPeak(
+          () async => (
+            exitCode: 3,
+            stdout: 'Not run:\n  dart.error: still pending\n',
+            stderr: 'Appstein could not finish checking: x\n',
+            peak: 900,
+          ),
+          flag: fastFlag,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('cut by the fast-run cap'),
+              contains('a sampled run'),
+            ),
+          ),
+        ),
+      );
     });
 
     test('checks the output of a sampled run', () async {
@@ -491,7 +610,7 @@ final class _FakeCache {
   static int _nth(List<int> numbers, int n) =>
       numbers[n < numbers.length ? n : numbers.length - 1];
 
-  Future<TerminalRun> run(String flag, String cache) async {
+  Future<CommandRun> run(String flag, String cache) async {
     final kind = flag == fastFlag ? 'fast' : 'full';
     final Duration elapsed;
     if (cache == 'warm') {

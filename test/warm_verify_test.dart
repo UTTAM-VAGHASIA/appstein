@@ -70,22 +70,30 @@ void main() {
     });
   });
 
-  group('warmLimitMiss', () {
+  group('limitMiss', () {
+    const label = 'warm fast verify';
+
     test('is null just under 5 s', () {
-      expect(warmLimitMiss(Duration.zero), isNull);
-      expect(warmLimitMiss(const Duration(milliseconds: 4999)), isNull);
-      expect(warmLimitMiss(const Duration(microseconds: 4999999)), isNull);
+      expect(limitMiss(label, Duration.zero), isNull);
+      expect(limitMiss(label, const Duration(milliseconds: 4999)), isNull);
+      expect(limitMiss(label, const Duration(microseconds: 4999999)), isNull);
     });
 
     test('fails at exactly 5 s: the design says under 5 s', () {
-      expect(warmLimitMiss(const Duration(seconds: 5)), isNotNull);
+      expect(limitMiss(label, const Duration(seconds: 5)), isNotNull);
     });
 
-    test('names the measured time when it is 5 s or more, and the limit', () {
-      final message = warmLimitMiss(const Duration(milliseconds: 5001));
-      expect(message, contains('5001 ms'));
+    test('names what was measured, the measured time when it is 5 s or '
+        'more, and the limit', () {
+      final message = limitMiss(label, const Duration(milliseconds: 5001));
+      expect(message, startsWith('The warm fast verify took 5001 ms'));
       expect(message, contains('5 s'));
       expect(message, contains('median'));
+      expect(message, contains('not changed'));
+      expect(
+        limitMiss('hook', const Duration(seconds: 6)),
+        startsWith('The hook took 6000 ms'),
+      );
     });
   });
 

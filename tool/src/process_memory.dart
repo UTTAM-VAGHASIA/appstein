@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+/// Gives the running processes ([listProcesses]); a test gives its own.
+typedef ProcessLister = Future<List<ProcessRow>> Function();
+
 /// One running process, as the measuring tools see it.
 final class ProcessRow {
   /// Creates a row.
@@ -45,6 +48,13 @@ String? programOf(ProcessRow row) {
 /// The programs an analysis server runs as: the SDK's `dart`, the VM it may
 /// hand a script to (`dartvm`), and the AOT runtime.
 const dartPrograms = {'dart', 'dartvm', 'dartaotruntime'};
+
+/// The program the compiled Appstein binary runs as ([programOf]): the
+/// `appstein` commands, the analysis host and the guard in front of the
+/// server. Where the Dart VM names its processes after the script instead
+/// (`dart:<script>`), these read as [dartPrograms], so nothing that must work
+/// on every system may tell a server from a guard by this name.
+const appsteinProgram = 'appstein';
 
 /// The seconds in `ps`'s `etime` text (`mm:ss`, `hh:mm:ss` or
 /// `dd-hh:mm:ss`), or null when it is none of those.
@@ -212,6 +222,28 @@ int treeMemory(List<ProcessRow> rows, int root) {
       .fold<int>(0, (sum, row) => sum + row.bytes);
 }
 
+/// The memory, in bytes, of the processes [roots] and everything under any
+/// of them, each process counted once: a root that lies inside another's
+/// tree adds nothing.
+int treesMemory(List<ProcessRow> rows, Iterable<int> roots) {
+  final inTrees = <int>{for (final root in roots) ...processTree(rows, root)};
+  return rows
+      .where((row) => inTrees.contains(row.id))
+      .fold<int>(0, (sum, row) => sum + row.bytes);
+}
+
+/// [treeStarts] of every root in [roots], merged: each process once, with the
+/// start the listing gave it.
+Map<int, int?> treesStarts(List<ProcessRow> rows, Iterable<int> roots) {
+  final merged = <int, int?>{};
+  for (final root in roots) {
+    for (final MapEntry(:key, :value) in treeStarts(rows, root).entries) {
+      merged.putIfAbsent(key, () => value);
+    }
+  }
+  return merged;
+}
+
 /// How far two starts of one process may lie apart, listing to listing:
 /// `ps` gives seconds, and a listing's time is not exact.
 const _startTolerance = Duration(seconds: 2);
@@ -246,6 +278,44 @@ Set<int> survivors(Map<int, int?> before, List<ProcessRow> now) {
               (row.start! - before[row.id]!).abs() <= tolerance))
         row.id,
   };
+}
+
+/// Looks at the process list with [lister] up to [attempts] times, [delay]
+/// apart, until none of the processes of [tree] (an ID with its start,
+/// [treeStarts]) is running any more ([survivors]), and returns the ones that
+/// are, which is empty when they ended. A listing that fails ends the wait
+/// with [listingProblem], which says so, and the processes are then unknown:
+/// [left] is what was last seen. Nothing is looked for when [tree] is empty.
+Future<({Set<int> left, String? listingProblem})> waitUntilGone(
+  Map<int, int?> tree,
+  ProcessLister lister, {
+  int attempts = 20,
+  Duration delay = const Duration(milliseconds: 500),
+}) async {
+  var left = tree.keys.toSet();
+  for (var i = 0; i < attempts && left.isNotEmpty; i++) {
+    try {
+      left = survivors(tree, await lister());
+    } on StateError catch (error) {
+      return (
+        left: left,
+        listingProblem:
+            'could not check that the processes ended: ${error.message}',
+      );
+    }
+    if (left.isNotEmpty) await Future<void>.delayed(delay);
+  }
+  return (left: left, listingProblem: null);
+}
+
+/// The problem to report when the processes [left] of [what] (such as
+/// `appstein mcp` or the analysis host) are still running after it ended,
+/// with the command to end them by hand.
+String stillRunningProblem(String what, Set<int> left) {
+  final ids = left.toList()..sort();
+  return 'processes of $what are still running after it ended: '
+      '${ids.join(', ')} (end them with '
+      '${Platform.isWindows ? 'taskkill -PID <id> -F' : 'kill <id>'})';
 }
 
 /// Waits for a run's [exit] code and for [peak], the sampling of its memory

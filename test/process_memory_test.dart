@@ -213,6 +213,15 @@ void main() {
       expect(processTree(rows.reversed.toList(), 10), {10, 11, 12, 13});
     });
 
+    test('treesMemory counts every process of several trees once: a root '
+        'inside another tree is not counted twice', () {
+      expect(treesMemory(rows, [10, 20]), 100 + 200 + 400 + 800 + 1600 + 3200);
+      expect(treesMemory(rows, [10, 11, 13]), 100 + 200 + 400 + 800);
+      expect(treesMemory(rows, [21, 20]), 1600 + 3200);
+      expect(treesMemory(rows, const []), 0);
+      expect(treesMemory(rows, [99]), 0);
+    });
+
     test('a process that started before its named parent is not its child: '
         'the ID was given to a new process after the real parent ended', () {
       // 30 is the new process that was given the ID of a parent that
@@ -624,6 +633,114 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
       stop.complete();
       expect(await peak, greaterThan(3 * 1024 * 1024));
+    });
+  });
+
+  group('treesStarts', () {
+    test('merges the trees of several roots, each process once, with its '
+        'start; a root that is not running adds only its children', () {
+      const rows = [
+        ProcessRow(10, 1, 1, 1000),
+        ProcessRow(11, 10, 1, 1100),
+        ProcessRow(20, 1, 1, 2000),
+        ProcessRow(21, 20, 1, 2100),
+        // The child of a host that ended: its parent's ID is 30.
+        ProcessRow(31, 30, 1, 3100),
+      ];
+      expect(treesStarts(rows, [10, 20, 30, 11]), {
+        10: 1000,
+        11: 1100,
+        20: 2000,
+        21: 2100,
+        31: 3100,
+      });
+    });
+  });
+
+  group('waitUntilGone', () {
+    test(
+      'returns at once with nothing left when nothing was recorded',
+      () async {
+        var listings = 0;
+        final result = await waitUntilGone(
+          const {},
+          () async {
+            listings++;
+            return const [];
+          },
+          attempts: 5,
+          delay: Duration.zero,
+        );
+        expect(result.left, isEmpty);
+        expect(result.listingProblem, isNull);
+        expect(listings, 0);
+      },
+    );
+
+    test('looks again until the recorded processes are gone', () async {
+      var listings = 0;
+      final result = await waitUntilGone(
+        {7: 1000},
+        () async {
+          listings++;
+          return listings < 3 ? const [ProcessRow(7, 1, 1, 1000)] : const [];
+        },
+        attempts: 10,
+        delay: Duration.zero,
+      );
+      expect(result.left, isEmpty);
+      expect(listings, 3);
+    });
+
+    test('names what is left after its attempts, by ID and start: a '
+        'program given the ID later is not left', () async {
+      final left = await waitUntilGone(
+        {7: 1000, 8: 1000},
+        () async => const [
+          ProcessRow(7, 1, 1, 1000),
+          // Another program that was given 8, started much later.
+          ProcessRow(8, 1, 1, 900000),
+        ],
+        attempts: 3,
+        delay: Duration.zero,
+      );
+      expect(left.left, {7});
+    });
+
+    test('a listing that fails is a listingProblem, not a pass', () async {
+      final result = await waitUntilGone(
+        {7: 1000},
+        () async => throw StateError('the process list failed'),
+        attempts: 3,
+        delay: Duration.zero,
+      );
+      expect(result.listingProblem, contains('the process list failed'));
+    });
+  });
+
+  group('stillRunningProblem', () {
+    test('names what ended, the IDs in order, and the command to end '
+        'them', () {
+      final problem = stillRunningProblem('the analysis host', {9, 3});
+      expect(problem, contains('processes of the analysis host'));
+      expect(problem, contains('still running'));
+      expect(problem, contains('3, 9'));
+      expect(problem, anyOf(contains('taskkill'), contains('kill <id>')));
+    });
+  });
+
+  group('programs', () {
+    test('appsteinProgram is the name of the compiled binary, beside the '
+        'Dart programs', () {
+      expect(
+        programOf(const ProcessRow(1, 0, 0, null, 'C:\\x\\appstein.exe')),
+        appsteinProgram,
+      );
+      expect(
+        programOf(const ProcessRow(1, 0, 0, null, '/work/appstein')),
+        appsteinProgram,
+      );
+      expect(dartPrograms, isNot(contains(appsteinProgram)));
     });
   });
 }

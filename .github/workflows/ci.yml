@@ -211,12 +211,18 @@ jobs:
         # `tee` also puts the table in the log, which `gh run view --log` can
         # read; job summaries aren't available through the CLI or API.
         run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Measure sync, docs and verify, with the warm 5 s limit (spec §9.1, §15)
+      - name: Measure sync, docs and verify, with the 5 s limit on the warm tool and the hook (spec §9.1, §15)
         shell: bash
         # The apps go in the runner's temporary folder, on the disk that
         # holds the checkout. On Windows that is D:; the system temp folder
         # is on C:, a remote disk where writing the analyzer cache took
         # 0.6-3.8 s instead of 0.07 s (actions/runner-images#8755).
-        # The tool starts the compiled `appstein mcp` and fails when the
-        # warm fast `verify` takes 5 s or more, the median of three.
+        # The tool starts the compiled `appstein mcp` and the compiled hook
+        # (`appstein verify --fast --hook claude`, with Claude Code's input
+        # on stdin), on all three systems. It fails when the warm fast
+        # `verify` or the hook with the analysis host ready takes 5 s or
+        # more, the median of three, when a hook run does not exit 2 and name
+        # the error, or when two `appstein mcp` sessions and a hook do not
+        # share exactly one analysis server. It records the hook with no host
+        # running and ends every host it started.
         run: dart run tool/measure_sync.dart --work "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -6,6 +6,8 @@ import 'package:test/test.dart';
 import '../tool/src/mcp_session.dart';
 import '../tool/src/process_memory.dart';
 import '../tool/src/warm_measurement.dart';
+import 'support/measure_fixtures.dart';
+import 'support/temp_repo.dart';
 
 // The warm measurement against the fake MCP server of
 // test/support/fake_mcp_server.dart, which reads the edited Dart file from
@@ -17,8 +19,7 @@ void main() {
   late File edited;
 
   setUp(() {
-    project = Directory.systemTemp.createTempSync('appstein warm ');
-    addTearDown(() => project.deleteSync(recursive: true));
+    project = tempFolder();
     edited = File(p.join(project.path, 'lib', 'a.dart'))
       ..createSync(recursive: true)
       ..writeAsStringSync(original);
@@ -27,18 +28,12 @@ void main() {
   Future<McpSession> serve([
     List<String> flags = const [],
     Duration callTimeout = const Duration(seconds: 60),
-  ]) => McpSession.start(
-    Platform.resolvedExecutable,
-    [
-      p.join('test', 'support', 'fake_mcp_server.dart'),
-      '--file',
-      edited.path,
-      '--name',
-      relative,
-      ...flags,
-    ],
-    clientName: 'warm_measurement_test',
+  ]) => startFakeMcp(
+    file: edited,
+    name: relative,
+    flags: flags,
     callTimeout: callTimeout,
+    clientName: 'warm_measurement_test',
   );
 
   Future<WarmResult> measure(
@@ -188,6 +183,81 @@ void main() {
     );
     expect(result.problem, contains('did not end'));
     expect(result.problem, contains('killed'));
+  });
+
+  group('the analysis host, which outlives the session', () {
+    // The host (500) is not a child of the session (a detached process whose
+    // parent may have ended), with its guard (501) and server (502).
+    // Everything is gone together, once the session and the host are ended.
+    List<ProcessRow> rows(int sessionPid, {required bool hostRunning}) => [
+      if (hostRunning) ...[
+        ProcessRow(sessionPid, 1, 1 << 20, 1000),
+        ...hostTreeRows(parent: 1, host: 500, at: 2000, bytes: 1 << 20),
+      ],
+    ];
+
+    test('the host, its guard and its server count in the memory, and '
+        'ending the host passes the check that nothing is left', () async {
+      final session = await serve();
+      var ended = 0;
+      var hostRunning = true;
+      final result = await measureWarm(
+        session,
+        project: project.path,
+        file: relative,
+        lister: () async => rows(session.pid, hostRunning: hostRunning),
+        goneAttempts: 3,
+        goneDelay: const Duration(milliseconds: 50),
+        hostProcesses: () => [500],
+        endHosts: () async {
+          ended++;
+          hostRunning = false;
+          return null;
+        },
+      );
+      expect(result.problem, isNull);
+      expect(ended, 1);
+      expect(result.memoryReady, (1 + 100 + 10 + 1000) << 20);
+      expect(result.memoryAfter, (1 + 100 + 10 + 1000) << 20);
+    });
+
+    test('a host that is still running after endHosts is a leftover, '
+        'named by ID', () async {
+      final session = await serve();
+      final result = await measureWarm(
+        session,
+        project: project.path,
+        file: relative,
+        lister: () async => rows(session.pid, hostRunning: true),
+        goneAttempts: 3,
+        goneDelay: const Duration(milliseconds: 50),
+        hostProcesses: () => [500],
+        endHosts: () async => null,
+      );
+      expect(result.problem, allOf(contains('500'), contains('still running')));
+    });
+
+    test('why the hosts could not be ended is part of the problem, and '
+        'they are ended also when the first call fails', () async {
+      final session = await serve(['--error-reply-at', '1']);
+      var ended = 0;
+      final result = await measureWarm(
+        session,
+        project: project.path,
+        file: relative,
+        lister: () async => [ProcessRow(session.pid, 1, 1 << 20, 1000)],
+        goneAttempts: 1,
+        goneDelay: Duration.zero,
+        hostProcesses: () => const [],
+        endHosts: () async {
+          ended++;
+          return 'the host would not end';
+        },
+      );
+      expect(ended, 1);
+      expect(result.problem, contains('the first verify call'));
+      expect(result.problem, contains('the host would not end'));
+    });
   });
 
   group('the check that nothing is left running', () {
