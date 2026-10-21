@@ -696,8 +696,12 @@ void main() {
       ], isNot(contains('test/broken_test.dart')));
     });
 
-    test('the same error on a done loading test is a failure of its file in '
-        'a run that was not stopped', () async {
+    // The owner's rule of 2026-10-16: only a run that was stopped reads the
+    // errors at its tail as the stop's. In a run that ended by itself the
+    // same error is what it says: an error on the file after it loaded.
+    test('the same error on a done loading test, at the tail of a run that '
+        'was not stopped, is an error of its file after it loaded, not the '
+        'stop\'s', () async {
       final lines = flutterTestOutput('passing', app).trimRight().split('\n');
       scriptFlutterTest(
         runner,
@@ -721,6 +725,7 @@ void main() {
           'Bad state: Cannot close sink while adding stream.',
         ),
       ]);
+      expect(tests.failures.single.afterLoading, isTrue);
     });
 
     test('a test that starts after a test was done with `error` ends the '
@@ -831,6 +836,107 @@ void main() {
         expect(tests.running, [(file: 'test/passing_test.dart', test: null)]);
       },
     );
+  });
+
+  // CI run 39565003192 (Linux) reported a file that loaded and ran its tests
+  // as one that could not be loaded; the error's text was not recorded. The
+  // likely cause, read from Flutter's source, is the shutdown error of the
+  // `flutter_tester` process, which Flutter adds to a suite that has
+  // finished: package:test tells it as an `error` on the file's loading
+  // test, after that test's `testDone` with `"hidden":true`. An error from
+  // the file's own code after it loaded, or a crash Flutter tells in the
+  // middle of a test, can be told the same way. These lines are written
+  // from Flutter's source, not copied from a run, and the tests do not
+  // depend on the error's text.
+  group('an error on a file\'s loading test', () {
+    const crashed = shutdownError;
+
+    test('after it loaded: its own failure, with the error\'s text, and '
+        'the file\'s tests still told as they ran', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(
+          exitCode: 1,
+          stdout: flutterTestOutputWithError(
+            'failing',
+            app,
+            id: 7,
+            after: true,
+          ),
+        ),
+      );
+      final tests = await run();
+      expect(
+        (tests.timedOut, tests.cutShort, tests.unexplained),
+        (false, false, false),
+      );
+      expect(
+        [
+          for (final failure in tests.failures)
+            if (failure.afterLoading)
+              (failure.file, failure.test, failure.details),
+        ],
+        [('test/widgets/failing_test.dart', null, crashed)],
+      );
+      // The same failures as without the error, and the file's failing
+      // tests among them.
+      expect(
+        [
+          for (final failure in tests.failures)
+            if (!failure.afterLoading) failure.test,
+        ],
+        [
+          null,
+          'in a folder with a space',
+          'counter next adds two',
+          'counter next throws',
+          'shows other text',
+          'a widget in a folder with a space',
+          'widget throws',
+        ],
+      );
+    });
+
+    test('after the only tests of a run, which all passed: that is the one '
+        'failure', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(
+          exitCode: 1,
+          stdout: flutterTestOutputWithError(
+            'passing',
+            app,
+            id: 1,
+            after: true,
+          ),
+        ),
+      );
+      final tests = await run();
+      expect(told(tests), [('test/passing_test.dart', null, null, crashed)]);
+      expect(tests.failures.single.afterLoading, isTrue);
+    });
+
+    test('before it was told as done: a file that could not be loaded, as '
+        'before', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(
+          exitCode: 1,
+          stdout: flutterTestOutputWithError(
+            'passing',
+            app,
+            id: 1,
+            after: false,
+          ),
+        ),
+      );
+      final tests = await run();
+      expect(told(tests), [('test/passing_test.dart', null, null, crashed)]);
+      expect(tests.failures.single.afterLoading, isFalse);
+    });
   });
 
   // A real run of Flutter 3.47.5 on Windows: a test calls `exit(0)`. Its

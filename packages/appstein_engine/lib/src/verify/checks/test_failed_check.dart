@@ -12,6 +12,13 @@ import '../verify_check.dart';
 ///   failure. A test that threw is reported as one whose expectation failed.
 /// - **A test file that can't be loaded** is one error on that file, with
 ///   the loader's message.
+/// - **A test file that reports an error after it loaded** is one error on
+///   that file, worded as such, not as a file that could not be loaded. The
+///   cause is not told: it was seen once, on Linux CI, with its text not
+///   recorded. The likely cause, from Flutter's source, is the shutdown
+///   error of the `flutter_tester` process, which Flutter adds to a suite
+///   that has finished, and fails the run for; an error from the file's own
+///   code after it loaded is possible too.
 /// - **A run that does not finish** keeps what it told: its failures are
 ///   reported as above, and one more error on the project says the run did
 ///   not finish, naming the tests that were running when it stopped. That is
@@ -106,9 +113,13 @@ final class TestFailedCheck implements GatheringCheck, FollowingCheck {
           severity: Severity.error,
           file: failure.file,
           line: failure.line,
-          message: switch (failure.test) {
-            final name? => 'The test `$name` failed: ${failure.details}',
-            null => 'The test file could not be loaded: ${failure.details}',
+          message: switch ((failure.test, failure.afterLoading)) {
+            (final name?, _) => 'The test `$name` failed: ${failure.details}',
+            (null, true) =>
+              'This test file reported an error after it loaded: '
+                  '${failure.details}',
+            (null, false) =>
+              'The test file could not be loaded: ${failure.details}',
           },
           fixHint:
               'Run `flutter test ${_argument(failure.file)}` to see the '

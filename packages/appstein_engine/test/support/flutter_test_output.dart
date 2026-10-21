@@ -31,6 +31,44 @@ String flutterTestOutput(String name, String project) =>
         .replaceAll('{rootUri}', Uri.file(project).toString())
         .replaceAll('{root}', project.replaceAll(r'\', '/'));
 
+/// A plausible text for an `error` event on a file's loading test after the
+/// file loaded: Flutter's message for a `flutter_tester` that crashed. The
+/// real text of the one occurrence (Linux CI, run 39565003192) was not
+/// recorded, and the tests do not depend on its form.
+const shutdownError = 'Shell subprocess crashed with segmentation fault.';
+
+/// [flutterTestOutput] of [name] in [project], with an `error` event with
+/// [message] on the loading test [id]. With [after] true it comes right
+/// after the line that tells that test as done (hidden), as an error after
+/// the file loaded does. With [after] false it comes right before, and that
+/// line tells the test as done with `error` and not hidden, as a file that
+/// could not be loaded does. Written from Flutter's source and the real load
+/// failure in `failing.jsonl`, not copied from a run of an error after
+/// loading.
+String flutterTestOutputWithError(
+  String name,
+  String project, {
+  required int id,
+  required bool after,
+  String message = shutdownError,
+}) {
+  final lines = flutterTestOutput(name, project).trimRight().split('\n');
+  final doneAt = lines.indexWhere(
+    (line) => line.contains('"testID":$id,') && line.contains('"testDone"'),
+  );
+  final error =
+      '{"testID":$id,"error":"$message","stackTrace":"",'
+      '"isFailure":false,"type":"error","time":31500}';
+  return [
+    ...lines.take(after ? doneAt + 1 : doneAt),
+    error,
+    if (!after)
+      '{"testID":$id,"result":"error","skipped":false,"hidden":false,'
+          '"type":"testDone","time":31501}',
+    ...lines.skip(doneAt + 1),
+  ].join('\n');
+}
+
 /// The last event of a run whose tests all passed.
 const _allPassed = '{"success":true,"type":"done","time":1}\n';
 

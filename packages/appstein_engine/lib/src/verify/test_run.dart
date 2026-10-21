@@ -8,7 +8,8 @@ import '../host/host_environment.dart';
 import '../host/process_runner.dart';
 import '../sdk/sdk_detector.dart';
 
-/// One test that failed, or one test file that could not be loaded.
+/// One test that failed, one test file that could not be loaded, or one
+/// test file that reported an error after it loaded.
 final class TestFailure {
   /// Creates the failure.
   const TestFailure({
@@ -16,21 +17,35 @@ final class TestFailure {
     this.line,
     this.test,
     required this.details,
+    this.afterLoading = false,
   });
 
   /// The test file, from the project root, with `/` on every system.
   final String file;
 
-  /// The 1-based line the test starts on in [file]; null for a file that
-  /// could not be loaded, and where `flutter test` gives none.
+  /// The 1-based line the test starts on in [file]; null for a failure of
+  /// the file itself (it could not be loaded, or it reported an error after
+  /// it loaded), and where `flutter test` gives none.
   final int? line;
 
-  /// The test's full name, with the names of its groups before it; null
-  /// when [file] could not be loaded.
+  /// The test's full name, with the names of its groups before it; null for
+  /// a failure of the file itself.
   final String? test;
 
   /// The first lines of the failure, on one line.
   final String details;
+
+  /// Whether this is an error on the file's loading test that came after
+  /// the output had told that test as done, not a file that could not be
+  /// loaded: the file loaded, and its tests ran as they are told. It says
+  /// nothing about the cause, only that it came after the file loaded. It
+  /// was seen once, on Linux CI (run 39565003192), and its text was not
+  /// recorded. The likely cause, read from Flutter's source, is the shutdown
+  /// error of the `flutter_tester` process, which Flutter adds to a suite
+  /// that has finished. Others are possible: an uncaught error from the
+  /// file's own code after it loaded, and a crash Flutter tells in the middle
+  /// of a test. Only for a failure with no [test].
+  final bool afterLoading;
 }
 
 /// A test that was running, or a file that was being loaded, when a run
@@ -102,7 +117,8 @@ final class TestRun {
   /// the run, with no test started) and named no failing test.
   final bool unexplained;
 
-  /// The failing tests and the files that could not be loaded, in the order
+  /// The failing tests, the files that could not be loaded and the files
+  /// that reported an error after they loaded, in the order
   /// `flutter test` started them.
   final List<TestFailure> failures;
 
@@ -262,6 +278,11 @@ bool hasTestFiles(String projectRoot) {
 /// it told an error; a setUpAll or tearDownAll in it is never among
 /// `running`. Every other `testDone` with `error` and no error before it is
 /// a failure whose process ended.
+///
+/// An `error` on a file's loading test that comes after the output told that
+/// test as done and hidden is not a load failure: the file loaded and its
+/// tests ran. It is a failure of the file with `afterLoading`, whatever the
+/// cause (see [TestFailure.afterLoading]).
 ({
   List<TestFailure> failures,
   bool passed,
@@ -338,6 +359,8 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
   final errors = <int, String>{};
   final framework = <int, String>{};
   final failed = <int>{};
+  // Whose first error came after the output told them as done (hidden).
+  final errorAfterDone = <int>{};
   // Done with `error` and no error: their test process ended.
   final ended = <int>{};
   var passed = false;
@@ -363,6 +386,9 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
         'error': final String error,
       }:
         // The first error is the failure; a later one follows from it.
+        if (!errors.containsKey(id) && (hiddenDoneAt[id] ?? index) < index) {
+          errorAfterDone.add(id);
+        }
         errors.putIfAbsent(id, () => error);
         failed.add(id);
       case {
@@ -428,6 +454,7 @@ _readEvents(String output, String projectRoot, {required bool stopped}) {
         line: loading || suite == null ? null : _line(test, suite),
         test: loading ? null : name,
         details: _firstLines(details, [root, ?real]),
+        afterLoading: loading && errorAfterDone.contains(id),
       ),
     );
   }

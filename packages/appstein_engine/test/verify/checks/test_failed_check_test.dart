@@ -209,6 +209,66 @@ void main() {
     });
   });
 
+  group('an error on a file\'s loading test', () {
+    const crashed = shutdownError;
+
+    test('after it loaded: one error that says so, not that the file could '
+        'not be loaded', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(
+          exitCode: 1,
+          stdout: flutterTestOutputWithError(
+            'passing',
+            app,
+            id: 1,
+            after: true,
+          ),
+        ),
+      );
+      final result = await verify();
+      final finding = result.findings.single;
+      expect(finding.id, 'test.failed');
+      expect(finding.severity, Severity.error);
+      expect(finding.file, 'test/passing_test.dart');
+      expect(finding.line, isNull);
+      expect(
+        finding.message,
+        'This test file reported an error after it loaded: $crashed',
+      );
+      expect(
+        finding.fixHint,
+        'Run `flutter test test/passing_test.dart` to see the whole failure.',
+      );
+      // The JSON output carries the message, which tells the two apart.
+      expect(finding.toJson()['message'], finding.message);
+      expect(result.errors, 1);
+    });
+
+    test('before it was told as done: the file could not be loaded, as '
+        'before', () async {
+      scriptFlutterTest(
+        runner,
+        sdk,
+        RunResult(
+          exitCode: 1,
+          stdout: flutterTestOutputWithError(
+            'passing',
+            app,
+            id: 1,
+            after: false,
+          ),
+        ),
+      );
+      final result = await verify();
+      expect(
+        result.findings.single.message,
+        'The test file could not be loaded: $crashed',
+      );
+    });
+  });
+
   test('verify.severity changes test.failed, and a suppression hides '
       'it', () async {
     scriptFailing();

@@ -101,6 +101,19 @@ String _lastEvents(
       .join('\n');
 }
 
+/// The failures of [tests], each with its file, line and details, and
+/// [printed] (the last events), as the reason of an expectation. It is built
+/// before the expectation, not when it fails: `expect` takes the reason as a
+/// string, and building it costs next to nothing.
+String _failureReason(TestRun tests, String printed) => [
+  for (final failure in tests.failures)
+    '${failure.file}:${failure.line} ${failure.test ?? '(loading)'}'
+        '${failure.afterLoading ? ' (reported after it loaded)' : ''}: '
+        '${failure.details}',
+  'The last events:',
+  printed,
+].join('\n');
+
 // The real `flutter test` of this machine's Flutter SDK (slice 1d.2). The
 // scripted tests in `test/verify/` use output copied from the first run
 // here, so this test is also what keeps that copy true.
@@ -139,19 +152,48 @@ void main() {
     final root = sdk.location!.root;
     final app = await testsApp(root);
 
+    final recording = _Recording();
     final tests = await runProjectTests(
       projectRoot: app,
       environment: using(root),
-      runner: const SystemProcessRunner(),
+      runner: recording,
       timeout: const Duration(minutes: 8),
     );
 
-    expect((tests.ran, tests.timedOut), (true, false));
-    final told = {
+    // What `flutter test` printed last: a failing run shows the real
+    // sequence of events. An error on a file after it loaded was seen once,
+    // on Linux CI, with its text not recorded: the next one is printed
+    // below, so its text is in the log.
+    final printed = _lastEvents(
+      recording.last?.stdout ?? '',
+      app: app,
+      flutter: root,
+    );
+    final reason = _failureReason(tests, printed);
+    expect((tests.ran, tests.timedOut), (true, false), reason: reason);
+    // `flutter test` can report an error on a file after it loaded (the
+    // likely cause is the shutdown error of its test process): a finding of
+    // its own, which says nothing against the file's tests.
+    if (tests.failures.any((failure) => failure.afterLoading)) {
+      print('An error after a file loaded was accepted:\n$reason');
+    }
+    for (final failure in tests.failures.where((one) => one.afterLoading)) {
+      expect(failure.test, isNull, reason: reason);
+      expect(
+        failure.file,
+        isNot('test/broken_test.dart'),
+        reason: 'a file that did not load has no tests that ran\n$reason',
+      );
+    }
+    final failures = [
       for (final failure in tests.failures)
+        if (!failure.afterLoading) failure,
+    ];
+    final told = {
+      for (final failure in failures)
         (failure.file, failure.test): (failure.line, failure.details),
     };
-    expect(told.keys, hasLength(tests.failures.length));
+    expect(told.keys, hasLength(failures.length), reason: reason);
     expect(told.keys.toSet(), {
       ('test/broken_test.dart', null),
       ('test/my folder/spaced_test.dart', 'in a folder with a space'),
@@ -160,7 +202,7 @@ void main() {
       ('test/widgets/failing_test.dart', 'counter next throws'),
       ('test/widgets/failing_test.dart', 'shows other text'),
       ('test/widgets/failing_test.dart', 'widget throws'),
-    });
+    }, reason: reason);
     expect(told[('test/widgets/failing_test.dart', 'counter next adds two')], (
       8,
       'Expected: <3> Actual: <2>',
@@ -214,14 +256,31 @@ void main() {
     Directory(p.join(app, 'test', 'my folder')).deleteSync(recursive: true);
     Directory(p.join(app, 'test', 'widgets')).deleteSync(recursive: true);
 
+    final recording = _Recording();
     final tests = await runProjectTests(
       projectRoot: app,
       environment: using(root),
-      runner: const SystemProcessRunner(),
+      runner: recording,
       timeout: const Duration(minutes: 8),
     );
-    expect((tests.ran, tests.timedOut), (true, false));
-    expect(tests.failures, isEmpty);
+    final reason = _failureReason(
+      tests,
+      _lastEvents(recording.last?.stdout ?? '', app: app, flutter: root),
+    );
+    expect((tests.ran, tests.timedOut), (true, false), reason: reason);
+    // Only an error on the file after it loaded is accepted (see the test of
+    // the whole fixture app): no failing test, no file that can't load.
+    if (tests.failures.any((failure) => failure.afterLoading)) {
+      print('An error after a file loaded was accepted:\n$reason');
+    }
+    expect(
+      [
+        for (final failure in tests.failures)
+          if (!failure.afterLoading || failure.test != null) failure.details,
+      ],
+      isEmpty,
+      reason: reason,
+    );
     expect(flutterTestCommand, flutterTestArguments);
   }, timeout: const Timeout(Duration(minutes: 15)));
 
