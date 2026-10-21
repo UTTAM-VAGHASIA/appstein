@@ -151,6 +151,9 @@ Future<({Socket socket, StreamIterator<String> lines})> rawClient(
     InternetAddress.loopbackIPv4,
     address.port,
   );
+  // A peer that resets the connection fails `done` once something was
+  // written (EPIPE on Linux, ECONNRESET on macOS): nobody waits on it.
+  socket.done.ignore();
   final lines = StreamIterator(
     utf8.decoder.bind(socket).transform(const LineSplitter()),
   );
@@ -173,6 +176,7 @@ const _right = '/// Right.\nint right = 1;\n';
 /// [first] (none when the host closes it first, or none comes in 10 s).
 Future<List<String>> answerTo(int port, String first) async {
   final socket = await Socket.connect(InternetAddress.loopbackIPv4, port);
+  socket.done.ignore();
   socket.write('$first\n');
   final lines = <String>[];
   final done = Completer<void>();
@@ -262,10 +266,36 @@ void main() {
 
   test(
     'off Windows the folder is made user-only (700) and the address file '
-    'too (600); a client refuses a folder or file that is not',
+    'too (600); a client refuses a folder or file that is not once there is '
+    'an address, and a folder others can write to always',
     () async {
       final folder = p.join(tempDir().path, 'hosts');
       final file = analysisHostAddressFile(folder, '/work/my app');
+      // No address file: a folder of the user's own at 755 or 775 (as a host
+      // killed before its chmod leaves it) is not refused, one others can
+      // write to is; the strict look, after an address was read, wants 700.
+      Directory(folder).createSync();
+      for (final open in ['755', '775']) {
+        Process.runSync('chmod', [open, folder]);
+        expect(await untrustedAddress(file), isNull, reason: open);
+      }
+      expect(
+        await untrustedAddress(file, strict: true),
+        contains('mode 775, not 700'),
+      );
+      expect(
+        await untrustedAddressFolder(folder),
+        contains('mode 775, not 700'),
+      );
+      for (final open in ['757', '777']) {
+        Process.runSync('chmod', [open, folder]);
+        expect(
+          await untrustedAddress(file),
+          contains('mode $open, so other users can write to it'),
+          reason: open,
+        );
+      }
+
       await writeAnalysisHostAddress(
         file,
         const AnalysisHostAddress(
@@ -279,12 +309,24 @@ void main() {
       expect(mode(folder).toRadixString(8), '700');
       expect(mode(file).toRadixString(8), '600');
       expect(await untrustedAddress(file), isNull);
+      expect(await untrustedAddress(file, strict: true), isNull);
+      expect(await untrustedAddressFolder(folder), isNull);
 
       Process.runSync('chmod', ['644', file]);
       expect(await untrustedAddress(file), contains('mode 644, not 600'));
+      expect(
+        await untrustedAddress(file, strict: true),
+        contains('mode 644, not 600'),
+      );
       Process.runSync('chmod', ['600', file]);
+      // An address file in a folder that is not 700: refused, before and
+      // after the read.
       Process.runSync('chmod', ['755', folder]);
       expect(await untrustedAddress(file), contains('mode 755, not 700'));
+      expect(
+        await untrustedAddress(file, strict: true),
+        contains('mode 755, not 700'),
+      );
 
       // A client of that project then refuses to use the host, with why.
       final (:scope, folder: _) = testHost('/work/my app', folder: folder);
@@ -299,6 +341,64 @@ void main() {
         ),
       );
     },
+    skip: Platform.isWindows
+        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
+              'has no Unix mode'
+        : false,
+  );
+
+  test(
+    'off Windows a folder path that is a link is refused, with an address '
+    'file behind it or none',
+    () async {
+      final mine = p.join(tempDir().path, 'my own');
+      Directory(mine).createSync();
+      final linked = p.join(tempDir().path, 'appstein-planted');
+      Link(linked).createSync(mine);
+      final file = analysisHostAddressFile(linked, '/work/my app');
+      expect(await untrustedAddress(file), contains('is not a plain folder'));
+      expect(
+        await untrustedAddressFolder(linked),
+        contains('is not a plain folder'),
+      );
+
+      // A good address in a good folder, reached through the link.
+      await writeAnalysisHostAddress(
+        analysisHostAddressFile(mine, '/work/my app'),
+        const AnalysisHostAddress(
+          port: 1,
+          secret: 's',
+          processId: 1,
+          appsteinVersion: 'test',
+        ),
+      );
+      expect(File(file).existsSync(), isTrue);
+      expect(await untrustedAddress(file), contains('is not a plain folder'));
+      expect(
+        await untrustedAddress(file, strict: true),
+        contains('is not a plain folder'),
+      );
+    },
+    skip: Platform.isWindows
+        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
+              'has no Unix mode'
+        : false,
+  );
+
+  test(
+    "off Windows a host started into a folder of the user's own at 755, with "
+    'no address file, starts, answers and leaves the folder at 700',
+    () async {
+      final app = copyFixtureApp();
+      final folder = p.join(tempDir().path, 'host folder');
+      Directory(folder).createSync();
+      Process.runSync('chmod', ['755', folder]);
+      final (:scope, folder: _) = testHost(app, folder: folder);
+      expect(await codesIn(scope, 'lib/main.dart'), isEmpty);
+      expect(hostProcess(folder, app), isNotNull);
+      expect((FileStat.statSync(folder).mode & 0x1FF).toRadixString(8), '700');
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
     skip: Platform.isWindows
         ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
               'has no Unix mode'
@@ -521,20 +621,50 @@ void main() {
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('a host that fails before it has an address leaves why, and the '
-      "client's error says it", () async {
-    final app = copyFixtureApp();
+  test('a host that fails before it has an address leaves why beside it, and '
+      'throws', () async {
+    final app = tempDir().path;
     final folder = p.join(tempDir().path, 'host folder');
+    final file = analysisHostAddressFile(folder, app);
     // A folder where the address file must go: the rename onto it fails.
-    Directory(analysisHostAddressFile(folder, app)).createSync(recursive: true);
-    final (:scope, folder: _) = testHost(app, folder: folder);
+    Directory(file).createSync(recursive: true);
+    await expectLater(
+      runAnalysisHost(
+        projectRoot: app,
+        analysis: _StandInServer.new,
+        addressFolder: folder,
+        appsteinVersion: 'test',
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+    final why = File(analysisHostFailureFile(file)).readAsStringSync();
+    expect(why, startsWith('the analysis host could not start: '));
+    expect(why, isNot(contains('\n')));
+  });
+
+  test("the client's error repeats why the host it started could not start, "
+      'and takes the reason away', () async {
+    final app = tempDir().path;
+    final folder = p.join(tempDir().path, 'host folder');
+    const why = 'the analysis host could not start: a reason (a path)';
+    final (:scope, folder: _) = testHost(
+      app,
+      folder: folder,
+      hostCommand: [
+        Platform.resolvedExecutable,
+        analysisSupportFile('failing_host_main.dart'),
+        folder,
+        '700',
+        why,
+      ],
+    );
     await expectLater(
       codesIn(scope, 'lib/main.dart'),
       throwsA(
         isA<CodeAnalysisException>().having(
           (error) => error.reason,
           'reason',
-          startsWith('the analysis host could not start: '),
+          why,
         ),
       ),
     );
@@ -546,6 +676,52 @@ void main() {
       isFalse,
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'off Windows a reason left in a folder that is not 700 is never read: '
+    "the client's error names the folder instead",
+    () async {
+      final app = tempDir().path;
+      final folder = p.join(tempDir().path, 'host folder');
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: folder,
+        hostCommand: [
+          Platform.resolvedExecutable,
+          analysisSupportFile('failing_host_main.dart'),
+          folder,
+          '755',
+          'the analysis host could not start: planted',
+        ],
+      );
+      await expectLater(
+        codesIn(scope, 'lib/main.dart'),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            allOf(
+              startsWith('the analysis host could not start: the folder '),
+              contains('mode 755, not 700'),
+              isNot(contains('planted')),
+            ),
+          ),
+        ),
+      );
+      // Not read, so left as it was.
+      expect(
+        File(
+          analysisHostFailureFile(analysisHostAddressFile(folder, app)),
+        ).existsSync(),
+        isTrue,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+    skip: Platform.isWindows
+        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
+              'has no Unix mode'
+        : false,
+  );
 
   // Ticket 03: every session shares one host.
   group('one host for every client of a project', () {
@@ -742,7 +918,9 @@ void main() {
       expect(result, 'in');
       // The new lock was left until it was stale itself.
       expect(looks, 2);
-      expect(watch.elapsed, greaterThan(const Duration(milliseconds: 1900)));
+      // Not 1900: before Dart 3.13 a modified time on Linux has whole-second
+      // resolution (dart-lang/sdk#42444), so the 2 s limit can fire after 1 s.
+      expect(watch.elapsed, greaterThan(const Duration(milliseconds: 900)));
     });
 
     test('versions compare as semantic versions; one that is not one counts '
@@ -1168,9 +1346,13 @@ void main() {
       );
       // The host answers with an ending or closes the connection; it never
       // takes the question.
-      while (await client.lines.moveNext()) {
-        final line = jsonDecode(client.lines.current) as Map<String, Object?>;
-        expect(AnalysisHostTurn.isTurn(line), isFalse);
+      try {
+        while (await client.lines.moveNext()) {
+          final line = jsonDecode(client.lines.current) as Map<String, Object?>;
+          expect(AnalysisHostTurn.isTurn(line), isFalse);
+        }
+      } on SocketException {
+        // The host closed it before reading the question: a reset is a close.
       }
       expect(server.asked, isEmpty, reason: 'never begun');
     });
@@ -1276,6 +1458,7 @@ void main() {
         ),
       );
       listening.listen((socket) {
+        socket.done.ignore();
         var lines = 0;
         utf8.decoder
             .bind(socket)
@@ -1539,7 +1722,9 @@ void main() {
       );
       var connections = 0;
       final firstClosed = Completer<void>();
+      final stopAsked = Completer<void>();
       listening.listen((socket) {
+        socket.done.ignore();
         if (connections++ > 0) {
           socket.destroy();
           return;
@@ -1550,7 +1735,7 @@ void main() {
             .transform(const LineSplitter())
             .listen(
               // It welcomes the client as a host of an older version, and
-              // never answers the stop it is sent.
+              // never answers the stop it is sent (the client's second line).
               (_) {
                 if (lines++ == 0) {
                   socket.writeln(
@@ -1561,6 +1746,8 @@ void main() {
                       ).toJson(),
                     ),
                   );
+                } else if (!stopAsked.isCompleted) {
+                  stopAsked.complete();
                 }
               },
               onError: (Object _) {},
@@ -1579,7 +1766,10 @@ void main() {
           (_) => null,
           onError: (Object error) => error,
         );
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        // The scope ends once the client waits for the stop to be answered,
+        // not after a fixed time: a slow runner could end it while the
+        // client still waited for the welcome.
+        await stopAsked.future.timeout(const Duration(seconds: 30));
       });
       // Not the 10 s the stop would be waited for.
       await firstClosed.future.timeout(const Duration(seconds: 3));

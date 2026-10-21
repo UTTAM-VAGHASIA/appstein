@@ -33,14 +33,19 @@ const analysisHostIdleStop = analysisIdleStop;
 /// - on Windows, `appstein` in `%LOCALAPPDATA%`, the user's own;
 /// - elsewhere, `appstein` in `$XDG_RUNTIME_DIR` (`/run/user/<uid>` on
 ///   Linux, the user's own);
-/// - otherwise `appstein-<uid>` in the system's temporary folder: on Linux
-///   that folder is shared by every user, so the name is the user's own and
-///   another user can't make it first under the name this user looks for.
-///   Where the user ID can't be read, `appstein-<user name>`.
+/// - otherwise `appstein-<uid>` in the system's temporary folder (on macOS
+///   `$TMPDIR`, the user's own). On Linux that folder is shared by every
+///   user, so another user can make `appstein-<uid>` first. Nothing leaks:
+///   a client refuses it at once when other users can write to it, and
+///   otherwise the host it starts can't give it mode 700, writes nothing
+///   there, and the client says why; but no host runs for the user until
+///   that folder is gone. Where the user ID can't be read,
+///   `appstein-<user name>`.
 ///
 /// The host makes the folder, and off Windows gives it mode 700
-/// ([writeAnalysisHostAddress]); a client refuses one that isn't so
-/// ([untrustedAddress]).
+/// ([writeAnalysisHostAddress]). A client refuses a folder that is a link,
+/// or that other users can write to, and checks for mode 700 and the user's
+/// own whenever there is an address to read ([untrustedAddress]).
 String analysisHostFolder(HostEnvironment environment) {
   String? set(String name) => switch (environment.variable(name)) {
     final value? when value.isNotEmpty => value,
@@ -192,43 +197,87 @@ Future<void> _userOnly(String mode, String path, HostOs os) async {
 /// Why the address file [path] must not be trusted; null when it may be
 /// read. On Windows ([os]) the folder is the user's own (`%LOCALAPPDATA%`),
 /// so nothing is checked. Elsewhere, when the folder exists:
-/// - it must be a folder, not a link, with mode 700, and the user's own
-///   (`chmod` to the same mode works only for its owner);
-/// - the file, when there is one, must be a file, not a link, with mode 600,
-///   and the user's own.
+/// - it must be a folder, not a link, and other users must not be able to
+///   write to it (no world-write bit);
+/// - when the address file is there, or [strict] is true, the folder must
+///   also pass [untrustedAddressFolder]: mode 700 and the user's own;
+/// - when the address file is there, it must be a file, not a link, with
+///   mode 600, and the user's own.
+///
+/// A client looks before it reads an address, and **once it has read one,
+/// looks again with [strict]**: a file another user renamed into the folder
+/// between the two moments is then refused, even if it has gone again. With
+/// no address file and [strict] false, a folder of the user's own at 755 or
+/// 775 (as a host killed between making it and its `chmod` leaves it) is
+/// not refused: the host that is started next gives it mode 700 before it
+/// writes its address there, and in a folder another user owns that `chmod`
+/// fails, so the host writes nothing there ([writeAnalysisHostAddress]).
 ///
 /// Every local program can reach a loopback port, so a client that took
 /// another user's address file would send that user's host its questions,
 /// and that host could answer anything.
-Future<String?> untrustedAddress(String path, {HostOs? os}) async {
+Future<String?> untrustedAddress(
+  String path, {
+  HostOs? os,
+  bool strict = false,
+}) async {
   if ((os ?? HostOs.current) == HostOs.windows) return null;
-  Future<String?> check(
-    String what,
-    String target,
-    int mode,
-    bool folder,
-  ) async {
-    final type = await FileSystemEntity.type(target, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return null;
-    final wanted = folder
-        ? FileSystemEntityType.directory
-        : FileSystemEntityType.file;
-    if (type != wanted) {
-      return '$what $target is not a plain ${folder ? 'folder' : 'file'}';
-    }
-    final actual = (await FileStat.stat(target)).mode & 0x1FF;
-    final octal = mode.toRadixString(8);
-    if (actual != mode) {
-      return '$what $target has mode ${actual.toRadixString(8)}, not $octal';
-    }
-    if (!await setFileMode(octal, target)) {
-      return '$what $target is not the user\'s own';
+  final folder = p.dirname(path);
+  final folderType = await FileSystemEntity.type(folder, followLinks: false);
+  if (folderType == FileSystemEntityType.notFound) return null;
+  if (folderType != FileSystemEntityType.directory) {
+    return _notPlainFolder(folder);
+  }
+  final fileType = await FileSystemEntity.type(path, followLinks: false);
+  if (fileType == FileSystemEntityType.notFound && !strict) {
+    final mode = (await FileStat.stat(folder)).mode & 0x1FF;
+    if (mode & 0x2 != 0) {
+      return 'the folder $folder has mode ${mode.toRadixString(8)}, so '
+          'other users can write to it';
     }
     return null;
   }
+  if (await _notUserOnly('the folder', folder, 0x1C0) case final why?) {
+    return why;
+  }
+  if (fileType == FileSystemEntityType.notFound) return null;
+  if (fileType != FileSystemEntityType.file) {
+    return 'the address file $path is not a plain file';
+  }
+  return _notUserOnly('the address file', path, 0x180);
+}
 
-  return await check('the folder', p.dirname(path), 0x1C0, true) ??
-      await check('the address file', path, 0x180, false);
+/// Why the address-file folder [folder] is not one only the user can use;
+/// null when it is, or doesn't exist. On Windows ([os]) nothing is checked.
+/// Elsewhere it must be a folder, not a link, with mode 700, and the user's
+/// own (`chmod` to the same mode works only for its owner).
+///
+/// A client checks it before it trusts anything read from the folder: an
+/// address ([untrustedAddress] with `strict`), and the reason a host that
+/// could not start left there ([analysisHostFailureFile]).
+Future<String?> untrustedAddressFolder(String folder, {HostOs? os}) async {
+  if ((os ?? HostOs.current) == HostOs.windows) return null;
+  final type = await FileSystemEntity.type(folder, followLinks: false);
+  if (type == FileSystemEntityType.notFound) return null;
+  if (type != FileSystemEntityType.directory) return _notPlainFolder(folder);
+  return _notUserOnly('the folder', folder, 0x1C0);
+}
+
+String _notPlainFolder(String folder) =>
+    'the folder $folder is not a plain folder';
+
+/// Why [target] ([what]) doesn't have the permissions [mode] or isn't the
+/// user's own; null when it has them and is.
+Future<String?> _notUserOnly(String what, String target, int mode) async {
+  final actual = (await FileStat.stat(target)).mode & 0x1FF;
+  final octal = mode.toRadixString(8);
+  if (actual != mode) {
+    return '$what $target has mode ${actual.toRadixString(8)}, not $octal';
+  }
+  if (!await setFileMode(octal, target)) {
+    return '$what $target is not the user\'s own';
+  }
+  return null;
 }
 
 /// The address in the file [path]; null when there is none, or it can't be
@@ -303,6 +352,9 @@ const _helloLimit = Duration(seconds: 10);
 ///   guard. A connection that asks nothing for [idleStop] is closed. A host
 ///   that is killed instead takes its guard and server with it: the guard
 ///   ends the server when the host's end closes its input.
+/// - **It ends at once when its port fails**: Dart closes a server socket on
+///   any error, so a host that kept its address file would accept nothing.
+///   It gives the address up and ends as it does after [idleStop].
 Future<void> runAnalysisHost({
   required String projectRoot,
   required StoppableCodeAnalysis Function(AnalysisHostWrites writes) analysis,
@@ -522,7 +574,7 @@ Future<void> runAnalysisHost({
       await _closeWritten(socket);
       await lines.cancel();
     }
-  });
+  }, onError: (Object _) => unawaited(end()));
   await ended.future;
 }
 

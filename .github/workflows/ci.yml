@@ -50,6 +50,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # The job takes about 25 to 35 minutes. Without a limit, a runner that
+    # stops answering would hold the job for GitHub's 6 hours.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -165,6 +168,8 @@ jobs:
 
   min-sdk:
     runs-on: ubuntu-latest
+    # Its tests take about 10 minutes; the limit is the test job's.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2

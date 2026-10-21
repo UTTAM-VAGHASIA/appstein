@@ -96,6 +96,7 @@ Future<({List<String> received})> standInHost(
   );
   final received = <String>[];
   listening.listen((socket) {
+    socket.done.ignore();
     var lines = 0;
     utf8.decoder.bind(socket).transform(const LineSplitter()).listen((line) {
       if (lines++ == 0) {

@@ -75,9 +75,12 @@ const _connectLimit = Duration(seconds: 5);
 ///   Otherwise it fails, as a host that ended does.
 /// - **An address file it doesn't own is never trusted** (off Windows): the
 ///   folder must be the user's own with mode 700, and the file the user's
-///   own with mode 600 ([untrustedAddress]); otherwise the question fails
-///   with the reason. (A client that starts no host uses a server of its own
-///   instead, below.)
+///   own with mode 600 ([untrustedAddress]), checked before the address is
+///   read and again after; otherwise the question fails with the reason.
+///   With no address file the folder is refused only when it is a link, not
+///   a folder, or writable by other users: the host it starts gives the
+///   folder mode 700 before it writes its address. (A client that starts no
+///   host uses a server of its own instead, below.)
 /// - **One connection serves the whole body**, and is closed when the body
 ///   ends; the host is left running for the next client. The host takes the
 ///   server for each question alone, so between two questions of this body
@@ -279,6 +282,15 @@ final class _Slow extends _AddressOutcome {
 /// The error codes of a connection refused: Windows (Winsock's 10061, and
 /// the 1225 a refused loopback connect reports), Linux, macOS.
 const _refusedCodes = {10061, 1225, 111, 61};
+
+/// Whether [a] is the address [b]: every field the same (the type has no
+/// `==` of its own).
+bool _sameAddress(AnalysisHostAddress? a, AnalysisHostAddress b) =>
+    a != null &&
+    a.port == b.port &&
+    a.secret == b.secret &&
+    a.processId == b.processId &&
+    a.appsteinVersion == b.appsteinVersion;
 
 /// [line] as a JSON object; null when it is none.
 Map<String, Object?>? _object(String? line) {
@@ -555,21 +567,23 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
     return null;
   }
 
-  /// Why the host this client started ended before it answered: the reason
-  /// it left in [failure] (which is then deleted), else what is wrong with
-  /// the address file's folder, else that it ended.
+  /// Why the host this client started ended before it answered: what is
+  /// wrong with the address file's folder when it is not one only the user
+  /// can use ([untrustedAddressFolder]: a link, another user's folder, a
+  /// mode other than 700), else the reason the host left in [failure]
+  /// (which is then deleted), else that it ended. A reason in a folder that
+  /// fails that check is never read: another user could have put it there.
   Future<String> _whyItEnded(File failure) async {
+    final folder = File(addressFile).parent.path;
+    if (await untrustedAddressFolder(folder, os: os) case final bad?) {
+      return 'the analysis host could not start: $bad';
+    }
     try {
       final why = (await failure.readAsString()).trim();
       await failure.delete();
       if (why.isNotEmpty) return why;
     } on FileSystemException {
-      // It left none: it ended before it could say why, or it could not
-      // write there, as in a folder that is a link (it refuses to write
-      // through one), which the look below names.
-    }
-    if (await untrustedAddress(addressFile, os: os) case final bad?) {
-      return 'the analysis host could not start: $bad';
+      // It left none: it ended before it could say why.
     }
     return 'the analysis host Appstein started ended before it answered';
   }
@@ -713,12 +727,26 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   /// host's process runs is a [_Slow] (a slow host is not a dead one). The
   /// caller decides what each means: a client that starts a host fails the
   /// question, a terminal run uses a server of its own.
+  ///
+  /// The file is looked at before it is read and, once an address is read,
+  /// again in full (`strict`), and then read a second time: the address is
+  /// used only when the second read gives the same one. So an address read
+  /// from a file that was renamed in, or a folder swapped, around the first
+  /// look is never used. An address that has gone or changed by then is no
+  /// host: the caller looks again, within its start limit.
   Future<_AddressOutcome> _tryAddress() async {
     if (await untrustedAddress(addressFile, os: os) case final why?) {
       return _Untrusted(why);
     }
     final address = readAnalysisHostAddress(addressFile);
     if (address == null) return const _NoHost();
+    if (await untrustedAddress(addressFile, os: os, strict: true)
+        case final why?) {
+      return _Untrusted(why);
+    }
+    if (!_sameAddress(readAnalysisHostAddress(addressFile), address)) {
+      return const _NoHost();
+    }
     // A host whose process has ended is dead, and nothing is dialed: a
     // refused connection to a closed port takes about 2 s on Windows, and a
     // stale address file would cost every hook that.
