@@ -97,7 +97,8 @@ void main() {
       expect(ran, isTrue, reason: 'left behind as "$left"');
       expect(turn.existsSync(), isFalse);
     }
-  });
+    // It takes the real turn for the process it starts.
+  }, timeout: turnTestTimeout);
 
   group('which processes are under a root (descendantsOf)', () {
     ListedProcess listed(int id, int parent, int? start) =>

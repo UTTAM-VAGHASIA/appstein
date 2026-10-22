@@ -75,6 +75,7 @@ import 'analysis_support.dart';
         folder: folder!,
         command: command,
         note: folderNote,
+        accessChecked: false,
         others: () {
           onOthers?.call();
           return others;

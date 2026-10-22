@@ -1,6 +1,8 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import '../host/windows_kernel32.dart';
+
 /// What tells a running process from every other: its ID alone does not,
 /// since an operating system gives the ID of an ended process to a new one
 /// (Windows often within seconds). Two identities are the same process only
@@ -148,19 +150,16 @@ ProcessSeen _psProcess(int id) {
   );
 }
 
-// Windows. The library is opened only here, so the code loads on systems
-// that have no `kernel32`.
-final _kernel32 = DynamicLibrary.open('kernel32.dll');
+// Windows. The library is opened lazily (`windows_kernel32.dart`), so the
+// code loads on systems that have no `kernel32`.
+final _kernel32 = kernel32;
 
 final _openProcess = _kernel32
     .lookupFunction<
       IntPtr Function(Uint32 access, Int32 inherit, Uint32 id),
       int Function(int access, int inherit, int id)
     >('OpenProcess');
-final _closeHandle = _kernel32
-    .lookupFunction<Int32 Function(IntPtr handle), int Function(int handle)>(
-      'CloseHandle',
-    );
+final _closeHandle = closeHandle;
 final _getExitCodeProcess = _kernel32
     .lookupFunction<
       Int32 Function(IntPtr handle, Pointer<Uint32> code),
@@ -203,16 +202,8 @@ final _waitForSingleObject = _kernel32
       Uint32 Function(IntPtr handle, Uint32 milliseconds),
       int Function(int handle, int milliseconds)
     >('WaitForSingleObject');
-final _localAlloc = _kernel32
-    .lookupFunction<
-      Pointer<Uint8> Function(Uint32 flags, IntPtr bytes),
-      Pointer<Uint8> Function(int flags, int bytes)
-    >('LocalAlloc');
-final _localFree = _kernel32
-    .lookupFunction<
-      Pointer<Uint8> Function(Pointer<Uint8> memory),
-      Pointer<Uint8> Function(Pointer<Uint8> memory)
-    >('LocalFree');
+final _localAlloc = localAlloc;
+final _localFree = localFree;
 
 /// The least access that answers these questions; it is granted for a
 /// process of the same user, which every process Appstein starts is.
@@ -229,7 +220,7 @@ const _waitObject0 = 0;
 const _stillActive = 259;
 
 /// `LPTR`: fixed memory, filled with zeros.
-const _zeroed = 0x0040;
+const _zeroed = lptr;
 
 /// The most characters of an image path that are read.
 const _pathLength = 2048;

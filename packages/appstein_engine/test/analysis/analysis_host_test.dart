@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:appstein_engine/appstein_engine.dart';
+import 'package:appstein_engine/src/host/system_calls.dart';
 import 'package:appstein_protocol/appstein_protocol.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -236,7 +237,16 @@ void main() {
     () {
       // The look at the disk is the test's own: nothing is read from the
       // real machine, so these run on every system. By default there is no
-      // /run/user folder and every other folder can be trusted.
+      // /run/user folder, the system names no folder of its own, and every
+      // other folder can be trusted.
+      final root = p.normalize(p.absolute(p.join('/work', 'my app')));
+      final dartToolHosts = p.join(root, '.dart_tool', 'appstein', 'hosts');
+      final dartToolChain = [
+        root,
+        p.join(root, '.dart_tool'),
+        p.join(root, '.dart_tool', 'appstein'),
+        dartToolHosts,
+      ];
       HostEnvironment machine(
         HostOs os, {
         Map<String, String> variables = const {},
@@ -244,6 +254,10 @@ void main() {
         String machineId = '',
         int? userId = 1000,
         String? home = '/home/me',
+        String localAppData = '',
+        String userTempFolder = '',
+        String userSid = '',
+        String windowsFolder = '',
       }) => fakeEnvironment(
         variables,
         os: os,
@@ -251,13 +265,20 @@ void main() {
         machineId: machineId,
         userId: userId,
         userHome: home,
+        localAppData: localAppData,
+        userTempFolder: userTempFolder,
+        userSid: userSid,
+        windowsFolder: windowsFolder,
       );
-      String? Function(List<String>, {bool mustExist}) noRun(
-        void Function(List<String> chain)? saw,
-      ) => (chain, {mustExist = false}) {
-        saw?.call(chain);
-        return mustExist ? '${chain.first} is not there' : null;
-      };
+      // A look where /run/user/<uid> (the only one-folder chain) is not
+      // there and everything else can be trusted.
+      CacheFolderCheck noRun(void Function(List<String> chain)? saw) =>
+          (chain, {mustExist = false}) {
+            saw?.call(chain);
+            return mustExist && chain.length == 1
+                ? '${chain.first} is not there'
+                : null;
+          };
       String folder(
         HostOs os, {
         Map<String, String> variables = const {},
@@ -275,19 +296,28 @@ void main() {
           userId: userId,
           home: home,
         ),
+        projectRoot: root,
         trustedCache: trusted ?? noRun(null),
       );
       // `box-<12 hex>` in the hosts folder of the home.
       final hosts = p.join('/home/me', '.cache', 'appstein', 'hosts');
-      Matcher cacheFolderOf(String name) => matches(
+      Matcher machineFolderIn(String hosts, String name) => matches(
         RegExp('^${RegExp.escape(p.join(hosts, name))}-[0-9a-f]{12}\$'),
       );
+      Matcher cacheFolderOf(String name) => machineFolderIn(hosts, name);
       final weird = {
         'HOME': '/elsewhere',
         'XDG_CACHE_HOME': '/elsewhere/cache',
         'XDG_RUNTIME_DIR': '/run/user/777',
         'TMPDIR': '/elsewhere/tmp',
+        'LOCALAPPDATA': r'D:\elsewhere\AppData\Local',
+        'USERPROFILE': r'C:\Users\Public',
+        'TEMP': r'D:\elsewhere\temp',
+        'TMP': r'D:\elsewhere\temp',
       };
+      // A check that must not be asked: the place before it is used.
+      String? notAsked(List<String> chain, {bool mustExist = false}) =>
+          fail('the folders $chain were looked at');
 
       test('the variable moves it, on every system', () {
         for (final os in HostOs.values) {
@@ -302,22 +332,173 @@ void main() {
         }
       });
 
-      test('on Windows it is appstein in LOCALAPPDATA', () {
+      test('on Windows it is appstein in the Local AppData known folder the '
+          'system names for the process, whatever LOCALAPPDATA, USERPROFILE '
+          'and TEMP say: nothing is looked at, and there is nothing to '
+          'note', () {
+        const known = r'C:\Users\me\AppData\Local';
+        final chosen = chooseAnalysisHostFolder(
+          machine(HostOs.windows, variables: weird, localAppData: known),
+          projectRoot: root,
+          trustedCache: notAsked,
+        );
+        expect(chosen.folder, p.join(known, 'appstein'));
+        expect(chosen.kind, AnalysisHostPlaceKind.localAppData);
+        expect(chosen.cacheNote, isNull);
+      });
+
+      test('on Windows with no known folder it is the .dart_tool place when '
+          'the Windows look passes: the look is one, for the project root '
+          'down to hosts, and the root must exist', () {
+        final seen = <List<String>>[];
+        final chosen = chooseAnalysisHostFolder(
+          machine(HostOs.windows, variables: weird),
+          projectRoot: root,
+          trustedCache: (chain, {mustExist = false}) {
+            seen.add([...chain, '$mustExist']);
+            return null;
+          },
+        );
+        expect(chosen.folder, machineFolderIn(dartToolHosts, 'box'));
+        expect(chosen.kind, AnalysisHostPlaceKind.dartTool);
+        expect(seen, [
+          [...dartToolChain, 'true'],
+        ]);
         expect(
-          folder(HostOs.windows, variables: {'LOCALAPPDATA': '/local'}),
-          p.join('/local', 'appstein'),
+          chosen.cacheNote,
+          contains('the system did not name the Local AppData folder'),
         );
       });
 
-      test('on macOS it is appstein in XDG_RUNTIME_DIR when it is set, else '
-          "appstein-<uid> in the user's temporary folder", () {
-        expect(
-          folder(HostOs.macos, variables: {'XDG_RUNTIME_DIR': '/run/me'}),
-          p.join('/run/me', 'appstein'),
+      test('on Windows with neither it is appstein-<user SID> in the Temp '
+          "folder of the system's Windows folder, and the note names both "
+          'reasons; with no SID appstein-<USERNAME>, with no Windows folder '
+          "the system's temporary folder", () {
+        String? refused(List<String> chain, {bool mustExist = false}) =>
+            '${chain.first} can be written to by S-1-5-11';
+        final chosen = chooseAnalysisHostFolder(
+          machine(
+            HostOs.windows,
+            variables: {...weird, 'USERNAME': 'me'},
+            userSid: 'S-1-5-21-1-2-3-1001',
+            windowsFolder: r'C:\Windows',
+          ),
+          projectRoot: root,
+          trustedCache: refused,
         );
         expect(
-          folder(HostOs.macos, variables: {'HOME': '/home/me'}),
-          p.join(Directory.systemTemp.path, 'appstein-1000'),
+          chosen.folder,
+          p.join(r'C:\Windows', 'Temp', 'appstein-S-1-5-21-1-2-3-1001'),
+        );
+        expect(chosen.kind, AnalysisHostPlaceKind.sharedTemp);
+        expect(
+          chosen.cacheNote,
+          allOf(
+            contains('the system did not name the Local AppData folder'),
+            contains('; the folder ${p.join(dartToolHosts, 'box-')}'),
+            contains('was not used: $root can be written to by S-1-5-11'),
+          ),
+        );
+        expect(
+          analysisHostFolder(
+            machine(
+              HostOs.windows,
+              variables: {'USERNAME': 'me'},
+              windowsFolder: r'C:\Windows',
+            ),
+            projectRoot: root,
+            trustedCache: refused,
+          ),
+          p.join(r'C:\Windows', 'Temp', 'appstein-me'),
+        );
+        expect(
+          analysisHostFolder(
+            machine(
+              HostOs.windows,
+              variables: {'USERNAME': 'me'},
+              userSid: 'S-1-5-21-1',
+            ),
+            projectRoot: root,
+            trustedCache: refused,
+          ),
+          p.join(Directory.systemTemp.path, 'appstein-S-1-5-21-1'),
+        );
+      });
+
+      test("on macOS it is appstein in the user's temporary folder the system "
+          'names, whatever TMPDIR, XDG_RUNTIME_DIR and HOME say: nothing is '
+          'looked at', () {
+        const temp = '/var/folders/xy/abc_123/T';
+        final chosen = chooseAnalysisHostFolder(
+          machine(HostOs.macos, variables: weird, userTempFolder: temp),
+          projectRoot: root,
+          trustedCache: notAsked,
+        );
+        expect(chosen.folder, p.join(temp, 'appstein'));
+        expect(chosen.kind, AnalysisHostPlaceKind.userTemp);
+        expect(chosen.cacheNote, isNull);
+      });
+
+      test('on macOS with no temporary folder it is appstein/hosts/<machine> '
+          'in Library/Caches in the home the user database has, when its '
+          'folders can be trusted (the look is one, for the home down to '
+          'hosts); else the .dart_tool place; else /tmp/appstein-<uid>, each '
+          'with a note that says why', () {
+        final caches = p.join('/home/me', 'Library', 'Caches');
+        final macHosts = p.join(caches, 'appstein', 'hosts');
+        final seen = <List<String>>[];
+        final cache = chooseAnalysisHostFolder(
+          machine(HostOs.macos, variables: weird),
+          projectRoot: root,
+          trustedCache: noRun(seen.add),
+        );
+        expect(cache.folder, machineFolderIn(macHosts, 'box'));
+        expect(cache.kind, AnalysisHostPlaceKind.cache);
+        expect(seen, [
+          [
+            '/home/me',
+            p.join('/home/me', 'Library'),
+            caches,
+            p.join(caches, 'appstein'),
+            macHosts,
+          ],
+        ]);
+        expect(
+          cache.cacheNote,
+          "the system did not name the user's temporary folder",
+        );
+
+        final dartTool = chooseAnalysisHostFolder(
+          machine(HostOs.macos),
+          projectRoot: root,
+          trustedCache: (chain, {mustExist = false}) =>
+              chain.first == root ? null : '/home/me has mode 777',
+        );
+        expect(dartTool.folder, machineFolderIn(dartToolHosts, 'box'));
+        expect(
+          dartTool.cacheNote,
+          allOf(
+            contains(
+              "temporary folder; the folder ${p.join(macHosts, 'box-')}",
+            ),
+            contains('was not used: /home/me has mode 777'),
+          ),
+        );
+
+        final tmp = chooseAnalysisHostFolder(
+          machine(HostOs.macos),
+          projectRoot: root,
+          trustedCache: (chain, {mustExist = false}) => '${chain.first} is bad',
+        );
+        expect(tmp.folder, p.join('/tmp', 'appstein-1000'));
+        expect(tmp.kind, AnalysisHostPlaceKind.sharedTemp);
+        expect(
+          tmp.cacheNote,
+          allOf(
+            contains("the system did not name the user's temporary folder"),
+            contains('was not used: /home/me is bad'),
+            contains('was not used: $root is bad'),
+          ),
         );
       });
 
@@ -364,6 +545,35 @@ void main() {
         );
       });
 
+      test('on Linux the .dart_tool place comes after the cache folder and '
+          'before /tmp: its chain is looked at last, with the root that must '
+          'exist', () {
+        final seen = <List<String>>[];
+        final chosen = chooseAnalysisHostFolder(
+          machine(HostOs.linux),
+          projectRoot: root,
+          trustedCache: (chain, {mustExist = false}) {
+            seen.add([...chain, '$mustExist']);
+            if (chain.length == 1) return 'no run folder';
+            return chain.first == root ? null : '/home/me has mode 777';
+          },
+        );
+        expect(chosen.folder, machineFolderIn(dartToolHosts, 'box'));
+        expect(chosen.kind, AnalysisHostPlaceKind.dartTool);
+        expect(seen.last, [...dartToolChain, 'true']);
+        expect(seen, hasLength(3));
+        expect(
+          chosen.cacheNote,
+          allOf(
+            contains(
+              'the folder ${p.join('/run/user', '1000', 'appstein')} was not '
+              'used: no run folder',
+            ),
+            contains('was not used: /home/me has mode 777'),
+          ),
+        );
+      });
+
       test('on Linux nothing in the environment changes the folder: HOME, '
           'XDG_CACHE_HOME, XDG_RUNTIME_DIR and TMPDIR are not read', () {
         for (final trusted in <CacheFolderCheck?>[
@@ -389,12 +599,47 @@ void main() {
           ),
           expected,
         );
-        expect(folder(HostOs.linux, home: ''), expected);
+        expect(
+          folder(
+            HostOs.linux,
+            home: '',
+            trusted: (chain, {mustExist = false}) => 'a problem',
+          ),
+          expected,
+        );
         // No user ID: the user's name, from USER.
         expect(
-          folder(HostOs.linux, userId: -1, variables: {'USER': 'me'}),
-          startsWith(p.join('/tmp', 'appstein-')),
+          folder(
+            HostOs.linux,
+            userId: -1,
+            variables: {'USER': 'me'},
+            trusted: (chain, {mustExist = false}) => 'a problem',
+          ),
+          p.join('/tmp', 'appstein-me'),
         );
+      });
+
+      test('on every system a .dart_tool chain the look refuses is passed '
+          'over, and the note says why', () {
+        for (final os in HostOs.values) {
+          final chosen = chooseAnalysisHostFolder(
+            machine(os),
+            projectRoot: root,
+            trustedCache: (chain, {mustExist = false}) =>
+                '${chain.first} is refused',
+          );
+          expect(chosen.kind, AnalysisHostPlaceKind.sharedTemp, reason: '$os');
+          expect(
+            chosen.cacheNote,
+            contains('the folder ${p.join(dartToolHosts, 'box-')}'),
+            reason: '$os',
+          );
+          expect(
+            chosen.cacheNote,
+            contains('was not used: $root is refused'),
+            reason: '$os',
+          );
+        }
       });
 
       test('a machine folder name is the clean name, then 12 hex characters '
@@ -468,6 +713,42 @@ void main() {
         );
       });
 
+      test('on macOS and Windows the machine folder name keeps the machine '
+          "ID the system gives (the host UUID, the machine GUID), so a "
+          'machine that is renamed keeps its hex', () {
+        const id = '89dd567c62af4943b5e25a403bca1d94';
+        for (final os in [HostOs.macos, HostOs.windows]) {
+          String chosen(String name) {
+            final calls = _FakeCalls(machineId: id);
+            return analysisHostFolder(
+              HostEnvironment(
+                os: os,
+                variables: const {},
+                workingDirectory: '/',
+                machineName: name,
+                userId: 1000,
+                userHome: '/home/me',
+                localAppData: '',
+                userTempFolder: '',
+                userSid: '',
+                windowsFolder: '',
+                facts: MachineFacts(os: os, calls: calls),
+              ),
+              projectRoot: root,
+              trustedCache: (chain, {mustExist = false}) => null,
+            );
+          }
+
+          String hexOf(String folder) => p.basename(folder).split('-').last;
+          expect(hexOf(chosen('box')), _hexOf(id), reason: '$os');
+          expect(hexOf(chosen('renamed')), _hexOf(id), reason: '$os');
+          expect(
+            chosen('renamed'),
+            startsWith(p.join(p.dirname(chosen('box')), 'renamed-')),
+          );
+        }
+      });
+
       test("with no machine name given, it is this machine's own", () {
         expect(
           analysisHostFolder(
@@ -477,6 +758,7 @@ void main() {
               userId: 1000,
               userHome: '/home/me',
             ),
+            projectRoot: root,
             trustedCache: noRun(null),
           ),
           analysisHostFolder(
@@ -487,17 +769,20 @@ void main() {
               userHome: '/home/me',
               machineName: Platform.localHostname,
             ),
+            projectRoot: root,
             trustedCache: noRun(null),
           ),
         );
       });
 
-      test('when the folders of the user are not used on Linux, the choice '
-          'says why, for the client to tell the user', () {
+      test('when the folders of the user are not used, the choice says why, '
+          'for the client to tell the user; nothing when the first place is '
+          'used', () {
         final chosen = chooseAnalysisHostFolder(
           machine(HostOs.linux),
+          projectRoot: root,
           trustedCache: (chain, {mustExist = false}) =>
-              mustExist ? 'no run folder' : '/home/me/.cache has mode 775',
+              mustExist ? 'no such folder' : '/home/me/.cache has mode 775',
         );
         expect(chosen.folder, p.join('/tmp', 'appstein-1000'));
         expect(
@@ -510,6 +795,7 @@ void main() {
         expect(
           chooseAnalysisHostFolder(
             machine(HostOs.linux, home: ''),
+            projectRoot: root,
             trustedCache: noRun(null),
           ).cacheNote,
           contains('no home folder is known'),
@@ -517,26 +803,148 @@ void main() {
         expect(
           chooseAnalysisHostFolder(
             machine(HostOs.linux, userId: -1),
+            projectRoot: root,
             trustedCache: noRun(null),
           ).cacheNote,
           contains("ID can't be read"),
         );
-        // Nothing to say where there was nothing to use instead, or the
-        // folder is used.
+        // Nothing to say where the first place the system names is used.
         for (final chosen in [
-          chooseAnalysisHostFolder(machine(HostOs.macos)),
-          chooseAnalysisHostFolder(machine(HostOs.windows)),
           chooseAnalysisHostFolder(
-            machine(HostOs.linux),
-            trustedCache: (chain, {mustExist = false}) => null,
+            machine(HostOs.macos, userTempFolder: '/var/folders/x/y/T'),
+            projectRoot: root,
+          ),
+          chooseAnalysisHostFolder(
+            machine(HostOs.windows, localAppData: r'C:\Users\me\AppData\Local'),
+            projectRoot: root,
           ),
           chooseAnalysisHostFolder(
             machine(HostOs.linux),
-            trustedCache: noRun(null),
+            projectRoot: root,
+            trustedCache: (chain, {mustExist = false}) => null,
           ),
         ]) {
           expect(chosen.cacheNote, isNull, reason: chosen.folder);
         }
+      });
+
+      test("the user's temporary folder on macOS is confstr's when it is the "
+          r"sibling T of the user folder; not $TMPDIR's (what confstr gives "
+          "when the system's helper fails); and a suffix the variable added "
+          'is taken off', () {
+        expect(
+          userTempFolderFrom(
+            userDir: '/var/folders/xy/abc/0/',
+            temp: '/var/folders/xy/abc/T/',
+          ),
+          (folder: '/var/folders/xy/abc/T', problem: null),
+        );
+        for (final (userDir, temp) in [
+          (null, '/private/tmp/elsewhere/'),
+          ('/var/folders/xy/abc/0/', '/private/tmp/elsewhere/'),
+          ('/var/folders/xy/abc/0/', '/var/folders/xy/other/T/'),
+          ('/var/folders/xy/abc/0/', '/var/folders/xy/abc/C/'),
+          ('/var/folders/xy/abc/0/', null),
+          ('/var/folders/xy/abc/0/', 'T/'),
+        ]) {
+          expect(userTempFolderFrom(userDir: userDir, temp: temp), (
+            folder: null,
+            problem: "the system did not name the user's temporary folder",
+          ), reason: '$userDir $temp');
+        }
+        expect(
+          userTempFolderFrom(
+            userDir: '/var/folders/xy/abc/0/my.suffix/',
+            temp: '/var/folders/xy/abc/T/my.suffix/',
+            suffix: 'my.suffix',
+          ).folder,
+          '/var/folders/xy/abc/T',
+        );
+        // A suffix that is set but not in the answers changes nothing.
+        expect(
+          userTempFolderFrom(
+            userDir: '/var/folders/xy/abc/0/',
+            temp: '/var/folders/xy/abc/T/',
+            suffix: 'other',
+          ).folder,
+          '/var/folders/xy/abc/T',
+        );
+      });
+
+      test('on Linux, where /run/user is not there and the cache folder is '
+          'refused, the folders of both checks are looked at by one process '
+          '(a getent user too)', () {
+        final disk = tempDir().path;
+        final home = Directory(p.join(disk, 'home'))..createSync();
+        Directory(p.join(home.path, '.cache')).createSync();
+        final project = Directory(p.join(disk, 'my app'))..createSync();
+        Directory(
+          p.join(project.path, '.dart_tool', 'appstein'),
+        ).createSync(recursive: true);
+        final runs = <List<String>>[];
+        // What `stat` says: the home is 777 (refused), every other folder is
+        // the user's at 700.
+        ProcessResult stat(String executable, List<String> arguments) {
+          runs.add([executable, ...arguments]);
+          final paths = arguments.skip(3);
+          return ProcessResult(
+            1,
+            0,
+            [
+              for (final path in paths)
+                '1000 1000 ${p.equals(path, home.path) ? 777 : 700} $path',
+            ].join('\n'),
+            '',
+          );
+        }
+
+        final environment = fakeEnvironment(
+          const {},
+          os: HostOs.linux,
+          machineName: 'box',
+          userId: 1000,
+          userHome: home.path,
+          privateGroupId: -1,
+          runUserRoot: p.join(disk, 'no run folder'),
+        );
+        final chosen = chooseAnalysisHostFolder(
+          environment,
+          projectRoot: project.path,
+          runSync: stat,
+        );
+        expect(
+          chosen.folder,
+          machineFolderIn(
+            p.join(project.path, '.dart_tool', 'appstein', 'hosts'),
+            'box',
+          ),
+        );
+        expect(runs, hasLength(1), reason: 'one stat for both chains');
+        expect(runs.single.take(3), ['stat', '-L', '-c']);
+        expect(
+          runs.single.skip(4),
+          containsAll([home.path, p.join(project.path, '.dart_tool')]),
+        );
+        // On macOS the system's own stat, by its full path, with BSD's format.
+        runs.clear();
+        chooseAnalysisHostFolder(
+          fakeEnvironment(
+            const {},
+            os: HostOs.macos,
+            machineName: 'box',
+            userId: 1000,
+            userHome: home.path,
+          ),
+          projectRoot: project.path,
+          runSync: stat,
+        );
+        expect(runs, hasLength(1));
+        expect(runs.single.take(4), [
+          '/usr/bin/stat',
+          '-L',
+          '-f',
+          '%u %g %Lp %N',
+        ]);
       });
     },
   );
@@ -566,6 +974,175 @@ void main() {
     );
     expect(described.userHome, isNull);
   }, skip: Platform.isLinux ? false : 'The facts are read from Linux files');
+
+  group('the folder the real machine names, whatever the variables', () {
+    /// The folder a child process chooses for [project] when its environment
+    /// is this one's, without the variable that moves the folder, and with
+    /// [changed] on top. It only chooses: nothing is made.
+    Future<String> chosenByChild(
+      String project,
+      Map<String, String> changed,
+    ) async {
+      final environment = {
+        for (final MapEntry(:key, :value) in Platform.environment.entries)
+          if (key.toUpperCase() != analysisHostFolderVariable) key: value,
+        ...changed,
+      };
+      final result = await Process.run(
+        Platform.resolvedExecutable,
+        [analysisSupportFile('print_host_folder.dart'), project],
+        environment: environment,
+        includeParentEnvironment: false,
+      );
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      return '${result.stdout}'.trim();
+    }
+
+    /// This process's choice for [project], without the variable.
+    String chosenHere(String project) => chooseAnalysisHostFolder(
+      HostEnvironment(
+        os: HostOs.current,
+        variables: {
+          for (final MapEntry(:key, :value) in Platform.environment.entries)
+            if (key.toUpperCase() != analysisHostFolderVariable) key: value,
+        },
+        workingDirectory: Directory.current.path,
+      ),
+      projectRoot: project,
+    ).folder;
+
+    test(
+      'Windows: the known folder, the SID and the machine GUID are read by '
+      'FFI, and a child with another USERPROFILE and LOCALAPPDATA chooses '
+      'the same folder',
+      () async {
+        final facts = MachineFacts();
+        expect(facts.localAppData, Platform.environment['LOCALAPPDATA']);
+        expect(facts.localAppDataProblem, isNull);
+        expect(facts.userId, isNull, reason: 'no user ID on Windows');
+        expect(facts.userSid, matches(RegExp(r'^S-1-5-21-[0-9-]+$')));
+        expect(facts.windowsFolder, isNotNull);
+        expect(Directory(facts.windowsFolder!).existsSync(), isTrue);
+        expect(facts.machineId, matches(RegExp(r'^[0-9a-f]{32}$')));
+        expect(MachineFacts().machineId, facts.machineId, reason: 'stable');
+        // The owner of a folder the test makes is the user.
+        final made = tempDir().path;
+        expect(windowsAccessOf(made)?.owner, facts.userSid);
+
+        final project = tempDir().path;
+        final elsewhere = tempDir().path;
+        final here = chosenHere(project);
+        expect(here, p.join(facts.localAppData!, 'appstein'));
+        expect(
+          await chosenByChild(project, {
+            'USERPROFILE': r'C:\Users\Public',
+            'LOCALAPPDATA': elsewhere,
+          }),
+          here,
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+      skip: Platform.isWindows ? false : 'Windows only',
+    );
+
+    test(
+      "macOS: the user's temporary folder is getconf's DARWIN_USER_TEMP_DIR, "
+      'the user is id -u, the machine ID is the platform UUID, and a child '
+      'with another TMPDIR and HOME chooses the same folder',
+      () async {
+        final facts = MachineFacts();
+        final getconf =
+            '${Process.runSync('getconf', ['DARWIN_USER_TEMP_DIR']).stdout}'
+                .trim();
+        expect(facts.userTempFolder, getconf.replaceFirst(RegExp(r'/+$'), ''));
+        expect(
+          facts.userId,
+          int.parse('${Process.runSync('id', ['-u']).stdout}'.trim()),
+        );
+        expect(facts.userHome(facts.userId), isNotNull);
+        final ioreg =
+            '${Process.runSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']).stdout}';
+        final uuid = RegExp(
+          r'"IOPlatformUUID" = "([0-9A-Fa-f-]+)"',
+        ).firstMatch(ioreg)?[1];
+        expect(facts.machineId, uuid?.toLowerCase().replaceAll('-', ''));
+
+        final project = tempDir().path;
+        final here = chosenHere(project);
+        expect(here, p.join(facts.userTempFolder!, 'appstein'));
+        expect(
+          await chosenByChild(project, {
+            'TMPDIR': '/tmp/elsewhere',
+            'HOME': '/tmp',
+          }),
+          here,
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+      skip: Platform.isMacOS ? false : 'macOS only',
+    );
+
+    test('Windows: a folder the host makes private passes both looks with '
+        'exactly three rules; one that lets the Users group write is refused, '
+        'naming it; a plain temporary folder passes once repaired; a path of '
+        'more than 260 characters works', () async {
+      final sid = MachineFacts().userSid!;
+      final base = tempDir().path;
+      final private = p.join(base, 'private');
+      makePrivateWindowsFolder(private, sid);
+      final access = windowsAccessOf(private)!;
+      expect(access.aces, hasLength(3));
+      expect(
+        {for (final ace in access.aces) ace.sid},
+        {sid, 'S-1-5-18', 'S-1-5-32-544'},
+      );
+      expect(
+        windowsFoldersProblem([private], userSid: sid, mustExist: true),
+        isNull,
+      );
+      expect(
+        await untrustedAddressFolder(private, accessChecked: true),
+        isNull,
+      );
+
+      final shared = p.join(base, 'shared');
+      makePrivateWindowsFolder(shared, sid);
+      final granted = Process.runSync('icacls', [
+        shared,
+        '/grant',
+        '*S-1-5-32-545:(OI)(CI)M',
+      ]);
+      expect(granted.exitCode, 0, reason: '${granted.stdout}');
+      expect(
+        windowsFoldersProblem([shared], userSid: sid, mustExist: true),
+        contains('can be written to by S-1-5-32-545'),
+      );
+      expect(
+        await untrustedAddressFolder(shared, accessChecked: true),
+        contains('S-1-5-32-545'),
+      );
+
+      final plain = Directory(p.join(base, 'plain'))..createSync();
+      makeWindowsFolderPrivate(plain.path, sid);
+      expect(
+        await untrustedAddressFolder(plain.path, accessChecked: true),
+        isNull,
+      );
+
+      var long = base;
+      while (long.length < 270) {
+        long = p.join(long, 'a long folder name');
+      }
+      Directory(p.dirname(long)).createSync(recursive: true);
+      makePrivateWindowsFolder(long, sid);
+      expect(windowsAccessOf(long)?.aces, hasLength(3));
+      makeWindowsFolderPrivate(long, sid);
+      expect(
+        windowsFoldersProblem([long], userSid: sid, mustExist: true),
+        isNull,
+      );
+    }, skip: Platform.isWindows ? false : 'Windows only');
+  });
 
   // The look at the folders on the way with a disk of the test's own (fake
   // paths and users), so it runs on every system; the same look on the real
@@ -843,7 +1420,7 @@ void main() {
   // and its `.cache`).
   group(
     'off Windows the folders of the home are used only when the user can '
-    'trust them',
+    'trust them (Linux: GNU stat; macOS: /usr/bin/stat -f)',
     () {
       final uid = Platform.isWindows
           ? ''
@@ -853,25 +1430,40 @@ void main() {
       // from one's own.
       final root = uid == '0';
 
+      // The cache folder of a home: `.cache` on Linux, `Library/Caches` on
+      // macOS.
+      String cache(String home) => Platform.isMacOS
+          ? p.join(home, 'Library', 'Caches')
+          : p.join(home, '.cache');
+      // A project that is not there, so the `.dart_tool` place is never
+      // used and the place after the cache folder is /tmp.
+      final project = p.join(
+        Directory.systemTemp.path,
+        'no such appstein project',
+      );
+
       Directory made(String path, String mode) {
         final folder = Directory(path)..createSync(recursive: true);
         Process.runSync('chmod', [mode, folder.path]);
         return folder;
       }
 
-      /// A Linux user, as the system knows them, whose home is [home]; there is
-      /// no /run/user folder (the root of those is a folder that is not there).
+      /// This system's user, as the system knows them, whose home is [home];
+      /// there is no /run/user folder (the root of those is a folder that is
+      /// not there), and the system names no temporary folder of the user's
+      /// (macOS).
       /// The user has no private group unless [privateGroup] says (the
       /// runner's own passwd and group files must not decide these).
       String chosen(String home, {int privateGroup = -1}) => analysisHostFolder(
         fakeEnvironment(
           const {},
-          os: HostOs.linux,
+          os: HostOs.current,
           machineName: 'box',
           userHome: home,
           privateGroupId: privateGroup,
           runUserRoot: '/no such run folder',
         ),
+        projectRoot: project,
       );
 
       /// The name of the machine's folder, as every choice makes it.
@@ -884,12 +1476,13 @@ void main() {
             userId: 1,
             userHome: '/h',
           ),
+          projectRoot: project,
           trustedCache: (chain, {mustExist = false}) =>
               mustExist ? 'none' : null,
         ),
       );
       String cacheOf(String home) =>
-          p.join(home, '.cache', 'appstein', 'hosts', name);
+          p.join(cache(home), 'appstein', 'hosts', name);
       final temporary = p.join('/tmp', 'appstein-$uid');
 
       for (final mode in ['700', '750', '755']) {
@@ -908,16 +1501,16 @@ void main() {
           expect(chosen(home), temporary, reason: 'home $mode');
         }
         final home = made(p.join(tempDir().path, 'home'), '700').path;
-        made(p.join(home, '.cache'), '770');
+        made(cache(home), '770');
         expect(chosen(home), temporary, reason: '.cache 770');
-        Process.runSync('chmod', ['755', p.join(home, '.cache')]);
+        Process.runSync('chmod', ['755', cache(home)]);
         expect(chosen(home), cacheOf(home));
       });
 
       test('an appstein or hosts folder that is there already must not be '
           'writable by others (757, 775): /tmp otherwise', () {
         final home = made(p.join(tempDir().path, 'home'), '700').path;
-        final appstein = made(p.join(home, '.cache', 'appstein'), '700');
+        final appstein = made(p.join(cache(home), 'appstein'), '700');
         expect(chosen(home), cacheOf(home));
         for (final mode in ['757', '775', '777']) {
           Process.runSync('chmod', [mode, appstein.path]);
@@ -954,7 +1547,8 @@ void main() {
           'to, or to nothing, or to a file, is not', () {
         final home = made(p.join(tempDir().path, 'home'), '700').path;
         final own = made(p.join(tempDir().path, 'elsewhere'), '700').path;
-        final link = Link(p.join(home, '.cache'))..createSync(own);
+        Directory(p.dirname(cache(home))).createSync(recursive: true);
+        final link = Link(cache(home))..createSync(own);
         expect(chosen(home), cacheOf(home));
         link.deleteSync();
         final open = made(p.join(tempDir().path, 'open'), '777').path;
@@ -971,7 +1565,8 @@ void main() {
 
       test('a file where a cache folder should be is not used', () {
         final home = made(p.join(tempDir().path, 'home'), '700').path;
-        File(p.join(home, '.cache')).createSync();
+        Directory(p.dirname(cache(home))).createSync(recursive: true);
+        File(cache(home)).createSync();
         expect(chosen(home), temporary);
       });
 
@@ -980,7 +1575,7 @@ void main() {
           'not when the group is shared', () {
         final gid = int.parse('${Process.runSync('id', ['-g']).stdout}'.trim());
         final home = made(p.join(tempDir().path, 'home'), '755').path;
-        made(p.join(home, '.cache'), '775');
+        made(cache(home), '775');
         expect(chosen(home, privateGroup: gid), cacheOf(home));
         expect(chosen(home), temporary, reason: 'a shared group');
         expect(
@@ -989,7 +1584,7 @@ void main() {
           reason: "a group that is not the folder's",
         );
         // 777 is never accepted.
-        Process.runSync('chmod', ['777', p.join(home, '.cache')]);
+        Process.runSync('chmod', ['777', cache(home)]);
         expect(chosen(home, privateGroup: gid), temporary);
       });
 
@@ -998,7 +1593,7 @@ void main() {
         // The same answers as above, from the real look, with its cost: the
         // look for a home with every folder there is one process.
         final home = made(p.join(tempDir().path, 'home'), '700').path;
-        made(p.join(home, '.cache', 'appstein', 'hosts', name), '700');
+        made(p.join(cache(home), 'appstein', 'hosts', name), '700');
         final watch = Stopwatch()..start();
         for (var i = 0; i < 20; i++) {
           expect(chosen(home), cacheOf(home));
@@ -1008,11 +1603,9 @@ void main() {
         print('a folder choice takes ${watch.elapsedMicroseconds ~/ 20} us');
       });
     },
-    // The rule is Linux's: macOS's `stat` has no `-c` and its home is chosen
-    // differently.
-    skip: Platform.isLinux
-        ? false
-        : 'The folders of a home are looked at on Linux only (GNU `stat`)',
+    skip: Platform.isWindows
+        ? 'Windows has no Unix modes: its look is the access list'
+        : false,
   );
 
   test(
@@ -1043,8 +1636,8 @@ void main() {
       }
     },
     skip: Platform.isWindows
-        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
-              'has no Unix mode'
+        ? 'On Windows the folders have no Unix mode (their access lists are '
+              'tested on their own)'
         : false,
   );
 
@@ -1055,20 +1648,24 @@ void main() {
     () async {
       final home = tempDir().path;
       Process.runSync('chmod', ['700', home]);
-      // The user's own facts, except a home and no /run/user folder of the
-      // real machine's.
+      // `.cache` on Linux; `Library/Caches` on macOS, both made by the host.
+      final cache = Platform.isMacOS
+          ? p.join(home, 'Library', 'Caches')
+          : p.join(home, '.cache');
+      // The user's own facts, except a home, no /run/user folder of the
+      // real machine's, and no temporary folder the system names (macOS).
       final environment = fakeEnvironment(
         const {},
-        os: HostOs.linux,
+        os: HostOs.current,
         machineName: 'box',
         userHome: home,
         privateGroupId: -1,
         runUserRoot: '/no such run folder',
       );
-      final before = analysisHostFolder(environment);
-      expect(p.dirname(before), p.join(home, '.cache', 'appstein', 'hosts'));
-      expect(Directory(p.join(home, '.cache')).existsSync(), isFalse);
       final app = copyFixtureApp();
+      final before = analysisHostFolder(environment, projectRoot: app);
+      expect(p.dirname(before), p.join(cache, 'appstein', 'hosts'));
+      expect(Directory(cache).existsSync(), isFalse);
       // The host notes itself beside the folder it must make, so the note
       // is kept elsewhere.
       final started = p.join(tempDir().path, 'started');
@@ -1092,11 +1689,16 @@ void main() {
       );
       expect(await codesIn(scope, 'lib/main.dart'), isEmpty);
       expect(hostProcess(before, app), isNotNull);
-      expect(analysisHostFolder(environment), before, reason: 'it flipped');
+      expect(
+        analysisHostFolder(environment, projectRoot: app),
+        before,
+        reason: 'it flipped',
+      );
       for (final made in [
-        p.join(home, '.cache'),
-        p.join(home, '.cache', 'appstein'),
-        p.join(home, '.cache', 'appstein', 'hosts'),
+        if (Platform.isMacOS) p.join(home, 'Library'),
+        cache,
+        p.join(cache, 'appstein'),
+        p.join(cache, 'appstein', 'hosts'),
         before,
       ]) {
         expect(
@@ -1107,10 +1709,9 @@ void main() {
       }
     },
     timeout: const Timeout(Duration(minutes: 5)),
-    // The rule, and the folders made 700, are Linux's.
-    skip: Platform.isLinux
-        ? false
-        : 'The folder under the home is chosen on Linux only',
+    // The folders made 700 are off Windows; on Windows the known folder is
+    // used, and the private folders are tested on their own.
+    skip: Platform.isWindows ? 'Windows has no Unix mode' : false,
   );
 
   test('a client whose folder is refused is answered by a server of its own, '
@@ -1177,8 +1778,8 @@ void main() {
       expect((FileStat.statSync(folder).mode & 0x1FF).toRadixString(8), '700');
     },
     skip: Platform.isWindows
-        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
-              'has no Unix mode'
+        ? 'On Windows the folders have no Unix mode (their access lists are '
+              'tested on their own)'
         : false,
   );
 
@@ -1197,8 +1798,8 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 5)),
     skip: Platform.isWindows
-        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
-              'has no Unix mode'
+        ? 'On Windows the folders have no Unix mode (their access lists are '
+              'tested on their own)'
         : false,
   );
 
@@ -1515,8 +2116,8 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 2)),
     skip: Platform.isWindows
-        ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
-              'has no Unix mode'
+        ? 'On Windows the folders have no Unix mode (their access lists are '
+              'tested on their own)'
         : false,
   );
 
@@ -2334,6 +2935,7 @@ void main() {
       );
       final now = analysisHostFolderNow(
         environment,
+        projectRoot: p.normalize(p.absolute('/work/my app')),
         trustedCache: (chain, {mustExist = false}) {
           looks++;
           return mustExist ? 'no run folder' : null;
@@ -2348,6 +2950,56 @@ void main() {
       expect(looks, looked, reason: 'a round that changed nothing');
       expect(now(fresh: true), first);
       expect(looks, looked * 2, reason: 'asked to look again');
+    });
+
+    test('on Windows and macOS a round that changed nothing makes no system '
+        'call and starts no process: the facts are read once, by the first '
+        'choice', () {
+      for (final os in [HostOs.windows, HostOs.macos]) {
+        final calls = _FakeCalls(
+          uid: 501,
+          home: '/Users/me',
+          temp: '/var/folders/xy/abc/T',
+          known: r'C:\Users\me\AppData\Local',
+          sid: 'S-1-5-21-1-2-3-1001',
+          windows: r'C:\Windows',
+          machineId: '89dd567c62af4943b5e25a403bca1d94',
+        );
+        final runs = <String>[];
+        final now = analysisHostFolderNow(
+          HostEnvironment(
+            os: os,
+            variables: const {},
+            workingDirectory: '/',
+            machineName: 'box',
+            facts: MachineFacts(
+              os: os,
+              calls: calls,
+              readFile: (path) => fail('read $path'),
+              run: (program, arguments) => fail('ran $program'),
+            ),
+          ),
+          projectRoot: p.normalize(p.absolute('/work/my app')),
+          runSync: (executable, arguments) {
+            runs.add(executable);
+            return ProcessResult(0, 1, '', '');
+          },
+        );
+        final first = now();
+        expect(
+          first,
+          os == HostOs.windows
+              ? p.join(r'C:\Users\me\AppData\Local', 'appstein')
+              : p.join('/var/folders/xy/abc/T', 'appstein'),
+        );
+        final asked = calls.asked.length;
+        expect(asked, greaterThan(0));
+        for (var i = 0; i < 5; i++) {
+          expect(now(), first);
+        }
+        expect(calls.asked, hasLength(asked), reason: '$os: ${calls.asked}');
+        expect(runs, isEmpty, reason: '$os');
+      }
     });
   });
 
@@ -2370,6 +3022,8 @@ void main() {
       final runs = <String>[];
       return (
         facts: MachineFacts(
+          // Linux's facts, on every system.
+          os: HostOs.linux,
           readFile: (path) {
             reads.add(path);
             return files[path];
@@ -2543,6 +3197,114 @@ void main() {
     });
   });
 
+  group('the facts of macOS and Windows, by system calls, read once', () {
+    /// Facts of [os] whose file reads and processes fail the test.
+    MachineFacts facts(HostOs os, _FakeCalls calls) => MachineFacts(
+      os: os,
+      calls: calls,
+      readFile: (path) => fail('read $path'),
+      run: (program, arguments) => fail('ran $program'),
+    );
+
+    test(
+      'on Windows there is no user ID: nothing is read or started (id -u '
+      'would be on the PATH with Git Bash), and no home or private group',
+      () {
+        final calls = _FakeCalls(uid: 501, home: '/Users/me');
+        final windows = facts(HostOs.windows, calls);
+        for (var i = 0; i < 3; i++) {
+          expect(windows.userId, isNull);
+          expect(windows.userHome(windows.userId), isNull);
+          expect(windows.userHomeFromFiles(1000), isNull);
+          expect(windows.privateGroupId(1000), isNull);
+          expect(windows.userTempFolder, isNull);
+        }
+        expect(calls.asked, isEmpty);
+      },
+    );
+
+    test('on macOS the user is geteuid and the home getpwuid_r, by system '
+        'calls and no process; there is no private group', () {
+      final calls = _FakeCalls(uid: 501, home: '/Users/me');
+      final mac = facts(HostOs.macos, calls);
+      expect(mac.userId, 501);
+      expect(mac.userHome(501), '/Users/me');
+      expect(mac.userHomeFromFiles(501), '/Users/me');
+      expect(mac.privateGroupId(501), isNull);
+      expect(mac.localAppData, isNull);
+      expect(mac.userSid, isNull);
+      expect(calls.asked, ['effectiveUserId', 'homeOfUser 501']);
+      // A home that is not an absolute path is none.
+      expect(
+        facts(HostOs.macos, _FakeCalls(uid: 1, home: 'relative')).userHome(1),
+        isNull,
+      );
+    });
+
+    test(
+      'each fact is asked once for each object, also when there is none',
+      () {
+        for (final os in [HostOs.windows, HostOs.macos]) {
+          final calls = _FakeCalls(
+            knownProblem:
+                'the system did not name the Local AppData folder '
+                '(0x80070003)',
+            tempProblem: "the system did not name the user's temporary folder",
+          );
+          final it = facts(os, calls);
+          for (var i = 0; i < 4; i++) {
+            it
+              ..userId
+              ..userHome(it.userId)
+              ..machineId
+              ..localAppData
+              ..localAppDataProblem
+              ..userTempFolder
+              ..userTempProblem
+              ..userSid
+              ..windowsFolder;
+          }
+          expect(it.machineId, '');
+          if (os == HostOs.windows) {
+            expect(it.localAppData, isNull);
+            expect(it.localAppDataProblem, contains('0x80070003'));
+            expect(calls.asked, [
+              'machineId',
+              'localAppData',
+              'userSid',
+              'windowsFolder',
+            ]);
+          } else {
+            expect(it.userTempProblem, contains('temporary folder'));
+            expect(calls.asked, [
+              'effectiveUserId',
+              'machineId',
+              'userTempFolder',
+            ]);
+          }
+        }
+      },
+    );
+
+    test('an environment described with an empty folder or SID has none, and '
+        'says why; one described with a value has that one', () {
+      final calls = _FakeCalls(known: r'C:\real', sid: 'S-1-5-21-9');
+      final described = HostEnvironment(
+        os: HostOs.windows,
+        variables: const {},
+        workingDirectory: '/',
+        localAppData: '',
+        userSid: 'S-1-5-21-1',
+        facts: facts(HostOs.windows, calls),
+      );
+      expect(described.localAppData, isNull);
+      expect(described.localAppDataProblem, contains('Local AppData'));
+      expect(described.userSid, 'S-1-5-21-1');
+      expect(described.windowsFolder, isNull);
+      expect(calls.asked, ['windowsFolder']);
+    });
+  });
+
   group('the host is looked for in the places the rule could have given', () {
     const id = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
     HostEnvironment machine(String home, {String name = 'box'}) =>
@@ -2558,24 +3320,35 @@ void main() {
     // Every folder can be trusted, and /run/user/1000 is there.
     String? trusting(List<String> chain, {bool mustExist = false}) => null;
 
-    test('they are /run/user/<uid>, the machine under its old names in hosts, '
-        'and /tmp: each but the folder chosen', () {
+    test('on Linux they are /run/user/<uid>, the cache place and the machine '
+        'under its old names in its hosts, the .dart_tool place and its old '
+        'names, and /tmp: each but the folder chosen, none checked on '
+        'Windows', () {
       final home = tempDir().path;
+      final project = tempDir().path;
       final hosts = p.join(home, '.cache', 'appstein', 'hosts');
+      final projectHosts = p.join(project, '.dart_tool', 'appstein', 'hosts');
       // This machine under two names (the hex is the machine ID's), and
       // another machine's folder.
       final before = Directory(p.join(hosts, 'before-${_hexOf(id)}'))
         ..createSync(recursive: true);
       Directory(p.join(hosts, 'older-${_hexOf(id)}')).createSync();
       Directory(p.join(hosts, 'stranger-0123456789ab')).createSync();
+      Directory(
+        p.join(projectHosts, 'before-${_hexOf(id)}'),
+      ).createSync(recursive: true);
+      Directory(p.join(projectHosts, 'stranger-0123456789ab')).createSync();
+      File(p.join(projectHosts, '.gitignore')).writeAsStringSync('*\n');
       final current = analysisHostFolder(
         machine(home),
+        projectRoot: project,
         trustedCache: (chain, {mustExist = false}) =>
-            mustExist ? 'not there' : null,
+            mustExist && chain.length == 1 ? 'not there' : null,
       );
       expect(current, startsWith(p.join(hosts, 'box-')));
       final places = otherAnalysisHostPlaces(
         machine(home),
+        projectRoot: project,
         chosen: current,
         trustedCache: trusting,
       );
@@ -2585,52 +3358,149 @@ void main() {
           p.join('/run/user', '1000', 'appstein'),
           before.path,
           p.join(hosts, 'older-${_hexOf(id)}'),
+          p.join(projectHosts, p.basename(current)),
+          p.join(projectHosts, 'before-${_hexOf(id)}'),
           p.join('/tmp', 'appstein-1000'),
         },
       );
+      expect(places.where((place) => place.accessChecked), isEmpty);
       // The chosen one is left out: when the run folder is the choice, the
       // cache one is among the others.
       final chosenRun = p.join('/run/user', '1000', 'appstein');
-      expect([
+      final fromRun = [
         for (final place in otherAnalysisHostPlaces(
           machine(home),
+          projectRoot: project,
           chosen: chosenRun,
           trustedCache: trusting,
         ))
           place.folder,
-      ], contains(current));
-      expect([
-        for (final place in otherAnalysisHostPlaces(
-          machine(home),
-          chosen: chosenRun,
-          trustedCache: trusting,
-        ))
-          place.folder,
-      ], isNot(contains(chosenRun)));
+      ];
+      expect(fromRun, contains(current));
+      expect(fromRun, isNot(contains(chosenRun)));
     });
 
-    test('there are none off Linux, for a folder the variable gave, or '
-        'without a user', () {
+    test('on macOS they are appstein in the temporary folder, '
+        'appstein-<uid> there (where a host before ticket 14 wrote), the '
+        'Library/Caches place, the .dart_tool place and /tmp', () {
+      final project = p.normalize(p.absolute('/work/my app'));
+      const temp = '/var/folders/xy/abc/T';
+      final environment = fakeEnvironment(
+        const {},
+        os: HostOs.macos,
+        machineName: 'box',
+        machineId: id,
+        userId: 501,
+        userHome: '/Users/me',
+        userTempFolder: temp,
+      );
+      final chosen = analysisHostFolder(
+        environment,
+        projectRoot: project,
+        trustedCache: trusting,
+      );
+      expect(chosen, p.join(temp, 'appstein'));
+      final machineName = 'box-${_hexOf(id)}';
       expect(
-        otherAnalysisHostPlaces(
-          fakeEnvironment(const {}, os: HostOs.windows),
-          chosen: 'x',
-        ),
-        isEmpty,
+        [
+          for (final place in otherAnalysisHostPlaces(
+            environment,
+            projectRoot: project,
+            chosen: chosen,
+            trustedCache: trusting,
+          ))
+            place.folder,
+        ],
+        [
+          p.join(temp, 'appstein-501'),
+          p.join(
+            '/Users/me',
+            'Library',
+            'Caches',
+            'appstein',
+            'hosts',
+            machineName,
+          ),
+          p.join(project, '.dart_tool', 'appstein', 'hosts', machineName),
+          p.join('/tmp', 'appstein-501'),
+        ],
+      );
+    });
+
+    test('on Windows they are appstein in the known folder (not checked), '
+        'the .dart_tool place and appstein-<SID> in the Windows Temp folder '
+        '(both checked)', () {
+      final project = p.normalize(p.absolute('/work/my app'));
+      const known = r'C:\Users\me\AppData\Local';
+      final environment = fakeEnvironment(
+        const {},
+        os: HostOs.windows,
+        machineName: 'box',
+        machineId: id,
+        localAppData: known,
+        userSid: 'S-1-5-21-1',
+        windowsFolder: r'C:\Windows',
+      );
+      final dartTool = p.join(
+        project,
+        '.dart_tool',
+        'appstein',
+        'hosts',
+        'box-${_hexOf(id)}',
+      );
+      final places = otherAnalysisHostPlaces(
+        environment,
+        projectRoot: project,
+        chosen: dartTool,
+        trustedCache: trusting,
       );
       expect(
-        otherAnalysisHostPlaces(
-          fakeEnvironment({analysisHostFolderVariable: '/x'}, os: HostOs.linux),
-          chosen: '/x',
-        ),
-        isEmpty,
+        [for (final place in places) (place.folder, place.accessChecked)],
+        [
+          (p.join(known, 'appstein'), false),
+          (p.join(r'C:\Windows', 'Temp', 'appstein-S-1-5-21-1'), true),
+        ],
       );
       expect(
-        otherAnalysisHostPlaces(
-          fakeEnvironment(const {}, os: HostOs.linux, userId: -1),
-          chosen: 'x',
+        [
+          for (final place in otherAnalysisHostPlaces(
+            environment,
+            projectRoot: project,
+            chosen: p.join(known, 'appstein'),
+            trustedCache: trusting,
+          ))
+            (place.folder, place.accessChecked),
+        ],
+        [
+          (dartTool, true),
+          (p.join(r'C:\Windows', 'Temp', 'appstein-S-1-5-21-1'), true),
+        ],
+      );
+      expect(analysisHostFolderAccessChecked(environment, dartTool), isTrue);
+      expect(
+        analysisHostFolderAccessChecked(environment, p.join(known, 'appstein')),
+        isFalse,
+      );
+    });
+
+    test('there are none for a folder the variable gave, and no folder is '
+        'checked then, or off Windows', () {
+      for (final os in HostOs.values) {
+        final given = fakeEnvironment({
+          analysisHostFolderVariable: '/x',
+        }, os: os);
+        expect(
+          otherAnalysisHostPlaces(given, projectRoot: '/p', chosen: '/x'),
+          isEmpty,
+        );
+        expect(analysisHostFolderAccessChecked(given, '/x'), isFalse);
+      }
+      expect(
+        analysisHostFolderAccessChecked(
+          fakeEnvironment(const {}, os: HostOs.linux),
+          '/tmp/appstein-1000',
         ),
-        isEmpty,
+        isFalse,
       );
     });
 
@@ -2643,7 +3513,9 @@ void main() {
       final (:scope, folder: _) = testHost(
         app,
         folder: primary,
-        others: [(folder: elsewhere, problem: () => null)],
+        others: [
+          (folder: elsewhere, problem: () => null, accessChecked: false),
+        ],
       );
       expect(await codesIn(scope, 'lib/a.dart'), isEmpty);
       expect(server.asked, ['read']);
@@ -2655,7 +3527,13 @@ void main() {
         app,
         folder: p.join(tempDir().path, 'primary'),
         hostCommand: [Platform.resolvedExecutable, 'no such script.dart'],
-        others: [(folder: elsewhere, problem: () => 'not trusted')],
+        others: [
+          (
+            folder: elsewhere,
+            problem: () => 'not trusted',
+            accessChecked: false,
+          ),
+        ],
       );
       await expectLater(
         codesIn(refused, 'lib/a.dart'),
@@ -2692,6 +3570,7 @@ void main() {
             folder: p.join(tempDir().path, 'hosts'),
             command: [Platform.resolvedExecutable, 'no such script.dart'],
             note: null,
+            accessChecked: false,
             others: () => const <AnalysisHostPlace>[],
           );
         },
@@ -2705,6 +3584,623 @@ void main() {
       });
       expect(chosen, 1);
     });
+  });
+
+  group('who can use a folder on Windows, judged from its owner and access '
+      'list (the rule is tested on every system)', () {
+    const me = 'S-1-5-21-1-2-3-1001';
+    const system = 'S-1-5-18';
+    const admins = 'S-1-5-32-544';
+    const users = 'S-1-5-32-545';
+    const authenticated = 'S-1-5-11';
+    WindowsAce allow(String sid, int mask, {int flags = 3}) =>
+        (type: 0, flags: flags, mask: mask, sid: sid);
+    WindowsAccess access(List<WindowsAce> aces, {String? owner = me}) =>
+        (owner: owner, daclPresent: true, aces: aces);
+    // The three rules of a folder the host makes private.
+    final private = [
+      allow(me, 0x1F01FF),
+      allow(system, 0x1F01FF),
+      allow(admins, 0x1F01FF),
+    ];
+    String? chain(WindowsAccess? found) =>
+        windowsAccessProblem('C:\\proj', found, userSid: me);
+    String? folder(WindowsAccess? found) =>
+        windowsAccessProblem('C:\\proj', found, userSid: me, readable: true);
+
+    test('the user, SYSTEM, the Administrators and TrustedInstaller may own '
+        'and use it; CREATOR OWNER and OWNER RIGHTS stand for the owner', () {
+      expect(chain(access(private)), isNull);
+      expect(folder(access(private)), isNull);
+      // An elevated process makes folders the Administrators own.
+      expect(chain(access(private, owner: admins)), isNull);
+      expect(
+        folder(
+          access([
+            ...private,
+            allow('S-1-3-0', 0x10000000, flags: 0xB),
+            allow('S-1-3-4', 0x1F01FF),
+          ]),
+        ),
+        isNull,
+      );
+      // The user's SID in another letter case is the user's.
+      expect(chain(access(private, owner: me.toLowerCase())), isNull);
+    });
+
+    test('another owner is refused', () {
+      expect(
+        chain(access(private, owner: 'S-1-5-21-9-9-9-1002')),
+        contains('belongs to S-1-5-21-9-9-9-1002'),
+      );
+      expect(chain(access(private, owner: null)), contains('belongs to'));
+    });
+
+    test(
+      'a SID that can write is refused and named: Authenticated Users '
+      'with Modify, the Users group with S,WD,AD,X (the Windows Temp '
+      'folder\'s), and one whose rule only passes to what is made inside',
+      () {
+        expect(
+          chain(access([...private, allow(authenticated, 0x1301BF)])),
+          contains('can be written to by $authenticated'),
+        );
+        expect(
+          chain(access([...private, allow(users, 0x100026, flags: 2)])),
+          contains('can be written to by $users'),
+        );
+        // Inherit-only (0x8) with object and container inherit.
+        expect(
+          chain(access([...private, allow(users, 0x10000000, flags: 0xB)])),
+          contains('can be written to by $users'),
+        );
+        // Reading and listing only is not writing (the chain look), but the
+        // folder of an address may be used by nobody else.
+        final reads = access([...private, allow(users, 0x1200A9)]);
+        expect(chain(reads), isNull);
+        expect(folder(reads), contains('can be used by $users'));
+      },
+    );
+
+    test('a rule that denies is ignored; any other kind of rule, a NULL '
+        'access list, an access that can not be read and a user whose SID '
+        'can not be read are refused', () {
+      expect(
+        chain(
+          access([(type: 1, flags: 0, mask: 0x1F01FF, sid: users), ...private]),
+        ),
+        isNull,
+      );
+      expect(
+        chain(access([...private, (type: 9, flags: 0, mask: 0x2, sid: null)])),
+        contains("an access rule Appstein can't read (type 9)"),
+      );
+      expect(
+        chain((owner: me, daclPresent: false, aces: const [])),
+        contains('no access list'),
+      );
+      expect(chain(null), contains("can't be read"));
+      expect(
+        windowsAccessProblem('C:\\proj', access(private), userSid: null),
+        contains("SID can't be read"),
+      );
+    });
+
+    test('the chain look reads each folder that exists, the base must be '
+        'there, and what is not a folder is refused', () {
+      final base = tempDir().path;
+      final below = p.join(base, '.dart_tool');
+      final read = <String>[];
+      WindowsAccess? reading(String path) {
+        read.add(path);
+        return access(private);
+      }
+
+      expect(
+        windowsFoldersProblem(
+          [base, below, p.join(below, 'appstein')],
+          userSid: me,
+          mustExist: true,
+          access: reading,
+        ),
+        isNull,
+      );
+      expect(read, [base], reason: 'only the folders that are there');
+      expect(
+        windowsFoldersProblem(
+          [p.join(base, 'gone'), below],
+          userSid: me,
+          mustExist: true,
+          access: reading,
+        ),
+        contains('is not there'),
+      );
+      File(below).writeAsStringSync('');
+      expect(
+        windowsFoldersProblem(
+          [base, below],
+          userSid: me,
+          mustExist: true,
+          access: reading,
+        ),
+        contains('is not a folder'),
+      );
+      expect(
+        windowsFoldersProblem(
+          [base],
+          userSid: me,
+          access: (_) => access([...private, allow(users, 0x2)]),
+        ),
+        contains('can be written to by $users'),
+      );
+    });
+  });
+
+  group('a host in the project\'s .dart_tool place', () {
+    /// The `.dart_tool` place of [project] for the machine folder `box`.
+    String placeOf(String project) =>
+        p.join(project, '.dart_tool', 'appstein', 'hosts', 'box');
+    const address = AnalysisHostAddress(
+      port: 1,
+      secret: 's',
+      processId: 1,
+      appsteinVersion: 'test',
+    );
+    String mode(String path) =>
+        (FileStat.statSync(path).mode & 0xFFF).toRadixString(8);
+
+    test(
+      'makes .dart_tool as pub would (755 off Windows), appstein, hosts '
+      'and the machine folder 700 (private on Windows), and hosts/'
+      '.gitignore of *; a .dart_tool/appstein that is there is left',
+      () async {
+        final project = tempDir().path;
+        final folder = placeOf(project);
+        await writeAnalysisHostAddress(
+          analysisHostAddressFile(folder, project),
+          address,
+          accessChecked: Platform.isWindows,
+        );
+        final hosts = p.dirname(folder);
+        expect(
+          File(p.join(hosts, '.gitignore')).readAsStringSync().trim(),
+          '*',
+        );
+        expect(
+          readAnalysisHostAddress(
+            analysisHostAddressFile(folder, project),
+          )?.secret,
+          's',
+        );
+        if (Platform.isWindows) {
+          final sid = MachineFacts.system.userSid;
+          for (final made in [p.dirname(hosts), hosts, folder]) {
+            expect(windowsAccessOf(made)?.aces.map((ace) => ace.sid).toSet(), {
+              sid,
+              'S-1-5-18',
+              'S-1-5-32-544',
+            }, reason: made);
+          }
+          expect(
+            await untrustedAddress(
+              analysisHostAddressFile(folder, project),
+              strict: true,
+              accessChecked: true,
+            ),
+            isNull,
+          );
+        } else {
+          expect(mode(p.join(project, '.dart_tool')), '755');
+          for (final made in [p.dirname(hosts), hosts, folder]) {
+            expect(mode(made), '700', reason: made);
+          }
+        }
+        // A synced project has .dart_tool/appstein already: it is left as it
+        // is, and only what is missing is made.
+        final synced = tempDir().path;
+        final appstein = Directory(p.join(synced, '.dart_tool', 'appstein'))
+          ..createSync(recursive: true);
+        if (!Platform.isWindows) {
+          Process.runSync('chmod', ['755', appstein.path]);
+        }
+        await writeAnalysisHostAddress(
+          analysisHostAddressFile(placeOf(synced), synced),
+          address,
+          accessChecked: Platform.isWindows,
+        );
+        if (!Platform.isWindows) expect(mode(appstein.path), '755');
+        expect(Directory(placeOf(synced)).existsSync(), isTrue);
+      },
+    );
+
+    test('never makes the project root: a project deleted between the '
+        'choice and the write does not come back', () async {
+      final project = p.join(tempDir().path, 'deleted app');
+      await expectLater(
+        writeAnalysisHostAddress(
+          analysisHostAddressFile(placeOf(project), project),
+          address,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(Directory(project).existsSync(), isFalse);
+    });
+
+    test('after .dart_tool is deleted (flutter clean), a host that follows '
+        'its folder writes its address again only after the quiet time, '
+        'never while .dart_tool keeps being touched', () async {
+      final project = tempDir().path;
+      final folder = placeOf(project);
+      late _StandInServer server;
+      final done = runAnalysisHost(
+        projectRoot: project,
+        analysis: (writes) => server = _StandInServer(writes),
+        addressFolder: folder,
+        appsteinVersion: 'test',
+        idleStop: const Duration(seconds: 30),
+        folderNow: ({fresh = false}) => folder,
+        maintenanceEvery: const Duration(milliseconds: 50),
+        quietTime: const Duration(milliseconds: 600),
+      );
+      final file = analysisHostAddressFile(folder, project);
+      addTearDown(() async {
+        final found = readAnalysisHostAddress(file);
+        if (found != null && found.processId == pid) {
+          final client = await rawClient(found);
+          client.socket.writeln(jsonEncode(const AnalysisHostStop().toJson()));
+          await client.lines.moveNext();
+          client.socket.destroy();
+        }
+        await done.timeout(const Duration(seconds: 20));
+      });
+      for (var i = 0; i < 100 && readAnalysisHostAddress(file) == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final first = readAnalysisHostAddress(file)!;
+      expect(server.asked, isEmpty);
+
+      // `flutter clean`: the folder goes, and is made and touched again for
+      // a while (as a slow recursive delete changes its time).
+      final dartTool = p.join(project, '.dart_tool');
+      Directory(dartTool).deleteSync(recursive: true);
+      final touching = Stopwatch()..start();
+      while (touching.elapsedMilliseconds < 1500) {
+        Directory(dartTool).createSync();
+        File(p.join(dartTool, 'x')).writeAsStringSync('${touching.elapsed}');
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(
+          File(file).existsSync(),
+          isFalse,
+          reason: 'written into a .dart_tool that is being changed',
+        );
+        Directory(dartTool).deleteSync(recursive: true);
+      }
+      // Left alone: the address comes back after the quiet time, twice over.
+      final quiet = Stopwatch()..start();
+      for (var i = 0; i < 250 && readAnalysisHostAddress(file) == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(readAnalysisHostAddress(file)?.secret, first.secret);
+      expect(quiet.elapsedMilliseconds, greaterThanOrEqualTo(600));
+    });
+  });
+
+  group('review round 1 of ticket 14', () {
+    const me = 'S-1-5-21-1-2-3-1001';
+    const other = 'S-1-5-21-9-9-9-1002';
+    const id = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+    final root = p.normalize(p.absolute(p.join('/work', 'my app')));
+
+    test('on Windows a host refuses a checked folder that is there already '
+        'and another user owns, even when its owner let the user change its '
+        'access list (the repair passes): nothing is written there; a folder '
+        "of the user's own is used", () async {
+      final base = tempDir().path;
+      final taken = Directory(p.join(base, 'appstein-$me'))..createSync();
+      final windows = _FakeWindowsAccess(owners: {taken.path: other});
+      final file = analysisHostAddressFile(
+        taken.path,
+        root,
+        os: HostOs.windows,
+      );
+      await expectLater(
+        writeAnalysisHostAddress(
+          file,
+          const AnalysisHostAddress(
+            port: 1,
+            secret: 's',
+            processId: 1,
+            appsteinVersion: 'test',
+          ),
+          os: HostOs.windows,
+          accessChecked: true,
+          windows: windows,
+        ),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('belongs to $other'),
+          ),
+        ),
+      );
+      expect(windows.repaired, [taken.path], reason: 'the repair ran first');
+      expect(taken.listSync(), isEmpty, reason: 'nothing written there');
+
+      // The user's own folder that is there: repaired, checked, used.
+      final mine = Directory(p.join(base, 'mine'))..createSync();
+      final own = analysisHostAddressFile(mine.path, root, os: HostOs.windows);
+      await writeAnalysisHostAddress(
+        own,
+        const AnalysisHostAddress(
+          port: 1,
+          secret: 's',
+          processId: 1,
+          appsteinVersion: 'test',
+        ),
+        os: HostOs.windows,
+        accessChecked: true,
+        windows: windows,
+      );
+      expect(readAnalysisHostAddress(own)?.secret, 's');
+    });
+
+    test('on Windows a host that follows its folder does not move into a '
+        'checked folder another user owns: it stays where it is', () async {
+      final app = tempDir().path;
+      final here = p.join(tempDir().path, 'known', 'appstein');
+      final taken = Directory(p.join(tempDir().path, 'appstein-$me'))
+        ..createSync();
+      final windows = _FakeWindowsAccess(owners: {taken.path: other});
+      final done = runAnalysisHost(
+        projectRoot: app,
+        analysis: _StandInServer.new,
+        addressFolder: here,
+        appsteinVersion: 'test',
+        idleStop: const Duration(seconds: 30),
+        os: HostOs.windows,
+        folderNow: ({fresh = false}) => taken.path,
+        maintenanceEvery: const Duration(milliseconds: 50),
+        accessChecked: (folder) => p.equals(folder, taken.path),
+        windows: windows,
+      );
+      final file = analysisHostAddressFile(here, app, os: HostOs.windows);
+      addTearDown(() async {
+        final found = readAnalysisHostAddress(file);
+        if (found != null) {
+          final client = await rawClient(found);
+          client.socket.writeln(jsonEncode(const AnalysisHostStop().toJson()));
+          await client.lines.moveNext();
+          client.socket.destroy();
+        }
+        await done.timeout(const Duration(seconds: 20));
+      });
+      for (var i = 0; i < 100 && readAnalysisHostAddress(file) == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final first = readAnalysisHostAddress(file)!;
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(windows.repaired, contains(taken.path), reason: 'it tried');
+      expect(taken.listSync(), isEmpty, reason: 'nothing written there');
+      expect(readAnalysisHostAddress(file)?.secret, first.secret);
+    });
+
+    test('the choice reads a fact only when a place that needs it is '
+        'reached: on Windows only the known folder, on macOS only the '
+        'temporary folder (no gethostuuid, no getpwuid_r, no geteuid)', () {
+      final windowsCalls = _FakeCalls(
+        known: r'C:\Users\me\AppData\Local',
+        sid: me,
+        windows: r'C:\Windows',
+        machineId: id,
+      );
+      chooseAnalysisHostFolder(
+        HostEnvironment(
+          os: HostOs.windows,
+          variables: const {},
+          workingDirectory: '/',
+          machineName: 'box',
+          facts: MachineFacts(os: HostOs.windows, calls: windowsCalls),
+        ),
+        projectRoot: root,
+      );
+      expect(windowsCalls.asked, ['localAppData']);
+
+      final macCalls = _FakeCalls(
+        uid: 501,
+        home: '/Users/me',
+        temp: '/var/folders/xy/abc/T',
+        machineId: id,
+      );
+      chooseAnalysisHostFolder(
+        HostEnvironment(
+          os: HostOs.macos,
+          variables: const {},
+          workingDirectory: '/',
+          machineName: 'box',
+          facts: MachineFacts(os: HostOs.macos, calls: macCalls),
+        ),
+        projectRoot: root,
+        runSync: (executable, arguments) => fail('ran $executable'),
+      );
+      expect(macCalls.asked, ['userTempFolder']);
+    });
+
+    test('a process that could not read the machine ID and the others find '
+        "each other's host: with an ID the folder under the name's hex is "
+        'listed too, without one every folder of the clean name', () {
+      final home = tempDir().path;
+      final hosts = p.join(home, '.cache', 'appstein', 'hosts');
+      final byName = Directory(p.join(hosts, 'box-${_hexOf('box')}'))
+        ..createSync(recursive: true);
+      final byId = Directory(p.join(hosts, 'box-${_hexOf(id)}'))..createSync();
+      Directory(p.join(hosts, 'box-0123456789ab')).createSync();
+      Directory(p.join(hosts, 'other-${_hexOf('other')}')).createSync();
+      Set<String> others(String machineId) {
+        final environment = fakeEnvironment(
+          const {},
+          os: HostOs.linux,
+          machineName: 'box',
+          machineId: machineId,
+          userId: 1000,
+          userHome: home,
+          runUserRoot: '/run/user',
+        );
+        return {
+          for (final place in otherAnalysisHostPlaces(
+            environment,
+            projectRoot: root,
+            chosen: '/nowhere',
+            trustedCache: (chain, {mustExist = false}) => null,
+          ))
+            place.folder,
+        };
+      }
+
+      final withId = others(id);
+      expect(withId, containsAll([byId.path, byName.path]));
+      expect(withId, isNot(contains(p.join(hosts, 'box-0123456789ab'))));
+      final withoutId = others('');
+      expect(
+        withoutId,
+        containsAll([
+          byId.path,
+          byName.path,
+          p.join(hosts, 'box-0123456789ab'),
+        ]),
+      );
+      expect(
+        withoutId,
+        isNot(contains(p.join(hosts, 'other-${_hexOf('other')}'))),
+      );
+    });
+
+    test('on macOS a user getpwuid_r does not know has no home, and no '
+        'process is started for one (getent and GNU stat are Linux\'s)', () {
+      final runs = <String>[];
+      final chosen = chooseAnalysisHostFolder(
+        HostEnvironment(
+          os: HostOs.macos,
+          variables: const {},
+          workingDirectory: '/',
+          machineName: 'box',
+          facts: MachineFacts(
+            os: HostOs.macos,
+            calls: _FakeCalls(uid: 501, machineId: id),
+          ),
+        ),
+        projectRoot: p.join(tempDir().path, 'no such project'),
+        runSync: (executable, arguments) {
+          runs.add(executable);
+          return ProcessResult(0, 1, '', '');
+        },
+      );
+      expect(runs, isEmpty);
+      expect(chosen.folder, p.join('/tmp', 'appstein-501'));
+      expect(chosen.cacheNote, contains('no home folder is known'));
+    });
+  });
+
+  group('review round 2 of ticket 14', () {
+    AnalysisHostAddress address(String secret, {int port = 1, int? id}) =>
+        AnalysisHostAddress(
+          port: port,
+          secret: secret,
+          processId: id ?? pid,
+          appsteinVersion: 'test',
+        );
+
+    test('the address is written into a file this process has just made, '
+        'never into one that was there: a .tmp planted and held open never '
+        'gets the secret (the write replaces it, or fails)', () async {
+      final folder = Directory(p.join(tempDir().path, 'hosts'))..createSync();
+      if (!Platform.isWindows) Process.runSync('chmod', ['700', folder.path]);
+      final file = analysisHostAddressFile(folder.path, '/work/my app');
+      final planted = File('$file.$pid.tmp')..writeAsStringSync('planted');
+      final held = planted.openSync(mode: FileMode.append);
+      addTearDown(held.closeSync);
+      FileSystemException? failure;
+      try {
+        await writeAnalysisHostAddress(file, address('the secret'));
+      } on FileSystemException catch (error) {
+        failure = error;
+      }
+      held.setPositionSync(0);
+      final seen = utf8.decode(held.readSync(4096), allowMalformed: true);
+      expect(seen, isNot(contains('the secret')));
+      if (failure == null) {
+        expect(readAnalysisHostAddress(file)?.secret, 'the secret');
+      } else {
+        expect(readAnalysisHostAddress(file), isNull);
+      }
+    });
+
+    test('a file found in another place whose process has ended is skipped, '
+        'never deleted: it may be another machine\'s', () async {
+      final app = tempDir().path;
+      final elsewhere = p.join(tempDir().path, 'elsewhere');
+      final file = analysisHostAddressFile(elsewhere, app);
+      await writeAnalysisHostAddress(
+        file,
+        address('another machine', id: await endedProcess()),
+      );
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: p.join(tempDir().path, 'primary'),
+        hostCommand: [Platform.resolvedExecutable, 'no such script.dart'],
+        others: [
+          (folder: elsewhere, problem: () => null, accessChecked: false),
+        ],
+      );
+      await expectLater(
+        codesIn(scope, 'lib/a.dart'),
+        throwsA(isA<CodeAnalysisException>()),
+      );
+      expect(readAnalysisHostAddress(file)?.secret, 'another machine');
+    });
+
+    test('a file found in another place whose port takes the connection and '
+        'never welcomes the client is skipped after the connect limit, not '
+        'waited on: the client goes on to start its own host', () async {
+      final app = tempDir().path;
+      final silent = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final held = <Socket>[];
+      silent.listen(held.add);
+      addTearDown(() async {
+        for (final socket in held) {
+          socket.destroy();
+        }
+        await silent.close();
+      });
+      final elsewhere = p.join(tempDir().path, 'elsewhere');
+      final file = analysisHostAddressFile(elsewhere, app);
+      // A live process ID (this one's) and a port that says nothing.
+      await writeAnalysisHostAddress(
+        file,
+        address('another machine', port: silent.port),
+      );
+      final (:scope, folder: _) = testHost(
+        app,
+        folder: p.join(tempDir().path, 'primary'),
+        hostCommand: [Platform.resolvedExecutable, 'no such script.dart'],
+        others: [
+          (folder: elsewhere, problem: () => null, accessChecked: false),
+        ],
+      );
+      final watch = Stopwatch()..start();
+      await expectLater(
+        codesIn(scope, 'lib/a.dart'),
+        throwsA(
+          isA<CodeAnalysisException>().having(
+            (error) => error.reason,
+            'reason',
+            isNot(contains('did not answer within')),
+          ),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
+      expect(readAnalysisHostAddress(file)?.secret, 'another machine');
+    }, timeout: const Timeout(Duration(minutes: 3)));
   });
 
   group('the folders of a host are made at 700 only', () {
@@ -4244,8 +5740,8 @@ void main() {
         expect(startedHostProcesses(folder), isEmpty);
       },
       skip: Platform.isWindows
-          ? 'On Windows the folder is in %LOCALAPPDATA%, the user\'s own, and '
-                'has no Unix mode'
+          ? 'On Windows the folders have no Unix mode (their access lists are '
+                'tested on their own)'
           : false,
     );
   });
@@ -4347,3 +5843,105 @@ void _ageAll(String path) {
 /// [id].
 String _hexOf(String id) =>
     sha256.convert(utf8.encode(id)).toString().substring(0, 12);
+
+/// The answers of a system the test describes, by "system call": each call is
+/// noted in [asked] (with its argument), and gives what the test said.
+final class _FakeCalls implements SystemCalls {
+  _FakeCalls({
+    this.uid,
+    this.home,
+    this.temp,
+    this.tempProblem,
+    this.known,
+    this.knownProblem,
+    this.sid,
+    this.windows,
+    String? machineId,
+  }) : _id = machineId;
+
+  final int? uid;
+  final String? home;
+  final String? temp;
+  final String? tempProblem;
+  final String? known;
+  final String? knownProblem;
+  final String? sid;
+  final String? windows;
+  final String? _id;
+  final asked = <String>[];
+
+  @override
+  int? effectiveUserId() {
+    asked.add('effectiveUserId');
+    return uid;
+  }
+
+  @override
+  String? homeOfUser(int uid) {
+    asked.add('homeOfUser $uid');
+    return home;
+  }
+
+  @override
+  ({String? folder, String? problem}) userTempFolder() {
+    asked.add('userTempFolder');
+    return (folder: temp, problem: temp == null ? tempProblem : null);
+  }
+
+  @override
+  ({String? folder, String? problem}) localAppData() {
+    asked.add('localAppData');
+    return (folder: known, problem: known == null ? knownProblem : null);
+  }
+
+  @override
+  String? userSid() {
+    asked.add('userSid');
+    return sid;
+  }
+
+  @override
+  String? windowsFolder() {
+    asked.add('windowsFolder');
+    return windows;
+  }
+
+  @override
+  String? machineId() {
+    asked.add('machineId');
+    return _id;
+  }
+}
+
+/// The Windows folder calls of a system the test describes: the user is
+/// `S-1-5-21-1-2-3-1001`; a folder is made as a plain folder; a repair is
+/// noted and passes (as it does for a folder whose owner let the user change
+/// its list); a folder's owner is the user unless [owners] names another, and
+/// its rules are the three of a private folder.
+final class _FakeWindowsAccess implements WindowsFolderAccess {
+  _FakeWindowsAccess({this.owners = const {}});
+
+  static const me = 'S-1-5-21-1-2-3-1001';
+  final Map<String, String> owners;
+  final repaired = <String>[];
+
+  @override
+  String? userSid() => me;
+
+  @override
+  void makePrivate(String path, String userSid) => Directory(path).createSync();
+
+  @override
+  void repair(String path, String userSid) => repaired.add(p.normalize(path));
+
+  @override
+  WindowsAccess? accessOf(String path) => (
+    owner: owners[p.normalize(path)] ?? me,
+    daclPresent: true,
+    aces: const [
+      (type: 0, flags: 3, mask: 0x1F01FF, sid: me),
+      (type: 0, flags: 3, mask: 0x1F01FF, sid: 'S-1-5-18'),
+      (type: 0, flags: 3, mask: 0x1F01FF, sid: 'S-1-5-32-544'),
+    ],
+  );
+}

@@ -38,10 +38,13 @@ import 'version.dart';
 /// user's own folders were not used; the other places the host may be are
 /// looked at first (`otherAnalysisHostPlaces`).
 ///
-/// A host is told to follow its folder (`--follow-folder`) only on Linux,
-/// where the folder is chosen from facts of the machine that can change, and
-/// only when the machine chose it: [followFolder] false (tests, whose
-/// environment describes a machine that is not the real one) never.
+/// A host is told to follow its folder (`--follow-folder`) on every system,
+/// where the folder is chosen from facts of the machine that can change (a
+/// machine renamed, `/run/user/<uid>` gone, `flutter clean`), and only when
+/// the machine chose it: [followFolder] false (tests, whose environment
+/// describes a machine that is not the real one) never. On Windows the
+/// client checks who can use the folder where `analysisHostFolderAccessChecked`
+/// says (the `.dart_tool` place and the shared `Temp` folder).
 ///
 /// [newOwnServer] replaces the analysis server a run that uses none gets, for
 /// tests.
@@ -82,7 +85,8 @@ CodeAnalysisScope hostCodeAnalysis({
   final scope = analysisHostCodeAnalysis(
     projectRoot: projectRoot,
     location: () {
-      final chosen = chooseAnalysisHostFolder(environment);
+      final root = p.normalize(p.absolute(projectRoot));
+      final chosen = chooseAnalysisHostFolder(environment, projectRoot: root);
       return (
         folder: chosen.folder,
         command: analysisHostCommand(
@@ -97,8 +101,15 @@ CodeAnalysisScope hostCodeAnalysis({
           ),
         ),
         note: chosen.cacheNote,
-        others: () =>
-            otherAnalysisHostPlaces(environment, chosen: chosen.folder),
+        accessChecked: analysisHostFolderAccessChecked(
+          environment,
+          chosen.folder,
+        ),
+        others: () => otherAnalysisHostPlaces(
+          environment,
+          projectRoot: root,
+          chosen: chosen.folder,
+        ),
       );
     },
     appsteinVersion: appsteinVersion,
@@ -219,16 +230,13 @@ final class _BorrowedServer implements StoppableCodeAnalysis {
 }
 
 /// Whether the host a client starts for [environment] is told to follow its
-/// folder (`--follow-folder`): only on Linux, where the folder is chosen from
-/// facts of the machine that can change, and only when the machine chose it
+/// folder (`--follow-folder`): on every system, where the folder is chosen
+/// from facts of the machine that can change, when the machine chose it
 /// (`APPSTEIN_ANALYSIS_HOST_FOLDER` not set), and not when [followFolder] is
 /// false (tests, whose environment describes a machine that is not the real
-/// one). Windows and macOS hosts never look after their folder, so nothing is
-/// read or started for it there.
+/// one). A round of a host that follows its folder reads nothing and starts
+/// nothing while those facts are the same (`analysisHostFolderNow`).
 bool hostFollowsFolder(
   HostEnvironment environment, {
   bool followFolder = true,
-}) =>
-    followFolder &&
-    environment.os == HostOs.linux &&
-    environment.variable(analysisHostFolderVariable) == null;
+}) => followFolder && environment.variable(analysisHostFolderVariable) == null;

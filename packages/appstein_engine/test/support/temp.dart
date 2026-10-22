@@ -38,7 +38,13 @@ String fakeExecutable(Directory dir, String name, {String output = 'fake'}) {
 /// home [userHome] (the real user's when null; an empty [userHome] means the
 /// user has none) and the private group [privateGroupId] (a negative one means
 /// none). The system's per-user folders are in [runUserRoot]; the facts that
-/// are not described are read through [facts]. Pass a fake [os] only to tests that touch no files, or whose files
+/// are not described are read through [facts]. The folders and the SID the
+/// system names ([localAppData], [userTempFolder], [userSid],
+/// [windowsFolder]) are none unless given (`''`), on every system, so a test
+/// never reaches the real machine's (no FFI call, and never the developer's
+/// real `LocalAppData\appstein`); a test that wants the real ones builds its
+/// environment with `HostEnvironment.current()` or its own facts. Pass a fake
+/// [os] only to tests that touch no files, or whose files
 /// don't depend on the real OS: the macOS Android Studio tests lay out
 /// their bundles with `fakeStudio(os: HostOs.macos)` and pass the folders
 /// to search, so they run on every OS.
@@ -52,6 +58,10 @@ HostEnvironment fakeEnvironment(
   String? userHome,
   int? privateGroupId,
   String? runUserRoot,
+  String localAppData = '',
+  String userTempFolder = '',
+  String userSid = '',
+  String windowsFolder = '',
   MachineFacts? facts,
 }) => HostEnvironment(
   os: os ?? HostOs.current,
@@ -61,6 +71,10 @@ HostEnvironment fakeEnvironment(
   userHome: userHome,
   privateGroupId: privateGroupId,
   runUserRoot: runUserRoot,
+  localAppData: localAppData,
+  userTempFolder: userTempFolder,
+  userSid: userSid,
+  windowsFolder: windowsFolder,
   facts: facts,
   // No lib code reads ProgramFiles any more (Flutter doesn't look in the
   // default Windows Studio folder), but a fake value keeps any future lookup

@@ -10,11 +10,12 @@ import 'support/child_processes.dart';
 import 'support/dart_sdk.dart';
 import 'support/fake_flutter_sdk.dart';
 
-// The client that chooses its host's folder from the machine (ticket 12),
+// The client that chooses its host's folder from the machine (tickets 12 and
+// 14),
 // through the path the hooks and the `verify` tool use.
 void main() {
-  group('a host is told to follow its folder only where the machine chose it '
-      'and it is Linux', () {
+  group('a host is told to follow its folder on every system where the '
+      'machine chose it', () {
     HostEnvironment machine(
       HostOs os, [
       Map<String, String> variables = const {},
@@ -24,24 +25,28 @@ void main() {
       workingDirectory: '/work',
     );
 
-    test('on Linux it is; on Windows and macOS it never is', () {
-      expect(hostFollowsFolder(machine(HostOs.linux)), isTrue);
-      expect(hostFollowsFolder(machine(HostOs.windows)), isFalse);
-      expect(hostFollowsFolder(machine(HostOs.macos)), isFalse);
+    test('on Linux, macOS and Windows it is', () {
+      for (final os in HostOs.values) {
+        expect(hostFollowsFolder(machine(os)), isTrue, reason: '$os');
+      }
     });
 
     test('a folder the variable gave, or a test that says so, is never '
-        'followed', () {
-      expect(
-        hostFollowsFolder(
-          machine(HostOs.linux, {analysisHostFolderVariable: '/given'}),
-        ),
-        isFalse,
-      );
-      expect(
-        hostFollowsFolder(machine(HostOs.linux), followFolder: false),
-        isFalse,
-      );
+        'followed, on any system', () {
+      for (final os in HostOs.values) {
+        expect(
+          hostFollowsFolder(
+            machine(os, {analysisHostFolderVariable: '/given'}),
+          ),
+          isFalse,
+          reason: '$os',
+        );
+        expect(
+          hostFollowsFolder(machine(os), followFolder: false),
+          isFalse,
+          reason: '$os',
+        );
+      }
     });
   });
 
@@ -118,96 +123,107 @@ void main() {
     );
   });
 
-  test(
-    'on Linux a client chooses the folder from the machine and its host '
-    'runs there, whatever a folder in /tmp that another user made: nothing '
-    'is written to /tmp/appstein-<uid>, nothing of the real machine\'s folders '
-    'is touched, and the client is answered',
-    () async {
-      final uid = '${Process.runSync('id', ['-u']).stdout}'.trim();
-      final work = Directory.systemTemp.createTempSync('appstein cli tëst ');
-      addTearDown(() => work.deleteSync(recursive: true));
-      final project = p.join(work.path, 'my app');
-      Directory(project).createSync();
-      File(
-        p.join(project, 'pubspec.yaml'),
-      ).writeAsStringSync('name: my_app\nenvironment:\n  sdk: ^3.12.0\n');
-      final home = Directory(p.join(work.path, 'home'))..createSync();
-      Process.runSync('chmod', ['700', home.path]);
+  test('a client chooses the folder from the machine and its host runs there, '
+      "whatever the variables say: the machine's place is described by the "
+      "test (a home on Linux, the user's temporary folder on macOS, the Local "
+      "AppData known folder on Windows), so nothing of the real machine's "
+      'folders is touched; on Linux nothing is written to a /tmp/appstein-<uid> '
+      'that another user made, and the client is answered', () async {
+    final work = Directory.systemTemp.createTempSync('appstein cli tëst ');
+    addTearDown(() => work.deleteSync(recursive: true));
+    final project = p.join(work.path, 'my app');
+    Directory(project).createSync();
+    File(
+      p.join(project, 'pubspec.yaml'),
+    ).writeAsStringSync('name: my_app\nenvironment:\n  sdk: ^3.12.0\n');
+    final place = Directory(p.join(work.path, 'place'))..createSync();
+    if (!Platform.isWindows) Process.runSync('chmod', ['700', place.path]);
 
-      // As another user's folder looks to the client: others can write to
-      // it. One that is there already (the user's own, from an older run) is
-      // left as it is, and the 757 case is then not exercised on this run.
-      final squatted = Directory(p.join('/tmp', 'appstein-$uid'));
-      var squatter = false;
-      if (!squatted.existsSync()) {
-        squatted.createSync();
-        Process.runSync('chmod', ['757', squatted.path]);
-        squatter = true;
+    // As another user's folder looks to the client on Linux: others can
+    // write to it. One that is there already (the user's own, from an
+    // older run) is left as it is, and the 757 case is then not exercised
+    // on this run.
+    Directory? squatted;
+    if (Platform.isLinux) {
+      final uid = '${Process.runSync('id', ['-u']).stdout}'.trim();
+      final folder = Directory(p.join('/tmp', 'appstein-$uid'));
+      if (!folder.existsSync()) {
+        folder.createSync();
+        Process.runSync('chmod', ['757', folder.path]);
+        squatted = folder;
         addTearDown(() {
-          if (squatted.existsSync()) squatted.deleteSync(recursive: true);
+          if (folder.existsSync()) folder.deleteSync(recursive: true);
         });
       }
+    }
 
-      // The machine is described by the test: a home of its own, no
-      // /run/user folder, no private group, the facts of nothing else. The
-      // host is not told to follow its folder (`followFolder: false`), so it
-      // never looks at the real machine's folders either, and writes its
-      // address only where the client chose.
-      final environment = HostEnvironment(
-        os: HostOs.linux,
-        variables: {
-          'FLUTTER_ROOT': createFakeFlutterSdk(p.join(work.path, 'flutter')),
-          analysisCacheVariable: testAnalysisCache(),
-          // None of these changes the choice on Linux.
-          'HOME': '/nonexistent',
-          'XDG_CACHE_HOME': '/nonexistent/cache',
-          'XDG_RUNTIME_DIR': '/nonexistent/run',
-          'TMPDIR': '/nonexistent/tmp',
-        },
-        workingDirectory: project,
-        userHome: home.path,
-        privateGroupId: -1,
-        runUserRoot: p.join(work.path, 'no run folder'),
+    // The machine is described by the test: its place of its own, no
+    // /run/user folder, no private group, the facts of nothing else. The
+    // host is not told to follow its folder (`followFolder: false`), so it
+    // never looks at the real machine's folders either, and writes its
+    // address only where the client chose.
+    final environment = HostEnvironment(
+      os: HostOs.current,
+      variables: {
+        'FLUTTER_ROOT': createFakeFlutterSdk(p.join(work.path, 'flutter')),
+        analysisCacheVariable: testAnalysisCache(),
+        // None of these changes the choice.
+        'HOME': '/nonexistent',
+        'XDG_CACHE_HOME': '/nonexistent/cache',
+        'XDG_RUNTIME_DIR': '/nonexistent/run',
+        'TMPDIR': '/nonexistent/tmp',
+        'LOCALAPPDATA': p.join(work.path, 'not the known folder'),
+        'USERPROFILE': p.join(work.path, 'not the profile'),
+      },
+      workingDirectory: project,
+      userHome: place.path,
+      privateGroupId: -1,
+      runUserRoot: p.join(work.path, 'no run folder'),
+      localAppData: Platform.isWindows ? place.path : '',
+      userTempFolder: Platform.isMacOS ? place.path : '',
+      userSid: '',
+      windowsFolder: '',
+    );
+    final chosen = chooseAnalysisHostFolder(environment, projectRoot: project);
+    expect(
+      chosen.folder,
+      Platform.isLinux
+          ? startsWith(p.join(place.path, '.cache', 'appstein', 'hosts'))
+          : p.join(place.path, 'appstein'),
+    );
+    if (squatted != null) expect(chosen.folder, isNot(squatted.path));
+    // Chosen again from the same facts: the same folder.
+    expect(
+      chooseAnalysisHostFolder(environment, projectRoot: project).folder,
+      chosen.folder,
+    );
+
+    await withChildProcessesToItself(() async {
+      final scope = hostCodeAnalysis(
+        projectRoot: project,
+        environment: environment,
+        dartSdkPath: testDartSdk,
+        followFolder: false,
       );
-      final chosen = chooseAnalysisHostFolder(environment);
-      expect(chosen.folder, isNot(squatted.path));
+      final reading = await scope((analysis) => analysis.read());
+      expect(reading.analyzedFiles, isNotNull);
+      expect(reading.notices, isEmpty, reason: 'a host answered');
+      // The host wrote its address in that folder, and the client chose
+      // the same folder again from the same facts.
+      expect(hostProcess(chosen.folder, project), isNotNull);
       expect(
-        p.dirname(chosen.folder),
-        p.join(home.path, '.cache', 'appstein', 'hosts'),
+        chooseAnalysisHostFolder(environment, projectRoot: project).folder,
+        chosen.folder,
       );
-      // Chosen again from the same facts: the same folder.
-      expect(chooseAnalysisHostFolder(environment).folder, chosen.folder);
-
-      await withChildProcessesToItself(() async {
-        final scope = hostCodeAnalysis(
-          projectRoot: project,
-          environment: environment,
-          dartSdkPath: testDartSdk,
-          followFolder: false,
+      if (squatted != null) {
+        expect(
+          squatted.listSync(),
+          isEmpty,
+          reason: 'nothing is written to the folder others could write to',
         );
-        final reading = await scope((analysis) => analysis.read());
-        expect(reading.analyzedFiles, isNotNull);
-        expect(reading.notices, isEmpty, reason: 'a host answered');
-        // The host wrote its address in that folder, and the client chose
-        // the same folder again from the same facts.
-        expect(hostProcess(chosen.folder, project), isNotNull);
-        expect(chooseAnalysisHostFolder(environment).folder, chosen.folder);
-        if (squatter) {
-          expect(
-            squatted.listSync(),
-            isEmpty,
-            reason: 'nothing is written to the folder others could write to',
-          );
-        }
-      }, cleanup: () => killHost(chosen.folder, project));
-    },
-    timeout: const Timeout(Duration(minutes: 5)),
-    skip: Platform.isLinux
-        ? false
-        : 'Only on Linux is the folder chosen from the machine and /tmp '
-              'shared by every user',
-  );
+      }
+    }, cleanup: () => killHost(chosen.folder, project));
+  }, timeout: turnTestTimeout);
 }
 
 /// A server of its own that notes what it was asked and whether it was

@@ -15,6 +15,7 @@ import 'src/held_detect.dart';
 import 'src/hook_measurement.dart';
 import 'src/hook_process.dart';
 import 'src/hook_rows.dart';
+import 'src/host_folder_choice.dart';
 import 'src/large_build.dart';
 import 'src/mcp_session.dart';
 import 'src/measure_context.dart';
@@ -192,6 +193,7 @@ Future<void> main(List<String> args) async {
     WarmResult? warm;
     HookResults? hooks;
     List<_ReadingRow>? reading;
+    HostFolderChoiceResult? folderChoice;
 
     // Prints every table that has something in it: when a check fails
     // early, the rows measured before it still reach the log.
@@ -234,6 +236,7 @@ ${line('**`docs --check`**, median of 3 (target under 2 s)', 'docsCheck')}
         stdout.writeln(_hookTable(measured));
       }
       if (reading case final read?) stdout.writeln(_readingTable(read));
+      if (folderChoice case final choice?) stdout.writeln(choice.table());
       if (mcp.isNotEmpty) {
         stdout.writeln('''
 | MCP answer on the 200-file app (one `appstein mcp` process) | median of 3 (target under 1 s) |
@@ -601,6 +604,16 @@ ${[for (final MapEntry(key: tool, value: three) in mcp.entries) '| `$tool` | ${(
           return;
         }
         reading = await _measureReading(app);
+        // The choice of the host's folder as a hook process makes it, without
+        // the variable this tool sets for its own hosts: no process on
+        // Windows, none on macOS in its temporary folder (ticket 14).
+        final choice = folderChoice = measureHostFolderChoice(projectRoot: app);
+        if (choice.problem case final problem?) {
+          printTables();
+          stderr.writeln('The host folder choice: $problem');
+          exitCode = 1;
+          return;
+        }
       }
 
       if (held) {

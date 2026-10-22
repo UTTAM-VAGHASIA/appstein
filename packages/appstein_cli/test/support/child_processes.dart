@@ -361,6 +361,12 @@ File turnFile() => File(
 /// this one and not a bare timeout.
 const turnWait = Duration(minutes: 8);
 
+/// The time limit of a test that takes the real turn: the [turnWait] and
+/// time for the test itself. With a shorter limit the test fails as a bare
+/// timeout whenever another file's test holds the turn longer than that limit
+/// (a real host start does), however well the test itself runs.
+const turnTestTimeout = Timeout(Duration(minutes: 10));
+
 /// Whether the turn file was left behind: the process it names isn't
 /// running, or the process with that ID has another start. A file without
 /// a holder's name counts as left when it is a minute old (the name is

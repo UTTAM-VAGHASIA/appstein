@@ -2481,7 +2481,7 @@ void main() {
             );
           }
         }),
-        timeout: const Timeout(Duration(minutes: 3)),
+        timeout: turnTestTimeout,
       );
 
       test(
@@ -2530,7 +2530,7 @@ void main() {
           expect(unsayable.stdout, isEmpty);
           expect(unsayable.stderr, contains('error x.err'));
         }),
-        timeout: const Timeout(Duration(minutes: 5)),
+        timeout: turnTestTimeout,
       );
 
       test('a usage error in hook mode is still exit 3', () async {

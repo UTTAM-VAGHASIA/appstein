@@ -58,6 +58,9 @@ final class AnalysisHostCommand extends Command<int> {
     final machine = HostEnvironment.current();
     final dartSdk = results.option('dart-sdk');
     final idle = int.tryParse(results.option('idle-stop-seconds') ?? '');
+    final addressFolder =
+        results.option('address-folder') ??
+        analysisHostFolder(machine, projectRoot: projectRoot);
     try {
       await runAnalysisHost(
         projectRoot: projectRoot,
@@ -70,14 +73,17 @@ final class AnalysisHostCommand extends Command<int> {
           // A rewrite whose client has gone away writes nothing.
           replaceText: writes.replaceText,
         ),
-        addressFolder:
-            results.option('address-folder') ?? analysisHostFolder(machine),
+        addressFolder: addressFolder,
         appsteinVersion: appsteinVersion,
         idleStop: idle == null ? analysisHostIdleStop : Duration(seconds: idle),
         os: machine.os,
         folderNow: results.flag('follow-folder')
-            ? analysisHostFolderNow(machine)
+            ? analysisHostFolderNow(machine, projectRoot: projectRoot)
             : null,
+        // On Windows the folders of the `.dart_tool` place and the shared
+        // `Temp` folder are made private to the user, and checked.
+        accessChecked: (folder) =>
+            analysisHostFolderAccessChecked(machine, folder),
       );
     } on Object {
       // It could not start, and has left why for its client

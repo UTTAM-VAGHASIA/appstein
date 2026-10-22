@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'system_calls.dart';
+
 /// The operating system Appstein runs on.
 enum HostOs {
   /// Microsoft Windows.
@@ -25,7 +27,9 @@ enum HostOs {
 /// The parts of the machine Appstein reads: the OS, environment variables and
 /// the working folder, and the facts of the machine and its user that every
 /// process of one user shares ([machineName], [machineId], [userId],
-/// [userHome], [privateGroupId], [runUserRoot]).
+/// [userHome], [privateGroupId], [runUserRoot], and the folders and the user
+/// SID the system names: [localAppData], [userTempFolder], [userSid],
+/// [windowsFolder]).
 ///
 /// The engine reads these only through this class, so tests can describe any
 /// machine without changing the real one: each fact is read from the real
@@ -42,6 +46,10 @@ final class HostEnvironment {
     this._userHome,
     this._privateGroupId,
     this._runUserRoot,
+    this._localAppData,
+    this._userTempFolder,
+    this._userSid,
+    this._windowsFolder,
     this._facts,
   });
 
@@ -67,6 +75,10 @@ final class HostEnvironment {
   final String? _userHome;
   final int? _privateGroupId;
   final String? _runUserRoot;
+  final String? _localAppData;
+  final String? _userTempFolder;
+  final String? _userSid;
+  final String? _windowsFolder;
   final MachineFacts? _facts;
 
   MachineFacts get _real => _facts ?? MachineFacts.system;
@@ -77,24 +89,28 @@ final class HostEnvironment {
   /// process runs is seen).
   String get machineName => _machineName ?? Platform.localHostname;
 
-  /// The machine's ID: the first line of `/etc/machine-id`, else of
-  /// `/var/lib/dbus/machine-id`, when it is 32 hex characters; empty when
-  /// there is none (containers often have none). Read once for the process.
+  /// The machine's ID, 32 hex characters: on Linux the first line of
+  /// `/etc/machine-id`, else of `/var/lib/dbus/machine-id`; on macOS the host
+  /// UUID (`gethostuuid`); on Windows the `MachineGuid` of the registry
+  /// (`SystemCalls.machineId`); empty when there is none (containers often
+  /// have none). Read once for the process.
   String get machineId => _machineId ?? _real.machineId;
 
-  /// The ID of the user this process runs as, the effective one (the second
-  /// number of the `Uid:` line of `/proc/self/status` on Linux, no process
-  /// started; else `id -u`); null when neither tells. Read once for the
-  /// process, also when it could not be read. An environment described with a
-  /// negative ID has none that can be read.
+  /// The ID of the user this process runs as, the effective one: on Linux the
+  /// second number of the `Uid:` line of `/proc/self/status` (no process
+  /// started; else `id -u`); on macOS `geteuid` (`SystemCalls`); on Windows
+  /// none (nothing is read or started). Null when none tells. Read once for
+  /// the process, also when it could not be read. An environment described
+  /// with a negative ID has none that can be read.
   int? get userId => switch (_userId) {
     final id? when id < 0 => null,
     final id? => id,
     _ => _real.userId,
   };
 
-  /// The user's home folder as the user database has it (the line of
-  /// `/etc/passwd` for [userId], else `getent passwd`), not `$HOME`, which
+  /// The user's home folder as the user database has it (on Linux the line
+  /// of `/etc/passwd` for [userId], else `getent passwd`; on macOS
+  /// `getpwuid_r`; none on Windows), not `$HOME`, which
   /// differs between the processes of one user; null when there is none, or
   /// when what the database says is not an absolute path. An environment
   /// described with an empty home has none. Read once for the process, also
@@ -114,10 +130,15 @@ final class HostEnvironment {
     _ => _real.userHomeFromFiles(userId),
   };
 
-  /// Whether the home of the user can only be had by starting `getent` (the
-  /// user is not in `/etc/passwd`, as with LDAP or NIS).
+  /// Whether the home of the user can only be had by starting `getent` (a
+  /// Linux user that is not in `/etc/passwd`, as with LDAP or NIS). Never off
+  /// Linux: on macOS `getpwuid_r` asks the user database itself, so a user it
+  /// doesn't know has no home, and no process is started for one.
   bool get userHomeNeedsProcess =>
-      _userHome == null && userHomeWithoutProcess == null && userId != null;
+      os == HostOs.linux &&
+      _userHome == null &&
+      userHomeWithoutProcess == null &&
+      userId != null;
 
   /// The ID of the user's private group, or null when the user's own group is
   /// shared: the primary group of the user in `/etc/passwd`, when no other
@@ -135,6 +156,61 @@ final class HostEnvironment {
   /// Where the system makes a folder for each user that is logged in
   /// (`/run/user`); a test gives one that is not there.
   String get runUserRoot => _runUserRoot ?? '/run/user';
+
+  /// The Local AppData known folder of the user as the system names it for
+  /// this process's own access token (Windows, `SystemCalls.localAppData`;
+  /// not `%LOCALAPPDATA%`); null when the system names none, or off Windows.
+  /// An environment described with an empty one has none. Read once for the
+  /// process.
+  String? get localAppData => switch (_localAppData) {
+    '' => null,
+    final folder? => folder,
+    _ => _real.localAppData,
+  };
+
+  /// Why [localAppData] is null on Windows (the system's error); null when
+  /// it is not.
+  String? get localAppDataProblem => switch (_localAppData) {
+    '' => noLocalAppData,
+    _? => null,
+    _ => _real.localAppDataProblem,
+  };
+
+  /// The user's temporary folder as the system names it (macOS,
+  /// `SystemCalls.userTempFolder`; not `$TMPDIR`); null when the system names
+  /// none, or off macOS. An environment described with an empty one has none.
+  /// Read once for the process.
+  String? get userTempFolder => switch (_userTempFolder) {
+    '' => null,
+    final folder? => folder,
+    _ => _real.userTempFolder,
+  };
+
+  /// Why [userTempFolder] is null on macOS; null when it is not.
+  String? get userTempProblem => switch (_userTempFolder) {
+    '' => noUserTemp,
+    _? => null,
+    _ => _real.userTempProblem,
+  };
+
+  /// The SID of the user of this process's access token (Windows,
+  /// `SystemCalls.userSid`); null when it can't be read, or off Windows. An
+  /// environment described with an empty one has none. Read once for the
+  /// process.
+  String? get userSid => switch (_userSid) {
+    '' => null,
+    final sid? => sid,
+    _ => _real.userSid,
+  };
+
+  /// The system's Windows folder (Windows, `SystemCalls.windowsFolder`); null
+  /// when it can't be read, or off Windows. An environment described with an
+  /// empty one has none. Read once for the process.
+  String? get windowsFolder => switch (_windowsFolder) {
+    '' => null,
+    final folder? => folder,
+    _ => _real.windowsFolder,
+  };
 
   /// The value of the environment variable [name], or null when it is unset
   /// or empty.
@@ -176,26 +252,37 @@ final class HostEnvironment {
 
 /// The facts of the machine and its user that are read from the system:
 /// each is read the first time it is asked for and kept for the life of the
-/// object, **also when it could not be read**, so a process that has no such
-/// file (Windows, macOS) never reads the files or starts `id` or `getent`
-/// again. [system] is the one every [HostEnvironment] uses unless it is
-/// given another; tests give one with their own [readFile] and [run] to see
-/// what is read.
+/// object, **also when it could not be read**, so a round of a host that
+/// asks again reads no file, starts no process and makes no system call.
+/// [system] is the one every [HostEnvironment] uses unless it is given
+/// another; tests give one with their own [readFile], [run] and [calls] to
+/// see what is read.
+///
+/// What is read depends on the system ([os]): on Linux files (`/proc`,
+/// `/etc/passwd`, `/etc/group`, the machine ID) and, where they don't tell,
+/// `id -u` and `getent`; on macOS and Windows only [calls] (`dart:ffi`), so
+/// no process is started there, and no file is read.
 final class MachineFacts {
   /// Facts read with [readFile] (the text of a file, null when there is none
-  /// or it can't be read) and [run] (the result of a program, null when it
-  /// can't be started); the system's own unless given.
+  /// or it can't be read), [run] (the result of a program, null when it can't
+  /// be started) and [calls] (the system's answers by FFI), on the system
+  /// [os]; the system's own unless given.
   MachineFacts({
     String? Function(String path)? readFile,
     ProcessResult? Function(String program, List<String> arguments)? run,
+    this._calls = SystemCalls.real,
+    HostOs? os,
   }) : _readFile = readFile ?? _readFromDisk,
-       _run = run ?? _runProgram;
+       _run = run ?? _runProgram,
+       _os = os ?? HostOs.current;
 
   /// The facts of the machine this process runs on.
   static final system = MachineFacts();
 
   final String? Function(String path) _readFile;
   final ProcessResult? Function(String program, List<String> arguments) _run;
+  final SystemCalls _calls;
+  final HostOs _os;
 
   String? _machineId;
   var _userIdRead = false;
@@ -203,11 +290,18 @@ final class MachineFacts {
   final _homes = <int?, String?>{};
   final _filesHomes = <int?, String?>{};
   final _groups = <int?, int?>{};
+  SystemFolder? _knownFolderRead;
+  SystemFolder? _userTempRead;
+  var _sidRead = false;
+  String? _sid;
+  var _windowsRead = false;
+  String? _windows;
 
   /// The machine ID, empty when there is none.
   String get machineId => _machineId ??= _readMachineId();
 
   String _readMachineId() {
+    if (_os != HostOs.linux) return _calls.machineId() ?? '';
     for (final file in ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
       final line = (_readFile(file) ?? '').split('\n').first.trim();
       if (RegExp(r'^[0-9a-f]{32}$').hasMatch(line)) return line;
@@ -215,10 +309,12 @@ final class MachineFacts {
     return '';
   }
 
-  /// The effective user ID; null when it can't be read.
+  /// The effective user ID; null when it can't be read, and on Windows.
   int? get userId {
     if (_userIdRead) return _userId;
     _userIdRead = true;
+    if (_os == HostOs.windows) return null;
+    if (_os == HostOs.macos) return _userId = _calls.effectiveUserId();
     // `Uid:  real  effective  saved  filesystem`
     for (final line in (_readFile('/proc/self/status') ?? '').split('\n')) {
       if (line.startsWith('Uid:')) {
@@ -242,15 +338,20 @@ final class MachineFacts {
       if (!line.startsWith('#') && line.split(':').length >= 6) line.split(':'),
   ];
 
-  /// The home of [id] from `/etc/passwd`, without starting a process.
-  String? userHomeFromFiles(int? id) => _filesHomes.putIfAbsent(
-    id,
-    () => id == null ? null : _homeIn(_passwd(), id),
-  );
+  /// The home of [id] without starting a process: `/etc/passwd` on Linux,
+  /// `getpwuid_r` on macOS (an absolute path only), none on Windows.
+  String? userHomeFromFiles(int? id) => _filesHomes.putIfAbsent(id, () {
+    if (id == null || _os == HostOs.windows) return null;
+    if (_os == HostOs.linux) return _homeIn(_passwd(), id);
+    final home = _calls.homeOfUser(id);
+    return home != null && p.posix.isAbsolute(home) ? home : null;
+  });
 
-  /// The home of [id]: `/etc/passwd`, else `getent passwd`.
+  /// The home of [id]: on Linux `/etc/passwd`, else `getent passwd`;
+  /// elsewhere [userHomeFromFiles].
   String? userHome(int? id) => _homes.putIfAbsent(id, () {
     if (id == null) return null;
+    if (_os != HostOs.linux) return userHomeFromFiles(id);
     if (userHomeFromFiles(id) case final home?) return home;
     final result = _run('getent', ['passwd', '$id']);
     if (result == null || result.exitCode != 0) return null;
@@ -272,9 +373,10 @@ final class MachineFacts {
     return null;
   }
 
-  /// The private group of [id], null when there is none (below).
+  /// The private group of [id], null when there is none (below), and off
+  /// Linux (macOS users share `staff`), where nothing is read.
   int? privateGroupId(int? id) => _groups.putIfAbsent(id, () {
-    if (id == null) return null;
+    if (id == null || _os != HostOs.linux) return null;
     final lines = _passwd();
     final mine = [
       for (final fields in lines)
@@ -301,6 +403,46 @@ final class MachineFacts {
     }
     return group;
   });
+
+  /// The Local AppData known folder (Windows); null elsewhere, or when the
+  /// system names none ([localAppDataProblem]).
+  String? get localAppData => _knownFolder().folder;
+
+  /// Why [localAppData] is null on Windows; null when it is not, and off
+  /// Windows.
+  String? get localAppDataProblem => _knownFolder().problem;
+
+  SystemFolder _knownFolder() => _knownFolderRead ??= _os == HostOs.windows
+      ? _calls.localAppData()
+      : (folder: null, problem: null);
+
+  /// The user's temporary folder the system names (macOS); null elsewhere,
+  /// or when it names none ([userTempProblem]).
+  String? get userTempFolder => _userTemp().folder;
+
+  /// Why [userTempFolder] is null on macOS; null when it is not, and off
+  /// macOS.
+  String? get userTempProblem => _userTemp().problem;
+
+  SystemFolder _userTemp() => _userTempRead ??= _os == HostOs.macos
+      ? _calls.userTempFolder()
+      : (folder: null, problem: null);
+
+  /// The SID of the user of this process's token (Windows); null elsewhere,
+  /// or when it can't be read.
+  String? get userSid {
+    if (_sidRead) return _sid;
+    _sidRead = true;
+    return _sid = _os == HostOs.windows ? _calls.userSid() : null;
+  }
+
+  /// The system's Windows folder (Windows); null elsewhere, or when it can't
+  /// be read.
+  String? get windowsFolder {
+    if (_windowsRead) return _windows;
+    _windowsRead = true;
+    return _windows = _os == HostOs.windows ? _calls.windowsFolder() : null;
+  }
 
   static String? _readFromDisk(String path) {
     try {

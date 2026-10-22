@@ -73,10 +73,12 @@ const _connectLimit = Duration(seconds: 5);
 ///   then asked again of the host found through the address file, when that
 ///   is safe: it is a reading, or nothing was answered yet in this body.
 ///   Otherwise it fails, as a host that ended does.
-/// - **An address file it doesn't own is never trusted** (off Windows): the
+/// - **An address file it doesn't own is never trusted** (off Windows, and on
+///   Windows where the location's `accessChecked` says): the
 ///   folder must be the user's own with mode 700, and the file the user's
 ///   own with mode 600 ([untrustedAddress]; the owner is told by one `stat`
-///   and compared with the effective user ID), checked before the address is
+///   and compared with the effective user ID; on Windows the owner and the
+///   access list, read by FFI), checked before the address is
 ///   read and again after. With no address file the folder is refused only
 ///   when it is a link, not a folder, or writable by other users: the host it
 ///   starts gives the folder mode 700 before it writes its address. **A host
@@ -88,8 +90,10 @@ const _connectLimit = Duration(seconds: 5);
 /// - **Before it starts a host** (no host answers in the folder the choice
 ///   gave), the client looks in the other places the rule could have given the
 ///   user ([AnalysisHostLocation]'s `others`): only an address file that is
-///   there, whose place passes its check, is followed, and a live host found
-///   so is used (it moves its address in its next round).
+///   there, whose place passes its check, is looked at, and its host is used
+///   only when it welcomes the client with the secret (it moves its address
+///   in its next round); any other file found so is skipped and left as it
+///   is: never deleted, waited on or asked to stop.
 /// - **Where the host is** is decided by `location` when the first question
 ///   is asked (or `warmUp`), not when the client is made.
 /// - **One connection serves the whole body**, and is closed when the body
@@ -173,6 +177,7 @@ CodeAnalysisScope analysisHostCodeAnalysis({
         folder: addressFolder!,
         command: hostCommand!,
         note: folderNote,
+        accessChecked: false,
         others: () => const <AnalysisHostPlace>[],
       );
   return <T>(body) async {
@@ -202,13 +207,16 @@ CodeAnalysisScope analysisHostCodeAnalysis({
 /// decided when the first question is asked (a run that never asks the host
 /// pays for none of it): the address-file `folder`, the `command` that starts
 /// a host, the `note` that says why the user's own folders were not used
-/// (`chooseAnalysisHostFolder`'s `cacheNote`), and `others`, the other places
-/// the host may be ([otherAnalysisHostPlaces]), asked only when no host is in
-/// the folder.
+/// (`chooseAnalysisHostFolder`'s `cacheNote`), whether the folder's access is
+/// checked on Windows (`accessChecked`, [analysisHostFolderAccessChecked]:
+/// [untrustedAddress] and [untrustedAddressFolder] are told), and `others`,
+/// the other places the host may be ([otherAnalysisHostPlaces]), asked only
+/// when no host is in the folder.
 typedef AnalysisHostLocation = ({
   String folder,
   List<String> command,
   String? note,
+  bool accessChecked,
   List<AnalysisHostPlace> Function() others,
 });
 
@@ -394,29 +402,52 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   /// found while none was in the folder the choice gave; null while the
   /// client looks in that folder.
   String? _elsewhere;
+  var _elsewhereChecked = false;
   final _triedElsewhere = <String>{};
 
   /// The address file the client looks at now.
   String get addressFile => _elsewhere ?? _primaryFile;
+
+  /// Whether the folder of [addressFile] is checked on Windows.
+  bool get _accessChecked =>
+      _elsewhere == null ? _where.accessChecked : _elsewhereChecked;
 
   /// Looks, before a host is started, for an address file of this project in
   /// the other places the rule could have given this machine's user (a machine
   /// that was renamed, `/run/user/<uid>` that appeared after a host was started
   /// elsewhere): a host that is there is used, and moves its address into the
   /// folder the choice gives in its next round. Only a file that is there is
-  /// asked about; each place is followed once. Returns whether it switched.
-  Future<bool> _lookElsewhere() async {
+  /// asked about; each place is followed once.
+  ///
+  /// **A host found elsewhere is used only when it welcomes this client with
+  /// the secret**: the file may be another machine's (a folder of the same
+  /// name on a shared home, read by a process with no machine ID), whose
+  /// process ID means nothing here. Anything else (its process is gone, it
+  /// refuses or doesn't take the connection, it doesn't welcome the client
+  /// within [_connectLimit]) is skipped: the file is never deleted, never
+  /// waited on and never asked to stop, and the next place is looked at.
+  /// Returns the welcome, with this client now looking at that file; null
+  /// when no place has a host that welcomed it.
+  Future<_Reached?> _lookElsewhere() async {
     for (final place in _where.others()) {
       final file = analysisHostAddressFile(place.folder, projectRoot, os: os);
       if (!_triedElsewhere.add(file)) continue;
       if (!File(file).existsSync()) continue;
       if (place.problem() != null) continue;
-      if (await untrustedAddress(file, os: os) != null) continue;
       _elsewhere = file;
-      return true;
+      _elsewhereChecked = place.accessChecked;
+      if (await _tryAddressWhileOpen(welcomeWait: _connectLimit)
+          case final _Reached reached) {
+        return reached;
+      }
+      _elsewhere = null;
     }
-    return false;
+    return null;
   }
+
+  /// A welcome found by [_lookElsewhere], used by the next round of
+  /// [_connectLoop] instead of a new look.
+  _Reached? _foundElsewhere;
 
   /// [reason] with the note of why the user's own folders were not used, when
   /// there is one.
@@ -531,7 +562,16 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
     final watch = Stopwatch()..start();
     while (true) {
       _checkOpen();
-      switch (await _tryAddressWhileOpen()) {
+      final found = _foundElsewhere;
+      _foundElsewhere = null;
+      var outcome = found ?? await _tryAddressWhileOpen();
+      if (_elsewhere != null && outcome is! _Reached) {
+        // The host found elsewhere is gone: its file is not this client's to
+        // delete or wait on ([_lookElsewhere]).
+        _elsewhere = null;
+        outcome = const _NoHost();
+      }
+      switch (outcome) {
         case _Reached(:final connection, :final welcome, :final address):
           final compared = compareAppsteinVersions(
             appsteinVersion,
@@ -563,7 +603,10 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
           // have written): the host of another place when there is one, else
           // the run's own server, with a notice that says why.
           _elsewhere = null;
-          if (await _lookElsewhere()) continue;
+          if (await _lookElsewhere() case final reached?) {
+            _foundElsewhere = reached;
+            continue;
+          }
           _ownNotice = unusableHostNotice(
             _withNote(
               'Appstein will not use the analysis host address file: $why',
@@ -586,13 +629,21 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
           // A host in another place the rule could have given, if any, before
           // one is started.
           _elsewhere = null;
-          if (await _lookElsewhere()) continue;
+          if (await _lookElsewhere() case final reached?) {
+            _foundElsewhere = reached;
+            continue;
+          }
           // A reason left by an earlier host is not this one's.
           await _deleteIfThere(failure);
           started = await _start();
         case _NoHost() when startedEnded:
           final folder = File(addressFile).parent.path;
-          if (await untrustedAddressFolder(folder, os: os) case final bad?) {
+          if (await untrustedAddressFolder(
+                folder,
+                os: os,
+                accessChecked: _accessChecked,
+              )
+              case final bad?) {
             // The folder is another user's, so the host that was started could
             // not use it: the run's own server answers.
             _ownNotice = unusableHostNotice(
@@ -650,9 +701,7 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
     var reach = await _tryAddressWhileOpen();
     // No host in the folder the choice gave: one in another place the rule
     // could have given, if there is one.
-    if (reach is _NoHost && await _lookElsewhere()) {
-      reach = await _tryAddressWhileOpen();
-    }
+    if (reach is _NoHost) reach = await _lookElsewhere() ?? reach;
     if (reach case _Reached(:final connection, :final welcome)) {
       if (compareAppsteinVersions(appsteinVersion, welcome.appsteinVersion) ==
           0) {
@@ -817,8 +866,10 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
 
   /// [_tryAddress], for a client that may be closed meanwhile: a connection
   /// that welcomed it after that is closed, and the question ends.
-  Future<_AddressOutcome> _tryAddressWhileOpen() async {
-    final outcome = await _tryAddress();
+  Future<_AddressOutcome> _tryAddressWhileOpen({
+    Duration welcomeWait = const Duration(seconds: 10),
+  }) async {
+    final outcome = await _tryAddress(welcomeWait: welcomeWait);
     if (_closed) {
       if (outcome case _Reached(:final connection)) connection.close();
       _checkOpen();
@@ -844,13 +895,25 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   /// from a file that was renamed in, or a folder swapped, around the first
   /// look is never used. An address that has gone or changed by then is no
   /// host: the caller looks again, within its start limit.
-  Future<_AddressOutcome> _tryAddress() async {
-    if (await untrustedAddress(addressFile, os: os) case final why?) {
+  Future<_AddressOutcome> _tryAddress({
+    Duration welcomeWait = const Duration(seconds: 10),
+  }) async {
+    if (await untrustedAddress(
+          addressFile,
+          os: os,
+          accessChecked: _accessChecked,
+        )
+        case final why?) {
       return _Untrusted(why);
     }
     final address = readAnalysisHostAddress(addressFile);
     if (address == null) return const _NoHost();
-    if (await untrustedAddress(addressFile, os: os, strict: true)
+    if (await untrustedAddress(
+          addressFile,
+          os: os,
+          strict: true,
+          accessChecked: _accessChecked,
+        )
         case final why?) {
       return _Untrusted(why);
     }
@@ -885,7 +948,7 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
         ).toJson(),
       ),
     );
-    final (:line, late: _) = await connection.next(const Duration(seconds: 10));
+    final (:line, late: _) = await connection.next(welcomeWait);
     if (identical(_reaching, connection)) _reaching = null;
     if (_object(line) case final json?) {
       try {
