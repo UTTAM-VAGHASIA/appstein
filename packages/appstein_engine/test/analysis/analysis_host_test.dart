@@ -3796,11 +3796,14 @@ void main() {
       );
       await scope((analysis) async {
         (analysis as WarmableCodeAnalysis).warmUp();
-        final waited = Stopwatch()..start();
-        while (!mark.existsSync() &&
-            waited.elapsed < const Duration(seconds: 20)) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
+        // The first question joins the look. The "host" ends without
+        // answering, which is that question's failure, and is told only once
+        // its process is gone: on Windows a process that still runs holds the
+        // mark open, and the test's folders could not be deleted.
+        await expectLater(
+          analysis.read(),
+          throwsA(isA<CodeAnalysisException>()),
+        );
       });
       // The stale address was found dead, deleted, and a host launched; the
       // port was never dialed.
