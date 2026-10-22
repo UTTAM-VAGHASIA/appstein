@@ -208,6 +208,14 @@ A good test here states what an agent, a developer or CI sees: given this projec
 
 **A consequence to watch.** The cap now applies to a terminal fast run too. A terminal fast run starts its own analysis server when no host runs, and with the plugin that start takes about 19 s on the development machine, so such a run can reach the 20 s cap, name its code checks as not run and exit 3 (Appstein could not finish checking; the owner, 2026-10-20). Without the plugin (CI's measurement app) it took 10.8 to 13.6 s cold. Slice 1d.3 takes the plugin out of the server.
 
+**Measured (ticket 10; CI run 39763006737 on commit 25ffab0, 2026-10-22, green on Linux, Windows and macOS).** On the 200-file app, by `tool/measure_sync.dart`:
+
+- The hook with the analysis host ready, after an edit that adds an error, median of 3, every run exit 2 naming the error (limit: under 5 s): 1,690 ms on Linux, 1,946 ms on Windows, 1,066 ms on macOS.
+- The hook with no host running and a warm analysis cache (it starts one and waits): 2,704, 5,857 and 2,093 ms, none cut by the cap.
+- After two `appstein mcp` sessions and a hook: one analysis host and one analysis server on each system. Memory of one session 0.61, 0.96 and 0.61 GB; of two sessions and the same host 0.65, 1.00 and 0.66 GB.
+- A terminal `verify --fast` on a cold analysis-server cache: 11.9, 14.4 and 8.3 s, under the 20 s cap. The macOS row reached the cap in two earlier runs (39682826377 and 39687897383), the server not answering for about 20 s, and passed when rerun.
+- On Windows the analysis server's cache never settled: each of 15 full runs added 100 to 450 cache entries, where Linux settled in 2 runs and macOS in 6, so Windows' warm terminal rows (4.0 s fast, 9.4 s full) were not taken on a settled cache. The hook is not affected (it asks the host's warm server). Ticket 16 finds the cause of this and of the macOS wait, and fixes both (the owner, 2026-10-22).
+
 **Facts this design rests on** (checked on 2026-10-17):
 
 - Claude Code hooks: exit 2 on PostToolUse shows stderr to the agent after the tool has run; on Stop it keeps the agent going with stderr as the reason. Any other non-zero code shows the developer the first line of stderr and nothing to the agent. Exit 0 with JSON can carry context for the agent (at most 10,000 characters) and a message for the developer. Hooks that match an event run side by side; the default timeout is 600 s; Stop receives whether the agent is already continuing because of a Stop hook, and Claude Code ends the turn after eight such continuations in a row.

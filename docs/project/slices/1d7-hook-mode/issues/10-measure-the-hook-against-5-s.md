@@ -4,15 +4,15 @@
 
 **Blocked by:** 04, 06, 09.
 
-Status: claimed
+Status: resolved
 
 - [x] **The hook row:** on the 200-file app with a ready host, edit one file to add an error, then run the compiled hook with Claude Code's input on stdin, timed from process start until it has exited and its output has closed (the owner, 2026-10-21). Each of the three runs follows its own edit (or uses its own session ID), so ticket 06's "nothing changed" rule never makes a run silent. The median of three must be under 5 s (5.000 s or more fails), and every run must exit 2 and name the error.
 - [x] **The cold row:** the same hook with no host running (it starts one and waits) and a warm analysis cache, labelled so (the owner, 2026-10-21), recorded with no limit other than the cap; whether it reached the cap is printed.
 - [x] **The sharing check:** two `appstein mcp` processes and a hook on one project leave exactly one analysis server running, or the tool fails; the memory of two sessions is recorded beside that of one.
 - [x] The 1d.2 rows still pass: the `verify` tool (now through the host) and the terminal runs.
 - [x] The tool's own logic is tested as 1d.2's measurement tool is (scripted processes).
-- [ ] The owner is asked before CI is run for the numbers. If the hook row misses 5 s anywhere, stop and ask the owner; never change the limit. The fallback considered is the host running the whole `verify` (decision record 0002).
-- [ ] The numbers from a fully green CI run are written into the spec's Further Notes, and §9.1's "still to prove" is replaced by them; the guide page for CI and the measurement is updated. The guide check passes.
+- [x] The owner is asked before CI is run for the numbers. If the hook row misses 5 s anywhere, stop and ask the owner; never change the limit. The fallback considered is the host running the whole `verify` (decision record 0002).
+- [x] The numbers from a fully green CI run are written into the spec's Further Notes, and §9.1's "still to prove" is replaced by them; the guide page for CI and the measurement is updated. The guide check passes.
 
 ## Comments
 
@@ -35,3 +35,10 @@ Status: claimed
 - **CI:** the `test` and `min-sdk` jobs got a 60-minute limit, after the Windows `test` job's runner stopped answering at 59 minutes (its rerun passed in 34).
 - **Two new tickets:** 12 (on Linux with no `XDG_RUNTIME_DIR`, another user can make `/tmp/appstein-<uid>` first; the guide's claim that they can't was false), and 13 (a test file that reports an error after it loaded was called unloadable).
 - The fix passed in full on all three systems (CI run 39649820222): Linux engine 2,001 passed and 7 skipped, macOS 1,998 and 7, CLI 282 on both, and every test that runs only off Windows passed on both.
+
+**2026-10-22, the numbers, from the first fully green run of the slice.** The owner approved each push and run. CI run 39763006737 on commit 25ffab0 (tickets 12 and 13 in) passed every job on Linux, Windows and macOS. Its Windows `test` job was rerun once: the first attempt froze mid-test and was cut at 60 minutes with no log kept, a known fault of GitHub's Windows runners (actions/runner#4632); the rerun passed in 35 minutes. Ticket 15 makes CI rerun such a job by itself. The run before it (39755048394) failed one Windows test in its clean-up, a race fixed in 25ffab0.
+
+- **The hook with the host ready** (median of 3, every run exit 2 naming the error, under 5 s): 1,690 ms on Linux, 1,946 ms on Windows, 1,066 ms on macOS. No owner decision was needed: the limit holds everywhere.
+- **No host, warm cache:** 2,704, 5,857 and 2,093 ms, none cut by the cap. **Sharing:** one host and one server on each system; one session 0.61, 0.96 and 0.61 GB, two sessions 0.65, 1.00 and 0.66 GB.
+- Written into the slice spec's Further Notes, design §9.1 (replacing "still to prove") and the visual summary, and the CI guide's hook section (the owner approved the text, 2026-10-22).
+- **Found by the numbers, ticket 16 (the owner, 2026-10-22):** on Windows the analysis server's cache never settles in the warm-up (15 runs, 100 to 450 new entries each, in every run since 39649820222), and the macOS cold terminal row was cut by the 20 s cap in runs 39682826377 and 39687897383 (the server silent for 19.8 s) and passed when rerun.

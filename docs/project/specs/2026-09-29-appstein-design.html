@@ -1436,10 +1436,9 @@ footer code{color:var(--ink-2);overflow-wrap:anywhere}
       <div>
         <h3 style="font-size:1.5rem;letter-spacing:-.02em">Still to prove</h3>
         <p class="muted" style="margin:10px 0 0;max-width:34ch">Open items, each resolved in a named slice, with a fallback where one is needed.</p>
-        <p class="muted small" style="margin:10px 0 0;max-width:34ch"><b>Settled in 1a:</b> Flutter 3.44+ is the minimum supported version. Cold analysis is too slow, so fast verify uses warm analysis. <b>Measured for 1d.2:</b> warm analysis answers about 0.1 s after an edit; a run from the terminal starts its own analyzer and has no time limit.</p>
+        <p class="muted small" style="margin:10px 0 0;max-width:34ch"><b>Settled in 1a:</b> Flutter 3.44+ is the minimum supported version. Cold analysis is too slow, so fast verify uses warm analysis. <b>Measured for 1d.2:</b> warm analysis answers about 0.1 s after an edit; a run from the terminal starts its own analyzer and has no time limit. <b>Measured for 1d.7:</b> the hook, through the project’s analysis host, answers in 1.1–1.9 s on Linux, Windows and macOS, under 5 s, and every session shares one host.</p>
       </div>
       <div class="checklist">
-        <div>The hook, through the project’s analysis host, keeps fast verify under 5 s <span class="tag neutral">1d.7</span></div>
         <div>Codex hooks, blocking and MCP config location <span class="tag neutral">1e</span></div>
         <div>Project-level enabling of the official Claude Code plugin <span class="tag neutral">1e</span></div>
         <div>No duplicate Dart MCP server <span class="tag neutral">1e</span></div>

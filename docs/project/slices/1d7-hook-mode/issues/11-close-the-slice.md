@@ -2,7 +2,7 @@
 
 **What to build:** the slice is checked as a whole, on a real app, through Claude Code's real hooks and by a second reader, and its records are complete: what was built, what was decided on the way, and what later slices inherit.
 
-**Blocked by:** 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 12, 13, 14.
+**Blocked by:** 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 12, 13, 14, 15, 16.
 
 Status: ready-for-agent
 
