@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-Status: ready-for-agent
+Status: claimed
 
 - [ ] A job that ended with no log because its runner was lost or froze (cancelled at the job's time limit, or "lost communication") is run again once, automatically, for that job only; a job that failed with a log, a job a person cancelled, and a second loss are not rerun, and the second loss fails the run with a message that says what happened.
 - [ ] While the unit tests run, the job leaves a trace outside the runner that survives its loss: the time and the last test file reached, refreshed often enough to place the stop within a minute (for example a commit status the job updates).
@@ -14,3 +14,10 @@ Status: ready-for-agent
 - [ ] The guide's CI page (`docs/guide/ci.md`) says how a lost job is handled and where its trace is.
 
 ## Comments
+
+**2026-10-23, designed; the owner's answers.** A design helper (Opus high) found that GitHub runs a `workflow_run` workflow only from the default branch's copy of its file, and a run can't rerun its own jobs while it is still running. So the rerun is a second workflow that starts when CI ends, and the automatic rerun can be proven only once that workflow is on `main`. The owner decided (2026-10-23):
+
+- **Route:** ticket 15 is built on its own branch from `main` and goes in as its own small pull request ahead of the slice. It is proven there, and `main` is then merged into `slice-1d7`.
+- **A time limit reached with the runner alive** (Appstein's own hang, with a log) is not rerun, since its log shows where it hung. Only a job lost with no log (its steps unfinished) is rerun.
+- **Two jobs lost in one attempt while another failed with a log:** nothing is rerun. The run prints the `gh run rerun --job` line for each lost job.
+- **The trace** covers the `test` job's unit tests only, as a `CI trace / test (<system>)` commit status that shows on pull requests. The rule for what gets rerun covers every job.

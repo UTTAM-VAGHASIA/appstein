@@ -4,7 +4,7 @@
 
 **Blocked by:** 12.
 
-Status: claimed
+Status: resolved
 
 - [x] macOS: the folder is `appstein` in the user's own temporary folder as the system names it (`DARWIN_USER_TEMP_DIR`, the name `getconf` uses), not `$TMPDIR`, so a client in an SSH session or with any `TMPDIR` finds the same host, and the shared `/tmp` is never used while the system names that folder. When the system can't name it, the user's `Library/Caches/appstein/hosts/<machine>` under the home from the user database, with ticket 12's checks; then the project's `.dart_tool` place; then, last, `appstein-<uid>` in `/tmp` with ticket 12's handling (the owner, 2026-10-22).
 - [x] Windows: the folder is `appstein` in the Local AppData known folder of the user as the system names it for the process's own account, not `%LOCALAPPDATA%` (nor `%USERPROFILE%`, which the system follows unless it is given the account). Then the project's `.dart_tool` place; then, last, `appstein-<the user's SID>` in Windows' shared temporary folder (`C:\Windows\Temp`), which the host makes private to the user; one another user made first is refused, and the client is answered by a server of its own with a notice (the owner, 2026-10-22).
@@ -28,4 +28,20 @@ Status: claimed
 - **Review rounds fixed:** on Windows a host checks a checked folder's owner and rules after making it private, at its start and whenever it moves (a granted `WRITE_DAC` let another user's folder pass the repair alone); the address goes only into a `.tmp` the host has just created exclusively, so a planted or held file never gets the secret; a host found in another place is used only when it welcomes the client with the secret, and its file is otherwise never deleted or waited on (another machine's host on a shared home is left alone); facts read lazily; no `getent` process on macOS; FFI memory freed on every path; exports narrowed; place kinds an enum; shared kernel32 bindings with `process_identity.dart`.
 - **Proof the tests bite:** 17 change-outs in the build, 4 in round 1 and 2 in round 2 each turned their tests red (the builder); Claude took out round 1's owner check after the repair and saw its two tests fail (`+3 -2`), the file restored by hash.
 - **Numbers (Windows):** a compiled folder choice took 4.3 to 5.0 ms the first time in a process (the known folder only), 0.0 ms after, with no process started. Engine host tests `+174 ~24` (the builder), `+171 ~24` after round 1 rerun by Claude; CLI `+91`; the measurement's tests `+6`.
-- **Not verified yet:** everything macOS (`confstr`, `getpwuid_r`, `gethostuuid`, BSD `stat`), the Linux real-disk tests, and the refusal of a real foreign-owned Windows folder (a seam test only: making a folder owned by another account needs privileges a test can't take).
+- **Not verified at the build:** everything macOS (`confstr`, `getpwuid_r`, `gethostuuid`, BSD `stat`), the Linux real-disk tests, and the refusal of a real foreign-owned Windows folder (a seam test only: making a folder owned by another account needs privileges a test can't take).
+
+**2026-10-23, proven in CI; resolved.** CI run 39843015769 on `d9cdd01` passed every job on all three systems. Each test job's unit tests: engine 2097 passed and 32 skipped (Windows), 2096 and 11 (macOS), 2100 and 10 (Linux); CLI 291 (Windows), 290 (macOS, Linux); repo tools 511 everywhere.
+
+- **macOS, on the real machine:** the test that reads the user's temporary folder from `confstr`, the user from `getpwuid_r` and the machine ID from `gethostuuid` passed, and so did its child with another `TMPDIR` and `HOME`, which chose the same folder. 24 of the 25 tests of the home's folders, the folders made at 700 and the refused links passed; the one skipped is Linux's `getent` test.
+- **Linux, on the real machine:** all 25 of those tests passed.
+- **Every system:** the CLI's real client-and-host test ("a client chooses the folder from the machine and its host runs there, whatever the variables say") passed.
+- **The measurement's folder choice** (21 choices, each in a fresh environment with no `APPSTEIN_ANALYSIS_HOST_FOLDER`; compiled):
+
+| System | Place chosen | First choice | Median of the other 20 | Processes per choice |
+|---|---|---|---|---|
+| Windows | the Local AppData known folder | 10.6 ms | 0.1 ms | 0 |
+| macOS | the user's temporary folder | 8.7 ms | 0.1 ms | 0 |
+| Linux | `/run/user/<uid>` | 24.6 ms | 13.1 ms | 1 (ticket 12's single `stat`) |
+
+- **The hook in the same run:** with the host ready it took 1537 ms on macOS and 1585 ms on Linux (median of 3). With no host running it took 2726 and 2702 ms. One host and one server served two sessions and a hook on each system.
+- **Still a seam test only:** the refusal of a Windows folder another account owns, since making one needs privileges a test can't take.
