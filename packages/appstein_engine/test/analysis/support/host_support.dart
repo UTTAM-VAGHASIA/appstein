@@ -14,8 +14,11 @@ import 'analysis_support.dart';
 /// (one that lost a race, one of another version), which each note their
 /// process ID and start in [startedHosts].
 ///
-/// [folder] is the address-file folder when given; [readyTimeout] and
-/// [answerGrace] shorten how long the client waits for an answer.
+/// [folder] is the address-file folder when given; [started] is the file the
+/// hosts note themselves in when it is not the one beside the folder
+/// ([startedHosts]), for a test whose host must make the folder itself;
+/// [readyTimeout] and [answerGrace] shorten how long the client waits for an
+/// answer.
 /// [version] is the Appstein version of the client and of the hosts it
 /// starts. [dartFrom] is a file that holds the path of the `dart` that runs
 /// the server (`host_main.dart`'s `--dart-from`). A run whose host is newer
@@ -23,12 +26,16 @@ import 'analysis_support.dart';
 /// replaces the connection to the host's port. [startHost] false makes the
 /// client one that starts no host (a terminal run); [ownServer] replaces the
 /// real analysis server a run beside no host, or beside a host of another
-/// version, would start.
+/// version, would start. [folderNote] is the note the client adds to the
+/// notice for a folder it refuses. [others] are the other places the client
+/// looks in before it starts a host, and [onOthers] is told when it asks for
+/// them.
 ({CodeAnalysisScope scope, String folder}) testHost(
   String app, {
   Duration idle = const Duration(minutes: 10),
   List<String>? hostCommand,
   String? folder,
+  String? started,
   Duration readyTimeout = analysisReadyTimeout,
   Duration answerGrace = analysisHostAnswerGrace,
   Duration turnLimit = analysisHostTurnLimit,
@@ -37,10 +44,26 @@ import 'analysis_support.dart';
   Future<Socket> Function(int port)? connect,
   bool startHost = true,
   StoppableCodeAnalysis Function()? ownServer,
+  String? folderNote,
+  List<AnalysisHostPlace> others = const [],
+  void Function()? onOthers,
 }) {
   folder ??= p.join(tempDir().path, 'host folder');
   final environment = testAnalysisEnvironment();
-  addTearDown(() => killHosts(folder!));
+  final notes = started ?? startedHosts(folder);
+  addTearDown(() => killHosts(folder!, started: notes));
+  final command =
+      hostCommand ??
+      [
+        Platform.resolvedExecutable,
+        analysisSupportFile('host_main.dart'),
+        folder,
+        testDart,
+        '${idle.inMilliseconds}',
+        version,
+        notes,
+        if (dartFrom != null) '--dart-from=$dartFrom',
+      ];
   return (
     scope: analysisHostCodeAnalysis(
       projectRoot: app,
@@ -48,19 +71,15 @@ import 'analysis_support.dart';
       answerGrace: answerGrace,
       turnLimit: turnLimit,
       connect: connect,
-      hostCommand:
-          hostCommand ??
-          [
-            Platform.resolvedExecutable,
-            analysisSupportFile('host_main.dart'),
-            folder,
-            testDart,
-            '${idle.inMilliseconds}',
-            version,
-            startedHosts(folder),
-            if (dartFrom != null) '--dart-from=$dartFrom',
-          ],
-      addressFolder: folder,
+      location: () => (
+        folder: folder!,
+        command: command,
+        note: folderNote,
+        others: () {
+          onOthers?.call();
+          return others;
+        },
+      ),
       appsteinVersion: version,
       startHost: startHost,
       ownServer:
@@ -84,8 +103,8 @@ String startedHosts(String folder) => '$folder.started';
 
 /// The hosts started for [folder], in the order they started: each one's
 /// process ID, and its start as `lookUpProcess` told it then.
-List<({int id, String start})> _startedHosts(String folder) {
-  final file = File(startedHosts(folder));
+List<({int id, String start})> _startedHosts(String folder, {String? started}) {
+  final file = File(started ?? startedHosts(folder));
   if (!file.existsSync()) return const [];
   return [
     for (final line in file.readAsLinesSync())
@@ -117,8 +136,8 @@ int? hostProcess(String folder, String app) =>
 /// ID has the start the host noted itself; and what runs under it is
 /// killed later only while each process still is the one seen under it
 /// (`lookUpProcess`: its ID, start and program).
-Future<void> killHosts(String folder) async {
-  for (final (:id, :start) in _startedHosts(folder)) {
+Future<void> killHosts(String folder, {String? started}) async {
+  for (final (:id, :start) in _startedHosts(folder, started: started)) {
     // A stand-in host in the test's own process is never killed.
     if (id == pid) continue;
     final seen = identityOf(id);

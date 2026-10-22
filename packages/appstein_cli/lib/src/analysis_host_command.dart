@@ -24,7 +24,9 @@ const analysisHostCommandName = 'analysis-host';
 ///
 /// Its options are for whoever starts it: `--address-folder`, where its
 /// address file goes (the starter's `analysisHostFolder`, so both look in
-/// the same place); `--dart-sdk`, a Dart SDK that runs the server instead
+/// the same place); `--follow-folder`, given when the client chose that folder
+/// from the machine's facts, so the host looks after it as `runAnalysisHost`
+/// says (`folderNow`); `--dart-sdk`, a Dart SDK that runs the server instead
 /// of the project's Flutter SDK's (Appstein's own tests); and
 /// `--idle-stop-seconds`, a shorter idle time (tests).
 final class AnalysisHostCommand extends Command<int> {
@@ -32,6 +34,7 @@ final class AnalysisHostCommand extends Command<int> {
   AnalysisHostCommand() {
     argParser
       ..addOption('address-folder', valueHelp: 'folder')
+      ..addFlag('follow-folder', negatable: false)
       ..addOption('dart-sdk', valueHelp: 'path')
       ..addOption('idle-stop-seconds', valueHelp: 'seconds');
   }
@@ -72,6 +75,9 @@ final class AnalysisHostCommand extends Command<int> {
         appsteinVersion: appsteinVersion,
         idleStop: idle == null ? analysisHostIdleStop : Duration(seconds: idle),
         os: machine.os,
+        folderNow: results.flag('follow-folder')
+            ? analysisHostFolderNow(machine)
+            : null,
       );
     } on Object {
       // It could not start, and has left why for its client
@@ -86,14 +92,18 @@ final class AnalysisHostCommand extends Command<int> {
 /// The command that starts the analysis host from this process, without
 /// the project folder, which the client adds: this `appstein` in its host
 /// mode ([appsteinModeCommand]), with [addressFolder] and, for tests,
-/// [dartSdkPath] and [idleStop].
+/// [dartSdkPath] and [idleStop]. With [followFolder] the host looks after its
+/// folder: it moves its address when the folder chosen from the machine's
+/// facts changes (`--follow-folder`).
 List<String> analysisHostCommand({
   required String addressFolder,
   String? dartSdkPath,
   Duration? idleStop,
+  bool followFolder = false,
 }) => [
   ...appsteinModeCommand(analysisHostCommandName),
   '--address-folder=$addressFolder',
+  if (followFolder) '--follow-folder',
   if (dartSdkPath != null) '--dart-sdk=$dartSdkPath',
   if (idleStop != null) '--idle-stop-seconds=${idleStop.inSeconds}',
 ];

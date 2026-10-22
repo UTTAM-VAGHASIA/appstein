@@ -75,12 +75,23 @@ const _connectLimit = Duration(seconds: 5);
 ///   Otherwise it fails, as a host that ended does.
 /// - **An address file it doesn't own is never trusted** (off Windows): the
 ///   folder must be the user's own with mode 700, and the file the user's
-///   own with mode 600 ([untrustedAddress]), checked before the address is
-///   read and again after; otherwise the question fails with the reason.
-///   With no address file the folder is refused only when it is a link, not
-///   a folder, or writable by other users: the host it starts gives the
-///   folder mode 700 before it writes its address. (A client that starts no
-///   host uses a server of its own instead, below.)
+///   own with mode 600 ([untrustedAddress]; the owner is told by one `stat`
+///   and compared with the effective user ID), checked before the address is
+///   read and again after. With no address file the folder is refused only
+///   when it is a link, not a folder, or writable by other users: the host it
+///   starts gives the folder mode 700 before it writes its address. **A host
+///   that can't be trusted or can't start in a folder that is another user's
+///   is not a failure of Appstein**: the client looks in the other places
+///   the host may be first, and then the question is answered by a server of
+///   its own ([ownServer], stopped when the body ends), with a notice that
+///   says why and why the user's own folders were not used.
+/// - **Before it starts a host** (no host answers in the folder the choice
+///   gave), the client looks in the other places the rule could have given the
+///   user ([AnalysisHostLocation]'s `others`): only an address file that is
+///   there, whose place passes its check, is followed, and a live host found
+///   so is used (it moves its address in its next round).
+/// - **Where the host is** is decided by `location` when the first question
+///   is asked (or `warmUp`), not when the client is made.
 /// - **One connection serves the whole body**, and is closed when the body
 ///   ends; the host is left running for the next client. The host takes the
 ///   server for each question alone, so between two questions of this body
@@ -131,11 +142,14 @@ const _connectLimit = Duration(seconds: 5);
 /// [answerGrace]); [turnLimit] is how long the host's turn is waited for
 /// ([analysisHostTurnLimit]); only tests change them. [connect] replaces
 /// the connection to the host's port, and [os] the system's, for tests
-/// only.
+/// only. [folderNote] (`chooseAnalysisHostFolder`'s `cacheNote`) is added to
+/// the error the client gives when the address folder is refused or the host
+/// could not start in it, so the user is told why the cache folder was not
+/// used.
 CodeAnalysisScope analysisHostCodeAnalysis({
   required String projectRoot,
-  required List<String> hostCommand,
-  required String addressFolder,
+  List<String>? hostCommand,
+  String? addressFolder,
   required String appsteinVersion,
   required StoppableCodeAnalysis Function() ownServer,
   bool startHost = true,
@@ -146,28 +160,57 @@ CodeAnalysisScope analysisHostCodeAnalysis({
   Duration turnLimit = analysisHostTurnLimit,
   Future<Socket> Function(int port)? connect,
   HostOs? os,
-}) => <T>(body) async {
-  final client = _HostClient(
-    projectRoot: projectRoot,
-    hostCommand: hostCommand,
-    addressFile: analysisHostAddressFile(addressFolder, projectRoot, os: os),
-    appsteinVersion: appsteinVersion,
-    ownServer: ownServer,
-    startHost: startHost,
-    environment: environment,
-    startLimit: startLimit,
-    readyTimeout: readyTimeout,
-    answerGrace: answerGrace,
-    turnLimit: turnLimit,
-    connect: connect,
-    os: os ?? HostOs.current,
+  String? folderNote,
+  AnalysisHostLocation Function()? location,
+}) {
+  assert(
+    location != null || (hostCommand != null && addressFolder != null),
+    'say where the host is: a location, or a command and a folder',
   );
-  try {
-    return await body(client);
-  } finally {
-    await client.close();
-  }
-};
+  final locate =
+      location ??
+      () => (
+        folder: addressFolder!,
+        command: hostCommand!,
+        note: folderNote,
+        others: () => const <AnalysisHostPlace>[],
+      );
+  return <T>(body) async {
+    final client = _HostClient(
+      projectRoot: projectRoot,
+      locate: locate,
+      appsteinVersion: appsteinVersion,
+      ownServer: ownServer,
+      startHost: startHost,
+      environment: environment,
+      startLimit: startLimit,
+      readyTimeout: readyTimeout,
+      answerGrace: answerGrace,
+      turnLimit: turnLimit,
+      connect: connect,
+      os: os ?? HostOs.current,
+    );
+    try {
+      return await body(client);
+    } finally {
+      await client.close();
+    }
+  };
+}
+
+/// Where a client of the analysis host looks for it and how it starts one,
+/// decided when the first question is asked (a run that never asks the host
+/// pays for none of it): the address-file `folder`, the `command` that starts
+/// a host, the `note` that says why the user's own folders were not used
+/// (`chooseAnalysisHostFolder`'s `cacheNote`), and `others`, the other places
+/// the host may be ([otherAnalysisHostPlaces]), asked only when no host is in
+/// the folder.
+typedef AnalysisHostLocation = ({
+  String folder,
+  List<String> command,
+  String? note,
+  List<AnalysisHostPlace> Function() others,
+});
 
 /// How the Appstein version [client] compares with [host]: negative when
 /// the client is older, zero when they are the same, positive when it is
@@ -186,7 +229,7 @@ int compareAppsteinVersions(String client, String host) {
 /// project's analysis host, which runs [host].
 String olderThanHostNotice(String client, String host) =>
     'This session runs Appstein $client, older than the analysis host of the '
-    'project (Appstein $host), so this run started an analysis server of its '
+    'project (Appstein $host), so this run used an analysis server of its '
     'own, which is slower. Restart the session for fast answers.';
 
 /// The notice of a terminal run that did not use the project's analysis host
@@ -194,7 +237,7 @@ String olderThanHostNotice(String client, String host) =>
 /// client". The run used an analysis server of its own instead.
 String unusableHostNotice(String reason) =>
     'This run did not use the analysis host of the project ($reason), so it '
-    'started an analysis server of its own, which is slower.';
+    'used an analysis server of its own, which is slower.';
 
 /// One connection to the host, made by the first question.
 final class _Connection {
@@ -308,8 +351,7 @@ Map<String, Object?>? _object(String? line) {
 final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   _HostClient({
     required this.projectRoot,
-    required this.hostCommand,
-    required this.addressFile,
+    required this.locate,
     required this.appsteinVersion,
     required this.ownServer,
     required this.startHost,
@@ -323,8 +365,7 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   });
 
   final String projectRoot;
-  final List<String> hostCommand;
-  final String addressFile;
+  final AnalysisHostLocation Function() locate;
   final String appsteinVersion;
   final StoppableCodeAnalysis Function() ownServer;
   final bool startHost;
@@ -335,6 +376,52 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   final Duration turnLimit;
   final Future<Socket> Function(int port)? connect;
   final HostOs os;
+
+  /// Where the host is and how it is started: decided at the first question,
+  /// not when the client is made.
+  late final AnalysisHostLocation _where = locate();
+  List<String> get hostCommand => _where.command;
+  String? get folderNote => _where.note;
+
+  /// The address file of the folder the choice gave ([_where]).
+  late final String _primaryFile = analysisHostAddressFile(
+    _where.folder,
+    projectRoot,
+    os: os,
+  );
+
+  /// The address file of another place where a host of this project was
+  /// found while none was in the folder the choice gave; null while the
+  /// client looks in that folder.
+  String? _elsewhere;
+  final _triedElsewhere = <String>{};
+
+  /// The address file the client looks at now.
+  String get addressFile => _elsewhere ?? _primaryFile;
+
+  /// Looks, before a host is started, for an address file of this project in
+  /// the other places the rule could have given this machine's user (a machine
+  /// that was renamed, `/run/user/<uid>` that appeared after a host was started
+  /// elsewhere): a host that is there is used, and moves its address into the
+  /// folder the choice gives in its next round. Only a file that is there is
+  /// asked about; each place is followed once. Returns whether it switched.
+  Future<bool> _lookElsewhere() async {
+    for (final place in _where.others()) {
+      final file = analysisHostAddressFile(place.folder, projectRoot, os: os);
+      if (!_triedElsewhere.add(file)) continue;
+      if (!File(file).existsSync()) continue;
+      if (place.problem() != null) continue;
+      if (await untrustedAddress(file, os: os) != null) continue;
+      _elsewhere = file;
+      return true;
+    }
+    return false;
+  }
+
+  /// [reason] with the note of why the user's own folders were not used, when
+  /// there is one.
+  String _withNote(String reason) =>
+      folderNote == null ? reason : '$reason; $folderNote';
 
   _Connection? _connection;
   var _closed = false;
@@ -472,9 +559,18 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
           // Its address is gone: a host of this version is started next.
           continue;
         case _Untrusted(:final why):
-          throw CodeAnalysisException(
-            'Appstein will not use the analysis host address file: $why',
+          // Not a host that can be used (a folder or a file another user could
+          // have written): the host of another place when there is one, else
+          // the run's own server, with a notice that says why.
+          _elsewhere = null;
+          if (await _lookElsewhere()) continue;
+          _ownNotice = unusableHostNotice(
+            _withNote(
+              'Appstein will not use the analysis host address file: $why',
+            ),
           );
+          _own = ownServer();
+          return null;
         case _Slow(:final message):
           throw CodeAnalysisException(
             'the analysis host did not take the connection ($message)',
@@ -487,10 +583,24 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
             cancelled: () => _closed,
           );
         case _NoHost() when started == null:
+          // A host in another place the rule could have given, if any, before
+          // one is started.
+          _elsewhere = null;
+          if (await _lookElsewhere()) continue;
           // A reason left by an earlier host is not this one's.
           await _deleteIfThere(failure);
           started = await _start();
         case _NoHost() when startedEnded:
+          final folder = File(addressFile).parent.path;
+          if (await untrustedAddressFolder(folder, os: os) case final bad?) {
+            // The folder is another user's, so the host that was started could
+            // not use it: the run's own server answers.
+            _ownNotice = unusableHostNotice(
+              _withNote('the analysis host could not start: $bad'),
+            );
+            _own = ownServer();
+            return null;
+          }
           throw CodeAnalysisException(await _whyItEnded(failure));
         case _NoHost() when lookUpProcess(started!) is ProcessGone:
           // It may have written its address in its last moment: one more
@@ -537,7 +647,12 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
   ///   again; anything else is Appstein failing, since the run would
   ///   otherwise change its analysis server in the middle.
   Future<_Connection?> _connectToExisting() async {
-    final reach = await _tryAddressWhileOpen();
+    var reach = await _tryAddressWhileOpen();
+    // No host in the folder the choice gave: one in another place the rule
+    // could have given, if there is one.
+    if (reach is _NoHost && await _lookElsewhere()) {
+      reach = await _tryAddressWhileOpen();
+    }
     if (reach case _Reached(:final connection, :final welcome)) {
       if (compareAppsteinVersions(appsteinVersion, welcome.appsteinVersion) ==
           0) {
@@ -567,17 +682,12 @@ final class _HostClient implements CodeAnalysis, WarmableCodeAnalysis {
     return null;
   }
 
-  /// Why the host this client started ended before it answered: what is
-  /// wrong with the address file's folder when it is not one only the user
-  /// can use ([untrustedAddressFolder]: a link, another user's folder, a
-  /// mode other than 700), else the reason the host left in [failure]
-  /// (which is then deleted), else that it ended. A reason in a folder that
-  /// fails that check is never read: another user could have put it there.
+  /// Why the host this client started ended before it answered: the reason
+  /// the host left in [failure] (which is then deleted), else that it ended.
+  /// It is read only when the folder passes the check of a client
+  /// ([untrustedAddressFolder]), which the caller made: a reason in another
+  /// user's folder is never read.
   Future<String> _whyItEnded(File failure) async {
-    final folder = File(addressFile).parent.path;
-    if (await untrustedAddressFolder(folder, os: os) case final bad?) {
-      return 'the analysis host could not start: $bad';
-    }
     try {
       final why = (await failure.readAsString()).trim();
       await failure.delete();

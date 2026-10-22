@@ -32,7 +32,13 @@ String fakeExecutable(Directory dir, String name, {String output = 'fake'}) {
 }
 
 /// A [HostEnvironment] with only [variables], for the real OS unless [os] is
-/// given. Pass a fake [os] only to tests that touch no files, or whose files
+/// given. The machine is the one named [machineName] (this machine's own when
+/// null) and has the ID [machineId] (none, as in many containers, unless
+/// given, so a test never meets the real one); the user is [userId] and has the
+/// home [userHome] (the real user's when null; an empty [userHome] means the
+/// user has none) and the private group [privateGroupId] (a negative one means
+/// none). The system's per-user folders are in [runUserRoot]; the facts that
+/// are not described are read through [facts]. Pass a fake [os] only to tests that touch no files, or whose files
 /// don't depend on the real OS: the macOS Android Studio tests lay out
 /// their bundles with `fakeStudio(os: HostOs.macos)` and pass the folders
 /// to search, so they run on every OS.
@@ -40,8 +46,22 @@ HostEnvironment fakeEnvironment(
   Map<String, String> variables, {
   HostOs? os,
   String? workingDirectory,
+  String? machineName,
+  String machineId = '',
+  int? userId,
+  String? userHome,
+  int? privateGroupId,
+  String? runUserRoot,
+  MachineFacts? facts,
 }) => HostEnvironment(
   os: os ?? HostOs.current,
+  machineName: machineName,
+  machineId: machineId,
+  userId: userId,
+  userHome: userHome,
+  privateGroupId: privateGroupId,
+  runUserRoot: runUserRoot,
+  facts: facts,
   // No lib code reads ProgramFiles any more (Flutter doesn't look in the
   // default Windows Studio folder), but a fake value keeps any future lookup
   // there from finding the real machine's Android Studio. Tests that expect

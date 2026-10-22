@@ -86,6 +86,10 @@ final class McpCommand extends Command<int> {
     // Nothing is started here: the first `verify` call that asks starts a
     // host when none answers. The host is not this command's to stop: it
     // serves every session of the project, and ends itself when idle.
+    // A call that can use no host (its folder is another user's) is answered
+    // by a server of the session's own, kept between calls and stopped when
+    // the session ends.
+    final ownServer = SessionOwnServer();
     final server = AppsteinMcpServer(
       channel(),
       projectRoot: projectRoot,
@@ -100,6 +104,7 @@ final class McpCommand extends Command<int> {
             projectRoot: projectRoot,
             environment: environment,
             dartSdkPath: dartSdkPath,
+            keepOwnServer: ownServer,
             // Stdout is the MCP channel: the notices go to the log.
             onLeft: (notices) => notices.forEach(err.writeln),
           ),
@@ -107,6 +112,7 @@ final class McpCommand extends Command<int> {
       dartSdkPath: dartSdkPath,
     );
     await server.done;
+    (await ownServer.close()).forEach(err.writeln);
     return ExitCodes.ok;
   }
 }

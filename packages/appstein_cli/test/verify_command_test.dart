@@ -1397,6 +1397,22 @@ void main() {
           '--address-folder=f',
         );
       });
+
+      test('a host whose folder the client chose from the machine is told '
+          'to follow it; one whose folder was given is not', () {
+        expect(
+          analysisHostCommand(addressFolder: 'f', followFolder: true).last,
+          '--follow-folder',
+        );
+        expect(
+          analysisHostCommand(addressFolder: 'f', followFolder: false),
+          isNot(contains('--follow-folder')),
+        );
+        expect(
+          analysisHostCommand(addressFolder: 'f'),
+          isNot(contains('--follow-folder')),
+        );
+      });
     });
 
     group('on a healthy project', () {

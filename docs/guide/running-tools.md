@@ -6,7 +6,7 @@ Doctor and the SDK lookups read environment variables, search the PATH and run t
 
 ## `HostEnvironment`
 
-[`host_environment.dart`](../../packages/appstein_engine/lib/src/host/host_environment.dart) describes a machine: the OS (`HostOs`), the environment variables and the working folder. `HostEnvironment.current()` reads the real ones when the CLI starts.
+[`host_environment.dart`](../../packages/appstein_engine/lib/src/host/host_environment.dart) describes a machine: the OS (`HostOs`), the environment variables, the working folder, and the facts of the machine and its user that every process of one user shares and the analysis host's folder is chosen from (`machineName`, `machineId`, `userId`, `userHome`, `privateGroupId` and `runUserRoot`: read from the system, from `Platform.localHostname`, `/etc/machine-id`, `/proc/self/status`, `/etc/passwd` and `/etc/group` by `MachineFacts`, once for the process where they don't change, also when they could not be read, unless the environment was described with them, which tests do; `MachineFacts` takes its own `readFile` and `run`, so a test sees what is read and what is started). `HostEnvironment.current()` reads the real ones when the CLI starts.
 
 **It is the engine's only view of the OS, the environment variables and the working folder.** Outside this class, engine code doesn't read `Platform.environment` or `Directory.current`. That is what makes the engine testable: a test builds a `HostEnvironment` with exactly the variables it wants, and the code under test can't see the real machine's `JAVA_HOME` or PATH. Two narrow exceptions are described below: a tool started by bare name, and the Windows tree kill in `SystemProcessRunner`.
 
