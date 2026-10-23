@@ -1,0 +1,113 @@
+{
+  "source": "UTTAM-VAGHASIA/appstein run 39551693885 attempt 1, test (windows-latest)",
+  "note": "Runner lost; job conclusion failure; Unit tests step left in_progress; no Complete job step; log endpoint 404.",
+  "job": {
+    "id": 119062121322,
+    "run_id": 39551693885,
+    "run_attempt": 1,
+    "name": "test (windows-latest)",
+    "status": "completed",
+    "conclusion": "failure",
+    "started_at": "2026-10-21T05:49:03Z",
+    "completed_at": "2026-10-21T06:48:04Z",
+    "head_sha": "b965e88f735d0711fa672db69a9a7ad9f4f170db",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1,
+        "started_at": "2026-10-21T05:49:04Z",
+        "completed_at": "2026-10-21T05:49:05Z"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2,
+        "started_at": "2026-10-21T05:49:05Z",
+        "completed_at": "2026-10-21T05:49:10Z"
+      },
+      {
+        "name": "Run subosito/flutter-action@v2",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3,
+        "started_at": "2026-10-21T05:49:10Z",
+        "completed_at": "2026-10-21T05:50:39Z"
+      },
+      {
+        "name": "Run actions/setup-python@v5",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4,
+        "started_at": "2026-10-21T05:50:39Z",
+        "completed_at": "2026-10-21T05:50:40Z"
+      },
+      {
+        "name": "Install graphify for the graph check's tests",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5,
+        "started_at": "2026-10-21T05:50:40Z",
+        "completed_at": "2026-10-21T05:51:04Z"
+      },
+      {
+        "name": "Run dart pub get --enforce-lockfile",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 6,
+        "started_at": "2026-10-21T05:51:04Z",
+        "completed_at": "2026-10-21T05:51:05Z"
+      },
+      {
+        "name": "Unit tests",
+        "status": "in_progress",
+        "conclusion": null,
+        "number": 7,
+        "started_at": "2026-10-21T05:51:05Z",
+        "completed_at": null
+      },
+      {
+        "name": "Doctor and sync against this real machine",
+        "status": "pending",
+        "conclusion": null,
+        "number": 8,
+        "started_at": null,
+        "completed_at": null
+      },
+      {
+        "name": "Post Run actions/setup-python@v5",
+        "status": "pending",
+        "conclusion": null,
+        "number": 14,
+        "started_at": null,
+        "completed_at": null
+      },
+      {
+        "name": "Post Run subosito/flutter-action@v2",
+        "status": "pending",
+        "conclusion": null,
+        "number": 15,
+        "started_at": null,
+        "completed_at": null
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "status": "pending",
+        "conclusion": null,
+        "number": 16,
+        "started_at": null,
+        "completed_at": null
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "annotation_level": "failure",
+      "message": "The hosted runner lost communication with the server. Anything in your workflow that terminates the runner process, starves it for CPU/Memory, or blocks its network access can cause this error.",
+      "title": ""
+    }
+  ],
+  "has_log": false
+}

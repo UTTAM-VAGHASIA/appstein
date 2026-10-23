@@ -215,4 +215,6 @@ The tests in the root `test/` folder cover `tool/`. Many need a real git repo, s
 
 Each case lets a test show that the measurement fails rather than passes. [`hold_open.dart`](../../test/support/hold_open.dart) is a process that does nothing until its input closes. The tests use it as a server that never answers `initialize`, and as a child to find in the real process list, for the process tree, start times and leftovers. [`hold_chain.dart`](../../test/support/hold_chain.dart) starts itself again, one level fewer each time, so `hold_chain.dart 3` gives a run, a "guard" and a Dart "server" under it, the shape of a terminal `appstein verify`. That makes the memory sampler's test the same on every system, whatever way `dart` itself runs a script. See [ci](ci.md) for the measurement itself.
 
+**The lost-job tools run on recorded GitHub answers** in [`test/support/ci_jobs/`](../../test/support/ci_jobs/); [ci](ci.md#a-job-lost-with-its-runner) lists those files and the tests that use them.
+
 **The stale-page check runs end to end too.** `guide_check_test.dart` builds a temp repo with a page covering a file, changes the file on a branch, and checks that `checkGuide` reports it until the page changes or a `Docs-Checked` commit names the page.
