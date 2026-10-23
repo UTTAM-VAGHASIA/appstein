@@ -24,6 +24,7 @@ jobs:
         run: |
           pinned=$(grep -o '"flutter"[[:space:]]*:[[:space:]]*"[^"]*"' .fvmrc | sed 's/.*: *"\(.*\)"/\1/')
           [ "$pinned" = "$FLUTTER_STABLE" ] || { echo "FLUTTER_STABLE ($FLUTTER_STABLE) differs from .fvmrc ($pinned)"; exit 1; }
+          grep -q "FLUTTER_STABLE: \"$pinned\"" .github/workflows/ci-rerun.yml || { echo "ci-rerun.yml's FLUTTER_STABLE differs from .fvmrc ($pinned)"; exit 1; }
       - name: No raw byte order marks in Dart files
         shell: bash
         # An invisible U+FEFF in a string literal is lost if a tool strips it,
@@ -50,8 +51,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # The unit tests' trace is a commit status (docs/guide/ci.md, "A job
+    # lost with its runner"). A job's permissions replace the workflow's.
+    permissions:
+      contents: read
+      statuses: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # the tests never see the token
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_STABLE }}
@@ -72,9 +80,17 @@ jobs:
       - run: dart pub get --enforce-lockfile
       - name: Unit tests
         shell: bash
-        run: |
-          dart test test
-          for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
+        # `dart test test`, then `dart test` in each package, as before,
+        # with a trace that survives a lost runner (tool/ci_unit_tests.dart).
+        env:
+          APPSTEIN_TRACE_TOKEN: ${{ github.token }}
+        run: >
+          dart run tool/ci_unit_tests.dart
+          --job "test (${{ matrix.os }})"
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+          --attempt ${{ github.run_attempt }}
+          --repo "${{ github.repository }}"
       - name: Doctor and sync against this real machine
         shell: bash
         working-directory: packages/appstein_engine
@@ -220,3 +236,38 @@ jobs:
         # The tool starts the compiled `appstein mcp` and fails when the
         # warm fast `verify` takes 5 s or more, the median of three.
         run: dart run tool/measure_sync.dart --work "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  lost-jobs:
+    # Runs last, whatever happened: says which jobs were lost with their
+    # runner, closes their traces, and fails when a job was lost twice.
+    # The rerun itself comes from ci-rerun.yml once this run has ended.
+    needs: [analyze, test, build, docs, min-sdk, measure]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - name: Find jobs lost with their runner
+        shell: bash
+        env:
+          APPSTEIN_GITHUB_TOKEN: ${{ github.token }}
+        run: >
+          dart run tool/ci_lost_jobs.dart report
+          --repo "${{ github.repository }}"
+          --run ${{ github.run_id }}
+          --attempt ${{ github.run_attempt }}
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --server-url "${{ github.server_url }}"

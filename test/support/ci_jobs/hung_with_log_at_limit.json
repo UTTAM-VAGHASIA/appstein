@@ -1,0 +1,112 @@
+{
+  "source": "UTTAM-VAGHASIA/appstein run 37307982564 attempt 1, measure (ubuntu-latest)",
+  "note": "Our own hang, runner alive: cancelled at the (then default) 6-hour limit; step completed/cancelled; Complete job present; log 200.",
+  "job": {
+    "id": 111756193175,
+    "run_id": 37307982564,
+    "run_attempt": 1,
+    "name": "measure (ubuntu-latest)",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started_at": "2026-10-05T12:12:59Z",
+    "completed_at": "2026-10-05T18:13:52Z",
+    "head_sha": "cf5aaa7647ee9608b00ed599ae3db1334ada83b7",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1,
+        "started_at": "2026-10-05T12:13:00Z",
+        "completed_at": "2026-10-05T12:13:01Z"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2,
+        "started_at": "2026-10-05T12:13:01Z",
+        "completed_at": "2026-10-05T12:13:02Z"
+      },
+      {
+        "name": "Run subosito/flutter-action@v2",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3,
+        "started_at": "2026-10-05T12:13:02Z",
+        "completed_at": "2026-10-05T12:13:19Z"
+      },
+      {
+        "name": "Run dart pub get --enforce-lockfile",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4,
+        "started_at": "2026-10-05T12:13:19Z",
+        "completed_at": "2026-10-05T12:13:20Z"
+      },
+      {
+        "name": "Measure cold analysis with the plugin (spec §9.1)",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5,
+        "started_at": "2026-10-05T12:13:20Z",
+        "completed_at": "2026-10-05T12:15:14Z"
+      },
+      {
+        "name": "Measure a full sync and sync --detect (spec §15)",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "number": 6,
+        "started_at": "2026-10-05T12:15:14Z",
+        "completed_at": "2026-10-05T18:13:49Z"
+      },
+      {
+        "name": "Post Run subosito/flutter-action@v2",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 11,
+        "started_at": "2026-10-05T18:13:49Z",
+        "completed_at": "2026-10-05T18:13:49Z"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 12,
+        "started_at": "2026-10-05T18:13:49Z",
+        "completed_at": "2026-10-05T18:13:49Z"
+      },
+      {
+        "name": "Complete job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 13,
+        "started_at": "2026-10-05T18:13:49Z",
+        "completed_at": "2026-10-05T18:13:49Z"
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "annotation_level": "failure",
+      "message": "The job has exceeded the maximum execution time of 6h0m0s",
+      "title": ""
+    },
+    {
+      "annotation_level": "warning",
+      "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+      "title": ""
+    },
+    {
+      "annotation_level": "failure",
+      "message": "The operation was canceled.",
+      "title": ""
+    },
+    {
+      "annotation_level": "notice",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"",
+      "title": ""
+    }
+  ],
+  "has_log": true
+}

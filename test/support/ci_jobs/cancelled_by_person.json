@@ -1,0 +1,158 @@
+{
+  "source": "cli/cli run 34978056515, windows (public repo)",
+  "note": "Run cancelled by a person mid-step; annotation 'The run was canceled by @…'. Log not checked.",
+  "job": {
+    "id": 104410856006,
+    "run_id": 34978056515,
+    "run_attempt": 1,
+    "name": "windows",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started_at": "2026-09-15T13:55:36Z",
+    "completed_at": "2026-09-15T13:58:20Z",
+    "head_sha": "9eb4db2ba89017ea9dbcaed4f712dc4881f7f37b",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1,
+        "started_at": "2026-09-15T13:55:36Z",
+        "completed_at": "2026-09-15T13:55:38Z"
+      },
+      {
+        "name": "Checkout",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2,
+        "started_at": "2026-09-15T13:55:38Z",
+        "completed_at": "2026-09-15T13:55:43Z"
+      },
+      {
+        "name": "Set up Go",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3,
+        "started_at": "2026-09-15T13:55:43Z",
+        "completed_at": "2026-09-15T13:56:44Z"
+      },
+      {
+        "name": "Install GoReleaser",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4,
+        "started_at": "2026-09-15T13:56:44Z",
+        "completed_at": "2026-09-15T13:56:45Z"
+      },
+      {
+        "name": "Install Azure Code Signing Client",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5,
+        "started_at": "2026-09-15T13:56:45Z",
+        "completed_at": "2026-09-15T13:56:47Z"
+      },
+      {
+        "name": "Create temporary tag",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 6,
+        "started_at": "2026-09-15T13:56:47Z",
+        "completed_at": "2026-09-15T13:56:47Z"
+      },
+      {
+        "name": "Authenticate to Azure for code signing",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 7,
+        "started_at": "2026-09-15T13:56:47Z",
+        "completed_at": "2026-09-15T13:56:55Z"
+      },
+      {
+        "name": "Build release binaries",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "number": 8,
+        "started_at": "2026-09-15T13:56:55Z",
+        "completed_at": "2026-09-15T13:58:14Z"
+      },
+      {
+        "name": "Set up MSBuild",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 9,
+        "started_at": "2026-09-15T13:58:14Z",
+        "completed_at": "2026-09-15T13:58:14Z"
+      },
+      {
+        "name": "Build MSI",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 10,
+        "started_at": "2026-09-15T13:58:14Z",
+        "completed_at": "2026-09-15T13:58:14Z"
+      },
+      {
+        "name": "Sign .msi release binaries",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 11,
+        "started_at": "2026-09-15T13:58:14Z",
+        "completed_at": "2026-09-15T13:58:14Z"
+      },
+      {
+        "name": "Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 12,
+        "started_at": "2026-09-15T13:58:14Z",
+        "completed_at": "2026-09-15T13:58:14Z"
+      },
+      {
+        "name": "Post Authenticate to Azure for code signing",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 22,
+        "started_at": "2026-09-15T13:58:14Z",
+        "completed_at": "2026-09-15T13:58:16Z"
+      },
+      {
+        "name": "Post Set up Go",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 23,
+        "started_at": "2026-09-15T13:58:16Z",
+        "completed_at": "2026-09-15T13:58:16Z"
+      },
+      {
+        "name": "Post Checkout",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 24,
+        "started_at": "2026-09-15T13:58:16Z",
+        "completed_at": "2026-09-15T13:58:18Z"
+      },
+      {
+        "name": "Complete job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 25,
+        "started_at": "2026-09-15T13:58:18Z",
+        "completed_at": "2026-09-15T13:58:18Z"
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "annotation_level": "failure",
+      "message": "The run was canceled by @williammartin.",
+      "title": ""
+    },
+    {
+      "annotation_level": "failure",
+      "message": "The operation was canceled.",
+      "title": ""
+    }
+  ],
+  "has_log": null
+}

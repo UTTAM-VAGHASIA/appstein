@@ -1,0 +1,51 @@
+name: Rerun lost CI jobs
+
+# A CI job whose runner was lost runs again once (docs/guide/ci.md, "A job
+# lost with its runner"). A run can't rerun its own jobs while it runs, so
+# this workflow starts when a CI run has ended. GitHub runs a `workflow_run`
+# workflow from the default branch, so this file takes effect only on main.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+env:
+  FLUTTER_STABLE: "3.47.5"   # keep in step with .fvmrc (ci.yml's analyze job checks)
+
+jobs:
+  rerun:
+    # A lost job ends the run `failure` (lost communication) or `cancelled`
+    # (the time limit). Only this repository's own runs are rerun, not a
+    # pull request's from a fork; its lost-jobs warning gives the command.
+    if: >-
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+    steps:
+      # main's code, never the code of the run it judges: it reads that run
+      # through the API only.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_STABLE }}
+          channel: stable
+          cache: true
+      - run: dart pub get --enforce-lockfile
+      - name: Rerun a job lost for the first time
+        shell: bash
+        env:
+          APPSTEIN_GITHUB_TOKEN: ${{ github.token }}
+        run: >
+          dart run tool/ci_lost_jobs.dart rerun
+          --repo "${{ github.repository }}"
+          --run ${{ github.event.workflow_run.id }}
+          --attempt ${{ github.event.workflow_run.run_attempt }}

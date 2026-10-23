@@ -11,11 +11,18 @@ tool/src/process_memory.dart
 tool/src/terminal_verify.dart
 tool/src/warm_measurement.dart
 tool/src/warm_verify.dart
+tool/ci_unit_tests.dart
+tool/ci_lost_jobs.dart
+tool/src/lost_jobs.dart
+tool/src/lost_jobs_modes.dart
+tool/src/unit_test_trace.dart
+tool/src/unit_test_runner.dart
+tool/src/github_api.dart
 -->
 
 # Continuous integration
 
-CI is one GitHub Actions workflow, [`ci.yml`](../../.github/workflows/ci.yml). It is the gate: local hooks only warn, and CI fails the change. The spec's plan for CI is in §19.3 of the [spec](../project/specs/2026-09-29-appstein-design.md#193-ci-github-actions); this page describes what runs today.
+CI is one GitHub Actions workflow, [`ci.yml`](../../.github/workflows/ci.yml), and a second one, [`ci-rerun.yml`](../../.github/workflows/ci-rerun.yml), that reruns a job lost with its runner (see [A job lost with its runner](#a-job-lost-with-its-runner)). `ci.yml` is the gate: local hooks only warn, and CI fails the change. The spec's plan for CI is in §19.3 of the [spec](../project/specs/2026-09-29-appstein-design.md#193-ci-github-actions); this page describes what runs today.
 
 ## When CI runs, and how to run it on a branch
 
@@ -100,7 +107,99 @@ Defined in [ci.yml](../../.github/workflows/ci.yml). Triggers: `push` (`main`), 
 4. Measure cold analysis with the plugin (spec §9.1)
 5. Measure sync, docs and verify, with the warm 5 s limit (spec §9.1, §15)
 
+**`lost-jobs`** runs on `ubuntu-latest`:
+
+1. `actions/checkout@v4`
+2. `subosito/flutter-action@v2`
+3. `dart pub get --enforce-lockfile`
+4. Find jobs lost with their runner
+
 <!-- /generated:ci-jobs -->
+
+## A job lost with its runner
+
+A GitHub-hosted runner sometimes stops in the middle of a job, most often a Windows `test` job in its unit tests (runs 39551693885 and 39763006737; upstream actions/runner#4632 and actions/runner-images#14938). The job then ends with no log. GitHub reports "The hosted runner lost communication with the server" and ends the job as `failure`, or cancels it at its time limit with "The job has exceeded the maximum execution time". Either way its steps are left unfinished, and a rerun of the same commit passes.
+
+**The trace.** [`tool/ci_unit_tests.dart`](../../tool/ci_unit_tests.dart) runs the `test` job's unit tests. It runs the same commands, in the same order and with the same output, as before: `dart test test` at the root, then `dart test` in each package by name, stopping at the first that fails. It adds a JSON file reporter (`--file-reporter json:<file>`, in `RUNNER_TEMP`). Every 30 seconds it reads the file's new whole lines and sets a commit status named `CI trace / test (<system>)` on the commit under test (the pull request's head, or the pushed commit). It also sets one at the start of each command and one at the end. Posts go one at a time: a 30-second one is skipped while the one before is still under way, but a command's start post and the last word wait for it and are always sent. The status gives the attempt, the time and the test file that has run longest without finishing ([`unit_test_trace.dart`](../../tool/src/unit_test_trace.dart)), for example `a1 10:58:12 UTC, 3 running, longest 38m: packages/appstein_engine/test/analysis_host_test.dart`. Its link is the run's attempt page. While files load it names the file loading longest. Between tests it names the last file that finished (`idle after …`). At the end it says `finished` (green) or `unit tests failed` (red). The text is ASCII, at most 140 characters, and holds nothing but those fields. A path that doesn't fit loses its middle folders to `...`, never its file name.
+
+The status lives on GitHub, not on the runner, so it survives the runner's loss. Its last text says where the tests were and when the runner was last alive, to within a minute. Find it among the commit's or the PR's checks, or with `gh api repos/<owner>/<repo>/commits/<sha>/statuses`.
+
+The token reaches only the wrapper, through `APPSTEIN_TRACE_TOKEN`. The tests are started (`startDartTest` in [`unit_test_runner.dart`](../../tool/src/unit_test_runner.dart)) with an environment that leaves it out, and without their parent's environment, so they never see it. The `test` job's checkout uses `persist-credentials: false`, so the token isn't left in `.git/config` either. A status that can't be written never fails or holds up the tests:
+
+- **After HTTP 401, 403, 404 or 422** (the token may not write statuses, or the commit has reached GitHub's limit), the wrapper prints one line (`The trace could not be written: HTTP 403 …`) and goes on untraced.
+- **After GitHub's rate limit**, a timeout, a server error or a lost connection, it prints one line for that kind of error (`The trace could not be written this time: …`) and goes on posting. So one bad moment never leaves an old trace, and the last word still arrives. A rate limit is a 429, or a 403 that has a `retry-after` header, says `x-ratelimit-remaining: 0`, or has a message about a rate limit.
+
+A pull request from a fork has a read-only token, so it has no trace. With no token at all, as on a developer's machine, the tests just run. One status every 30 seconds is about 70 for a 35-minute job. GitHub keeps at most 1,000 per commit and context, which is about fourteen runs of one commit.
+
+**The `lost-jobs` job** runs last in every run (`needs` every other job, `if: always()`). [`tool/ci_lost_jobs.dart`](../../tool/ci_lost_jobs.dart) `report` reads the attempt's jobs and their annotations through the API, and judges each job's end with one rule ([`lost_jobs.dart`](../../tool/src/lost_jobs.dart)). Jobs copied from an earlier attempt without running again keep their name and start time, so they are not judged twice. A job is **lost** only when two things hold:
+
+- its steps never finished: one is not `completed`, and there is no `Complete job` step;
+- GitHub's annotation says the runner lost communication, or that the time limit was reached.
+
+These are not lost, and never rerun:
+
+- a job that failed with a log;
+- a job a person cancelled;
+- a job that reached its time limit with the runner alive. Its steps finished, and its log shows where it hung.
+
+What the run shows:
+
+- **A job lost for the first time:** a warning with GitHub's words, the trace's last report, and the `gh run rerun <run> --job <job>` command to use if no next attempt starts within 10 minutes.
+- **The same job lost again in the same run:** `lost-jobs` fails with an error. When both attempts' traces stopped at the same test file it says so, because that points to a hang in Appstein's own tests rather than the runner. Otherwise it gives both files and times.
+- **Other ends:** each gets one line that says why nothing was rerun.
+- **GitHub can't give the attempt's jobs**, even after the retries below: a warning says lost jobs were not judged this time and gives the `gh run view <run> --attempt <n>` and `gh run rerun <run> --job <job id>` commands, and `lost-jobs` passes. A job that really failed or was lost makes the run red by itself, so `lost-jobs` fails only for a second loss.
+
+`lost-jobs` also closes a trace whose last report still says the tests are running, which happens when the wrapper's own last post never arrived:
+
+- for a job that passed, `a1 11:02:13 UTC, finished` (green);
+- for a lost job, `a1 lost 11:30:44 UTC, last 10:58:12 UTC: <file>` (red);
+- for any other end, `ended`, marked as an error.
+
+So a trace stays pending only when `lost-jobs` itself can't read the jobs or the statuses, or can't write the closing status. Each of its reads of the API is tried up to three times when GitHub gives no answer in time, the connection drops, or it answers with a server error; a write, a rerun included, is tried once.
+
+**The rerun.** A run can't rerun its own jobs while it is still running. So the second workflow, [`ci-rerun.yml`](../../.github/workflows/ci-rerun.yml), starts when a CI run ends (`workflow_run`). Its job goes on only when the run ended `failure` or `cancelled` **and** its code came from this repository (`head_repository` is the repo itself). A pull request from a fork is never rerun automatically; its `lost-jobs` warning still gives the `gh run rerun` command for a maintainer. Its job runs `tool/ci_lost_jobs.dart rerun` with the same rule ([`lost_jobs_modes.dart`](../../tool/src/lost_jobs_modes.dart)), reading that run through the API only. It checks out `main` (with `persist-credentials: false`), never the code of the run it judges, and trusts nothing that run wrote. What it reruns:
+
+- **One job lost for the first time:** that job only. GitHub also reruns the jobs that depend on it, which includes `lost-jobs`, so the new attempt judges itself.
+- **Two or more lost at once:** every failed job, but only when every job that failed is one of the lost ones.
+- **Two or more lost while another job failed with a log:** nothing. GitHub can rerun one job or every failed job, not two chosen ones, and the warnings give each job's command.
+
+A second loss is never rerun. When GitHub can't give the run's jobs, the rerun job warns and reruns nothing; it fails only when GitHub refuses a rerun it asked for. GitHub runs a `workflow_run` workflow from the default branch, so this part works only once it is on `main`, and a change to it takes effect only after it merges. `ci-rerun.yml` has its own `FLUTTER_STABLE`, which the analyze job checks against `.fvmrc` too.
+
+**Permissions.** No secret is used, only each run's own token, and no job gets a permission it doesn't use:
+
+| Job | Permissions |
+|---|---|
+| `test` | `contents: read`, and `statuses: write` for the trace |
+| `lost-jobs` | `contents: read`, `actions: read`, `checks: read`, `statuses: write` |
+| `ci-rerun.yml`'s job | `contents: read`, `actions: write`, `checks: read`. The workflow's own permissions are `{}`, and it runs only for this repository's own runs |
+| Every other job | `ci.yml`'s `contents: read` |
+
+**Tested** on recorded job data, in [`test/support/ci_jobs/`](../../test/support/ci_jobs/). Each trimmed file there is `{source, note, job, annotations, has_log}`, copied as GitHub's API gave it. `run_39551693885_all_jobs.json` holds both attempts of one run. `dart_test_events.jsonl` is a real `dart test --file-reporter json:<file>` report of two files run at once, on Windows; only the absolute folder in its `url` fields was replaced with `C:/probe/`. There is no recorded second loss yet, so the tests build one from the recorded losses and say so. No test calls GitHub.
+
+- `test/lost_jobs_test.dart`: lost communication, lost at the limit, failed with a log, reached the limit with the runner alive, cancelled by a person (from cli/cli), failed at set-up (cli/cli), cancelled before it started (cli/cli), a second attempt that passed; the two attempts of run 39551693885; a second loss; and how each trace is closed.
+- `test/unit_test_trace_test.dart`: the trace's text, and the fold of the real `dart test` report.
+- `test/ci_lost_jobs_test.dart`: both modes against a fake GitHub fed from these files, including a GitHub whose jobs can't be read (a warning, exit 0).
+- `test/ci_unit_tests_test.dart`:
+  - the wrapper's order, and its stop at the first failure;
+  - posts that are refused (posting stops), and posts that time out, get a server error or GitHub's rate limit (posting goes on, and the last word arrives);
+  - a slow post that a command's start post waits for;
+  - the package folders;
+  - a real `dart test` started through `startDartTest`, the function the CI step uses, which must not see the token.
+- `test/github_api_test.dart`: `HttpGitHubApi` against a stand-in GitHub on loopback TCP. It checks:
+  - the bearer token, and paging;
+  - a read tried again after a server error, a held request that times out, and a dropped connection, and given up after three tries;
+  - a refusal or a write never tried again;
+  - each sign of a rate limit, and a plain 403 that is not one.
+- `test/ci_workflow_test.dart`: `lost-jobs` needs every other job of `ci.yml`.
+
+The condition that keeps forks out of the automatic rerun is in the workflow's `if`. No test can run it; the owner's proof run shows the rerun on this repository's own run.
+
+**Proven** in CI run *(placeholder: the owner's proof runs will fill this in)* (forced loss, automatic rerun) and *(placeholder)* (lost twice at the same file). Until then, what only a real run shows is unproven:
+
+- that the statuses are written with these permissions;
+- which annotation a killed runner gets;
+- that the run's own token can start a rerun;
+- whether a rerun started that way fires `workflow_run` again.
 
 ## Why each job exists
 

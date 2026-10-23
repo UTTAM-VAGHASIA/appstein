@@ -1,0 +1,33 @@
+{
+  "source": "cli/cli run 34978056515, macos (public repo)",
+  "note": "Failed in Set up job (action not found); no Complete job step, but every step completed.",
+  "job": {
+    "id": 104410855926,
+    "run_id": 34978056515,
+    "run_attempt": 1,
+    "name": "macos",
+    "status": "completed",
+    "conclusion": "failure",
+    "started_at": "2026-09-15T13:55:42Z",
+    "completed_at": "2026-09-15T13:55:45Z",
+    "head_sha": "9eb4db2ba89017ea9dbcaed4f712dc4881f7f37b",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "failure",
+        "number": 1,
+        "started_at": "2026-09-15T13:55:43Z",
+        "completed_at": "2026-09-15T13:55:43Z"
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "annotation_level": "failure",
+      "message": "Unable to resolve action `github/setup-apple-codesign`, not found",
+      "title": ""
+    }
+  ],
+  "has_log": null
+}

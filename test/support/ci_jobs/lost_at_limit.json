@@ -1,0 +1,113 @@
+{
+  "source": "UTTAM-VAGHASIA/appstein run 39763006737 attempt 1, test (windows-latest)",
+  "note": "Runner froze; cancelled at the 60-minute limit; Unit tests step left in_progress; no Complete job; log 404.",
+  "job": {
+    "id": 119771537338,
+    "run_id": 39763006737,
+    "run_attempt": 1,
+    "name": "test (windows-latest)",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started_at": "2026-10-22T10:25:43Z",
+    "completed_at": "2026-10-22T11:30:44Z",
+    "head_sha": "25ffab02b8beda738f4d55ad3aa71a67fb743ec9",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1,
+        "started_at": "2026-10-22T10:25:44Z",
+        "completed_at": "2026-10-22T10:25:46Z"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2,
+        "started_at": "2026-10-22T10:25:46Z",
+        "completed_at": "2026-10-22T10:25:52Z"
+      },
+      {
+        "name": "Run subosito/flutter-action@v2",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3,
+        "started_at": "2026-10-22T10:25:52Z",
+        "completed_at": "2026-10-22T10:28:03Z"
+      },
+      {
+        "name": "Run actions/setup-python@v5",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4,
+        "started_at": "2026-10-22T10:28:03Z",
+        "completed_at": "2026-10-22T10:28:03Z"
+      },
+      {
+        "name": "Install graphify for the graph check's tests",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5,
+        "started_at": "2026-10-22T10:28:03Z",
+        "completed_at": "2026-10-22T10:28:28Z"
+      },
+      {
+        "name": "Run dart pub get --enforce-lockfile",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 6,
+        "started_at": "2026-10-22T10:28:28Z",
+        "completed_at": "2026-10-22T10:28:29Z"
+      },
+      {
+        "name": "Unit tests",
+        "status": "in_progress",
+        "conclusion": null,
+        "number": 7,
+        "started_at": "2026-10-22T10:28:29Z",
+        "completed_at": null
+      },
+      {
+        "name": "Doctor and sync against this real machine",
+        "status": "pending",
+        "conclusion": null,
+        "number": 8,
+        "started_at": null,
+        "completed_at": null
+      },
+      {
+        "name": "Post Run actions/setup-python@v5",
+        "status": "pending",
+        "conclusion": null,
+        "number": 14,
+        "started_at": null,
+        "completed_at": null
+      },
+      {
+        "name": "Post Run subosito/flutter-action@v2",
+        "status": "pending",
+        "conclusion": null,
+        "number": 15,
+        "started_at": null,
+        "completed_at": null
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "status": "pending",
+        "conclusion": null,
+        "number": 16,
+        "started_at": null,
+        "completed_at": null
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "annotation_level": "failure",
+      "message": "The job has exceeded the maximum execution time of 1h0m0s",
+      "title": ""
+    }
+  ],
+  "has_log": false
+}

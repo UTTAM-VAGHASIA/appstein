@@ -1,0 +1,136 @@
+{
+  "source": "UTTAM-VAGHASIA/appstein run 39551693885 attempt 1, test (macos-latest)",
+  "note": "Tests failed; every step completed; Complete job present; log 200.",
+  "job": {
+    "id": 119062121384,
+    "run_id": 39551693885,
+    "run_attempt": 1,
+    "name": "test (macos-latest)",
+    "status": "completed",
+    "conclusion": "failure",
+    "started_at": "2026-10-21T05:49:08Z",
+    "completed_at": "2026-10-21T06:12:25Z",
+    "head_sha": "b965e88f735d0711fa672db69a9a7ad9f4f170db",
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1,
+        "started_at": "2026-10-21T05:49:08Z",
+        "completed_at": "2026-10-21T05:49:09Z"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2,
+        "started_at": "2026-10-21T05:49:09Z",
+        "completed_at": "2026-10-21T05:49:11Z"
+      },
+      {
+        "name": "Run subosito/flutter-action@v2",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3,
+        "started_at": "2026-10-21T05:49:11Z",
+        "completed_at": "2026-10-21T05:49:54Z"
+      },
+      {
+        "name": "Run actions/setup-python@v5",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4,
+        "started_at": "2026-10-21T05:49:54Z",
+        "completed_at": "2026-10-21T05:49:55Z"
+      },
+      {
+        "name": "Install graphify for the graph check's tests",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5,
+        "started_at": "2026-10-21T05:49:55Z",
+        "completed_at": "2026-10-21T05:50:01Z"
+      },
+      {
+        "name": "Run dart pub get --enforce-lockfile",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 6,
+        "started_at": "2026-10-21T05:50:01Z",
+        "completed_at": "2026-10-21T05:50:02Z"
+      },
+      {
+        "name": "Unit tests",
+        "status": "completed",
+        "conclusion": "failure",
+        "number": 7,
+        "started_at": "2026-10-21T05:50:02Z",
+        "completed_at": "2026-10-21T06:12:20Z"
+      },
+      {
+        "name": "Doctor and sync against this real machine",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 8,
+        "started_at": "2026-10-21T06:12:20Z",
+        "completed_at": "2026-10-21T06:12:20Z"
+      },
+      {
+        "name": "Post Run actions/setup-python@v5",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 14,
+        "started_at": "2026-10-21T06:12:20Z",
+        "completed_at": "2026-10-21T06:12:20Z"
+      },
+      {
+        "name": "Post Run subosito/flutter-action@v2",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 15,
+        "started_at": "2026-10-21T06:12:20Z",
+        "completed_at": "2026-10-21T06:12:20Z"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 16,
+        "started_at": "2026-10-21T06:12:20Z",
+        "completed_at": "2026-10-21T06:12:21Z"
+      },
+      {
+        "name": "Complete job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 17,
+        "started_at": "2026-10-21T06:12:21Z",
+        "completed_at": "2026-10-21T06:12:23Z"
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "annotation_level": "warning",
+      "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-python@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+      "title": ""
+    },
+    {
+      "annotation_level": "failure",
+      "message": "Process completed with exit code 1.",
+      "title": ""
+    },
+    {
+      "annotation_level": "failure",
+      "message": "1992 tests passed, 2 failed, 7 skipped.",
+      "title": ""
+    },
+    {
+      "annotation_level": "notice",
+      "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.",
+      "title": ""
+    }
+  ],
+  "has_log": true
+}

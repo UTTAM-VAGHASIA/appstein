@@ -1,0 +1,18 @@
+{
+  "source": "cli/cli run 34473891330, acceptance (windows-latest) (public repo)",
+  "note": "Cancelled 9 s in, no steps, no annotations.",
+  "job": {
+    "id": 102859938326,
+    "run_id": 34473891330,
+    "run_attempt": 1,
+    "name": "acceptance (windows-latest)",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started_at": "2026-09-10T11:55:50Z",
+    "completed_at": "2026-09-10T11:55:59Z",
+    "head_sha": "c265dd86f7b50eb788f7fc9432148a60ea7517f9",
+    "steps": []
+  },
+  "annotations": [],
+  "has_log": null
+}
