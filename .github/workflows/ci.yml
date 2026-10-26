@@ -1,9 +1,15 @@
 name: CI
 
 # Throwaway proof of ticket 15 (branch t15-proof, never merged): the
-# Windows test job loses its runner on purpose 150 s into the unit tests.
+# Windows test job loses its runner on purpose 60 s into the unit tests,
+# while the root tests still run. The triggers stay main's, since a root
+# test reads them; neither push (main) nor pull_request fires on this
+# branch, so it runs only by hand.
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -48,7 +54,7 @@ jobs:
         env:
           APPSTEIN_TRACE_TOKEN: ${{ github.token }}
         run: |
-          ( sleep 150; taskkill //F //IM Runner.Listener.exe //IM Runner.Worker.exe ) > /dev/null 2>&1 &
+          ( sleep 60; taskkill //F //IM Runner.Listener.exe //IM Runner.Worker.exe ) > /dev/null 2>&1 &
           dart run tool/ci_unit_tests.dart \
             --job "test (${{ matrix.os }})" \
             --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
