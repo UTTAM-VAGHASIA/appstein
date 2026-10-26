@@ -1,65 +1,33 @@
 name: CI
 
+# Throwaway proof of ticket 15 (branch t15-proof, never merged): the
+# Windows test job loses its runner on purpose 150 s into the unit tests.
+
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  FLUTTER_STABLE: "3.47.5"   # keep in step with .fvmrc (the analyze job checks)
-  FLUTTER_MIN: "3.44.x"      # spec §22 #14: the confirmed minimum
-  GRAPHIFY_VERSION: "0.9.71" # tests of tool/check_graph.py (docs/guide/testing.md)
+  FLUTTER_STABLE: "3.47.5"
+  GRAPHIFY_VERSION: "0.9.71"
 
 jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: FLUTTER_STABLE matches .fvmrc
-        shell: bash
-        run: |
-          pinned=$(grep -o '"flutter"[[:space:]]*:[[:space:]]*"[^"]*"' .fvmrc | sed 's/.*: *"\(.*\)"/\1/')
-          [ "$pinned" = "$FLUTTER_STABLE" ] || { echo "FLUTTER_STABLE ($FLUTTER_STABLE) differs from .fvmrc ($pinned)"; exit 1; }
-          grep -q "FLUTTER_STABLE: \"$pinned\"" .github/workflows/ci-rerun.yml || { echo "ci-rerun.yml's FLUTTER_STABLE differs from .fvmrc ($pinned)"; exit 1; }
-      - name: No raw byte order marks in Dart files
-        shell: bash
-        # An invisible U+FEFF in a string literal is lost if a tool strips it,
-        # so Dart code must write it as an escape. Editing tools that decode
-        # escapes in their input are known to reintroduce the raw character.
-        run: |
-          if LC_ALL=C grep -rl $'\xEF\xBB\xBF' --include='*.dart' .; then
-            echo "Replace the raw byte order mark in the files above with its escape."
-            exit 1
-          fi
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_STABLE }}
-          channel: stable
-          cache: true
-      - run: dart pub get --enforce-lockfile
-      - run: dart format --output=none --set-exit-if-changed .
-      - run: dart analyze --fatal-infos
-      - run: dart run dependency_validator
-
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
-    # The unit tests' trace is a commit status (docs/guide/ci.md, "A job
-    # lost with its runner"). A job's permissions replace the workflow's.
+    timeout-minutes: 20
     permissions:
       contents: read
       statuses: write
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false   # the tests never see the token
+          persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_STABLE }}
@@ -70,9 +38,6 @@ jobs:
           python-version: "3.11"
       - name: Install graphify for the graph check's tests
         shell: bash
-        # Pinned, so a graphify release can't break CI unannounced. With
-        # APPSTEIN_REQUIRE_GRAPHIFY=1 the tests fail instead of skipping
-        # when graphify is missing.
         run: |
           python -m pip install --disable-pip-version-check "graphifyy==$GRAPHIFY_VERSION"
           echo "APPSTEIN_GRAPHIFY_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
@@ -80,168 +45,19 @@ jobs:
       - run: dart pub get --enforce-lockfile
       - name: Unit tests
         shell: bash
-        # `dart test test`, then `dart test` in each package, as before,
-        # with a trace that survives a lost runner (tool/ci_unit_tests.dart).
         env:
           APPSTEIN_TRACE_TOKEN: ${{ github.token }}
-        run: >
-          dart run tool/ci_unit_tests.dart
-          --job "test (${{ matrix.os }})"
-          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
-          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
-          --attempt ${{ github.run_attempt }}
-          --repo "${{ github.repository }}"
-      - name: Doctor and sync against this real machine
-        shell: bash
-        working-directory: packages/appstein_engine
-        run: dart test --run-skipped --tags integration
-
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_STABLE }}
-          channel: stable
-          cache: true
-      - run: dart pub get --enforce-lockfile
-      - name: Compile appstein
-        shell: bash
         run: |
-          mkdir -p build
-          dart compile exe packages/appstein_cli/bin/appstein.dart -o build/appstein${{ runner.os == 'Windows' && '.exe' || '' }}
-      - name: Start-up budget (spec §15)
-        shell: bash
-        run: dart run tool/startup_check.dart build/appstein${{ runner.os == 'Windows' && '.exe' || '' }}
-      - name: Run doctor (report only)
-        shell: bash
-        # Exit 0 or 1 is fine (the runner may have problems); 3 or 255 is a crash.
-        run: |
-          set +e
-          ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} doctor
-          c=$?
-          [ "$c" -le 1 ]
-      - name: Run sync in a scratch project (the AOT binary reads the SDK)
-        shell: bash
-        run: |
-          project="$RUNNER_TEMP/sync project"
-          mkdir -p "$project"
-          printf 'name: smoke\nenvironment:\n  sdk: ^3.12.0\n' > "$project/pubspec.yaml"
-          ./build/appstein${{ runner.os == 'Windows' && '.exe' || '' }} --project "$project" sync
-          test -f "$project/.appstein/platform/toolchain.json"
-          test -f "$project/.appstein/map/symbols.json"
-          grep -q '"fallbacks": \[\]' "$project/.appstein/platform/toolchain.json"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: appstein-${{ runner.os }}
-          path: build/appstein*
-
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # the stale-page check compares with the base commit
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_STABLE }}
-          channel: stable
-          cache: true
-      - run: dart pub get --enforce-lockfile
-      - name: API docs build without warnings
-        shell: bash
-        run: for pkg in packages/*/; do (cd "$pkg" && dart doc --dry-run) || exit 1; done
-      - name: Developer guide check
-        shell: bash
-        # Pull requests compare with their base branch, and pushes with the
-        # commit before the push. A manual run, a new branch or a force push
-        # has no usable base, so only the stale-page part is skipped
-        # (spec §19.6).
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          since=""
-          if [ -n "$BASE_REF" ]; then
-            since="origin/$BASE_REF"
-          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            since="$BEFORE"
-          fi
-          if [ -n "$since" ]; then
-            dart run tool/check_guide.dart --since "$since"
-          else
-            echo "No base commit to compare with, so the stale-page check is skipped."
-            dart run tool/check_guide.dart
-          fi
-
-  min-sdk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_MIN }}
-          channel: stable
-      - run: flutter --version
-      # No --enforce-lockfile: an older SDK may need older versions of some
-      # dependencies, and finding out is the point of this job.
-      - run: dart pub get
-      - name: Analyze, which also loads our analyzer plugin on the old SDK
-        run: dart analyze --fatal-infos
-      - name: Unit tests
-        shell: bash
-        run: for pkg in packages/*/; do (cd "$pkg" && dart test) || exit 1; done
-      - name: Read the toolchain and map the fixture app with this real SDK (spec §6.5, §12, risk 6)
-        shell: bash
-        working-directory: packages/appstein_engine
-        run: dart test --run-skipped --tags integration test/integration/sync_real_environment_test.dart test/integration/map_real_sdk_test.dart test/integration/native_real_sdk_test.dart
-
-  measure:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    # The job takes about 5 to 10 minutes. Without a limit, a tool that never
-    # exits would run for GitHub's 6 hours (it happened once, in slice 1c.1).
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_STABLE }}
-          channel: stable
-          cache: true
-      - run: dart pub get --enforce-lockfile
-      - name: Measure cold analysis with the plugin (spec §9.1)
-        # Linux and Windows only: the table has no limit, and the warm
-        # `verify` measurement below runs on all three systems.
-        if: runner.os != 'macOS'
-        shell: bash
-        # The script resolves a bare `flutter` itself (flutter.bat on Windows).
-        # `tee` also puts the table in the log, which `gh run view --log` can
-        # read; job summaries aren't available through the CLI or API.
-        run: dart run tool/measure_analyze.dart --flutter flutter | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Measure sync, docs and verify, with the warm 5 s limit (spec §9.1, §15)
-        shell: bash
-        # The apps go in the runner's temporary folder, on the disk that
-        # holds the checkout. On Windows that is D:; the system temp folder
-        # is on C:, a remote disk where writing the analyzer cache took
-        # 0.6-3.8 s instead of 0.07 s (actions/runner-images#8755).
-        # The tool starts the compiled `appstein mcp` and fails when the
-        # warm fast `verify` takes 5 s or more, the median of three.
-        run: dart run tool/measure_sync.dart --work "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
+          ( sleep 150; taskkill //F //IM Runner.Listener.exe //IM Runner.Worker.exe ) > /dev/null 2>&1 &
+          dart run tool/ci_unit_tests.dart \
+            --job "test (${{ matrix.os }})" \
+            --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}" \
+            --attempt ${{ github.run_attempt }} \
+            --repo "${{ github.repository }}"
 
   lost-jobs:
-    # Runs last, whatever happened: says which jobs were lost with their
-    # runner, closes their traces, and fails when a job was lost twice.
-    # The rerun itself comes from ci-rerun.yml once this run has ended.
-    needs: [analyze, test, build, docs, min-sdk, measure]
+    needs: [test]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
